@@ -26,7 +26,7 @@ Supports **standard non-bare working tree repositories only**. The following lay
 - Bare repositories (`git init --bare`)
 - Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
 
-**Git worktrees** (`git worktree add`) are **supported**. In a linked worktree, `.git` is a file (not a directory), so paths into the git directory must not be hardcoded as `join(repoRoot, ".git", ...)`. Instead, all git-directory paths are resolved at bootstrap via `git rev-parse --git-dir` (returns the worktree-specific git dir) and `git rev-parse --git-path <path>` (returns the correct absolute path for per-worktree files like `MERGE_HEAD`, or shared resources like `hooks`). See [Bootstrap](#bootstrap-before-collectors-run) for the `gitDir` and `gitPath()` pre-computation. The `config.worktreeCount` field reflects `git worktree list` output.
+**Git worktrees** (`git worktree add`) are **supported**. In a linked worktree, `.git` is a file (not a directory), so paths into the git directory must not be hardcoded as `join(repoRoot, ".git", ...)`. Instead, all git-directory paths are resolved at bootstrap via `git rev-parse --absolute-git-dir` (returns the worktree-specific git dir as an absolute path) and `git rev-parse --path-format=absolute --git-path <path>` (returns the correct absolute path for per-worktree files like `MERGE_HEAD`, or shared resources like `hooks`). The absolute variants are required because in the main worktree, `--git-dir` and `--git-path` return relative paths (`.git`, `.git/hooks`), which would violate the FsReader absolute path convention. See [Bootstrap](#bootstrap-before-collectors-run) for the `gitDir` and `gitPath()` pre-computation. The `config.worktreeCount` field reflects `git worktree list` output.
 
 ### Empty repository handling
 
@@ -223,7 +223,7 @@ interface GitInfoReport {
 |-------|------|------|-------------|
 | `gitVersion` | `string` | instant | `git --version` |
 | `repoRoot` | `string` | instant | reads from `ctx.repoRoot` (pre-computed at bootstrap via `git rev-parse --show-toplevel`) |
-| `repoName` | `string` | instant | derived from root path or remote URL |
+| `repoName` | `string` | instant | Derived with the following priority: (1) If an `origin` remote exists, extract the repo name from its fetch URL — for both SSH (`git@host:org/repo.git`) and HTTPS (`https://host/org/repo.git`) formats, take the last path segment and strip a trailing `.git` suffix if present; (2) If no `origin` remote, use the basename of `ctx.repoRoot` (e.g., `/home/user/my-project` → `"my-project"`). No further normalization (lowercasing, slug conversion, etc.) is applied |
 | `head` | `string \| null` | instant | `git rev-parse HEAD`; null in empty repo (no commits) |
 | `headShort` | `string \| null` | instant | `git rev-parse --short HEAD`; null in empty repo |
 | `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD`; exits non-zero when HEAD is detached → map non-zero exit code to `null` |
@@ -281,7 +281,7 @@ interface GitInfoReport {
 | `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin instead of the log; in non-TTY contexts like Bun.spawn, stdin is empty so it silently returns zero results, producing incorrect output); guard: return `[]` when `!hasHead` |
 | `totalAuthors` | `number` | moderate | derived from authors; 0 in empty repo |
 | `activeRecent` | `number` | moderate | `git shortlog -sne --no-merges --since='90 days ago' HEAD`; guard: return 0 when `!hasHead` |
-| `authorStats?` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN' -n 1000 HEAD`; guard: skip when `!hasHead`. **Optional:** omitted when `--full` is not active |
+| `authorStats?` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN <%aE>' -n 1000 HEAD`; guard: skip when `!hasHead`. **Identity key is `name <email>`** — must match the `shortlog -sne` granularity used by `authors`, so that stats can be joined to author entries without false merges. **Optional:** omitted when `--full` is not active |
 
 ### Section: Tags
 
@@ -448,13 +448,19 @@ await guardNotBare(exec, targetDir);               // git rev-parse --is-bare-re
 // 2. Now safe to resolve working tree root and git directory
 const repoRoot = await getRepoRoot(exec, targetDir); // git rev-parse --show-toplevel (cwd = targetDir)
 const hasHead = await checkHasHead(exec, repoRoot);  // git rev-parse --verify HEAD (cwd = repoRoot)
-const gitDir = await getGitDir(exec, repoRoot);       // git rev-parse --git-dir (cwd = repoRoot); absolute path
+
+// IMPORTANT: --absolute-git-dir and --path-format=absolute are required.
+// In the main worktree, --git-dir returns ".git" (relative) and --git-path
+// returns ".git/hooks" (relative). Only linked worktrees get absolute paths
+// by default. Using the absolute variants guarantees absolute paths in both
+// layouts, satisfying the FsReader absolute path convention.
+const gitDir = await getGitDir(exec, repoRoot);       // git rev-parse --absolute-git-dir (cwd = repoRoot)
 
 // 3. Helper for per-worktree path resolution
-//    gitPath("MERGE_HEAD") → correct absolute path in both main and linked worktrees
-//    gitPath("hooks")      → shared hooks dir (same for all worktrees)
+//    gitPath("MERGE_HEAD") → absolute path in both main and linked worktrees
+//    gitPath("hooks")      → absolute shared hooks dir (same for all worktrees)
 const gitPath = async (name: string) =>
-  (await exec("git", ["rev-parse", "--git-path", name], { cwd: repoRoot })).stdout;
+  (await exec("git", ["rev-parse", "--path-format=absolute", "--git-path", name], { cwd: repoRoot })).stdout;
 ```
 
 `repoRoot`, `hasHead`, `gitDir`, and `gitPath` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths via `ctx.gitDir` or `ctx.gitPath()` — **never** via hardcoded `join(repoRoot, ".git", ...)`, which breaks in linked worktrees where `.git` is a file. All `CommandExecutor` calls in collectors pass `{ cwd: ctx.repoRoot }` in options.
@@ -474,8 +480,8 @@ interface CollectorContext {
   exec: CommandExecutor;
   fs: FsReader;
   repoRoot: string;              // pre-computed at bootstrap
-  gitDir: string;                // pre-computed: git rev-parse --git-dir (absolute)
-  gitPath: (name: string) => Promise<string>; // git rev-parse --git-path <name>
+  gitDir: string;                // pre-computed: git rev-parse --absolute-git-dir (always absolute)
+  gitPath: (name: string) => Promise<string>; // git rev-parse --path-format=absolute --git-path <name>
   hasHead: boolean;              // false in empty repos (no commits)
   activeTiers: Set<CollectorTier>;
 }
