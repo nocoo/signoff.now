@@ -843,7 +843,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 ---
 
-### Phase 1: Monorepo Foundation + Test Infrastructure
+### Phase 1: Monorepo Foundation + Test Infrastructure ✅
 
 > 第一个 commit 就建立完整的 L1 + L2 gate。从此刻起每次 `git commit` 都会自动运行 UT + Lint。
 
@@ -852,7 +852,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `test:ci`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test:ci && bun run lint`), `.husky/pre-push` (`bun run typecheck`), `scripts/check-coverage.ts` | L1: `bun test:ci` pass（零测试 → 0/0 lines → pass-through）; L2: `bun run lint` 零错误 |
 | 2 | `chore: add shared typescript configs` | `tooling/typescript/{base,electron,internal-package}.json`, `package.json`, `tsconfig.json` | L1+L2 gate; L3: `bun run typecheck` 通过 |
 
-**Phase 1 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
+**Phase 1 Gate:** `bun run test:ci && bun run lint && bun run typecheck` ✅ All pass
 
 ---
 
