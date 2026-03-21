@@ -17,7 +17,7 @@
 
 ### Path encoding convention
 
-Git commands that output file paths will quote and escape filenames containing tabs, newlines, double quotes, or bytes outside the printable ASCII range (e.g., `"tab\tname.txt"`). To avoid broken path parsing, **all commands that output paths must use `-z` (NUL-delimited) mode** where the option is available (`git status -z`, `git ls-files -z`, `git log -z --name-only`). The TypeScript parser splits on `\0` instead of `\n`. This eliminates the need for Git's C-style dequoting and makes parsing unambiguous for any filename.
+Git commands that output file paths will quote and escape filenames containing tabs, newlines, double quotes, or bytes outside the printable ASCII range (e.g., `"tab\tname.txt"`). To avoid broken path parsing, **all commands that output paths or multi-value data must use `-z` (NUL-delimited) mode** where the option is available (`git status -z`, `git ls-files -z`, `git log -z --name-only`, `git rev-list --objects -z`, `git diff -z --numstat`, `git config --list -z`). The TypeScript parser splits on `\0` instead of `\n`. This eliminates the need for Git's C-style dequoting and makes parsing unambiguous for any filename or value containing newlines.
 
 ### Scope
 
@@ -261,6 +261,8 @@ interface GitInfoReport {
 
 ### Section: Logs
 
+**Scope: HEAD-reachable history only.** All commands in this section use `HEAD` as the revision argument. This means they only count commits reachable from the current HEAD — commits on unmerged branches, orphaned refs, or other heads are **not** included. This is not "total repository" statistics; it is "current branch lineage" statistics.
+
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
 | `totalCommits` | `number` | instant | `git rev-list --count HEAD`; 0 in empty repo (skip command, return 0) |
@@ -271,6 +273,8 @@ interface GitInfoReport {
 | `conventionalTypes?` | `Record<string, number>` | **slow** | `git log --format=%s -n 1000 HEAD` + regex parse in TypeScript; empty map in empty repo. **Optional:** omitted when `--full` is not active |
 
 ### Section: Contributors
+
+**Scope: HEAD-reachable history only.** Same as Logs — `git shortlog ... HEAD` only counts authors with commits reachable from HEAD. Authors who contributed exclusively to unmerged branches will not appear.
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
@@ -298,11 +302,11 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 |-------|------|------|-------------|
 | `trackedCount` | `number` | instant | `git ls-files -z` → split on `\0`, count entries in TypeScript |
 | `typeDistribution` | `Record<string, number>` | moderate | `git ls-files -z` → split on `\0`, parse extensions in TypeScript |
-| `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files; silently skips deleted-but-tracked files (see above) |
+| `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l -- <file>` per file via exec (the `--` is required to prevent filenames starting with `-` from being parsed as options), sum in TypeScript. Uses working tree files; silently skips deleted-but-tracked files (see above) |
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes; silently skips deleted-but-tracked files (see above) |
-| `largestBlobs?` | `GitBlobInfo[]` | **slow** | **Two-step:** (1) `git rev-list --objects --all` → outputs `<sha> <path>` lines (commits and trees have no path, blobs do); (2) feed SHAs to `git cat-file --batch-check` → outputs `<sha> <type> <size>` per object; **filter to `type == "blob"` only** — discard commit/tree/tag objects. Sort by size descending in TypeScript. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
+| `largestBlobs?` | `GitBlobInfo[]` | **slow** | **Two-step:** (1) `git rev-list --objects -z --all` → NUL-delimited `<sha> <path>` entries (commits and trees have no path, blobs do); split on `\0`; (2) feed SHAs to `git cat-file --batch-check` → outputs `<sha> <type> <size>` per object; **filter to `type == "blob"` only** — discard commit/tree/tag objects. Sort by size descending in TypeScript. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
 | `mostChanged?` | `GitFileChurn[]` | **slow** | `git log -z --pretty=format: --name-only -n 1000 HEAD` → split on `\0`, count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
-| `binaryFiles?` | `string[]` | **slow** | **Two-step** (no shell substitution — see [CommandExecutor](#commandexecutor--subprocess-spawning)): (1) `git hash-object -t tree /dev/null` → returns the empty tree SHA; (2) `git diff --numstat <empty-tree-sha> HEAD --` → lines with `-\t-` prefix are binary. Guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
+| `binaryFiles?` | `string[]` | **slow** | **Two-step** (no shell substitution — see [CommandExecutor](#commandexecutor--subprocess-spawning)): (1) `git hash-object -t tree /dev/null` → returns the empty tree SHA; (2) `git diff -z --numstat <empty-tree-sha> HEAD --` → NUL-delimited; lines with `-\t-` prefix are binary. Guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
 ### Section: Config
 
@@ -312,7 +316,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
 | `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript. **Includes the main working tree** — a repo with no linked worktrees returns 1, not 0 |
 | `hooks` | `string[]` | instant | First check `git config core.hooksPath`: if set, use that directory (resolved against `repoRoot` if relative); if not set, fall back to `join(repoRoot, ".git", "hooks")`. Read **only the effective directory** via `FsReader.readdir()` → filter out `.sample` files. Do **not** merge both directories — Git ignores `.git/hooks` when `core.hooksPath` is configured |
-| `localConfig` | `Record<string, string[]>` | instant | `git config --local --list` → group by key; values array to preserve multi-value keys |
+| `localConfig` | `Record<string, string[]>` | instant | `git config --local --list -z` → NUL-delimited `key\nvalue` pairs; split on `\0`, then split each entry on first `\n` to separate key from value. Group by key; values array to preserve multi-value keys. The `-z` flag is required because config values may contain newlines |
 
 ---
 
