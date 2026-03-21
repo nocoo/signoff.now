@@ -1,12 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { exposeElectronTRPC } from "trpc-electron/main";
 
 /**
  * Preload script — runs in a privileged context with access to Node.js APIs.
  *
- * Exposes safe APIs to the renderer via contextBridge.
- * Phase 3: Minimal — just App info and ipcRenderer.
- * Phase 4+ will add: exposeElectronTRPC() for tRPC IPC.
+ * Exposes safe APIs to the renderer via contextBridge:
+ * 1. electronTRPC — tRPC IPC channel for type-safe RPC
+ * 2. App.ipcRenderer — raw IPC for non-tRPC messages
  */
+
+// Expose tRPC IPC channel to renderer (sets globalThis.electronTRPC)
+exposeElectronTRPC();
 
 // Expose app information and IPC to the renderer
 contextBridge.exposeInMainWorld("App", {
