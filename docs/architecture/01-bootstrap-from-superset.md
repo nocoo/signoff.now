@@ -849,10 +849,10 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD |
 |:---|:---|:---|:---|
-| 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `test:ci`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test:ci && bun run lint`), `.husky/pre-push` (`bun run typecheck`) | L1: `bun test:ci` 空通过 + coverage 0/0; L2: `bun run lint` 零错误 |
+| 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `test:ci`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test:ci && bun run lint`), `.husky/pre-push` (`bun run typecheck`), `scripts/check-coverage.ts` | L1: `bun test:ci` pass（零测试 → 0/0 lines → pass-through）; L2: `bun run lint` 零错误 |
 | 2 | `chore: add shared typescript configs` | `tooling/typescript/{base,electron,internal-package}.json`, `package.json`, `tsconfig.json` | L1+L2 gate; L3: `bun run typecheck` 通过 |
 
-**Phase 1 Gate:** `bun run test && bun run lint && bun run typecheck`
+**Phase 1 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
 ---
 
@@ -867,7 +867,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass |
 | 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` | L2+L3: lint + typecheck pass |
 
-**Phase 2 Gate:** `bun run test` (13 tests pass) + `bun run lint` + `bun run typecheck`
+**Phase 2 Gate:** `bun run test:ci` (13 tests pass, coverage ≥ 90%) + `bun run lint` + `bun run typecheck`
 
 ---
 
@@ -879,7 +879,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 |:---|:---|:---|:---|
 | 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate |
 
-**Phase 3 Gate 🚪:** `bun run test && bun run lint && bun run typecheck` + `bun run dev` (Electron 窗口启动)
+**Phase 3 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (Electron 窗口启动)
 
 ---
 
@@ -892,7 +892,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 8 | `feat: add tRPC IPC layer` | `src/lib/trpc/index.ts`, `src/lib/trpc/routers/index.ts` (createAppRouter), `workspace-fs-service.ts`, preload bridge | Test first: router assembly test → impl |
 | 9 | `feat: add local-db initialization in main process` | `src/main/lib/local-db/` (SQLite WAL init, Drizzle instance), `src/main/lib/app-state/` (lowdb), `src/main/lib/window-state/` | Test first: DB init + window-state tests → impl |
 
-**Phase 4 Gate:** `bun run test && bun run lint && bun run typecheck`
+**Phase 4 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
 ---
 
@@ -905,7 +905,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl |
 | 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl |
 
-**Phase 5 Gate 🚪:** `bun run test && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入)
+**Phase 5 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入)
 
 ---
 
@@ -919,7 +919,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate |
 | 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl |
 
-**Phase 6 Gate 🚪:** `bun run test && bun run lint && bun run typecheck` + `bun run dev` (sidebar + split/tab 工作)
+**Phase 6 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (sidebar + split/tab 工作)
 
 ---
 
@@ -933,7 +933,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl |
 | 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl |
 
-**Phase 7 Gate:** `bun run test && bun run lint && bun run typecheck`
+**Phase 7 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
 ---
 
@@ -995,13 +995,18 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 }
 ```
 
-`scripts/check-coverage.ts` 解析 `bun test --coverage` 的输出，若总行覆盖率 < 90% 则 `process.exit(1)`。每个有测试的 package 都有对应的 `test:ci` script。
+`scripts/check-coverage.ts` 解析 `bun test --coverage` 的输出，逻辑如下：
+- **零测试 / 0 total lines**: 视为 pass（无代码可覆盖，不阻塞 commit）
+- **有测试但覆盖率 < 90%**: `process.exit(1)`，阻塞 commit
+- 这保证 commit #1（空 monorepo）和纯配置 commit 不会被误拦，同时有代码后立即生效
+
+每个有测试的 package 都有对应的 `test:ci` script。
 
 **与标准四层的适配说明：**
 
 - **L2 ≠ L3**: Biome (L2) 和 TypeScript (L3) 严格分开。pre-commit 只跑 L1+L2（秒级），pre-push 跑 L3（可能数秒）。二者不交叉
 - **L3** 不叫 "API E2E" 因为没有 REST API。Desktop app 的 "API" 是 tRPC IPC router — L3 通过 `tsc --noEmit` 确保 router 的 input/output 类型完整性
-- **L1 coverage** 通过 `bun test --coverage` + `scripts/check-coverage.ts` 硬性执行，不是口号
+- **L1 coverage** 通过 `bun test --coverage` + `scripts/check-coverage.ts` 硬性执行（零测试放行，有代码则 ≥ 90%），不是口号
 - **L4** 使用 Playwright 的 [Electron support](https://playwright.dev/docs/api/class-electron) 而非 HTTP server
 - 🔴 Superset 当前没有 E2E、husky 和 coverage gate，但我们从 commit #1 起就建立完整 gate
 
