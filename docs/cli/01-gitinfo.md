@@ -26,7 +26,9 @@ An empty repo (`git init` with no commits) is a valid input. When HEAD does not 
 - Fields that depend on commits use nullable types (`string | null`, `number | null`) and return `null`
 - The `meta`, `status`, `branches`, `config` sections still return meaningful data (git version, repo root, untracked files, config, etc.)
 - The `logs`, `contributors`, `tags` sections return empty/zero/null values (not errors)
+- The `files` section: `trackedCount`/`typeDistribution` still work (via `git ls-files` which works in empty repos); `totalLines`/`largestTracked` return 0/empty (git ls-files returns tracked files even without commits if they're staged); slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) are skipped (they depend on commit history)
 - Startup guards check `git rev-parse --verify HEAD` to detect this state; the result is passed to collectors via `CollectorContext.hasHead: boolean`
+- Every command in the data model table that uses `HEAD` is annotated with its empty repo behavior
 
 ---
 
@@ -64,9 +66,6 @@ gitinfo
 gitinfo --pretty
 
 # Only branch info
-gitinfo branches
-
-# Branch info including moderate fields
 gitinfo branches
 
 # Contributors with slow fields (per-author LOC stats)
@@ -141,7 +140,6 @@ apps/gitinfo/
     │   ├── types.ts                      # CommandExecutor + FsReader interfaces
     │   ├── bun-executor.ts               # Real CommandExecutor via Bun.spawn
     │   ├── bun-fs-reader.ts              # Real FsReader via node:fs/promises + du
-    │   ├── bun-executor.test.ts          # Integration test (runs real git --version)
     │   ├── mock-executor.ts              # Deterministic fake for unit tests
     │   └── mock-fs-reader.ts             # Deterministic fake for fs-dependent tests
     ├── commands/
@@ -181,6 +179,9 @@ apps/gitinfo/
     └── utils/
         ├── parse.ts                      # Shared: splitLines, parseKV, parseSize, trimOutput
         └── parse.test.ts
+    └── __integration__/
+        ├── executor.integration.test.ts  # Real Bun.spawn + git --version
+        └── e2e.integration.test.ts       # Full report against temp git repo
 ```
 
 ---
@@ -254,17 +255,17 @@ interface GitInfoReport {
 | `totalMerges` | `number` | instant | `git rev-list --merges --count HEAD`; 0 in empty repo |
 | `firstCommitDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** author date, can be forged |
 | `lastCommit` | `GitCommitSummary \| null` | instant | `git log -1 --format=...`; null in empty repo |
-| `commitFrequency` | `CommitFrequency` | **slow** | `git log --format=%ad --date=format:...`; empty maps in empty repo |
-| `conventionalTypes` | `Record<string, number>` | **slow** | `git log --format=%s` + regex parse in TypeScript; empty map in empty repo |
+| `commitFrequency?` | `CommitFrequency` | **slow** | `git log --format=%ad --date=format:...`; empty maps in empty repo. **Optional:** omitted from JSON output when `--full` is not active |
+| `conventionalTypes?` | `Record<string, number>` | **slow** | `git log --format=%s` + regex parse in TypeScript; empty map in empty repo. **Optional:** omitted when `--full` is not active |
 
 ### Section: Contributors
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin and hangs) |
-| `totalAuthors` | `number` | moderate | derived from authors |
-| `activeRecent` | `number` | moderate | `git shortlog -sne --no-merges --since='90 days ago' HEAD` |
-| `authorStats` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN'` |
+| `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin and hangs); guard: return `[]` when `!hasHead` |
+| `totalAuthors` | `number` | moderate | derived from authors; 0 in empty repo |
+| `activeRecent` | `number` | moderate | `git shortlog -sne --no-merges --since='90 days ago' HEAD`; guard: return 0 when `!hasHead` |
+| `authorStats?` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN' HEAD`; guard: skip when `!hasHead`. **Optional:** omitted when `--full` is not active |
 
 ### Section: Tags
 
@@ -277,15 +278,17 @@ interface GitInfoReport {
 
 ### Section: Files
 
+All fields in this section use the **working tree** (via `git ls-files`) as their basis, not HEAD. This means staged-but-uncommitted files are included. This ensures `trackedCount`, `typeDistribution`, `totalLines`, and `largestTracked` are consistent with each other. The slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) necessarily use commit history and may not cover staged-only files — this difference is documented per field.
+
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
 | `trackedCount` | `number` | instant | `git ls-files` → count lines in TypeScript |
 | `typeDistribution` | `Record<string, number>` | moderate | `git ls-files` → parse extensions in TypeScript |
-| `totalLines` | `number` | moderate | `git diff --stat $(git hash-object -t tree /dev/null) HEAD --` → parse total insertions as line count |
-| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-tree -r -l HEAD` → parse size column (4th field), sort in TypeScript |
-| `largestBlobs` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then pipe stdout to `git cat-file --batch-check` (two exec calls, second reads first's output) |
-| `mostChanged` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only` → count occurrences in TypeScript |
-| `binaryFiles` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary |
+| `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files, not HEAD |
+| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `stat` per file via `FsReader.stat()`, sort in TypeScript. Uses working tree file sizes |
+| `largestBlobs?` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then `git cat-file --batch-check`. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
+| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
+| `binaryFiles?` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary; guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
 ### Section: Config
 
@@ -310,7 +313,7 @@ interface GitInfoReport {
 ### Mitigation strategies for slow commands
 
 1. **Parallel execution** — All collectors run concurrently via `Promise.all`
-2. **Tier gating** — Slow fields are `undefined` unless `--full` is active
+2. **Tier gating** — Slow fields use optional types (`field?: Type`) and are omitted from the TypeScript object (and thus from JSON output) when `--full` is not active. This ensures JSON schema stability: default mode always produces the same set of keys; `--full` mode adds additional keys
 3. **Limit by default** — Slow commands use `-n 1000` or `--since='1 year ago'`
 4. **Early exit** — Check `git rev-list --count HEAD`; if > 50k, warn for expensive ops
 
@@ -350,15 +353,19 @@ type CommandExecutor = (
 
 A small interface for the few operations that read the filesystem directly (repo state detection, hooks listing, .git directory size). Tests inject a mock; real implementation uses `node:fs/promises` + `Bun.spawn` for `du`.
 
+**Path convention:** All paths passed to `FsReader` methods are **absolute**. Callers must resolve relative paths against `ctx.repoRoot` before calling (e.g., `path.join(ctx.repoRoot, ".git", "hooks")`). This avoids ambiguity when `--cwd` differs from the actual repo root, or when invoked from a subdirectory. The `CommandExecutor` also receives `cwd: ctx.repoRoot` in its `ExecOptions` to ensure git commands run in the correct directory.
+
 ```typescript
 // src/executor/types.ts
 
 interface FsReader {
-  /** Check if a file or directory exists */
+  /** Check if a file or directory exists (absolute path) */
   exists(path: string): Promise<boolean>;
-  /** List files in a directory (non-recursive) */
+  /** List files in a directory, non-recursive (absolute path) */
   readdir(path: string): Promise<string[]>;
-  /** Get directory size in KiB (wraps du -sk) */
+  /** Get file size in bytes (absolute path) */
+  fileSize(path: string): Promise<number>;
+  /** Get directory size in KiB, wraps du -sk (absolute path) */
   dirSizeKiB(path: string): Promise<number>;
 }
 ```
@@ -367,9 +374,10 @@ interface FsReader {
 
 | Field | Uses FsReader | Reason |
 |-------|:---:|--------|
-| `repoState` | ✅ | Checks `.git/MERGE_HEAD`, `.git/rebase-merge`, etc. |
-| `hooks` | ✅ | Lists `.git/hooks/` directory |
-| `gitDirSizeKiB` | ✅ | `du -sk .git` via `dirSizeKiB()` |
+| `repoState` | ✅ | `exists(join(repoRoot, ".git", "MERGE_HEAD"))`, etc. |
+| `hooks` | ✅ | `readdir(join(repoRoot, ".git", "hooks"))` |
+| `gitDirSizeKiB` | ✅ | `dirSizeKiB(join(repoRoot, ".git"))` |
+| `largestTracked` | ✅ | `fileSize(join(repoRoot, filePath))` per tracked file |
 
 Everything else is pure `CommandExecutor`.
 
@@ -410,12 +418,13 @@ Some values are prerequisites for the collector system, not outputs of it. These
 
 ```typescript
 // Resolved at startup, NOT by a collector:
+// exec runs all commands with cwd = repoRoot (or --cwd if specified)
 const repoRoot = await getRepoRoot(exec);       // git rev-parse --show-toplevel
 const hasHead = await checkHasHead(exec);        // git rev-parse --verify HEAD
 const isBare = await checkIsBare(exec);          // guard: exit if bare
 ```
 
-`repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it.
+`repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths against `ctx.repoRoot`. All `CommandExecutor` calls pass `{ cwd: ctx.repoRoot }` in options.
 
 ### Tier model: collector-level gate, field-level branching
 
@@ -497,7 +506,7 @@ const logsCollector: Collector<GitLogs> = {
 | **L1 Unit Test** | All core functions, collectors, arg parser, formatters | ≥ 95% line coverage | pre-commit |
 | **L2 Lint** | Biome strict (correctness/suspicious/complexity/style all error) | 0 warnings | pre-commit |
 | **L3 Typecheck** | `tsc --noEmit` | 0 errors | pre-push |
-| **L4 Integration** | `bun-executor.test.ts` runs real `git --version`; optional e2e in temp repo | Pass | manual |
+| **L4 Integration** | `*.integration.test.ts` files in a separate `__integration__/` directory; run manually via `bun test __integration__/` | Pass | manual |
 
 ### Unit test approach
 
@@ -505,6 +514,7 @@ const logsCollector: Collector<GitLogs> = {
 - **Framework**: `bun:test` (`describe`, `it`, `expect`)
 - **Mock pattern**: `createMockExecutor()` for git commands + `createMockFsReader()` for filesystem access (only needed by `repoState`, `hooks`, `gitDirSizeKiB` tests)
 - **Edge cases**: empty repo, detached HEAD, no remotes, Unicode author names, zero tags, merge-in-progress, Windows-style line endings in git output
+- **Integration test isolation**: Integration tests (real git commands, temp repos) live in `src/__integration__/` with `.integration.test.ts` suffix. The `test` and `test:ci` scripts exclude this directory: `bun test --pass-with-no-tests src/ --ignore='**/__integration__/**'`. This prevents integration tests from running in pre-commit hooks or CI coverage checks.
 
 ### Coverage enforcement
 
@@ -559,8 +569,9 @@ Add to root `biome.jsonc` overrides array:
   "scripts": {
     "dev": "bun run src/main.ts",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "test": "bun test --pass-with-no-tests",
+    "test": "bun test --pass-with-no-tests src/ --ignore='**/__integration__/**'",
     "test:ci": "bun run ../../scripts/check-coverage.ts --threshold 95",
+    "test:integration": "bun test src/__integration__/",
     "clean": "git clean -xdf .cache .turbo dist node_modules"
   },
   "devDependencies": {
