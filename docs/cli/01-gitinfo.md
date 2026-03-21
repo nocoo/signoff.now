@@ -17,7 +17,7 @@
 
 ### Path encoding convention
 
-Git commands that output file paths will quote and escape filenames containing tabs, newlines, double quotes, or bytes outside the printable ASCII range (e.g., `"tab\tname.txt"`). To avoid broken path parsing, **all commands that output paths or multi-value data must use `-z` (NUL-delimited) mode** where the option is available (`git status -z`, `git ls-files -z`, `git log -z --name-only`, `git rev-list --objects -z`, `git diff -z --numstat`, `git config --list -z`). The TypeScript parser splits on `\0` instead of `\n`. This eliminates the need for Git's C-style dequoting and makes parsing unambiguous for any filename or value containing newlines.
+Git commands that output file paths will quote and escape filenames containing tabs, newlines, double quotes, or bytes outside the printable ASCII range (e.g., `"tab\tname.txt"`). To avoid broken path parsing, **all commands that output paths or multi-value data must use `-z` (NUL-delimited) mode** where the option is available (`git status -z`, `git ls-files -z`, `git log -z --name-only`, `git rev-list --objects -z`, `git diff -z --numstat`, `git config --list -z`, `git worktree list --porcelain -z`). The TypeScript parser splits on `\0` instead of `\n`. This eliminates the need for Git's C-style dequoting and makes parsing unambiguous for any filename or value containing newlines.
 
 ### Scope
 
@@ -330,7 +330,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 |-------|------|------|-------------|
 | `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(ctx.gitDir)` (wraps `du -sk` internally). In linked worktrees, `gitDir` points to the worktree-specific git dir (e.g., `.git/worktrees/<name>`), so this measures the worktree's git state, not the entire shared `.git` |
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v`. **Scope: shared object store** — unlike `gitDirSizeKiB` (which is worktree-specific in linked worktrees), `count-objects` always reports from the shared object database. In linked worktrees, these two fields have different scopes: `gitDirSizeKiB` measures the worktree-specific git dir, while `objectStats` reflects the entire repository's object store. Consumers should not compare these values as if they describe the same thing |
-| `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript. **Includes the main working tree** — a repo with no linked worktrees returns 1, not 0. **Also includes prunable (stale) worktrees** — if a linked worktree's directory has been manually deleted but not `git worktree remove`'d, Git still lists it with a `prunable` annotation. This field reflects the Git registry as-is; it is not filtered to "currently valid" worktrees |
+| `worktreeCount` | `number` | instant | `git worktree list --porcelain -z` → NUL-delimited token stream; count tokens that start with `worktree ` prefix. **Includes the main working tree** — a repo with no linked worktrees returns 1, not 0. **Also includes prunable (stale) worktrees** — if a linked worktree's directory has been manually deleted but not `git worktree remove`'d, Git still lists it. This field reflects the Git registry as-is; it is not filtered to "currently valid" worktrees |
 | `hooks` | `string[]` | instant | First check `git config core.hooksPath`: if set, use that directory (resolved against `repoRoot` if relative); if not set, fall back to `await ctx.gitPath("hooks")` (resolves correctly in both main and linked worktrees — hooks are shared). Read **only the effective directory** via `FsReader.readdir()` → filter out `.sample` files. Do **not** merge both directories — Git ignores the default hooks dir when `core.hooksPath` is configured |
 | `localConfig` | `Record<string, string[]>` | instant | `git config --local --list -z` → NUL-delimited `key\nvalue` pairs; split on `\0`, then split each entry on first `\n` to separate key from value. Group by key; values array to preserve multi-value keys. The `-z` flag is required because config values may contain newlines |
 
@@ -434,6 +434,7 @@ interface GitFileChurn {
 interface GitObjectStats {
   count: number;               // number of loose objects
   size: number;                // size of loose objects in KiB
+  inPack: number;              // number of objects stored in pack files
   packs: number;               // number of pack files
   sizePackKiB: number;         // total size of pack files in KiB
   prunePackable: number;       // loose objects also in packs (prunable)
