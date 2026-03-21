@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import { createWindow } from "lib/electron-app/factories/windows/create";
+import type { AppRouterDeps } from "lib/trpc/routers";
 import { createAppRouter } from "lib/trpc/routers";
 import { registerRoute } from "lib/window-loader";
 import {
@@ -12,10 +13,9 @@ import { createIPCHandler } from "trpc-electron/main";
 /**
  * Creates the main application window with tRPC IPC handler and window state.
  *
- * Phase 4: Adds tRPC IPC, window state persistence, local-db init.
- * Phase 4+ will add: menu setup, notification server.
+ * Accepts runtime dependencies for tRPC router creation.
  */
-export function MainWindow(): BrowserWindow {
+export function MainWindow(deps: AppRouterDeps): BrowserWindow {
 	// Restore saved window state
 	const windowState = loadWindowState();
 
@@ -31,7 +31,7 @@ export function MainWindow(): BrowserWindow {
 	}
 
 	// Create the tRPC router and attach IPC handler to this window
-	const appRouter = createAppRouter();
+	const appRouter = createAppRouter(deps);
 	createIPCHandler({
 		router: appRouter,
 		windows: [win],

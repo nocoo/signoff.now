@@ -200,7 +200,3 @@ export function createWorkspacesTrpcRouter(getDb: GetDb) {
 			.mutation(({ input }) => api.reorder(input)),
 	});
 }
-
-// Default export: stub router for backward compatibility during incremental build.
-// Replace with createWorkspacesTrpcRouter(getDb) when the main process is wired up.
-export const workspacesRouter = router({});

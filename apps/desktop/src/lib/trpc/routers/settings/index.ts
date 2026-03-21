@@ -118,6 +118,3 @@ export function createSettingsTrpcRouter(db: SettingsDb) {
 			.mutation(({ input }) => impl.update(input)),
 	});
 }
-
-/** Stub router kept for backward compatibility. */
-export const settingsRouter = router({});

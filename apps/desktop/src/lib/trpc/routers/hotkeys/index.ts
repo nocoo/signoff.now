@@ -75,6 +75,3 @@ export function createHotkeysTrpcRouter(store: HotkeyStore) {
 		resetAll: publicProcedure.mutation(() => impl.resetAll()),
 	});
 }
-
-/** Stub router kept for backward compatibility. */
-export const hotkeysRouter = router({});

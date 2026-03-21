@@ -13,10 +13,57 @@ describe("lib/trpc", () => {
 
 // ─── Router Assembly ─────────────────────────────────────────────────────────
 
+/** Mock dependencies for createAppRouter. */
+function createMockDeps() {
+	return {
+		getDb: () => ({
+			select: () => ({ from: () => ({ where: () => ({ get: () => null }) }) }),
+			insert: () => ({ values: () => ({ run: () => {} }) }),
+		}),
+		getGit: () => ({
+			status: () =>
+				Promise.resolve({
+					files: [],
+					current: "main",
+					tracking: null,
+					staged: [],
+					modified: [],
+					not_added: [],
+				}),
+			diff: () => Promise.resolve(""),
+			add: () => Promise.resolve(),
+			reset: () => Promise.resolve(),
+			commit: () => Promise.resolve({ commit: "abc", summary: null }),
+			checkout: () => Promise.resolve(),
+			log: () => Promise.resolve({ latest: null, all: [], total: 0 }),
+		}),
+		fsOps: {
+			listDirectory: () => Promise.resolve([]),
+			readFile: () => Promise.resolve({ content: "", encoding: "utf-8" }),
+			writeFile: () => Promise.resolve(),
+			createDirectory: () => Promise.resolve(),
+			deletePath: () => Promise.resolve(),
+			movePath: () => Promise.resolve(),
+			getMetadata: () => Promise.resolve(null),
+		},
+		hotkeyStore: {
+			list: () => Promise.resolve([]),
+			get: () => Promise.resolve(null),
+			update: () => Promise.resolve(null),
+			reset: () => Promise.resolve(null),
+			resetAll: () => Promise.resolve([]),
+		},
+		settingsDb: {
+			get: () => Promise.resolve(null),
+			update: () => Promise.resolve({}),
+		},
+	};
+}
+
 describe("lib/trpc/routers", () => {
-	test("createAppRouter returns a router object", async () => {
+	test("createAppRouter returns a router object with deps", async () => {
 		const { createAppRouter } = await import("./routers/index");
-		const appRouter = createAppRouter();
+		const appRouter = createAppRouter(createMockDeps());
 		expect(appRouter).toBeDefined();
 		expect(appRouter._def).toBeDefined();
 		expect(appRouter._def.procedures).toBeDefined();
@@ -29,7 +76,7 @@ describe("lib/trpc/routers", () => {
 
 	test("all 12 sub-routers are assembled", async () => {
 		const { createAppRouter } = await import("./routers/index");
-		const appRouter = createAppRouter();
+		const appRouter = createAppRouter(createMockDeps());
 
 		const record = appRouter._def.record;
 		expect(record).toBeDefined();
@@ -49,11 +96,38 @@ describe("lib/trpc/routers", () => {
 		expect(subRouterNames).toContain("autoUpdate");
 		expect(subRouterNames).toHaveLength(12);
 	});
+
+	test("factory routers have real procedures", async () => {
+		const { createAppRouter } = await import("./routers/index");
+		const appRouter = createAppRouter(createMockDeps());
+
+		const record = appRouter._def.record;
+		// Factory routers should have procedures (not empty objects)
+		const projectsKeys = Object.keys(record.projects);
+		expect(projectsKeys.length).toBeGreaterThan(0);
+		expect(projectsKeys).toContain("list");
+		expect(projectsKeys).toContain("get");
+		expect(projectsKeys).toContain("create");
+
+		const changesKeys = Object.keys(record.changes);
+		expect(changesKeys.length).toBeGreaterThan(0);
+		expect(changesKeys).toContain("status");
+		expect(changesKeys).toContain("diff");
+
+		const settingsKeys = Object.keys(record.settings);
+		expect(settingsKeys.length).toBeGreaterThan(0);
+		expect(settingsKeys).toContain("get");
+		expect(settingsKeys).toContain("update");
+
+		const hotkeysKeys = Object.keys(record.hotkeys);
+		expect(hotkeysKeys.length).toBeGreaterThan(0);
+		expect(hotkeysKeys).toContain("list");
+	});
 });
 
-// ─── Individual Router Stubs ─────────────────────────────────────────────────
+// ─── Individual Router Stubs (remaining stubs only) ─────────────────────────
 
-describe("individual router stubs", () => {
+describe("remaining stub routers", () => {
 	test("windowRouter is a valid router", async () => {
 		const { windowRouter } = await import("./routers/window");
 		expect(windowRouter._def).toBeDefined();
@@ -64,44 +138,17 @@ describe("individual router stubs", () => {
 		expect(menuRouter._def).toBeDefined();
 	});
 
-	test("projectsRouter is a valid router", async () => {
-		const { projectsRouter } = await import("./routers/projects/index");
-		expect(projectsRouter._def).toBeDefined();
-	});
-
-	test("workspacesRouter is a valid router", async () => {
-		const { workspacesRouter } = await import("./routers/workspaces/index");
-		expect(workspacesRouter._def).toBeDefined();
-	});
-
-	test("terminalRouter is a valid router", async () => {
+	test("terminalRouter is a valid router with procedures", async () => {
 		const { terminalRouter } = await import("./routers/terminal/index");
 		expect(terminalRouter._def).toBeDefined();
-	});
-
-	test("changesRouter is a valid router", async () => {
-		const { changesRouter } = await import("./routers/changes/index");
-		expect(changesRouter._def).toBeDefined();
-	});
-
-	test("filesystemRouter is a valid router", async () => {
-		const { filesystemRouter } = await import("./routers/filesystem/index");
-		expect(filesystemRouter._def).toBeDefined();
-	});
-
-	test("settingsRouter is a valid router", async () => {
-		const { settingsRouter } = await import("./routers/settings/index");
-		expect(settingsRouter._def).toBeDefined();
+		const record = terminalRouter._def.record;
+		expect(record.createOrAttach).toBeDefined();
+		expect(record.write).toBeDefined();
 	});
 
 	test("configRouter is a valid router", async () => {
 		const { configRouter } = await import("./routers/config/index");
 		expect(configRouter._def).toBeDefined();
-	});
-
-	test("hotkeysRouter is a valid router", async () => {
-		const { hotkeysRouter } = await import("./routers/hotkeys/index");
-		expect(hotkeysRouter._def).toBeDefined();
 	});
 
 	test("externalRouter is a valid router", async () => {
@@ -112,5 +159,47 @@ describe("individual router stubs", () => {
 	test("autoUpdateRouter is a valid router", async () => {
 		const { autoUpdateRouter } = await import("./routers/auto-update/index");
 		expect(autoUpdateRouter._def).toBeDefined();
+	});
+});
+
+// ─── Factory function exports ───────────────────────────────────────────────
+
+describe("factory function exports", () => {
+	test("createProjectsTrpcRouter is exported", async () => {
+		const { createProjectsTrpcRouter } = await import(
+			"./routers/projects/index"
+		);
+		expect(typeof createProjectsTrpcRouter).toBe("function");
+	});
+
+	test("createWorkspacesTrpcRouter is exported", async () => {
+		const { createWorkspacesTrpcRouter } = await import(
+			"./routers/workspaces/index"
+		);
+		expect(typeof createWorkspacesTrpcRouter).toBe("function");
+	});
+
+	test("createChangesTrpcRouter is exported", async () => {
+		const { createChangesTrpcRouter } = await import("./routers/changes/index");
+		expect(typeof createChangesTrpcRouter).toBe("function");
+	});
+
+	test("createFilesystemTrpcRouter is exported", async () => {
+		const { createFilesystemTrpcRouter } = await import(
+			"./routers/filesystem/index"
+		);
+		expect(typeof createFilesystemTrpcRouter).toBe("function");
+	});
+
+	test("createSettingsTrpcRouter is exported", async () => {
+		const { createSettingsTrpcRouter } = await import(
+			"./routers/settings/index"
+		);
+		expect(typeof createSettingsTrpcRouter).toBe("function");
+	});
+
+	test("createHotkeysTrpcRouter is exported", async () => {
+		const { createHotkeysTrpcRouter } = await import("./routers/hotkeys/index");
+		expect(typeof createHotkeysTrpcRouter).toBe("function");
 	});
 });

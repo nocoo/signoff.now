@@ -165,7 +165,3 @@ export function createProjectsTrpcRouter(getDb: GetDb) {
 			.mutation(({ input }) => api.reorder(input)),
 	});
 }
-
-// Default export: stub router for backward compatibility during incremental build.
-// Replace with createProjectsTrpcRouter(getDb) when the main process is wired up.
-export const projectsRouter = router({});

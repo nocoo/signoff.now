@@ -198,6 +198,3 @@ export function createFilesystemTrpcRouter(fs: FsOperations) {
 			.query(({ input }) => impl.getMetadata(input)),
 	});
 }
-
-/** Stub router kept for backward compatibility. */
-export const filesystemRouter = router({});

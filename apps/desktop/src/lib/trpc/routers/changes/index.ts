@@ -225,6 +225,3 @@ export function createChangesTrpcRouter(getGit: GitFactory) {
 			.query(({ input }) => impl.log(input)),
 	});
 }
-
-/** Stub router kept for backward compatibility. */
-export const changesRouter = router({});
