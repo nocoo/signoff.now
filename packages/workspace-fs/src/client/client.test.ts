@@ -1,102 +1,139 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createFsClient } from "./index";
 
+function createMockTransport() {
+	const calls: Array<{ type: string; method: string; input: unknown }> = [];
+	return {
+		calls,
+		request: async (method: string, input: unknown) => {
+			calls.push({ type: "request", method, input });
+			return {} as any;
+		},
+		subscribe: (method: string, input: unknown) => {
+			calls.push({ type: "subscribe", method, input });
+			return (async function* () {})();
+		},
+	};
+}
+
 describe("createFsClient", () => {
-	it("adapts a transport-neutral request/subscribe client to the service contract", async () => {
-		const calls: Array<{ method: string; input: unknown }> = [];
-		const client = createFsClient({
-			async request(method, input) {
-				calls.push({ method, input });
+	test("listDirectory delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { absolutePath: "/workspace" };
+		await client.listDirectory(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "listDirectory", input },
+		]);
+	});
 
-				if (method === "listDirectory") {
-					return { entries: [] };
-				}
+	test("readFile delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { absolutePath: "/workspace/file.txt", encoding: "utf-8" };
+		await client.readFile(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "readFile", input },
+		]);
+	});
 
-				if (method === "readFile") {
-					return {
-						kind: "text",
-						content: "hello",
-						byteLength: 5,
-						exceededLimit: false,
-						revision: "123:5",
-					};
-				}
+	test("getMetadata delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { absolutePath: "/workspace/file.txt" };
+		await client.getMetadata(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "getMetadata", input },
+		]);
+	});
 
-				if (method === "getMetadata") {
-					return null;
-				}
+	test("writeFile delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = {
+			absolutePath: "/workspace/out.txt",
+			content: "hello",
+			options: { create: true, overwrite: true },
+		};
+		await client.writeFile(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "writeFile", input },
+		]);
+	});
 
-				throw new Error(`Unexpected method: ${method}`);
-			},
-			async *subscribe(method, input) {
-				calls.push({ method, input });
-				yield {
-					events: [
-						{
-							kind: "overflow" as const,
-							absolutePath: "/tmp/workspace",
-						},
-					],
-				};
-			},
-		});
+	test("createDirectory delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { absolutePath: "/workspace/new-dir", recursive: true };
+		await client.createDirectory(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "createDirectory", input },
+		]);
+	});
 
-		const { entries } = await client.listDirectory({
-			absolutePath: "/tmp/workspace",
-		});
-		expect(entries).toEqual([]);
+	test("deletePath delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { absolutePath: "/workspace/old.txt", permanent: false };
+		await client.deletePath(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "deletePath", input },
+		]);
+	});
 
-		const readResult = await client.readFile({
-			absolutePath: "/tmp/workspace/file.txt",
-			encoding: "utf-8",
-		});
-		expect(readResult.kind).toEqual("text");
-		if (readResult.kind === "text") {
-			expect(readResult.content).toEqual("hello");
-		}
-		expect(readResult.revision).toEqual("123:5");
+	test("movePath delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = {
+			sourceAbsolutePath: "/workspace/a.txt",
+			destinationAbsolutePath: "/workspace/b.txt",
+		};
+		await client.movePath(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "movePath", input },
+		]);
+	});
 
-		const metadata = await client.getMetadata({
-			absolutePath: "/tmp/workspace/missing",
-		});
-		expect(metadata).toBeNull();
+	test("copyPath delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = {
+			sourceAbsolutePath: "/workspace/a.txt",
+			destinationAbsolutePath: "/workspace/a-copy.txt",
+		};
+		await client.copyPath(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "copyPath", input },
+		]);
+	});
 
-		const iterator = client
-			.watchPath({ absolutePath: "/tmp/workspace", recursive: true })
-			[Symbol.asyncIterator]();
-		const next = await iterator.next();
-		expect(next).toEqual({
-			value: {
-				events: [
-					{
-						kind: "overflow",
-						absolutePath: "/tmp/workspace",
-					},
-				],
-			},
-			done: false,
-		});
+	test("searchFiles delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { query: "hello", limit: 10 };
+		await client.searchFiles(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "searchFiles", input },
+		]);
+	});
 
-		expect(calls).toEqual([
-			{
-				method: "listDirectory",
-				input: { absolutePath: "/tmp/workspace" },
-			},
-			{
-				method: "readFile",
-				input: {
-					absolutePath: "/tmp/workspace/file.txt",
-					encoding: "utf-8",
-				},
-			},
-			{
-				method: "getMetadata",
-				input: { absolutePath: "/tmp/workspace/missing" },
-			},
-			{
-				method: "watchPath",
-				input: { absolutePath: "/tmp/workspace", recursive: true },
-			},
+	test("searchContent delegates to transport.request", async () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { query: "TODO", includeHidden: true };
+		await client.searchContent(input);
+		expect(transport.calls).toEqual([
+			{ type: "request", method: "searchContent", input },
+		]);
+	});
+
+	test("watchPath delegates to transport.subscribe", () => {
+		const transport = createMockTransport();
+		const client = createFsClient(transport);
+		const input = { absolutePath: "/workspace", recursive: true };
+		client.watchPath(input);
+		expect(transport.calls).toEqual([
+			{ type: "subscribe", method: "watchPath", input },
 		]);
 	});
 });
