@@ -228,7 +228,7 @@ interface GitInfoReport {
 | `headShort` | `string \| null` | instant | `git rev-parse --short HEAD`; null in empty repo |
 | `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD`; exits non-zero when HEAD is detached → map non-zero exit code to `null` |
 | `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix; null if no remote or origin/HEAD not set |
-| `remotes` | `GitRemote[]` | instant | `git remote -v` → outputs one fetch line and one-or-more push lines per remote; parse and **group by remote name** into one `GitRemote` object per remote: `{ name: string; fetchUrl: string; pushUrls: string[] }`. Git allows multiple push URLs per remote (`git remote set-url --add --push`), so `pushUrls` is an array |
+| `remotes` | `GitRemote[]` | instant | `git remote -v` → outputs one fetch line and one-or-more push lines per remote; parse and **group by remote name** into one `GitRemote` object per remote. See `GitRemote` in [Shared Types](#shared-types) |
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
 | `firstCommitAuthorDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** this is the root commit's author date, which can be rewritten or forged — it is not a reliable "repo creation timestamp" |
 
@@ -271,7 +271,7 @@ interface GitStatusEntry {
 | `totalLocal` | `number` | instant | `git for-each-ref --format='%(refname:short)' refs/heads/` → count lines in TypeScript |
 | `totalRemote` | `number` | instant | same command as `remote` → count non-empty lines in TypeScript |
 
-`GitBranchInfo` includes: `name`, `upstream`, `aheadBehind`, `lastCommitDate`, `isMerged`.
+`GitBranchInfo` — see [Shared Types](#shared-types).
 
 ### Section: Logs
 
@@ -329,10 +329,126 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
 | `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(ctx.gitDir)` (wraps `du -sk` internally). In linked worktrees, `gitDir` points to the worktree-specific git dir (e.g., `.git/worktrees/<name>`), so this measures the worktree's git state, not the entire shared `.git` |
-| `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
+| `objectStats` | `GitObjectStats` | instant | `git count-objects -v`. **Scope: shared object store** — unlike `gitDirSizeKiB` (which is worktree-specific in linked worktrees), `count-objects` always reports from the shared object database. In linked worktrees, these two fields have different scopes: `gitDirSizeKiB` measures the worktree-specific git dir, while `objectStats` reflects the entire repository's object store. Consumers should not compare these values as if they describe the same thing |
 | `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript. **Includes the main working tree** — a repo with no linked worktrees returns 1, not 0. **Also includes prunable (stale) worktrees** — if a linked worktree's directory has been manually deleted but not `git worktree remove`'d, Git still lists it with a `prunable` annotation. This field reflects the Git registry as-is; it is not filtered to "currently valid" worktrees |
 | `hooks` | `string[]` | instant | First check `git config core.hooksPath`: if set, use that directory (resolved against `repoRoot` if relative); if not set, fall back to `await ctx.gitPath("hooks")` (resolves correctly in both main and linked worktrees — hooks are shared). Read **only the effective directory** via `FsReader.readdir()` → filter out `.sample` files. Do **not** merge both directories — Git ignores the default hooks dir when `core.hooksPath` is configured |
 | `localConfig` | `Record<string, string[]>` | instant | `git config --local --list -z` → NUL-delimited `key\nvalue` pairs; split on `\0`, then split each entry on first `\n` to separate key from value. Group by key; values array to preserve multi-value keys. The `-z` flag is required because config values may contain newlines |
+
+### Shared Types
+
+All types referenced in the data model tables above. Section-level interfaces (`GitMeta`, `GitStatus`, etc.) are not listed — their shape is defined by the corresponding field table.
+
+```typescript
+// --- Meta ---
+
+interface GitRemote {
+  name: string;                // remote name (e.g., "origin")
+  fetchUrl: string;            // fetch URL
+  pushUrls: string[];          // one or more push URLs (git allows multiple via set-url --add --push)
+}
+
+// --- Status ---
+
+// GitStatusEntry is defined above in Section: Status
+
+type RepoState =
+  | "clean"                    // none of the state files exist
+  | "merge"                    // MERGE_HEAD present
+  | "rebase-interactive"       // rebase-merge present
+  | "rebase"                   // rebase-apply present
+  | "cherry-pick"              // CHERRY_PICK_HEAD present
+  | "bisect"                   // BISECT_LOG present
+  | "revert";                  // REVERT_HEAD present
+
+// --- Branches ---
+
+interface GitBranchInfo {
+  name: string;                // branch short name
+  upstream: string | null;     // e.g., "origin/main"; null if no tracking branch
+  aheadBehind: { ahead: number; behind: number } | null; // null if no upstream
+  lastCommitDate: string;      // ISO 8601 author date of branch tip
+  isMerged: boolean;           // true if fully merged into HEAD
+}
+
+// --- Logs ---
+
+interface GitCommitSummary {
+  sha: string;                 // full SHA
+  shaShort: string;            // abbreviated SHA
+  author: string;              // "Name <email>"
+  date: string;                // ISO 8601 author date
+  subject: string;             // first line of commit message
+}
+
+interface CommitFrequency {
+  byDayOfWeek: Record<string, number>;  // "Mon"–"Sun" → count
+  byHour: Record<string, number>;       // "00"–"23" → count
+  byMonth: Record<string, number>;      // "2025-01"–... → count
+}
+
+// --- Contributors ---
+
+interface GitAuthorSummary {
+  name: string;
+  email: string;
+  commits: number;
+}
+
+interface GitAuthorStats {
+  name: string;
+  email: string;
+  linesAdded: number;
+  linesDeleted: number;
+}
+
+// --- Tags ---
+
+interface GitTagInfo {
+  name: string;                // tag name (e.g., "v1.0.0")
+  type: "annotated" | "lightweight";
+  sha: string;                 // tag object SHA (annotated) or commit SHA (lightweight)
+  date: string | null;         // tagger date (annotated only); null for lightweight
+  message: string | null;      // tag message (annotated only); null for lightweight
+}
+
+// --- Files ---
+
+interface FileSizeInfo {
+  path: string;                // relative to repoRoot
+  sizeBytes: number;
+}
+
+interface GitBlobInfo {
+  sha: string;
+  path: string;                // path at time of commit (may differ from current)
+  sizeBytes: number;
+}
+
+interface GitFileChurn {
+  path: string;
+  count: number;               // number of commits touching this path
+}
+
+// --- Config ---
+
+interface GitObjectStats {
+  count: number;               // number of loose objects
+  size: number;                // size of loose objects in KiB
+  packs: number;               // number of pack files
+  sizePackKiB: number;         // total size of pack files in KiB
+  prunePackable: number;       // loose objects also in packs (prunable)
+  garbage: number;             // unreachable garbage files
+  sizeGarbageKiB: number;
+}
+
+// --- Report-level ---
+
+interface CollectorError {
+  collector: string;           // collector name (e.g., "meta", "files")
+  message: string;             // error message
+  stack?: string;              // stack trace (optional, omitted in production)
+}
+```
 
 ---
 
