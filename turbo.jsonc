@@ -13,11 +13,11 @@
 		},
 		"test": {
 			"dependsOn": ["^build"],
-			"outputs": ["coverage/**"]
+			"outputs": []
 		},
 		"test:ci": {
 			"dependsOn": ["^build"],
-			"outputs": ["coverage/**"]
+			"outputs": []
 		},
 		"typecheck": {
 			"dependsOn": ["^build"],
