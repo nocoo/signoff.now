@@ -924,16 +924,16 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 ---
 
-### Phase 5: Terminal System 🚪
+### Phase 5: Terminal System ✅
 
 > TDD: terminal session management 先写 test，daemon/pty 可依赖 superset 已有测试。
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl | |
-| 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl | |
+| 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl | ✅ `f350dff` |
+| 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl | ✅ `30ad39e` |
 
-**Phase 5 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入)
+**Phase 5 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入) ✅ All pass
 
 ---
 
