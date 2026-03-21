@@ -489,7 +489,7 @@ interface ExecOptions {
 
 interface ExecResult {
   stdout: string;              // trimmed
-  stderr: string;              // trimmed
+  stderr: string;              // trimmed (diagnostic only — see failure rule below)
   exitCode: number;
 }
 
@@ -499,6 +499,8 @@ type CommandExecutor = (
   opts?: ExecOptions,
 ) => Promise<ExecResult>;
 ```
+
+**Failure determination rule:** A command is considered failed **if and only if `exitCode !== 0`**. `stderr` content alone does **not** indicate failure — many git commands write warnings or informational messages to stderr while exiting 0 (e.g., `git count-objects -v` may emit warnings in linked worktrees). Core functions must check `exitCode` first; `stderr` is available for diagnostic logging but must never be used as a success/failure signal. Individual fields that need to handle specific non-zero exit codes (e.g., `git describe` returning 128 when no tags exist) document their exit-code mapping in the data model table.
 
 ### FsReader — filesystem access
 
