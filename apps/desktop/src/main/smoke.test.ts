@@ -4,8 +4,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 // ─── Test Setup Verification ─────────────────────────────────────────────────
+// These tests verify that test-setup.ts preload mocks are active.
+// When run from monorepo root (no preload), the mocks won't exist — skip gracefully.
 
-describe("test-setup mocks", () => {
+const hasElectronMock = await import("electron")
+	.then((m) => typeof m.app?.getName === "function")
+	.catch(() => false);
+
+describe.if(hasElectronMock)("test-setup mocks", () => {
 	test("electron mock resolves", async () => {
 		const electron = await import("electron");
 		expect(electron.app).toBeDefined();
