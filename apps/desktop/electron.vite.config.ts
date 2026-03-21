@@ -55,6 +55,7 @@ export default defineConfig({
 
 	renderer: {
 		root: path.resolve(__dirname, "src/renderer"),
+		publicDir: path.resolve(__dirname, "src/resources/public"),
 		plugins: [
 			tsconfigPaths(),
 			TanStackRouterVite({

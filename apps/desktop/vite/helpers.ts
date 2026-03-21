@@ -23,16 +23,18 @@ export function defineEnv(
 }
 
 /**
- * Vite plugin that copies `src/resources/public` into the renderer output.
- * This makes files like `theme-boot.js` available at the root of the built app.
+ * Vite plugin that copies build-specific resources for the main process.
+ *
+ * Note: renderer public files (theme-boot.js) are handled by Vite's
+ * publicDir option in electron.vite.config.ts, not this plugin.
  */
 export function copyResourcesPlugin(): Plugin {
 	return {
 		name: "copy-resources",
 		generateBundle() {
-			// In production builds, electron-vite handles resource copying
-			// via electron-builder's extraResources config.
-			// This plugin is a placeholder for custom copy logic if needed.
+			// Main process resources (e.g., tray icons, native helpers) can be
+			// emitted here if needed. Renderer public assets are served via
+			// Vite's publicDir (src/resources/public) and don't need this plugin.
 		},
 	};
 }
