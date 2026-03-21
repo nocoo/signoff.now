@@ -16,9 +16,21 @@
  * Usage: bun run <path-to>/scripts/check-coverage.ts
  */
 
-const THRESHOLD = 90;
+const DEFAULT_THRESHOLD = 90;
+
+function getThreshold(): number {
+	const idx = process.argv.indexOf("--threshold");
+	if (idx !== -1 && process.argv[idx + 1]) {
+		const val = Number.parseFloat(process.argv[idx + 1] as string);
+		if (!Number.isNaN(val) && val >= 0 && val <= 100) {
+			return val;
+		}
+	}
+	return DEFAULT_THRESHOLD;
+}
 
 async function main(): Promise<void> {
+	const THRESHOLD = getThreshold();
 	// Run bun test with --pass-with-no-tests to avoid failing on empty packages,
 	// and --coverage to produce coverage output for threshold checking.
 	const proc = Bun.spawn(

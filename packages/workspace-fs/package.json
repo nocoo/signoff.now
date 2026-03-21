@@ -28,7 +28,7 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
 		"test": "bun test --pass-with-no-tests",
-		"test:ci": "bun test --pass-with-no-tests --coverage"
+		"test:ci": "bun run ../../scripts/check-coverage.ts --threshold 50"
 	},
 	"dependencies": {
 		"@parcel/watcher": "^2.5.6",
