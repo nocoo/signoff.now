@@ -969,7 +969,7 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 
 | Layer | Command | Content | Trigger | Gate |
 |:---|:---|:---|:---|:---|
-| **L1 — UT** | `bun run test:ci` | `bun test --coverage` + `scripts/check-coverage.sh` (threshold 90%) | **每次 commit** (husky pre-commit) | Coverage ≥ 90% 否则 exit 1 |
+| **L1 — UT** | `bun run test:ci` | `bun test --coverage` + `scripts/check-coverage.ts` (threshold 90%) | **每次 commit** (husky pre-commit) | Coverage ≥ 90% 否则 exit 1 |
 | **L2 — Lint** | `bun run lint` | Biome check (lint + format)。**不含** TypeScript 检查 | **每次 commit** (husky pre-commit) | 零 diagnostic |
 | **L3 — Type** | `bun run typecheck` | `tsc --noEmit` — Full TypeScript strict type check | **每次 push** (husky pre-push) + Phase Gate | 零 type error |
 | **L4 — E2E** | `bun run test:e2e` | Playwright Electron — 核心主干流程 | Phase 5/6/8 完成时手动执行 | 核心流程通过 |
