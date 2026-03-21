@@ -943,9 +943,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 12 | `feat: add project and workspace tRPC routers` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand `stores/sidebar-state.ts` | Test first: projects CRUD + workspaces CRUD tests → impl | |
-| 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate | |
-| 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl | |
+| 12 | `feat: add project and workspace tRPC routers` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand `stores/sidebar-state.ts` | Test first: projects CRUD + workspaces CRUD tests → impl | ✅ `4e557aa`…`6010112` |
+| 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate | ✅ `f8de94d` |
+| 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl | ✅ `e181dbc` |
 
 **Phase 6 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (sidebar + split/tab 工作)
 
