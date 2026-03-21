@@ -94,7 +94,7 @@ signoff.now/
     "dev": "turbo run dev",
     "build": "turbo build",
     "test": "turbo test",
-    "test:ci": "bun run scripts/check-coverage.ts",
+    "test:ci": "turbo test:ci",
     "lint": "bunx @biomejs/biome check .",
     "lint:fix": "bunx @biomejs/biome check --write --unsafe .",
     "format": "bunx @biomejs/biome format --write .",
@@ -982,7 +982,7 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 // Root package.json scripts
 {
   "test": "turbo test",                                      // 普通测试（无 coverage）
-  "test:ci": "bun run scripts/check-coverage.ts",            // 直接调 check-coverage（不走 turbo 空跑）
+  "test:ci": "turbo test:ci",                                // turbo 调度各 package 的 test:ci
   "lint": "bunx @biomejs/biome check .",                     // Biome only
   "typecheck": "tsc --noEmit && turbo typecheck"             // 根 tsc 验证 scripts/，turbo 验证各 package
 }
@@ -991,20 +991,21 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 ```jsonc
 // apps/desktop/package.json scripts (Phase 3+ 落地后)
 {
-  "test": "bun test",
-  "test:ci": "bun run ../../scripts/check-coverage.ts",      // 复用根 check-coverage
+  "test": "bun test --pass-with-no-tests",
+  "test:ci": "bun run ../../scripts/check-coverage.ts",      // 在包 cwd 下运行，respect bunfig.toml
   "typecheck": "tsc --noEmit"
 }
 ```
 
-`scripts/check-coverage.ts` 自行 spawn `bun test --coverage` 子进程并解析输出（不依赖 stdin pipe），逻辑如下：
-- **零测试文件 ("0 test files")**: 视为 pass（无代码可覆盖，不阻塞 commit）
+**执行模型：** 根 `test:ci` → turbo 调度 → 各 package 的 `test:ci` → 各自调 `scripts/check-coverage.ts`。脚本在包的 cwd 下 spawn `bun test --pass-with-no-tests --coverage`，respect 该包的 `bunfig.toml` 和 `test-setup.ts`。
+
+`scripts/check-coverage.ts` 逻辑：
+- **零测试文件**: `--pass-with-no-tests` 保证 bun test exit 0，无 coverage table → pass-through
 - **测试失败**: 原样传播 exit code
 - **测试通过但覆盖率 < 90%**: `process.exit(1)`，阻塞 commit
 - **测试通过且覆盖率 ≥ 90%**: pass
-- 这保证 commit #1（空 monorepo）和纯配置 commit 不会被误拦，同时有代码后立即生效
 
-每个有测试的 package 都有对应的 `test:ci` script。
+> **Phase 1 说明**: Phase 1 没有 package 注册 `test:ci`，turbo 0 tasks exit 0 是预期行为。Gate 从 Phase 2 第一个带测试的 package 落地后开始真正验证。根层 `tsc --noEmit` 从 Phase 1 起就验证 `scripts/` 目录。
 
 **与标准四层的适配说明：**
 
