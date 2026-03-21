@@ -19,6 +19,15 @@ Supports **standard non-bare working tree repositories only**. The following lay
 - Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
 - Git worktrees (`git worktree add`) — the tool runs against the repo it's invoked in, but does not traverse or aggregate across linked worktrees
 
+### Empty repository handling
+
+An empty repo (`git init` with no commits) is a valid input. When HEAD does not exist:
+
+- Fields that depend on commits use nullable types (`string | null`, `number | null`) and return `null`
+- The `meta`, `status`, `branches`, `config` sections still return meaningful data (git version, repo root, untracked files, config, etc.)
+- The `logs`, `contributors`, `tags` sections return empty/zero/null values (not errors)
+- Startup guards check `git rev-parse --verify HEAD` to detect this state; the result is passed to collectors via `CollectorContext.hasHead: boolean`
+
 ---
 
 ## Usage
@@ -194,13 +203,13 @@ interface GitInfoReport {
 | `gitVersion` | `string` | instant | `git --version` |
 | `repoRoot` | `string` | instant | `git rev-parse --show-toplevel` |
 | `repoName` | `string` | instant | derived from root path or remote URL |
-| `head` | `string` | instant | `git rev-parse HEAD` |
-| `headShort` | `string` | instant | `git rev-parse --short HEAD` |
+| `head` | `string \| null` | instant | `git rev-parse HEAD`; null in empty repo (no commits) |
+| `headShort` | `string \| null` | instant | `git rev-parse --short HEAD`; null in empty repo |
 | `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD` (null if detached) |
 | `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix; null if no remote or origin/HEAD not set |
 | `remotes` | `GitRemote[]` | instant | `git remote -v` |
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
-| `createdAt` | `string` | instant | `git log <root-commit> -1 --format=%aI` |
+| `firstCommitAuthorDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** this is the root commit's author date, which can be rewritten or forged — it is not a reliable "repo creation timestamp" |
 
 > **Note:** `isBare` is not a report field. It is checked at startup as a guard: if `git rev-parse --is-bare-repository` returns `true`, gitinfo exits with an error message ("bare repositories are not supported"). See [Scope](#scope).
 
@@ -221,9 +230,9 @@ interface GitInfoReport {
 |-------|------|------|-------------|
 | `current` | `string \| null` | instant | `git branch --show-current` |
 | `local` | `GitBranchInfo[]` | moderate | `git for-each-ref --format=... refs/heads/` |
-| `remote` | `string[]` | moderate | `git branch -r --format=...` |
-| `totalLocal` | `number` | instant | `git branch --format='%(refname:short)'` → count lines in TypeScript |
-| `totalRemote` | `number` | instant | `git branch -r --format='%(refname:short)'` → count lines in TypeScript |
+| `remote` | `string[]` | moderate | `git for-each-ref --format='%(if)%(symref)%(then)%(else)%(refname:short)%(end)' refs/remotes/` → skip symbolic refs (e.g., `origin/HEAD`); filter empty lines in TypeScript |
+| `totalLocal` | `number` | instant | `git for-each-ref --format='%(refname:short)' refs/heads/` → count lines in TypeScript |
+| `totalRemote` | `number` | instant | same command as `remote` → count non-empty lines in TypeScript |
 
 `GitBranchInfo` includes: `name`, `upstream`, `aheadBehind`, `lastCommitDate`, `isMerged`.
 
@@ -231,12 +240,12 @@ interface GitInfoReport {
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `totalCommits` | `number` | instant | `git rev-list --count HEAD` |
-| `totalMerges` | `number` | instant | `git rev-list --merges --count HEAD` |
-| `firstCommitDate` | `string` | instant | `git log <root-commit> -1 --format=%aI` |
-| `lastCommit` | `GitCommitSummary` | instant | `git log -1 --format=...` |
-| `commitFrequency` | `CommitFrequency` | **slow** | `git log --format=%ad --date=format:...` |
-| `conventionalTypes` | `Record<string, number>` | **slow** | `git log --format=%s` + regex parse |
+| `totalCommits` | `number` | instant | `git rev-list --count HEAD`; 0 in empty repo (skip command, return 0) |
+| `totalMerges` | `number` | instant | `git rev-list --merges --count HEAD`; 0 in empty repo |
+| `firstCommitDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** author date, can be forged |
+| `lastCommit` | `GitCommitSummary \| null` | instant | `git log -1 --format=...`; null in empty repo |
+| `commitFrequency` | `CommitFrequency` | **slow** | `git log --format=%ad --date=format:...`; empty maps in empty repo |
+| `conventionalTypes` | `Record<string, number>` | **slow** | `git log --format=%s` + regex parse in TypeScript; empty map in empty repo |
 
 ### Section: Contributors
 
@@ -253,8 +262,8 @@ interface GitInfoReport {
 |-------|------|------|-------------|
 | `count` | `number` | instant | `git tag -l` → count lines in TypeScript |
 | `tags` | `GitTagInfo[]` | moderate | `git for-each-ref --format=... refs/tags/` |
-| `latestReachableTag` | `string \| null` | instant | `git describe --tags --abbrev=0` → nearest tag reachable from HEAD (not necessarily the newest tag in the repo; on branched histories, tags on other branches are invisible) |
-| `commitsSinceTag` | `number \| null` | instant | `git rev-list <latestReachableTag>..HEAD --count`; null when no reachable tag exists |
+| `latestReachableTag` | `string \| null` | instant | `git describe --tags --abbrev=0`; null when no tags exist or no tag is reachable from HEAD (exit code 128). This is the nearest tag **reachable from HEAD**, not the newest tag in the repo — on branched histories, tags on other branches are invisible |
+| `commitsSinceTag` | `number \| null` | instant | Only computed when `latestReachableTag` is non-null: `git rev-list <latestReachableTag>..HEAD --count`. null when `latestReachableTag` is null (no tag or empty repo) |
 
 ### Section: Files
 
@@ -394,6 +403,7 @@ interface CollectorContext {
   exec: CommandExecutor;
   fs: FsReader;
   repoRoot: string;
+  hasHead: boolean;              // false in empty repos (no commits)
   activeTiers: Set<CollectorTier>;
 }
 
