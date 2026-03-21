@@ -26,7 +26,7 @@ Supports **standard non-bare working tree repositories only**. The following lay
 - Bare repositories (`git init --bare`)
 - Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
 
-**Git worktrees** (`git worktree add`) are **not a supported target layout**. If invoked inside a linked worktree, behavior is undefined for fields that access `.git/` via `FsReader` — in linked worktrees, `.git` is a file (containing `gitdir: <path>`) not a directory, so `FsReader` calls that assume `.git/` is a directory (e.g., `hooks`, `gitDirSizeKiB`, `repoState`) will fail or return incorrect results. Standard git commands (including `git rev-parse --show-toplevel` for `repoRoot`) work correctly in linked worktrees. The `config.worktreeCount` field reflects `git worktree list` output but exists for informational purposes only.
+**Git worktrees** (`git worktree add`) are **supported**. In a linked worktree, `.git` is a file (not a directory), so paths into the git directory must not be hardcoded as `join(repoRoot, ".git", ...)`. Instead, all git-directory paths are resolved at bootstrap via `git rev-parse --git-dir` (returns the worktree-specific git dir) and `git rev-parse --git-path <path>` (returns the correct absolute path for per-worktree files like `MERGE_HEAD`, or shared resources like `hooks`). See [Bootstrap](#bootstrap-before-collectors-run) for the `gitDir` and `gitPath()` pre-computation. The `config.worktreeCount` field reflects `git worktree list` output.
 
 ### Empty repository handling
 
@@ -243,7 +243,7 @@ interface GitInfoReport {
 | `untracked` | `string[]` | instant | `git status --porcelain=v2 -z` |
 | `conflicted` | `string[]` | instant | `git status --porcelain=v2 -z` |
 | `stashCount` | `number` | instant | `git stash list` → count lines in TypeScript |
-| `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `join(repoRoot, ".git", "MERGE_HEAD")`, `join(repoRoot, ".git", "rebase-merge")`, `join(repoRoot, ".git", "rebase-apply")`, `join(repoRoot, ".git", "CHERRY_PICK_HEAD")`, `join(repoRoot, ".git", "BISECT_LOG")`, `join(repoRoot, ".git", "REVERT_HEAD")` |
+| `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `await ctx.gitPath("MERGE_HEAD")`, `await ctx.gitPath("rebase-merge")`, `await ctx.gitPath("rebase-apply")`, `await ctx.gitPath("CHERRY_PICK_HEAD")`, `await ctx.gitPath("BISECT_LOG")`, `await ctx.gitPath("REVERT_HEAD")`. Uses `gitPath()` so per-worktree files resolve correctly in linked worktrees |
 
 ### Section: Branches
 
@@ -304,7 +304,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | `typeDistribution` | `Record<string, number>` | moderate | `git ls-files -z` → split on `\0`, parse extensions in TypeScript |
 | `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l -- <file>` per file via exec (the `--` is required to prevent filenames starting with `-` from being parsed as options), sum in TypeScript. Uses working tree files; silently skips deleted-but-tracked files (see above) |
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes; silently skips deleted-but-tracked files (see above) |
-| `largestBlobs?` | `GitBlobInfo[]` | **slow** | **Two-step:** (1) `git rev-list --objects -z --all` → NUL-delimited `<sha> <path>` entries (commits and trees have no path, blobs do); split on `\0`; (2) feed SHAs to `git cat-file --batch-check` → outputs `<sha> <type> <size>` per object; **filter to `type == "blob"` only** — discard commit/tree/tag objects. Sort by size descending in TypeScript. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
+| `largestBlobs?` | `GitBlobInfo[]` | **slow** | **Two-step:** (1) `git rev-list --objects -z --all` → NUL-delimited token stream: each object emits a `<sha>` token; blobs with an associated path emit an additional `path=<filename>` token immediately after. Commits and trees have no `path=` token. Split on `\0` and correlate SHA with its following `path=` token if present; (2) feed SHAs to `git cat-file --batch-check` → outputs `<sha> <type> <size>` per object; **filter to `type == "blob"` only** — discard commit/tree/tag objects. Sort by size descending in TypeScript. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
 | `mostChanged?` | `GitFileChurn[]` | **slow** | `git log -z --pretty=format: --name-only -n 1000 HEAD` → split on `\0`, count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
 | `binaryFiles?` | `string[]` | **slow** | **Two-step** (no shell substitution — see [CommandExecutor](#commandexecutor--subprocess-spawning)): (1) `git hash-object -t tree /dev/null` → returns the empty tree SHA; (2) `git diff -z --numstat <empty-tree-sha> HEAD --` → NUL-delimited; lines with `-\t-` prefix are binary. Guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
@@ -312,10 +312,10 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(join(repoRoot, ".git"))` (wraps `du -sk` internally) |
+| `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(ctx.gitDir)` (wraps `du -sk` internally). In linked worktrees, `gitDir` points to the worktree-specific git dir (e.g., `.git/worktrees/<name>`), so this measures the worktree's git state, not the entire shared `.git` |
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
 | `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript. **Includes the main working tree** — a repo with no linked worktrees returns 1, not 0 |
-| `hooks` | `string[]` | instant | First check `git config core.hooksPath`: if set, use that directory (resolved against `repoRoot` if relative); if not set, fall back to `join(repoRoot, ".git", "hooks")`. Read **only the effective directory** via `FsReader.readdir()` → filter out `.sample` files. Do **not** merge both directories — Git ignores `.git/hooks` when `core.hooksPath` is configured |
+| `hooks` | `string[]` | instant | First check `git config core.hooksPath`: if set, use that directory (resolved against `repoRoot` if relative); if not set, fall back to `await ctx.gitPath("hooks")` (resolves correctly in both main and linked worktrees — hooks are shared). Read **only the effective directory** via `FsReader.readdir()` → filter out `.sample` files. Do **not** merge both directories — Git ignores the default hooks dir when `core.hooksPath` is configured |
 | `localConfig` | `Record<string, string[]>` | instant | `git config --local --list -z` → NUL-delimited `key\nvalue` pairs; split on `\0`, then split each entry on first `\n` to separate key from value. Group by key; values array to preserve multi-value keys. The `-z` flag is required because config values may contain newlines |
 
 ---
@@ -371,7 +371,7 @@ type CommandExecutor = (
 
 A small interface for the few operations that read the filesystem directly (repo state detection, hooks listing, .git directory size). Tests inject a mock; real implementation uses `node:fs/promises` for file operations and `Bun.spawn` + `du -sk` for directory sizing (POSIX-only, see [Platform support](#platform-support)).
 
-**Path convention:** All paths passed to `FsReader` methods are **absolute**. Callers must resolve relative paths against `ctx.repoRoot` before calling (e.g., `path.join(ctx.repoRoot, ".git", "hooks")`). This avoids ambiguity when `--cwd` differs from the actual repo root, or when invoked from a subdirectory. The `CommandExecutor` also receives `cwd: ctx.repoRoot` in its `ExecOptions` to ensure git commands run in the correct directory.
+**Path convention:** All paths passed to `FsReader` methods are **absolute**. For git-internal paths (hooks, state files, git dir size), callers must use `ctx.gitDir` or `ctx.gitPath()` — **never** hardcode `join(repoRoot, ".git", ...)`, which breaks in linked worktrees. For working-tree file paths (e.g., `largestTracked`), resolve against `ctx.repoRoot`. The `CommandExecutor` also receives `cwd: ctx.repoRoot` in its `ExecOptions` to ensure git commands run in the correct directory.
 
 ```typescript
 // src/executor/types.ts
@@ -392,9 +392,9 @@ interface FsReader {
 
 | Field | Uses FsReader | Reason |
 |-------|:---:|--------|
-| `repoState` | ✅ | `exists(join(repoRoot, ".git", "MERGE_HEAD"))`, etc. |
-| `hooks` | ✅ | `readdir()` on the effective hooks dir: `core.hooksPath` (resolved) or `join(repoRoot, ".git", "hooks")` |
-| `gitDirSizeKiB` | ✅ | `dirSizeKiB(join(repoRoot, ".git"))` |
+| `repoState` | ✅ | `exists(await ctx.gitPath("MERGE_HEAD"))`, etc. |
+| `hooks` | ✅ | `readdir()` on the effective hooks dir: `core.hooksPath` (resolved) or `await ctx.gitPath("hooks")` |
+| `gitDirSizeKiB` | ✅ | `dirSizeKiB(ctx.gitDir)` |
 | `largestTracked` | ✅ | `fileSize(join(repoRoot, filePath))` per tracked file |
 
 Everything else is pure `CommandExecutor`.
@@ -445,12 +445,19 @@ const targetDir = opts.cwd ?? process.cwd();
 //    so we must detect and reject bare repos before calling it.
 await guardNotBare(exec, targetDir);               // git rev-parse --is-bare-repository (cwd = targetDir); exit if "true"
 
-// 2. Now safe to resolve working tree root
+// 2. Now safe to resolve working tree root and git directory
 const repoRoot = await getRepoRoot(exec, targetDir); // git rev-parse --show-toplevel (cwd = targetDir)
 const hasHead = await checkHasHead(exec, repoRoot);  // git rev-parse --verify HEAD (cwd = repoRoot)
+const gitDir = await getGitDir(exec, repoRoot);       // git rev-parse --git-dir (cwd = repoRoot); absolute path
+
+// 3. Helper for per-worktree path resolution
+//    gitPath("MERGE_HEAD") → correct absolute path in both main and linked worktrees
+//    gitPath("hooks")      → shared hooks dir (same for all worktrees)
+const gitPath = async (name: string) =>
+  (await exec("git", ["rev-parse", "--git-path", name], { cwd: repoRoot })).stdout;
 ```
 
-`repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths against `ctx.repoRoot`. All `CommandExecutor` calls in collectors pass `{ cwd: ctx.repoRoot }` in options.
+`repoRoot`, `hasHead`, `gitDir`, and `gitPath` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths via `ctx.gitDir` or `ctx.gitPath()` — **never** via hardcoded `join(repoRoot, ".git", ...)`, which breaks in linked worktrees where `.git` is a file. All `CommandExecutor` calls in collectors pass `{ cwd: ctx.repoRoot }` in options.
 
 ### Tier model: collector-level gate, field-level branching
 
@@ -467,6 +474,8 @@ interface CollectorContext {
   exec: CommandExecutor;
   fs: FsReader;
   repoRoot: string;              // pre-computed at bootstrap
+  gitDir: string;                // pre-computed: git rev-parse --git-dir (absolute)
+  gitPath: (name: string) => Promise<string>; // git rev-parse --git-path <name>
   hasHead: boolean;              // false in empty repos (no commits)
   activeTiers: Set<CollectorTier>;
 }
