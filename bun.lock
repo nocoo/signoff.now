@@ -12,6 +12,15 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/shared": {
+      "name": "@signoff/shared",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@signoff/typescript": "workspace:*",
+        "bun-types": "^1.3.1",
+        "typescript": "^5.9.3",
+      },
+    },
     "tooling/typescript": {
       "name": "@signoff/typescript",
       "version": "0.1.0",
@@ -35,6 +44,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.4.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-k2uqwLYrNNxnaoiW3RJxoMGnbKda8FuCmtYG3cOtVljs3CzWxaTR+AoXwKGHscC9thax9R4kOrtWqWN0+KdPTw=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.2", "", { "os": "win32", "cpu": "x64" }, "sha512-9ma7C4g8Sq3cBlRJD2yrsHXB1mnnEBdpy7PhvFrylQWQb4PoyCmPucdX7frvsSBQuFtIiKCrolPl/8tCZrKvgQ=="],
+
+    "@signoff/shared": ["@signoff/shared@workspace:packages/shared"],
 
     "@signoff/typescript": ["@signoff/typescript@workspace:tooling/typescript"],
 
