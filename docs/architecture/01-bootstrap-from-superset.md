@@ -847,10 +847,10 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > 第一个 commit 就建立完整的 L1 + L2 gate。从此刻起每次 `git commit` 都会自动运行 UT + Lint。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `test:ci`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test:ci && bun run lint`), `.husky/pre-push` (`bun run typecheck`), `scripts/check-coverage.ts` | L1: `bun test:ci` pass（零测试 → 0/0 lines → pass-through）; L2: `bun run lint` 零错误 |
-| 2 | `chore: add shared typescript configs` | `tooling/typescript/{base,electron,internal-package}.json`, `package.json`, `tsconfig.json` | L1+L2 gate; L3: `bun run typecheck` 通过 |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `test:ci`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test:ci && bun run lint`), `.husky/pre-push` (`bun run typecheck`), `scripts/check-coverage.ts` | L1: `bun test:ci` pass（零测试 → 0/0 lines → pass-through）; L2: `bun run lint` 零错误 | ✅ `1493718` |
+| 2 | `chore: add shared typescript configs` | `tooling/typescript/{base,electron,internal-package}.json`, `package.json`, `tsconfig.json` | L1+L2 gate; L3: `bun run typecheck` 通过 | ✅ `7916506` |
 
 **Phase 1 Gate:** `bun run test:ci && bun run lint && bun run typecheck` ✅ All pass
 
@@ -860,12 +860,12 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: 每个包先带着从 superset 裁剪的测试文件落地，确保测试先通过。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 3 | `feat: add shared package with constants and types` | `packages/shared/package.json`, `src/`, `tsconfig.json` — 含裁剪自 superset 的 7 个 `*.test.ts` | Test first: 7 个测试全部 pass |
-| 4 | `feat: add workspace-fs package` | 🟢 Copy from superset — `src/{client,core,host}/`, `resource-uri.ts` — 含 6 个 `*.test.ts` | Test first: 6 个测试全部 pass |
-| 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass |
-| 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` | L2+L3: lint + typecheck pass |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 3 | `feat: add shared package with constants and types` | `packages/shared/package.json`, `src/`, `tsconfig.json` — 含裁剪自 superset 的 7 个 `*.test.ts` | Test first: 7 个测试全部 pass | |
+| 4 | `feat: add workspace-fs package` | 🟢 Copy from superset — `src/{client,core,host}/`, `resource-uri.ts` — 含 6 个 `*.test.ts` | Test first: 6 个测试全部 pass | |
+| 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass | |
+| 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` | L2+L3: lint + typecheck pass | |
 
 **Phase 2 Gate:** `bun run test:ci` (13 tests pass, coverage ≥ 90%) + `bun run lint` + `bun run typecheck`
 
@@ -875,9 +875,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: 先建立 `test-setup.ts` mock 层，再搭 Electron 壳。从此 commit 起 desktop 包也有 UT gate。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate | |
 
 **Phase 3 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (Electron 窗口启动)
 
@@ -887,10 +887,10 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: 先写 tRPC router 的 test，再写 router 实现。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 8 | `feat: add tRPC IPC layer` | `src/lib/trpc/index.ts`, `src/lib/trpc/routers/index.ts` (createAppRouter), `workspace-fs-service.ts`, preload bridge | Test first: router assembly test → impl |
-| 9 | `feat: add local-db initialization in main process` | `src/main/lib/local-db/` (SQLite WAL init, Drizzle instance), `src/main/lib/app-state/` (lowdb), `src/main/lib/window-state/` | Test first: DB init + window-state tests → impl |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 8 | `feat: add tRPC IPC layer` | `src/lib/trpc/index.ts`, `src/lib/trpc/routers/index.ts` (createAppRouter), `workspace-fs-service.ts`, preload bridge | Test first: router assembly test → impl | |
+| 9 | `feat: add local-db initialization in main process` | `src/main/lib/local-db/` (SQLite WAL init, Drizzle instance), `src/main/lib/app-state/` (lowdb), `src/main/lib/window-state/` | Test first: DB init + window-state tests → impl | |
 
 **Phase 4 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
@@ -900,10 +900,10 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: terminal session management 先写 test，daemon/pty 可依赖 superset 已有测试。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl |
-| 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl | |
+| 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl | |
 
 **Phase 5 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入)
 
@@ -913,11 +913,11 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: project/workspace router 先写 CRUD test，UI 组件跟进。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 12 | `feat: add project and workspace tRPC routers` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand `stores/sidebar-state.ts` | Test first: projects CRUD + workspaces CRUD tests → impl |
-| 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate |
-| 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 12 | `feat: add project and workspace tRPC routers` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand `stores/sidebar-state.ts` | Test first: projects CRUD + workspaces CRUD tests → impl | |
+| 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate | |
+| 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl | |
 
 **Phase 6 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (sidebar + split/tab 工作)
 
@@ -927,11 +927,11 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: changes router 和 filesystem router 先写 test。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 15 | `feat: add code editor with codemirror 6` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | L1+L2 gate |
-| 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl |
-| 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 15 | `feat: add code editor with codemirror 6` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | L1+L2 gate | |
+| 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl | |
+| 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl | |
 
 **Phase 7 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
@@ -941,11 +941,11 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 > TDD: settings router 和 hotkeys store 先写 test。
 
-| # | Commit | Key Files | TDD |
-|:---|:---|:---|:---|
-| 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl |
-| 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl |
-| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI |
+| # | Commit | Key Files | TDD | Status |
+|:---|:---|:---|:---|:---|
+| 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl | |
+| 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl | |
+| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI | |
 
 **Phase 8 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (全功能验证)
 
