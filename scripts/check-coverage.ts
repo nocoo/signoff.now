@@ -1,30 +1,34 @@
 /**
  * check-coverage.ts
  *
- * Runs `bun test --coverage` as a subprocess, parses the output, and enforces
- * a minimum line coverage threshold.
+ * Runs `bun test --pass-with-no-tests --coverage` as a subprocess, parses the
+ * output, and enforces a minimum line coverage threshold.
+ *
+ * Designed to be called by each package's `test:ci` script via turbo.
+ * Runs in the package's cwd, respecting its bunfig.toml and test-setup.ts.
  *
  * Rules:
- * - Zero test files (bun test exits with "0 test files") → pass (nothing to cover)
- * - Has tests but coverage < threshold → exit 1
- * - Has tests and coverage >= threshold → pass
+ * - Zero test files → pass (--pass-with-no-tests ensures exit 0)
+ * - Tests fail → propagate exit code
+ * - Tests pass but coverage < threshold → exit 1
+ * - Tests pass and coverage >= threshold → pass
  *
- * Usage: bun run scripts/check-coverage.ts [--cwd <dir>]
+ * Usage: bun run <path-to>/scripts/check-coverage.ts
  */
 
 const THRESHOLD = 90;
 
 async function main(): Promise<void> {
-	// Parse optional --cwd argument
-	const cwdIdx = process.argv.indexOf("--cwd");
-	const cwd = cwdIdx !== -1 ? process.argv[cwdIdx + 1] : process.cwd();
-
-	// Run bun test --coverage as a subprocess
-	const proc = Bun.spawn(["bun", "test", "--coverage"], {
-		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	// Run bun test with --pass-with-no-tests to avoid failing on empty packages,
+	// and --coverage to produce coverage output for threshold checking.
+	const proc = Bun.spawn(
+		["bun", "test", "--pass-with-no-tests", "--coverage"],
+		{
+			cwd: process.cwd(),
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 
 	const [stdout, stderr] = await Promise.all([
 		new Response(proc.stdout).text(),
@@ -34,15 +38,9 @@ async function main(): Promise<void> {
 	const exitCode = await proc.exited;
 	const combined = `${stdout}\n${stderr}`;
 
-	// Check for "0 test files" — bun test exits non-zero when no test files found
-	if (combined.includes("0 test files")) {
-		console.log("✅ No test files found — pass-through");
-		process.exit(0);
-	}
-
-	// If bun test failed for a reason other than "0 test files", propagate failure
+	// If bun test failed (actual test failures), propagate
 	if (exitCode !== 0) {
-		console.error(combined);
+		process.stdout.write(combined);
 		console.error(`❌ bun test exited with code ${exitCode}`);
 		process.exit(exitCode);
 	}
@@ -53,7 +51,7 @@ async function main(): Promise<void> {
 		.find((line) => line.includes("All files"));
 
 	if (!allFilesLine) {
-		// Tests passed but no coverage table — might be --pass-with-no-tests
+		// Tests passed but no coverage table — no test files or no coverable code
 		console.log("✅ Tests passed, no coverage data — pass-through");
 		process.exit(0);
 	}
@@ -83,7 +81,7 @@ async function main(): Promise<void> {
 	}
 
 	// Print the coverage output so it's visible in CI
-	console.log(combined);
+	process.stdout.write(combined);
 
 	if (lineCoverage < THRESHOLD) {
 		console.error(

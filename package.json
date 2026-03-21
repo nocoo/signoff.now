@@ -20,7 +20,7 @@
 		"dev": "turbo run dev",
 		"build": "turbo build",
 		"test": "turbo test",
-		"test:ci": "bun run scripts/check-coverage.ts",
+		"test:ci": "turbo test:ci",
 		"lint": "bunx @biomejs/biome check .",
 		"lint:fix": "bunx @biomejs/biome check --write --unsafe .",
 		"format": "bunx @biomejs/biome format --write .",
