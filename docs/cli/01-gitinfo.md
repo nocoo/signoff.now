@@ -28,7 +28,7 @@ Supports **standard non-bare working tree repositories only**. The following lay
 
 An empty repo (`git init` with no commits) is a valid input. When HEAD does not exist:
 
-- Fields that depend on commit history use the appropriate zero-value for their type: `null` for singular values (`string | null`, `GitCommitSummary | null`), `0` for counts (`number`), `[]` for lists (`GitAuthorSummary[]`), and `undefined` for optional slow fields. The exact return value is specified per field in the data model tables below
+- Fields that depend on commit history return a type-appropriate zero-value: `null` for nullable singular values (`string | null`, `GitCommitSummary | null`), `0` for numeric counts, `[]` for arrays, and empty collections (e.g., `{}`) for maps/records. Optional slow fields (`field?`) are **omitted** (`undefined`) when `--full` is not active — but when `--full` **is** active and the repo is empty, they return their own zero-value (e.g., empty map), not `undefined`. The exact return value per field is specified in the data model tables below
 - The `meta`, `status`, `branches`, `config` sections still return meaningful data (git version, repo root, untracked files, config, etc.)
 - The `logs`, `contributors`, `tags` sections return empty/zero/null values (not errors)
 - The `files` section: all non-slow fields (`trackedCount`, `typeDistribution`, `totalLines`, `largestTracked`) work normally even without commits — `git ls-files` lists staged files, and working tree operations (`wc -l`, `FsReader.fileSize()`) operate on the actual files. These fields are **not zeroed out** in empty repos. Slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) are skipped (they depend on commit history via `hasHead` guard)
