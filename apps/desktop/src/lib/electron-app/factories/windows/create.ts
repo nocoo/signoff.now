@@ -12,7 +12,7 @@ const DEFAULT_OPTIONS: BrowserWindowConstructorOptions = {
 	titleBarStyle: "hiddenInset",
 	trafficLightPosition: { x: 15, y: 10 },
 	webPreferences: {
-		preload: path.join(__dirname, "../../preload/index.js"),
+		preload: path.join(__dirname, "../preload/index.js"),
 		sandbox: false,
 		contextIsolation: true,
 		nodeIntegration: false,
