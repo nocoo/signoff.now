@@ -18,9 +18,13 @@ contextBridge.exposeInMainWorld("App", {
 		send: (channel: string, ...args: unknown[]) =>
 			ipcRenderer.send(channel, ...args),
 		on: (channel: string, listener: (...args: unknown[]) => void) => {
-			ipcRenderer.on(channel, (_event, ...args) => listener(...args));
+			const wrappedListener = (
+				_event: Electron.IpcRendererEvent,
+				...args: unknown[]
+			) => listener(...args);
+			ipcRenderer.on(channel, wrappedListener);
 			return () => {
-				ipcRenderer.removeListener(channel, listener);
+				ipcRenderer.removeListener(channel, wrappedListener);
 			};
 		},
 		invoke: (channel: string, ...args: unknown[]) =>
