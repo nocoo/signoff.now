@@ -17,7 +17,8 @@ Supports **standard non-bare working tree repositories only**. The following lay
 
 - Bare repositories (`git init --bare`)
 - Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
-- Git worktrees (`git worktree add`) — the tool runs against the repo it's invoked in, but does not traverse or aggregate across linked worktrees
+
+**Git worktrees:** `gitinfo` works correctly when invoked inside a linked worktree — it reports on the single worktree it's running in. It does **not** discover, traverse, or aggregate data across linked worktrees. The `config.worktreeCount` field reports the number from `git worktree list` but no per-worktree breakdown is provided.
 
 ### Empty repository handling
 
@@ -129,6 +130,7 @@ gitinfo contributors | jq '.authors | sort_by(-.commits) | .[0:5]'
 apps/gitinfo/
 ├── package.json                          # @signoff/gitinfo, bin: gitinfo
 ├── tsconfig.json                         # extends @signoff/typescript/internal-package.json
+├── bunfig.toml                           # [test] pathIgnorePatterns for integration test isolation
 └── src/
     ├── main.ts                           # #!/usr/bin/env bun — entry point
     ├── cli/
@@ -255,8 +257,8 @@ interface GitInfoReport {
 | `totalMerges` | `number` | instant | `git rev-list --merges --count HEAD`; 0 in empty repo |
 | `firstCommitDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** author date, can be forged |
 | `lastCommit` | `GitCommitSummary \| null` | instant | `git log -1 --format=...`; null in empty repo |
-| `commitFrequency?` | `CommitFrequency` | **slow** | `git log --format=%ad --date=format:...`; empty maps in empty repo. **Optional:** omitted from JSON output when `--full` is not active |
-| `conventionalTypes?` | `Record<string, number>` | **slow** | `git log --format=%s` + regex parse in TypeScript; empty map in empty repo. **Optional:** omitted when `--full` is not active |
+| `commitFrequency?` | `CommitFrequency` | **slow** | `git log --format=%ad --date=format:... --since='1 year ago' HEAD`; empty maps in empty repo. **Optional:** omitted from JSON output when `--full` is not active |
+| `conventionalTypes?` | `Record<string, number>` | **slow** | `git log --format=%s -n 1000 HEAD` + regex parse in TypeScript; empty map in empty repo. **Optional:** omitted when `--full` is not active |
 
 ### Section: Contributors
 
@@ -265,7 +267,7 @@ interface GitInfoReport {
 | `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin and hangs); guard: return `[]` when `!hasHead` |
 | `totalAuthors` | `number` | moderate | derived from authors; 0 in empty repo |
 | `activeRecent` | `number` | moderate | `git shortlog -sne --no-merges --since='90 days ago' HEAD`; guard: return 0 when `!hasHead` |
-| `authorStats?` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN' HEAD`; guard: skip when `!hasHead`. **Optional:** omitted when `--full` is not active |
+| `authorStats?` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN' -n 1000 HEAD`; guard: skip when `!hasHead`. **Optional:** omitted when `--full` is not active |
 
 ### Section: Tags
 
@@ -287,7 +289,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files, not HEAD |
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `stat` per file via `FsReader.stat()`, sort in TypeScript. Uses working tree file sizes |
 | `largestBlobs?` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then `git cat-file --batch-check`. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
-| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
+| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only -n 1000 HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
 | `binaryFiles?` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary; guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
 ### Section: Config
@@ -314,7 +316,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 
 1. **Parallel execution** — All collectors run concurrently via `Promise.all`
 2. **Tier gating** — Slow fields use optional types (`field?: Type`) and are omitted from the TypeScript object (and thus from JSON output) when `--full` is not active. This ensures JSON schema stability: default mode always produces the same set of keys; `--full` mode adds additional keys
-3. **Limit by default** — Slow commands use `-n 1000` or `--since='1 year ago'`
+3. **Limit by default** — Slow log-based commands use `-n 1000` or `--since='1 year ago'` to bound traversal
 4. **Early exit** — Check `git rev-list --count HEAD`; if > 50k, warn for expensive ops
 
 ---
@@ -402,11 +404,12 @@ function createMockExecutor(
 function createMockFsReader(opts: {
   files?: Map<string, string[]>;   // path → readdir result
   exists?: Map<string, boolean>;   // path → exists result
+  fileSizes?: Map<string, number>; // path → fileSize result (bytes)
   sizes?: Map<string, number>;     // path → dirSizeKiB result
 }): FsReader { /* ... */ }
 ```
 
-**Pattern:** Each core function test injects the appropriate mock(s). Most tests only need `createMockExecutor` since they only call git commands. Tests for `repoState`, `hooks`, and `gitDirSizeKiB` additionally inject `createMockFsReader`.
+**Pattern:** Each core function test injects the appropriate mock(s). Most tests only need `createMockExecutor` since they only call git commands. Tests for `repoState`, `hooks`, and `gitDirSizeKiB` additionally inject `createMockFsReader`. Tests for `largestTracked` inject `createMockFsReader` with `fileSizes` to mock per-file `stat` calls.
 
 ---
 
@@ -514,7 +517,15 @@ const logsCollector: Collector<GitLogs> = {
 - **Framework**: `bun:test` (`describe`, `it`, `expect`)
 - **Mock pattern**: `createMockExecutor()` for git commands + `createMockFsReader()` for filesystem access (only needed by `repoState`, `hooks`, `gitDirSizeKiB` tests)
 - **Edge cases**: empty repo, detached HEAD, no remotes, Unicode author names, zero tags, merge-in-progress, Windows-style line endings in git output
-- **Integration test isolation**: Integration tests (real git commands, temp repos) live in `src/__integration__/` with `.integration.test.ts` suffix. The `test` and `test:ci` scripts exclude this directory: `bun test --pass-with-no-tests src/ --ignore='**/__integration__/**'`. This prevents integration tests from running in pre-commit hooks or CI coverage checks.
+- **Integration test isolation**: Integration tests (real git commands, temp repos) live in `src/__integration__/` with `.integration.test.ts` suffix. Isolation is handled via `bunfig.toml` at the package level:
+
+```toml
+# apps/gitinfo/bunfig.toml
+[test]
+pathIgnorePatterns = ["**/__integration__/**"]
+```
+
+This ensures both `bun test` (direct) and `check-coverage.ts` (which runs bare `bun test --coverage`) automatically skip integration tests — no CLI flags needed. Integration tests run explicitly via `bun test src/__integration__/`.
 
 ### Coverage enforcement
 
@@ -569,7 +580,7 @@ Add to root `biome.jsonc` overrides array:
   "scripts": {
     "dev": "bun run src/main.ts",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "test": "bun test --pass-with-no-tests src/ --ignore='**/__integration__/**'",
+    "test": "bun test --pass-with-no-tests",
     "test:ci": "bun run ../../scripts/check-coverage.ts --threshold 95",
     "test:integration": "bun test src/__integration__/",
     "clean": "git clean -xdf .cache .turbo dist node_modules"
@@ -597,6 +608,15 @@ Add to root `biome.jsonc` overrides array:
 }
 ```
 
+### `apps/gitinfo/bunfig.toml`
+
+```toml
+[test]
+pathIgnorePatterns = ["**/__integration__/**"]
+```
+
+Bun reads `bunfig.toml` from the package's `cwd` automatically. This applies to both direct `bun test` invocations and the shared `check-coverage.ts` script (which runs bare `bun test --coverage` in the package directory).
+
 ---
 
 ## Implementation Order (Atomic Commits)
@@ -604,9 +624,9 @@ Add to root `biome.jsonc` overrides array:
 | # | Type | Commit Message | Content |
 |---|------|---------------|---------|
 | 1 | docs | `docs: add gitinfo cli design document` | `docs/cli/01-gitinfo.md`, `docs/cli/README.md`, update `docs/README.md` |
-| 2 | feat | `feat: scaffold apps/gitinfo package` | `package.json`, `tsconfig.json`, empty `src/main.ts`, `bun install` |
+| 2 | feat | `feat: scaffold apps/gitinfo package` | `package.json`, `tsconfig.json`, `bunfig.toml`, empty `src/main.ts`, `bun install` |
 | 3 | chore | `chore: add biome strict override for apps/gitinfo` | Root `biome.jsonc` override |
-| 4 | feat | `feat(gitinfo): add command executor` | `executor/types.ts`, `bun-executor.ts`, `bun-fs-reader.ts`, `mock-executor.ts`, `mock-fs-reader.ts`, `bun-executor.test.ts` |
+| 4 | feat | `feat(gitinfo): add command executor` | `executor/types.ts`, `bun-executor.ts`, `bun-fs-reader.ts`, `mock-executor.ts`, `mock-fs-reader.ts`, `__integration__/executor.integration.test.ts` |
 | 5 | feat | `feat(gitinfo): add cli argument parser` | `cli/args.ts`, `cli/args.test.ts` |
 | 6 | feat | `feat(gitinfo): add report type definitions` | `commands/types.ts` |
 | 7 | feat | `feat(gitinfo): add parse utilities` | `utils/parse.ts`, `utils/parse.test.ts` |
