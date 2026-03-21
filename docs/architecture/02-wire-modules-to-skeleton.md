@@ -2,80 +2,95 @@
 
 ## Overview
 
-01 完成了骨架搭建：monorepo 结构就位、12 个 tRPC router 定义完毕（6 真实 + 6 stub）、Electron boot 序列跑通、DB/settings/projects/workspaces/changes 等核心 router 后端可用。
+01 产出了 skeleton：monorepo 结构就位、Electron boot 序列可跑、12 个 tRPC router 已声明（6 真实后端 + 6 空 stub）。但 skeleton 不等于 usable —— 用户打开 app 看到的是空 sidebar、placeholder pane、静态假文件树、无终端组件、空设置页面。
 
-**但用户打开 app 看到的是**：空的 sidebar（"No projects yet"）、placeholder pane（"Welcome to Signoff" 文字）、静态假文件树、空设置页面。所有后端能力都没有在前端呈现。
+本文档将 skeleton 推进到 **Usable Alpha**。
 
-本文档将 skeleton 推进到 **Usable Alpha** —— 用户能打开 app → 添加项目 → 浏览文件 → 打开编辑器/终端 → 调整设置。
+### Alpha 验收标准
 
-### Current State Matrix
+完成本文档后，用户能：
 
-| Layer | 状态 | 说明 |
+1. ✅ App 正常启动（无 ABI crash）
+2. ✅ 看到真实 project/workspace 列表
+3. ✅ 浏览和打开真实文件
+4. ✅ 在编辑器中编辑文件并看到 diff
+5. ✅ 开一个真实 terminal session
+6. ✅ Settings 至少 2 个页面能真实保存和回读
+
+### Current State（代码级）
+
+| Layer | 状态 | 证据 |
 |:------|:-----|:-----|
-| **Runtime** | 🔴 Blocked | `better-sqlite3` ABI mismatch，`bun install` 后需手动 `node-gyp rebuild`，无自动化 |
-| **DB + Migrations** | ✅ Real | better-sqlite3 WAL + Drizzle, 5 tables |
-| **tRPC IPC Bridge** | ✅ Real | preload → ipcLink → main handler, superjson |
-| **projects/workspaces/changes/settings/hotkeys router** | ✅ Real | DB 或 in-memory 实现 |
-| **filesystem router** | ⚠️ Crash | 代码完整，但 `fsOps: {}` 导致所有调用 `TypeError` |
-| **window/menu/config/external/autoUpdate/terminal router** | 🔴 Stub | 空 procedure，无任何 main process 基础设施 |
-| **Renderer — Sidebar** | 🟡 Shell | resize/collapse 可用，数据层空白（零 tRPC 调用） |
-| **Renderer — PaneContent** | 🔴 Placeholder | Welcome 文字 + 其余 tab type 全 fallthrough 到 `PlaceholderContent` |
-| **Renderer — FileExplorer** | 🔴 Placeholder | 硬编码 `DEMO_TREE`，零 tRPC 调用 |
-| **Renderer — Terminal** | 🔴 No component | 只有 helpers/config/types，无 `.tsx` React 组件 |
-| **Renderer — Settings** | 🔴 Placeholder | 6 个页面各只有标题 + 一行描述文字，零表单控件 |
+| **Runtime** | 🔴 Blocked | `better-sqlite3` ABI mismatch → `ERR_DLOPEN_FAILED`，无自动 rebuild 脚本，CLAUDE.md 里是手动 5 行命令 |
+| **DB + Migrations** | ✅ Real | `main/lib/local-db/index.ts`: better-sqlite3 WAL + Drizzle, 5 tables |
+| **tRPC IPC Bridge** | ✅ Real | `preload/index.ts` → `exposeElectronTRPC()` → `ipcLink` + superjson |
+| **projects/workspaces/changes router** | ✅ Real | Factory pattern, `getDb` 注入 |
+| **settings router** | ✅ Real | `createSettingsDbOps()` upsert SQLite |
+| **hotkeys router** | 🟡 Memory-only | `createInMemoryHotkeyStore()` 10 个默认快捷键，无持久化 |
+| **filesystem router** | ⚠️ Crash | `filesystem/index.ts` 代码完整，但 `main/index.ts:115` 传入 `fsOps: {}`。且 router 调用签名 (`{ workspacePath, path }`) 与 `FsService` 接口 (`{ absolutePath }`) **不匹配** |
+| **terminal router** | 🔴 Stub | `terminal/index.ts:35` 空 router。但 daemon 层 **有真实代码**：`terminal-host.ts` (397行 TerminalHost class) + `session.ts` (681行 Session class + PTY subprocess 通信)。Manager 层 `lib/terminal/index.ts` 三个空函数 |
+| **window/menu/config/external/autoUpdate router** | 🔴 Stub | 空 procedure，**menu 无任何原生基础设施**（无 `Menu.buildFromTemplate`） |
+| **Renderer — WorkspaceSidebar** | 🟡 Shell | resize/collapse 可用，数据层空白：零 tRPC 调用，`"No projects yet"` 硬编码，"Add Project" 按钮无 handler |
+| **Renderer — PaneContent** | 🔴 Placeholder | `WelcomeContent` 一行文字 + 所有其他 TabType fallthrough 到 `PlaceholderContent` 显示 `{tab.type} — {tab.label}` |
+| **Renderer — FileExplorer** | 🔴 Placeholder | 硬编码 `DEMO_TREE`（6 个假节点），文件顶部标注 "Phase 7 #17 will connect this to the filesystem tRPC router" |
+| **Renderer — Terminal** | 🔴 No component | `Terminal/index.ts` 标注 "🔴 Phase 5 trimmed: No Terminal.tsx React component yet"，只导出 helpers/config/types |
+| **Renderer — CodeEditor** | ✅ Real | `CodeEditor.tsx` 121 行，CodeMirror 6 + 9 种语言检测 + one-dark 主题 + onChange callback。但**未被 PaneContent 消费** |
+| **Renderer — Settings** | 🔴 Placeholder | 6 个页面各只有标题 + 一行描述文字（如 `appearance.tsx:14`），零表单控件，零 tRPC 调用。后端 `settingsTrpcRouter` + `useSettingsStore` 已就绪 |
+| **Renderer — Tabs store** | ✅ Real | `tabs/index.ts` 332 行，完整的 pane/tab CRUD + mosaic layout 管理 |
 | **`@signoff/ui`** | ✅ Available | 56+ shadcn 组件就绪，renderer **几乎零消费** |
 
 ### Approach
 
-每一步标注为：
+标注每一步的性质：
 
-- **🛠️ Fix** — 修复阻塞问题（build/runtime）
-- **🔌 Wire** — 把已有模块/包连接到 skeleton
-- **🧩 Consume** — renderer 侧消费已有组件/hooks/router
-- **🔧 Implement** — 需要写新逻辑（尽量小范围）
+- **🛠️ Fix** — 修复阻塞问题
+- **🔌 Wire** — 把已有模块连到骨架
+- **🔧 Implement** — 写新逻辑
+- **🧩 Consume** — renderer 侧消费后端/组件
 
 ---
 
-## Phase 0: Unblock Runtime — better-sqlite3 ABI Rebuild
+## Phase 0: Unblock Runtime
 
-**目标**：`bun install` 后自动完成 native module rebuild，开发者不再需要手动执行 `node-gyp` 命令。
+**目标**：`bun install && bun run dev` 零手动步骤启动 Electron。
 
 **当前状态**：
 
-- `better-sqlite3@12.6.2` 编译时链接 Bun 的 Node headers（`NODE_MODULE_VERSION=137`）
+- `better-sqlite3@12.6.2` 被 Bun 编译为 `NODE_MODULE_VERSION=137`
 - Electron 40 期望 `NODE_MODULE_VERSION=143`
-- 启动 `bun run dev` 后 main process 立即 crash：`ERR_DLOPEN_FAILED`
-- 唯一的修复文档在 `CLAUDE.md` 里，是手动 5 行 shell 命令
-- 无 `postinstall` hook，无 rebuild 脚本，无 electron-builder `afterPack` hook
+- 启动 main process 立即 `ERR_DLOPEN_FAILED`
+- 唯一修复文档在 CLAUDE.md 里（手动 `npx node-gyp rebuild --target=40.2.1`）
+- 无 `postinstall` hook，无 rebuild 脚本，`scripts/` 只有 `check-coverage.ts`
 - `node-pty` 使用 prebuilds，不受影响
 
-### 0.1 添加 rebuild 脚本
+### 0.1 创建自动 rebuild 脚本
 
-🛠️ Fix — 创建自动化脚本。
+🛠️ Fix
 
-**文件**: `scripts/rebuild-native.sh` (new)
+**新建**: `scripts/rebuild-native.sh`
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-ELECTRON_VERSION=$(node -e "console.log(require('electron/package.json').version)")
-ARCH=$(uname -m | sed 's/arm64/arm64/' | sed 's/x86_64/x64/')
-
-echo "Rebuilding better-sqlite3 for Electron $ELECTRON_VERSION ($ARCH)..."
-
-BETTER_SQLITE3_DIR=$(find node_modules -path '*/better-sqlite3' -name 'package.json' -exec dirname {} \; | head -1)
+# Find better-sqlite3 (Bun may hoist to different paths)
+BETTER_SQLITE3_DIR=$(find node_modules -path '*/better-sqlite3/binding.gyp' -exec dirname {} \; 2>/dev/null | head -1)
 
 if [ -z "$BETTER_SQLITE3_DIR" ]; then
-  echo "better-sqlite3 not found, skipping rebuild"
+  echo "[rebuild-native] better-sqlite3 not found, skipping"
   exit 0
 fi
 
+ELECTRON_VERSION=$(node -e "console.log(require('electron/package.json').version)")
+ARCH=$(uname -m | sed 's/arm64/arm64/;s/x86_64/x64/')
+
+echo "[rebuild-native] Rebuilding better-sqlite3 for Electron $ELECTRON_VERSION ($ARCH)..."
 cd "$BETTER_SQLITE3_DIR"
 npx --yes node-gyp rebuild \
   --target="$ELECTRON_VERSION" \
   --arch="$ARCH" \
   --dist-url=https://electronjs.org/headers
+echo "[rebuild-native] Done"
 ```
 
 ### 0.2 注册 postinstall hook
@@ -90,131 +105,189 @@ npx --yes node-gyp rebuild \
 
 ### 0.3 更新 CLAUDE.md
 
-🛠️ Fix — 删除手动 rebuild 指南，替换为 `bun install` 自动处理的说明。
+🛠️ Fix — 将手动 rebuild 指南替换为 "`bun install` automatically rebuilds native modules" 说明。
 
-### Tests
+### 验收
 
-| Layer | Test |
-|:------|:-----|
-| L1 (Unit) | `scripts/rebuild-native.sh` 在 CI 中 exit 0（无 better-sqlite3 时 skip） |
-| G1 (Smoke) | `bun install && bun run dev` 不再 `ERR_DLOPEN_FAILED` |
+- `bun install && bun run dev` → Electron 窗口正常打开，console 无 `ERR_DLOPEN_FAILED`
 
 ### Commits
 
 ```
-fix: automate better-sqlite3 rebuild for electron ABI compatibility
-docs: update CLAUDE.md to reflect automated native rebuild
+fix: automate better-sqlite3 rebuild via postinstall
+docs: update CLAUDE.md native rebuild section
 ```
 
 ---
 
-## Phase 1: Filesystem — 接通 workspace-fs
+## Phase 1: Wire Filesystem
 
-**目标**：`filesystem` router 的 7 个操作全部可用（listDirectory / readFile / writeFile / createDirectory / deletePath / movePath / getMetadata）。
+**目标**：`filesystem` router 的 7 个操作可用（listDirectory / readFile / writeFile / createDirectory / deletePath / movePath / getMetadata）。
 
 **当前状态**：
 
-- `@signoff/workspace-fs` 包已完整实现（`host/service.ts` 含全部 11 个 FS 操作）
-- `filesystem/index.ts` 的 `createFilesystemTrpcRouter(fs)` 已写好，但 `FsOperations = any`
-- `main/index.ts` 传入的是 `fsOps: {}`
-- **接口鸿沟**：router 调用签名（`workspacePath` + `path`）与 `@signoff/workspace-fs` 的 `FsService` 接口（`absolutePath`）不匹配，需要 adapter 层
+| 组件 | 文件 | 状态 |
+|:-----|:-----|:-----|
+| `FsService` 接口 | `packages/workspace-fs/src/core/service.ts` | ✅ 11 个方法，每个接受 `{ absolutePath: string }` 对象参数 |
+| `createFsHostService` | `packages/workspace-fs/src/host/service.ts:133` | ✅ 接受 `FsHostServiceOptions { rootPath, watcherManager?, trashItem?, runRipgrep? }`，返回 `FsHostService extends FsService` + `close()` |
+| filesystem router | `apps/desktop/src/lib/trpc/routers/filesystem/index.ts` | ⚠️ `FsOperations = any`，调用 `fs.listDirectory({ workspacePath, path })` — 与 `FsService` 的 `{ absolutePath }` **不匹配** |
+| 传入的 fsOps | `apps/desktop/src/main/index.ts:115` | 🔴 `fsOps: {}` |
 
-### 1.1 创建 workspace-fs adapter
+**关键决策**：router 使用 `{ workspacePath, relativePath }` → 自行 `join()` 为 `fullPath` → 传给 `fs.xxx({ workspacePath, path: fullPath })`。但 `FsHostService` 期望 `{ absolutePath }`。需要 adapter 层桥接。
 
-🔌 Wire — 在 main process 中实例化 `FsHostService`，适配为 router 期望的调用签名。
+### 1.1 创建 per-workspace FsHostService 工厂
 
-**文件**: `apps/desktop/src/main/lib/workspace-fs/index.ts` (new)
+🔌 Wire
+
+**新建**: `apps/desktop/src/main/lib/workspace-fs/index.ts`
 
 ```ts
-import { createFsHostService } from "@signoff/workspace-fs/host";
-import type { FsHostService } from "@signoff/workspace-fs/host";
+import { createFsHostService, type FsHostService } from "@signoff/workspace-fs/host";
 
-/**
- * Per-workspace FsHostService factory.
- * Router 传入 { workspacePath, path } → adapter 拼接为 absolutePath 后委托给 FsHostService。
- */
-export function createFsOpsFactory(): {
-  getFsOps: (workspacePath: string) => FsHostService;
-  closeAll: () => Promise<void>;
-} {
-  const instances = new Map<string, FsHostService>();
+const instances = new Map<string, FsHostService>();
 
-  function getFsOps(workspacePath: string): FsHostService {
-    let fs = instances.get(workspacePath);
-    if (!fs) {
-      fs = createFsHostService({ rootPath: workspacePath });
-      instances.set(workspacePath, fs);
-    }
-    return fs;
+/** Per-workspace FsHostService, lazily created and cached. */
+export function getFsHostService(rootPath: string): FsHostService {
+  let fs = instances.get(rootPath);
+  if (!fs) {
+    fs = createFsHostService({ rootPath });
+    instances.set(rootPath, fs);
   }
+  return fs;
+}
 
-  async function closeAll() {
-    for (const fs of instances.values()) {
-      await fs.close();
-    }
-    instances.clear();
+export async function closeAllFsHostServices(): Promise<void> {
+  for (const fs of instances.values()) {
+    await fs.close();
   }
-
-  return { getFsOps, closeAll };
+  instances.clear();
 }
 ```
 
-> **关键决策**：`createFsHostService` 接受 `FsHostServiceOptions` 对象（含 `rootPath: string`），返回 `FsHostService`（含 `close(): Promise<void>`）。Router 的 `workspacePath` 参数需要在 adapter 中与 `path` 拼接为绝对路径再传给 `FsHostService`。
+### 1.2 创建 adapter 桥接 router → FsHostService
 
-### 1.2 适配 filesystem router 调用签名
+🔌 Wire — 将 router 的 `{ workspacePath, path }` 调用签名转换为 `FsService` 的 `{ absolutePath }` 签名。
 
-🔌 Wire — 修改 `filesystem/index.ts`，将 `FsOperations = any` 替换为明确的 adapter 接口。
+**新建**: `apps/desktop/src/main/lib/workspace-fs/adapter.ts`
 
-**文件**: `apps/desktop/src/lib/trpc/routers/filesystem/index.ts`
-
-Router 内部调用形如 `fs.listDirectory({ workspacePath, path })`。Adapter 需要：
+Router 内部已经做了 `join(workspacePath, relativePath)` 生成 `fullPath`，然后传 `{ workspacePath, path: fullPath }`。Adapter 需要拦截这些调用，取出 `path`/`fullPath` 作为 `absolutePath` 委托给 `FsHostService`：
 
 ```ts
-// 将 router 的 { workspacePath, path } 转换为 FsHostService 的 absolutePath 调用
-import { join } from "node:path";
+import type { FsHostService } from "@signoff/workspace-fs/host";
+import { getFsHostService } from "./index";
 
-export function createFsAdapter(getFsOps: (wp: string) => FsHostService) {
+/**
+ * Adapts the router's { workspacePath, path } call convention
+ * to FsHostService's { absolutePath } interface.
+ */
+export function createFsAdapter() {
+  function getFs(workspacePath: string): FsHostService {
+    return getFsHostService(workspacePath);
+  }
+
   return {
-    listDirectory: ({ workspacePath, path }) =>
-      getFsOps(workspacePath).listDirectory(join(workspacePath, path)),
-    readFile: ({ workspacePath, path }) =>
-      getFsOps(workspacePath).readFile(join(workspacePath, path)),
-    // ... 同理 7 个方法
+    listDirectory: async (input: { workspacePath: string; path: string }) => {
+      const result = await getFs(input.workspacePath).listDirectory({
+        absolutePath: input.path,
+      });
+      // Router expects DirectoryEntry[], FsHostService returns { entries: FsEntry[] }
+      // Need to map FsEntry → DirectoryEntry
+      return result.entries.map((e) => ({
+        name: e.name,
+        isDirectory: e.kind === "directory",
+        isSymlink: e.isSymlink ?? false,
+        size: e.size ?? 0,
+      }));
+    },
+
+    readFile: async (input: { workspacePath: string; path: string }) => {
+      const result = await getFs(input.workspacePath).readFile({
+        absolutePath: input.path,
+      });
+      return { content: result.content, encoding: result.encoding ?? "utf-8" };
+    },
+
+    writeFile: async (input: { workspacePath: string; path: string; content: string }) => {
+      await getFs(input.workspacePath).writeFile({
+        absolutePath: input.path,
+        content: input.content,
+      });
+    },
+
+    createDirectory: async (input: { workspacePath: string; path: string }) => {
+      await getFs(input.workspacePath).createDirectory({
+        absolutePath: input.path,
+      });
+    },
+
+    deletePath: async (input: { workspacePath: string; path: string; permanent?: boolean }) => {
+      await getFs(input.workspacePath).deletePath({
+        absolutePath: input.path,
+        permanent: input.permanent,
+      });
+    },
+
+    movePath: async (input: { workspacePath: string; sourcePath: string; destinationPath: string }) => {
+      await getFs(input.workspacePath).movePath({
+        sourceAbsolutePath: input.sourcePath,
+        destinationAbsolutePath: input.destinationPath,
+      });
+    },
+
+    getMetadata: async (input: { path: string }) => {
+      // getMetadata 不传 workspacePath — 需要从上下文推断
+      // 或者修改 router Zod schema 也传 workspacePath
+      const result = await getFsHostService(input.path).getMetadata({
+        absolutePath: input.path,
+      });
+      if (!result) throw new Error(`File not found: ${input.path}`);
+      return {
+        name: result.name,
+        isDirectory: result.kind === "directory",
+        isSymlink: result.isSymlink ?? false,
+        size: result.size ?? 0,
+        mtime: result.mtime ?? 0,
+      };
+    },
   };
 }
 ```
+
+> **⚠️ FsEntry → DirectoryEntry 映射**：`FsService` 返回 `FsEntry { name, kind, isSymlink?, size? }`，router 期望 `DirectoryEntry { name, isDirectory, isSymlink, size }`。Adapter 做 `kind === "directory"` → `isDirectory: true` 转换。需确认 `FsEntry` 的精确字段（`packages/workspace-fs/src/types.ts`）。
 
 ### 1.3 替换空对象占位
 
 🔌 Wire — 修改 `apps/desktop/src/main/index.ts`。
 
 ```diff
-+ import { createFsOpsFactory } from "./lib/workspace-fs";
-
-+ const { getFsOps, closeAll: closeFsOps } = createFsOpsFactory();
++ import { createFsAdapter, closeAllFsHostServices } from "./lib/workspace-fs/adapter";
 
   const deps: AppRouterDeps = {
     getDb,
-    getGit: (cwd?) => simpleGit(cwd),
--   fsOps: {},   // real wiring in Phase 9+
-+   fsOps: createFsAdapter(getFsOps),
+    getGit: (cwd?) => require("simple-git").simpleGit(cwd),
+-   fsOps: {},
++   fsOps: createFsAdapter(),
     hotkeyStore: createInMemoryHotkeyStore(),
     settingsDb: createSettingsDbOps(),
   };
 
   app.on("will-quit", () => {
     closeLocalDb();
-+   closeFsOps();
++   closeAllFsHostServices();
   });
 ```
+
+### 验收
+
+- `trpc.filesystem.listDirectory({ workspacePath: "/tmp", relativePath: "" })` → 返回真实目录列表
+- `trpc.filesystem.readFile({ workspacePath: "/tmp", relativePath: "test.txt" })` → 返回文件内容
 
 ### Tests
 
 | Layer | Test | File |
 |:------|:-----|:-----|
-| L1 (Unit) | `createFsOpsFactory` 缓存 + close | `apps/desktop/src/main/lib/workspace-fs/__tests__/index.test.ts` |
-| L1 (Unit) | `createFsAdapter` 正确拼接路径并委托 | `apps/desktop/src/main/lib/workspace-fs/__tests__/adapter.test.ts` |
-| L2 (Integration) | filesystem tRPC router → adapter → 真实 FS → 读写 tmp 目录 | `apps/desktop/src/lib/trpc/routers/filesystem/__tests__/integration.test.ts` |
+| L1 | `createFsAdapter` 正确映射签名并委托 | `apps/desktop/src/main/lib/workspace-fs/__tests__/adapter.test.ts` |
+| L2 | filesystem tRPC router → adapter → 真实 FS → 读写 tmp 目录 | `apps/desktop/src/lib/trpc/routers/filesystem/__tests__/integration.test.ts` |
 
 ### Commits
 
@@ -226,146 +299,224 @@ test: add filesystem adapter and integration tests
 
 ---
 
-## Phase 2: UI Components — 消费 @signoff/ui
+## Phase 2: Wire Project/Workspace Data into Renderer
 
-**目标**：renderer 中的手写 HTML 替换为 `@signoff/ui` 的 shadcn 组件，建立消费模式。
+**目标**：WorkspaceSidebar 显示真实 project 列表，支持添加项目和切换 workspace。
 
 **当前状态**：
 
-- `@signoff/ui` 通过 wildcard exports 导出 56+ 组件（`@signoff/ui/button` → `packages/ui/src/components/ui/button.tsx`）
-- `apps/desktop/package.json` 已声明 `@signoff/ui` 依赖
-- Renderer 几乎没有导入 `@signoff/ui`，Sidebar / TabBar / 设置页面全部手写 `<div>` + Tailwind
+- `projects` router (`createProjectsTrpcRouter(getDb)`) ✅ 真实，有 CRUD procedures
+- `workspaces` router (`createWorkspacesTrpcRouter(getDb)`) ✅ 真实
+- `WorkspaceSidebar.tsx:101` 硬编码 `"No projects yet"`，按钮无 handler，零 tRPC 调用
 
-### 2.1 验证 import 路径可解析
+### 2.1 WorkspaceSidebar 接通 projects router
 
-🧩 Consume — 确认 renderer 侧 import 路径可解析。
+🧩 Consume
 
-在任意 renderer 文件中添加 `import { Button } from "@signoff/ui/button"` 并运行 `bun run dev`。确认 electron-vite 的 `tsconfigPaths` 插件能正确解析到 `packages/ui/src/components/ui/button.tsx`。如果不行，需在 `tsconfig.json` 的 `paths` 中添加映射。
+**修改**: `apps/desktop/src/renderer/components/Sidebar/WorkspaceSidebar.tsx`
 
-### 2.2 Sidebar 组件替换
+| 当前 | 替换为 |
+|:-----|:-------|
+| `"No projects yet"` 文字 | `trpc.projects.list.useQuery()` → 渲染 project 列表 |
+| 空 "Add Project" 按钮 | `Dialog` 表单 → `trpc.projects.create.useMutation()` |
+| 无 workspace 列表 | 点击 project → `trpc.workspaces.list.useQuery({ projectId })` → 展开 workspace 列表 |
 
-🧩 Consume — `WorkspaceSidebar.tsx` 当前全部手写 `<button>` + `<div>`。
+### 2.2 Workspace 选择驱动路由和 pane
 
-| 手写元素 | 替换为 | Import |
-|:---------|:-------|:-------|
-| `<button className="...">` | `<Button variant="ghost" size="icon">` | `@signoff/ui/button` |
-| `<div className="overflow-auto">` | `<ScrollArea>` | `@signoff/ui/scroll-area` |
-| Divider `<div className="h-px">` | `<Separator />` | `@signoff/ui/separator` |
-| 悬浮提示 (title attr) | `<Tooltip>` | `@signoff/ui/tooltip` |
+🧩 Consume
 
-**文件**: `apps/desktop/src/renderer/components/Sidebar/WorkspaceSidebar.tsx`
+点击 workspace → 更新 Zustand active workspace state → 触发 tabs store `addPane` (Welcome tab) → MosaicLayout 渲染。
 
-### 2.3 ContentSidebar 组件替换
+需要新增一个轻量 store 或扩展现有 store 追踪 `activeProjectId` / `activeWorkspaceId`。
 
-🧩 Consume — 同理替换 ContentSidebar 中的手写元素。
+### 验收
 
-**文件**: `apps/desktop/src/renderer/components/Sidebar/ContentSidebar.tsx`
-
-### 2.4 Settings 页面组件引入
-
-🧩 Consume — Settings 页面是表单密集区，引入 shadcn form 组件基础设施。
-
-| 场景 | 组件 |
-|:-----|:-----|
-| 文本输入 | `Input` from `@signoff/ui/input` |
-| 下拉选择 | `Select` from `@signoff/ui/select` |
-| 开关切换 | `Switch` from `@signoff/ui/switch` |
-| 标签页 | `Tabs` from `@signoff/ui/tabs` |
-| 表单标签 | `Label` from `@signoff/ui/label` |
-| 卡片容器 | `Card` from `@signoff/ui/card` |
-
-> 注意：这里只是引入组件、替换手写 HTML。Settings 表单绑定到 tRPC router 在 Phase 8 中完成。
-
-**文件**: `apps/desktop/src/renderer/routes/_dashboard/settings/` 下所有页面
-
-### 2.5 Dialog / Sheet 全局基础设施
-
-🧩 Consume — 建立统一的 Dialog/Sheet 使用模式：
-
-| 场景 | 组件 |
-|:-----|:-----|
-| 确认删除 / 危险操作 | `AlertDialog` from `@signoff/ui/alert-dialog` |
-| 新建 project | `Dialog` from `@signoff/ui/dialog` |
-| 侧边属性面板 | `Sheet` from `@signoff/ui/sheet` |
+- App 启动 → 数据库有 project 时 sidebar 渲染 project 名称
+- 点击 "Add Project" → Dialog → 输入路径 → 创建成功 → sidebar 刷新
+- 点击 workspace → 主区域从 "No open panes" 变为 Welcome pane
 
 ### Tests
 
 | Layer | Test | File |
 |:------|:-----|:-----|
-| L1 (Unit) | 替换后的 Sidebar render 不 crash | `apps/desktop/src/renderer/components/Sidebar/__tests__/WorkspaceSidebar.test.tsx` |
-| L1 (Unit) | Settings 页面 render 不 crash | `apps/desktop/src/renderer/routes/settings/__tests__/appearance.test.tsx` |
+| L1 | WorkspaceSidebar 接 tRPC 后 render project list (mock tRPC) | `...Sidebar/__tests__/WorkspaceSidebar.test.tsx` |
+| L1 | "Add Project" dialog 触发 create mutation | 同上 |
 
 ### Commits
 
 ```
-refactor: consume @signoff/ui Button and ScrollArea in WorkspaceSidebar
-refactor: consume @signoff/ui in ContentSidebar
-refactor: consume @signoff/ui form components in settings pages
-refactor: consume @signoff/ui Dialog and Sheet globally
-test: add render tests for refactored components
+feat: wire WorkspaceSidebar to projects tRPC router
+feat: add project creation dialog
+feat: wire workspace selection to tabs store
+test: add WorkspaceSidebar wiring tests
 ```
 
 ---
 
-## Phase 3: Window & Menu Routers — 接通窗口控制
+## Phase 3: Render Real Pane Content
 
-**目标**：window router 和 menu router 从 stub 变为真实实现。
+**目标**：PaneContent 渲染 CodeEditor（文件）、FileExplorer 使用真实目录、Diff viewer 基础可用。
 
 **当前状态**：
 
-- `window.ts` 是 static stub（空 procedure）
-- `menu.ts` 是 static stub（空 procedure，含 `// TODO Phase 4+: onMenuAction subscription` 注释）
-- **main process 中不存在任何原生菜单基础设施**（无 `Menu.buildFromTemplate()`，无 `app.applicationMenu`）
-- `windows/main.ts` 有 BrowserWindow 创建逻辑
+- `PaneContent.tsx:33` 所有非-Welcome tab fallthrough 到 `PlaceholderContent`
+- `CodeEditor.tsx` 121 行 ✅ 完整可用，但未被 PaneContent 引用
+- `FileExplorer.tsx:15` 硬编码 `DEMO_TREE`，`onFileSelect` prop 存在但无调用方传真实数据
+- `tabs/types.ts` 定义 `TabType.Editor | Terminal | Diff | Welcome`
 
-### 3.1 Window Router 实现
+### 3.1 FileExplorer 接通 filesystem router
 
-🔧 Implement — 把 `BrowserWindow` 操作暴露为 tRPC procedures。
+🧩 Consume
 
-**文件**: `apps/desktop/src/lib/trpc/routers/window.ts`
+**修改**: `apps/desktop/src/renderer/components/FileExplorer/FileExplorer.tsx`
 
-| Procedure | Type | 作用 |
-|:----------|:-----|:-----|
-| `minimize` | mutation | `BrowserWindow.getFocusedWindow()?.minimize()` |
-| `maximize` | mutation | toggle maximize/unmaximize |
-| `close` | mutation | `win.close()` |
-| `isMaximized` | query | 返回当前最大化状态 |
-| `setTitle` | mutation | 设置窗口标题 |
+| 当前 | 替换为 |
+|:-----|:-------|
+| `DEMO_TREE` 常量 | `trpc.filesystem.listDirectory.useQuery({ workspacePath, relativePath: "" })` |
+| 静态展开 | 惰性加载：点击文件夹 → `listDirectory` 子目录 |
+| `onFileSelect` 未被消费 | 点击文件 → push 到 tabs store → PaneContent 渲染 editor |
 
-**依赖注入**: 改为工厂函数 `createWindowRouter(getWindow: () => BrowserWindow | null)`，在 `AppRouterDeps` 中新增 `getWindow` 字段。
+FileExplorer 组件签名已支持 `tree` prop 注入（`FileExplorer({ tree = DEMO_TREE, rootId, onFileSelect })`），可以在外层 wrapper 中 fetch 真实 tree 传入。或直接改为内部 useQuery。
 
-### 3.2 Menu 基础设施 + Router
+### 3.2 PaneContent 渲染 CodeEditor
 
-🔧 Implement — 从零创建原生菜单，然后通过 router 暴露。
+🧩 Consume
 
-**新建文件**: `apps/desktop/src/main/lib/menu/index.ts`
+**修改**: `apps/desktop/src/renderer/components/MosaicLayout/PaneContent.tsx`
 
-```ts
-import { Menu, type BrowserWindow } from "electron";
-
-export function buildApplicationMenu(window: BrowserWindow): Menu {
-  const template = [
-    { role: "appMenu" },
-    { role: "fileMenu" },
-    { role: "editMenu" },
-    { role: "viewMenu" },
-    { role: "windowMenu" },
-    // 自定义菜单项后续 phase 扩展
-  ];
-  return Menu.buildFromTemplate(template as any);
-}
+```diff
+  switch (tab.type) {
+    case TabType.Welcome:
+      return <WelcomeContent />;
++   case TabType.Editor:
++     return <EditorContent tab={tab} />;
++   case TabType.Diff:
++     return <DiffContent tab={tab} />;
+    default:
+      return <PlaceholderContent tab={tab} />;
+  }
 ```
 
-**修改文件**: `apps/desktop/src/lib/trpc/routers/menu.ts`
+**EditorContent**：从 `tab.data.filePath` 取文件路径 → `trpc.filesystem.readFile.useQuery()` → 传入 `<CodeEditor value={content} filename={name} onChange={...} />`。保存：`trpc.filesystem.writeFile.useMutation()`。
+
+**DiffContent**：从 `tab.data` 取文件路径 → `trpc.changes.diff.useQuery()` → 渲染 diff（可先用 CodeMirror diff extension，或简单文本对比）。
+
+### 3.3 File open 流程串联
+
+🧩 Consume — FileExplorer `onFileSelect` → ContentSidebar → tabs store `addTab({ type: TabType.Editor, data: { workspacePath, filePath } })` → PaneContent `EditorContent` → CodeEditor。
+
+### 验收
+
+- 点击 workspace → sidebar 显示文件树（来自 filesystem router）
+- 点击 `.ts` 文件 → 新 tab 打开 → CodeMirror 渲染真实文件内容
+- 编辑文件 → dirty 标记 → Cmd+S 保存
+- Changes 面板打开 diff tab → 显示 git diff
+
+### Tests
+
+| Layer | Test | File |
+|:------|:-----|:-----|
+| L1 | PaneContent 按 TabType 分发到正确组件 | `...MosaicLayout/__tests__/PaneContent.test.tsx` |
+| L1 | EditorContent 调用 readFile 并渲染 CodeEditor | `...MosaicLayout/__tests__/EditorContent.test.tsx` |
+| L1 | FileExplorer useQuery → 渲染真实目录 (mock tRPC) | `...FileExplorer/__tests__/FileExplorer.test.tsx` |
+
+### Commits
+
+```
+feat: wire FileExplorer to filesystem tRPC router
+feat: render CodeEditor in PaneContent for Editor tabs
+feat: add DiffContent with changes router integration
+feat: connect file open flow (explorer → tab → editor)
+test: add PaneContent and FileExplorer wiring tests
+```
+
+---
+
+## Phase 4: Implement Terminal
+
+**目标**：用户能在 pane 中打开真实 terminal session。
+
+**当前状态**：
+
+| 组件 | 文件 | 状态 |
+|:-----|:-----|:-----|
+| `TerminalHost` class | `main/terminal-host/terminal-host.ts` (397行) | ✅ 真实代码：session lifecycle, write/resize/kill, Socket-based attach/detach, Semaphore spawn limiter |
+| `Session` class | `main/terminal-host/session.ts` (681行) | ✅ 真实代码：PTY subprocess 通信（binary frame protocol），spawn/write/resize/kill/attach/detach |
+| Terminal Manager | `main/lib/terminal/index.ts` (37行) | 🔴 三个空函数（`reconcileDaemonSessions` / `prewarmTerminalRuntime` / `restartDaemon`） |
+| Terminal Router | `lib/trpc/routers/terminal/index.ts` | 🔴 空 stub router |
+| Terminal types | `main/lib/terminal/types.ts` + `renderer/components/Terminal/types.ts` | ✅ `CreateSessionParams`, `SessionResult`, `TerminalProps`, mutation 类型全部定义好 |
+| Terminal config/helpers | `renderer/components/Terminal/config.ts` + `helpers.ts` | ✅ xterm options, copy/paste handlers, keyboard handler |
+| Terminal React component | — | 🔴 **不存在**（`Terminal/index.ts` 标注 "No Terminal.tsx React component yet"） |
+
+**关键洞察**：daemon 层（TerminalHost + Session）是完整的真实代码，不是 stub。但它通过 **Node.js `net.Socket`** 通信（不是 tRPC），架构是：main process 启动 terminal-host daemon 进程 → daemon 监听 Unix socket → renderer 通过 main process 代理连接 socket。
+
+### 4.1 实现 Terminal Manager
+
+🔧 Implement — 填充 `main/lib/terminal/index.ts`。
+
+**修改**: `apps/desktop/src/main/lib/terminal/index.ts`
+
+| 函数 | 实现 |
+|:-----|:-----|
+| `prewarmTerminalRuntime()` | fork `terminal-host/index.ts` 作为 daemon 子进程（`ELECTRON_RUN_AS_NODE=1`），建立 IPC 通道 |
+| `reconcileDaemonSessions()` | 连接 daemon → `listSessions()` → kill orphan sessions（无对应 workspace 的） |
+| `restartDaemon()` | 向 daemon 发送 `killAll` → 等待退出 → 重新 fork |
+
+### 4.2 实现 Terminal Router
+
+🔧 Implement — 改为工厂函数，通过 daemon Socket 连接代理所有操作。
+
+**修改**: `apps/desktop/src/lib/trpc/routers/terminal/index.ts`
 
 | Procedure | Type | 作用 |
 |:----------|:-----|:-----|
-| `getMenu` | query | 返回当前菜单结构（序列化） |
-| `triggerAction` | mutation | 触发菜单项 action（by id） |
+| `createOrAttach` | mutation | 通过 daemon socket 创建/附加 PTY session，返回 `SessionResult` |
+| `write` | mutation | `daemon.write({ sessionId, data })` |
+| `resize` | mutation | `daemon.resize({ sessionId, cols, rows })` |
+| `kill` | mutation | `daemon.kill({ sessionId })` |
+| `listSessions` | query | `daemon.listSessions()` |
+| `detach` | mutation | `daemon.detach({ sessionId })` |
 
-### 3.3 更新 AppRouterDeps
+> **数据流方向**：PTY 输出通过 Socket 推送到 renderer，不走 tRPC query/subscription。renderer 直连 daemon Socket（通过 main process 转发 IPC）。这与 superset 的架构一致。
 
-🔌 Wire — 扩展依赖接口。
+### 4.3 创建 Terminal React 组件
+
+🔧 Implement — 从零创建。
+
+**新建**: `apps/desktop/src/renderer/components/Terminal/Terminal.tsx`
+
+消费同目录已有模块：
+
+```ts
+import { TERMINAL_OPTIONS, withEmojiFontFallback } from "./config";
+import { setupCopyHandler, setupPasteHandler, setupKeyboardHandler } from "./helpers";
+import type { TerminalProps } from "./types";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { trpc } from "../../lib/trpc";
+```
+
+**核心逻辑**：
+1. `useRef` 持有 xterm 实例
+2. `useEffect` mount：创建 XTerm → attach FitAddon → mount 到 DOM → setup copy/paste/keyboard handlers
+3. `trpc.terminal.createOrAttach.useMutation()` 创建 PTY session
+4. xterm `onData` → `trpc.terminal.write.mutate({ sessionId, data })`
+5. PTY 输出 → 通过 preload 暴露的 IPC event 接收 → `xterm.write(data)`
+6. resize → debounced `trpc.terminal.resize.mutate()`
+7. cleanup → `trpc.terminal.detach.mutate()` + xterm.dispose()
+
+### 4.4 PaneContent 接入 Terminal
+
+🧩 Consume
+
+**修改**: `apps/desktop/src/renderer/components/MosaicLayout/PaneContent.tsx`
+
+```diff
++ case TabType.Terminal:
++   return <TerminalContent tab={tab} />;
+```
+
+### 4.5 更新 AppRouterDeps
 
 ```diff
   export interface AppRouterDeps {
@@ -374,349 +525,293 @@ export function buildApplicationMenu(window: BrowserWindow): Menu {
     fsOps: any;
     hotkeyStore: any;
     settingsDb: any;
-+   getWindow: () => BrowserWindow | null;
++   terminalManager: TerminalManager;
   }
 ```
+
+### 验收
+
+- 点击 "New Terminal"（或 Cmd+T）→ 新 tab 打开 → xterm 渲染 → 可输入命令 → 看到输出
+- 多个 terminal tab 独立 session
+- 关闭 tab → session kill
 
 ### Tests
 
 | Layer | Test | File |
 |:------|:-----|:-----|
-| L1 (Unit) | window router procedures 正确委托 BrowserWindow 方法 | `apps/desktop/src/lib/trpc/routers/__tests__/window.test.ts` |
-| L1 (Unit) | menu router procedures 返回预期结构 | `apps/desktop/src/lib/trpc/routers/__tests__/menu.test.ts` |
-| L1 (Unit) | `buildApplicationMenu` 返回合法 Menu | `apps/desktop/src/main/lib/menu/__tests__/index.test.ts` |
+| L1 | Terminal manager fork/connect/write (mock child_process) | `main/lib/terminal/__tests__/index.test.ts` |
+| L1 | Terminal router 正确委托 manager | `lib/trpc/routers/terminal/__tests__/index.test.ts` |
+| L1 | Terminal.tsx render 不 crash (mock xterm) | `renderer/components/Terminal/__tests__/Terminal.test.tsx` |
+| L2 | 创建 session → 写入 → 接收输出 → kill | `main/lib/terminal/__tests__/integration.test.ts` |
 
 ### Commits
 
 ```
-feat: implement window tRPC router with BrowserWindow delegation
-feat: create application menu infrastructure and tRPC router
-refactor: extend AppRouterDeps with getWindow
-test: add window and menu router unit tests
+feat: implement terminal manager (prewarm, reconcile, restart)
+feat: implement terminal tRPC router
+feat: create Terminal.tsx React component with xterm integration
+feat: render Terminal in PaneContent
+test: add terminal stack tests
 ```
 
 ---
 
-## Phase 4: Config & External Routers
+## Phase 5: Implement Remaining Stub Routers
 
-**目标**：config router 提供应用配置读取，external router 提供外部编辑器/Finder 打开功能。
+**目标**：window / config / external / autoUpdate / menu 从 stub 变为真实实现。
 
-### 4.1 Config Router 实现
+这些 router 对 alpha 验收不关键，但对 app 完整性必要。按复杂度从低到高排列。
 
-🔧 Implement — 暴露运行时配置（区别于 settings，config 是 read-only 系统信息）。
+### 5.1 Config Router
 
-**文件**: `apps/desktop/src/lib/trpc/routers/config/index.ts`
+🔧 Implement — 暴露 read-only 系统信息。
+
+**修改**: `apps/desktop/src/lib/trpc/routers/config/index.ts`
 
 | Procedure | Type | 作用 |
 |:----------|:-----|:-----|
 | `getAppVersion` | query | `app.getVersion()` |
 | `getPlatform` | query | `process.platform` |
 | `getDataPath` | query | `app.getPath("userData")` |
-| `getSystemFonts` | query | 列出可用系统字体（for terminal/editor） |
 
-**依赖注入**: 改为工厂函数 `createConfigRouter(getAppInfo: () => AppInfo)`。
+改为工厂函数 `createConfigRouter(getAppInfo)`，在 `AppRouterDeps` 新增 `getAppInfo`。
 
-### 4.2 External Router 实现
+### 5.2 External Router
 
-🔧 Implement — 用 Electron `shell` API 打开外部应用。
+🔧 Implement — Electron `shell` API 打开外部应用。
 
-**文件**: `apps/desktop/src/lib/trpc/routers/external/index.ts`
+**修改**: `apps/desktop/src/lib/trpc/routers/external/index.ts`
 
 | Procedure | Type | 作用 |
 |:----------|:-----|:-----|
-| `openInEditor` | mutation | 按用户 settings 中 `defaultApp` 调用指定编辑器 |
-| `openInTerminal` | mutation | 在外部 terminal 中打开目录 |
 | `openInFinder` | mutation | `shell.showItemInFolder(path)` |
 | `openUrl` | mutation | `shell.openExternal(url)` |
+| `openInEditor` | mutation | 按 settings `defaultApp` 调用指定编辑器 |
+
+### 5.3 Window Router
+
+🔧 Implement — BrowserWindow 控制。
+
+**修改**: `apps/desktop/src/lib/trpc/routers/window.ts`
+
+| Procedure | Type | 作用 |
+|:----------|:-----|:-----|
+| `minimize` | mutation | `win.minimize()` |
+| `maximize` | mutation | toggle maximize/unmaximize |
+| `close` | mutation | `win.close()` |
+| `isMaximized` | query | 返回最大化状态 |
+
+改为工厂函数 `createWindowRouter(getWindow)`，在 `AppRouterDeps` 新增 `getWindow`。
+
+### 5.4 Menu — 从零创建
+
+🔧 Implement — **main process 当前无任何原生菜单基础设施**。
+
+**新建**: `apps/desktop/src/main/lib/menu/index.ts`
+
+```ts
+import { Menu } from "electron";
+
+export function buildApplicationMenu(): Menu {
+  const template = [
+    { role: "appMenu" },
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  ];
+  return Menu.buildFromTemplate(template as Electron.MenuItemConstructorOptions[]);
+}
+```
+
+**修改**: `apps/desktop/src/lib/trpc/routers/menu.ts` — 暴露 `getMenu` query + `triggerAction` mutation。
+
+### 5.5 Auto-Update Router
+
+🔧 Implement — 包装 `electron-updater`。
+
+**修改**: `apps/desktop/src/lib/trpc/routers/auto-update/index.ts`
+
+| Procedure | Type | 作用 |
+|:----------|:-----|:-----|
+| `checkForUpdates` | mutation | `autoUpdater.checkForUpdates()` |
+| `getUpdateInfo` | query | 返回当前更新状态 |
 
 ### Tests
 
-| Layer | Test | File |
-|:------|:-----|:-----|
-| L1 (Unit) | config router 返回正确的平台/版本信息 | `apps/desktop/src/lib/trpc/routers/__tests__/config.test.ts` |
-| L1 (Unit) | external router 正确调用 shell API | `apps/desktop/src/lib/trpc/routers/__tests__/external.test.ts` |
+| Layer | Test |
+|:------|:-----|
+| L1 | 每个 router 的 procedures 正确委托底层 API |
 
 ### Commits
 
 ```
 feat: implement config tRPC router
-feat: implement external tRPC router with shell integration
-test: add config and external router unit tests
-```
-
----
-
-## Phase 5: Terminal — 接通三层架构
-
-**目标**：terminal router 从 stub 变为真实实现，连接 terminal-host daemon + pty-subprocess 架构，创建 Terminal React 组件。
-
-**当前状态**：
-
-- `terminal-host/index.ts` 和 `pty-subprocess.ts` 代码已存在（从 superset 复制）
-- `main/lib/terminal/index.ts` 三个函数全空（`reconcileDaemonSessions` / `prewarmTerminalRuntime` / `restartDaemon`），标注 Phase 6+
-- Terminal router 是 stub
-- **`renderer/components/Terminal/` 只有 helpers/config/types，无 `.tsx` React 组件**（文件顶部标注 "🔴 Phase 5 trimmed: No Terminal.tsx React component yet"）
-
-### 5.1 实现 Terminal Manager
-
-🔧 Implement — 填充 `main/lib/terminal/index.ts` 的三个函数。
-
-**文件**: `apps/desktop/src/main/lib/terminal/index.ts`
-
-| 函数 | 实现 |
-|:-----|:-----|
-| `reconcileDaemonSessions()` | 查找已运行的 daemon 进程，清理孤儿 session |
-| `prewarmTerminalRuntime()` | fork `terminal-host/index.ts` 作为子进程，建立 IPC 通道 |
-| `restartDaemon()` | kill 现有 daemon → 重新 fork |
-
-### 5.2 Terminal Router 实现
-
-🔧 Implement — 把 terminal manager 暴露为 tRPC procedures。
-
-**文件**: `apps/desktop/src/lib/trpc/routers/terminal/index.ts`
-
-| Procedure | Type | 作用 |
-|:----------|:-----|:-----|
-| `create` | mutation | 创建新 PTY session（spawn pty-subprocess） |
-| `write` | mutation | 向指定 session 写入 |
-| `resize` | mutation | 调整 PTY 大小 |
-| `kill` | mutation | 终止 PTY session |
-| `listSessions` | query | 列出活跃 session |
-
-> **关于 Subscription**: `trpc-electron@0.1.2` 已安装，但代码库中零 subscription 使用。Terminal 数据流（`onData` / `onExit`）可先用 IPC event + invalidation 模式实现，后续验证 subscription 支持后再迁移。
-
-### 5.3 创建 Terminal React 组件
-
-🔧 Implement — **从零创建** `Terminal.tsx`（当前不存在），消费已有的 helpers/config/types。
-
-**新建文件**: `apps/desktop/src/renderer/components/Terminal/Terminal.tsx`
-
-```tsx
-// 消费同目录已有模块：
-import { defaultTerminalConfig } from "./config";
-import { setupCopyHandler, setupPasteHandler } from "./helpers";
-import type { TerminalProps } from "./types";
-// 消费 xterm（已在 package.json 中）：
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-// 消费 tRPC：
-import { trpc } from "../../lib/trpc";
-```
-
-**核心逻辑**：
-1. `useRef` 持有 xterm 实例
-2. `useEffect` 创建 xterm → attach FitAddon → mount 到 DOM
-3. `trpc.terminal.create.useMutation()` 创建 PTY session
-4. xterm `onData` → `trpc.terminal.write.mutate()`
-5. PTY 输出 → 通过 IPC event 写入 xterm（先不用 subscription）
-6. resize → `trpc.terminal.resize.mutate()`
-7. cleanup → `trpc.terminal.kill.mutate()`
-
-### 5.4 更新 AppRouterDeps
-
-```diff
-  export interface AppRouterDeps {
-    // ... existing fields
-+   getTerminalManager: () => TerminalManager;
-  }
-```
-
-### Tests
-
-| Layer | Test | File |
-|:------|:-----|:-----|
-| L1 (Unit) | Terminal manager 函数调用 child_process.fork | `apps/desktop/src/main/lib/terminal/__tests__/index.test.ts` |
-| L1 (Unit) | Terminal router procedures 正确委托 manager | `apps/desktop/src/lib/trpc/routers/terminal/__tests__/index.test.ts` |
-| L1 (Unit) | Terminal.tsx render 不 crash（mock xterm） | `apps/desktop/src/renderer/components/Terminal/__tests__/Terminal.test.tsx` |
-| L2 (Integration) | 创建 session → 写入 → 接收输出 → kill | `apps/desktop/src/main/lib/terminal/__tests__/integration.test.ts` |
-
-### Commits
-
-```
-feat: implement terminal manager (reconcile, prewarm, restart)
-feat: implement terminal tRPC router with PTY lifecycle
-feat: create Terminal.tsx React component with xterm integration
-test: add terminal manager, router, and component tests
-```
-
----
-
-## Phase 6: Auto-Update Router
-
-**目标**：接通 Electron auto-updater。
-
-### 6.1 Auto-Update Router 实现
-
-🔧 Implement — 包装 `electron-updater`。
-
-**文件**: `apps/desktop/src/lib/trpc/routers/auto-update/index.ts`
-
-| Procedure | Type | 作用 |
-|:----------|:-----|:-----|
-| `checkForUpdates` | mutation | `autoUpdater.checkForUpdates()` |
-| `downloadUpdate` | mutation | `autoUpdater.downloadUpdate()` |
-| `installAndRestart` | mutation | `autoUpdater.quitAndInstall()` |
-| `getUpdateInfo` | query | 返回当前更新状态/版本信息 |
-
-### Tests
-
-| Layer | Test |
-|:------|:-----|
-| L1 (Unit) | auto-update router 正确调用 autoUpdater API |
-
-### Commits
-
-```
+feat: implement external tRPC router
+feat: implement window tRPC router
+feat: create application menu and implement menu router
 feat: implement auto-update tRPC router
-test: add auto-update router unit tests
+test: add stub router implementation tests
 ```
 
 ---
 
-## Phase 7: Hotkey Persistence
+## Phase 6: Bind Settings & Hotkeys UI to Routers
 
-**目标**：hotkeys 从内存 store 改为 SQLite 持久化。
-
-### 7.1 Hotkey Store 持久化
-
-🔧 Implement — 修改 `createInMemoryHotkeyStore` 为 `createPersistentHotkeyStore(getDb)`。
-
-**文件**: `apps/desktop/src/main/index.ts` (修改 store 创建)
-
-**策略**: 在 settings 表中增加 `customHotkeys` JSON 字段（settings 表是单行设计，天然适合存全量 hotkey 配置）。
-
-### Tests
-
-| Layer | Test |
-|:------|:-----|
-| L1 (Unit) | 持久化 store 写入后重新读取能还原 |
-
-### Commits
-
-```
-feat: persist hotkey customizations to SQLite settings table
-test: add hotkey persistence tests
-```
-
----
-
-## Phase 8: Renderer Wiring — 从 Placeholder 到真实交互
-
-**目标**：renderer 侧的 placeholder 组件全部接通后端 tRPC router，用户能完成完整工作流：添加项目 → 浏览文件 → 打开编辑器 → 使用终端 → 调整设置。
+**目标**：至少 Appearance 和 Terminal 设置页面能真实保存和回读。
 
 **当前状态**：
 
-- Phase 1-7 完成后，所有 12 个 router 后端可用
-- Phase 2 完成后，UI 组件库已消费
-- 但 renderer 仍然是数据空白：sidebar 不调 tRPC，pane 渲染 placeholder，settings 无表单绑定
+- 6 个 settings 页面（`appearance.tsx`, `terminal.tsx`, `behavior.tsx`, `git.tsx`, `keyboard.tsx`, `presets.tsx`）各只有标题 + 一行描述文字，零表单控件
+- 后端已就绪：`settingsTrpcRouter` 有 `get` query + `update` mutation，Zod schema 完整
+- `useSettingsStore` Zustand store 有完整 state 字段和 actions
+- `createInMemoryHotkeyStore()` 有 `list` / `get` / `update` / `reset`
 
-### 8.1 Project & Workspace 列表真实渲染
+### 6.1 Appearance Settings 页面
 
-🧩 Consume — WorkspaceSidebar 接通 projects + workspaces router。
+🧩 Consume
 
-**文件**: `apps/desktop/src/renderer/components/Sidebar/WorkspaceSidebar.tsx`
-
-| 当前 | 替换为 |
-|:-----|:-------|
-| 硬编码 "No projects yet" | `trpc.projects.list.useQuery()` 真实查询 |
-| 空 "Add Project" 按钮 | `Dialog` + `trpc.projects.create.useMutation()` |
-| 无 workspace 列表 | `trpc.workspaces.list.useQuery({ projectId })` |
-
-**路由进入**: 点击 workspace → 更新 Zustand store 的 active workspace → MosaicLayout 根据 active workspace 渲染对应 pane。
-
-### 8.2 File Explorer 消费 filesystem router
-
-🧩 Consume — 替换硬编码 `DEMO_TREE`。
-
-**文件**: `apps/desktop/src/renderer/components/FileExplorer/FileExplorer.tsx`
-
-| 当前 | 替换为 |
-|:-----|:-------|
-| `DEMO_TREE` 常量 | `trpc.filesystem.listDirectory.useQuery({ workspacePath, path: "/" })` |
-| 静态展开 | 惰性加载：点击文件夹 → `listDirectory` 子目录 |
-| `onFileSelect` 未实现 | 打开文件 → `trpc.filesystem.readFile` → 推入 tab store → PaneContent 渲染 editor |
-
-### 8.3 PaneContent 渲染真实组件
-
-🧩 Consume — 替换 `PlaceholderContent`。
-
-**文件**: `apps/desktop/src/renderer/components/MosaicLayout/PaneContent.tsx`
-
-| TabType | 当前 | 替换为 |
-|:--------|:-----|:-------|
-| `Welcome` | ✅ "Welcome to Signoff" | 保持（后续可美化） |
-| `Editor` | `PlaceholderContent` | `<CodeEditor>` 组件（已存在于 `components/Editor/CodeEditor.tsx`） |
-| `Terminal` | `PlaceholderContent` | `<Terminal>` 组件（Phase 5 创建） |
-| `Diff` | `PlaceholderContent` | Git diff viewer（消费 changes router） |
-
-**CodeEditor 接通**: `CodeEditor.tsx` 已存在且有 CodeMirror 6 集成。需要把 tab 中的 `filePath` 传给 editor → `trpc.filesystem.readFile` 获取内容 → CodeMirror 渲染 → 保存时 `trpc.filesystem.writeFile`。
-
-### 8.4 Settings 表单绑定 tRPC
-
-🧩 Consume — 6 个 settings 页面绑定到 settings + hotkeys router。
-
-**文件**: `apps/desktop/src/renderer/routes/_dashboard/settings/` 下所有页面
-
-**通用模式**:
+**修改**: `apps/desktop/src/renderer/routes/_dashboard/settings/appearance.tsx`
 
 ```tsx
 function AppearanceSettings() {
   const { data: settings } = trpc.settings.get.useQuery();
-  const update = trpc.settings.update.useMutation();
+  const update = trpc.settings.update.useMutation({
+    onSuccess: () => utils.settings.get.invalidate(),
+  });
 
   return (
     <Card>
-      <CardContent>
-        <div className="space-y-4">
-          <Field label="Font Family">
-            <Select
-              value={settings?.editorFontFamily}
-              onValueChange={(v) => update.mutate({ editorFontFamily: v })}
-            />
-          </Field>
-          <Field label="Font Size">
-            <Input
-              type="number"
-              value={settings?.editorFontSize}
-              onChange={(e) => update.mutate({ editorFontSize: +e.target.value })}
-            />
-          </Field>
-        </div>
+      <CardContent className="space-y-6">
+        <Field label="Editor Font Family">
+          <Input
+            value={settings?.editorFontFamily ?? ""}
+            onChange={(e) => update.mutate({ editorFontFamily: e.target.value })}
+          />
+        </Field>
+        <Field label="Editor Font Size">
+          <Input
+            type="number"
+            value={settings?.editorFontSize ?? 14}
+            onChange={(e) => update.mutate({ editorFontSize: +e.target.value })}
+          />
+        </Field>
+        {/* theme selector, etc. */}
       </CardContent>
     </Card>
   );
 }
 ```
 
-**6 个页面映射**:
+### 6.2 Terminal Settings 页面
 
-| Page | Router | 关键字段 |
-|:-----|:-------|:---------|
-| Appearance | settings | editorFontFamily, editorFontSize, theme |
-| Terminal | settings | terminalFontFamily, terminalFontSize, terminalLineHeight |
-| Behavior | settings | fileOpenMode, executionMode, branchPrefixMode |
-| Git | settings | defaultBranch, branchPrefix |
-| Keyboard | hotkeys | 快捷键列表，支持编辑 |
-| Presets | settings | terminalPresets (JSON) |
+🧩 Consume — 同模式绑定 `terminalFontFamily`, `terminalFontSize`, `terminalLineHeight` 等字段。
+
+### 6.3 Keyboard Settings 页面
+
+🧩 Consume — `trpc.hotkeys.list.useQuery()` → 渲染快捷键列表 → 点击编辑 → `trpc.hotkeys.update.useMutation()`。
+
+### 6.4 其余页面
+
+🧩 Consume — Behavior（`fileOpenMode`, `executionMode`）、Git（`defaultBranch`, `branchPrefix`）、Presets（`terminalPresets` JSON）。按同模式绑定。
+
+### 验收
+
+- 打开 Settings → Appearance → 修改 font size → 回到编辑器 → 字体变化
+- 重启 app → 设置持久化
 
 ### Tests
 
-| Layer | Test | File |
-|:------|:-----|:-----|
-| L1 (Unit) | WorkspaceSidebar 接 tRPC 后 render project list | `...Sidebar/__tests__/WorkspaceSidebar.test.tsx` |
-| L1 (Unit) | FileExplorer 接 tRPC 后 render directory tree | `...FileExplorer/__tests__/FileExplorer.test.tsx` |
-| L1 (Unit) | PaneContent 按 TabType 渲染正确组件 | `...MosaicLayout/__tests__/PaneContent.test.tsx` |
-| L1 (Unit) | Settings 表单 onChange 触发 mutation | `...settings/__tests__/appearance.test.tsx` |
-| L2 (Integration) | 添加项目 → sidebar 更新 → 点击 → 文件树加载 | `apps/desktop/src/renderer/__tests__/project-flow.test.tsx` |
+| Layer | Test |
+|:------|:-----|
+| L1 | Settings 页面 onChange 触发 mutation (mock tRPC) |
+| L2 | 修改 setting → query 返回新值 |
 
 ### Commits
 
 ```
-feat: wire WorkspaceSidebar to projects and workspaces tRPC router
-feat: wire FileExplorer to filesystem tRPC router with lazy loading
-feat: render CodeEditor and Terminal in PaneContent by TabType
-feat: bind settings forms to settings and hotkeys tRPC router
-test: add renderer wiring integration tests
+feat: bind appearance settings page to settings tRPC router
+feat: bind terminal settings page to settings tRPC router
+feat: bind keyboard settings page to hotkeys tRPC router
+feat: bind remaining settings pages
+test: add settings UI binding tests
+```
+
+---
+
+## Phase 7: Consume @signoff/ui
+
+**目标**：统一 UI 组件，将手写 HTML 替换为 `@signoff/ui` shadcn 组件。
+
+这是 polish phase，不影响功能验收，但提升一致性。
+
+### 7.1 验证 import 路径
+
+🧩 Consume — 确认 `import { Button } from "@signoff/ui/button"` 在 electron-vite renderer 中可解析。
+
+### 7.2 Sidebar 组件替换
+
+| 手写元素 | 替换为 |
+|:---------|:-------|
+| `<button className="...">` | `<Button variant="ghost" size="icon">` |
+| `<div className="overflow-auto">` | `<ScrollArea>` |
+| `<div className="h-px">` | `<Separator />` |
+| `title` attr | `<Tooltip>` |
+
+### 7.3 Settings 页面组件替换
+
+Phase 6 中的表单已使用 shadcn 组件。这里补全：
+
+| 场景 | 组件 |
+|:-----|:-----|
+| 确认危险操作 | `AlertDialog` |
+| 新建 project | `Dialog` |
+| 侧边属性面板 | `Sheet` |
+
+### 7.4 MosaicLayout TabBar
+
+🧩 Consume — TabBar 中的手写 tab 按钮替换为 shadcn Tabs 或保持自定义（视视觉需求）。
+
+### Commits
+
+```
+refactor: consume @signoff/ui in WorkspaceSidebar
+refactor: consume @signoff/ui in ContentSidebar
+refactor: consume @signoff/ui in Settings pages
+refactor: consume @signoff/ui Dialog/Sheet globally
+```
+
+---
+
+## Phase 8: Persistence, Subscriptions, E2E
+
+**目标**：补全非关键路径的持久化和通信优化。
+
+### 8.1 Hotkey Persistence
+
+🔧 Implement — `createInMemoryHotkeyStore` → `createPersistentHotkeyStore(getDb)`。
+
+在 settings 表新增 `customHotkeys` JSON column（settings 表是单行设计，适合追加列）。
+
+### 8.2 tRPC Subscription 评估
+
+🔧 Implement — 验证 `trpc-electron@0.1.2` 对 subscription 的支持。如果支持：
+
+- Terminal `onData` 从 IPC event 迁移到 subscription
+- Window `onMaximizedChange` 用 subscription
+
+如果不支持：保持 IPC event 模式，记录为 tech debt。
+
+### 8.3 E2E Smoke Test
+
+🔧 Implement — Playwright/Spectron 级别的 E2E：启动 app → 添加 project → 打开文件 → 编辑 → 保存 → 开 terminal。
+
+### Commits
+
+```
+feat: persist hotkey customizations to SQLite
+chore: evaluate trpc-electron subscription support
+test: add e2e smoke test for alpha workflow
 ```
 
 ---
@@ -724,40 +819,39 @@ test: add renderer wiring integration tests
 ## Execution Order & Dependencies
 
 ```
-Phase 0 (Native Rebuild)      ← 无依赖，必须先做（否则 dev 无法启动）
+Phase 0 (Unblock Runtime)           ← 必须先做，否则无法验证任何代码
     ↓
-Phase 1 (Filesystem)  ┐
-Phase 2 (UI Components)├──── 可并行，Phase 0 完成后立即开始
-                       ┘
+Phase 1 (Filesystem)                ← Phase 0 完成后立即开始
     ↓
-Phase 3 (Window/Menu)     ← 依赖 Phase 1 的 AppRouterDeps 扩展模式
+Phase 2 (Project/Workspace in UI)   ← 依赖 Phase 1 的 filesystem 基础
     ↓
-Phase 4 (Config/External) ← 同理
+Phase 3 (Real Pane Content)         ← 依赖 Phase 1 (filesystem) + Phase 2 (project context)
     ↓
-Phase 5 (Terminal)    ┐
-Phase 6 (Auto-Update) ├──── 可并行
-Phase 7 (Hotkey)      ┘
+Phase 4 (Terminal)                  ← 独立于 Phase 2/3，但排在后面因为复杂度高
     ↓
-Phase 8 (Renderer Wiring)     ← 依赖 Phase 1-7 全部完成（后端就绪）
-                                 依赖 Phase 2（UI 组件已消费）
+Phase 5 (Stub Routers)       ┐
+Phase 6 (Settings Binding)   ├──── 可并行，互不依赖
+Phase 7 (UI Polish)          ┘
+    ↓
+Phase 8 (Persistence/E2E)          ← 最后做
 ```
+
+**Alpha 验收点**: Phase 0-4 完成后，6 个验收标准中的前 5 个已满足。Phase 6 完成后满足第 6 个。
 
 ---
 
 ## AppRouterDeps 最终形态
-
-完成所有 Phase 后，`AppRouterDeps` 应从 `any` 进化为类型安全接口：
 
 ```ts
 export interface AppRouterDeps {
   getDb: () => BunSQLiteDatabase<typeof schema>;
   getGit: (cwd?: string) => SimpleGit;
   fsOps: FsAdapter;                              // Phase 1
-  hotkeyStore: HotkeyStore;                      // Phase 7: persistent
+  hotkeyStore: HotkeyStore;                      // Phase 8: persistent
   settingsDb: SettingsDbOps;
-  getWindow: () => BrowserWindow | null;          // Phase 3
-  getTerminalManager: () => TerminalManager;      // Phase 5
-  getAppInfo: () => AppInfo;                      // Phase 4
+  getWindow: () => BrowserWindow | null;          // Phase 5
+  terminalManager: TerminalManager;               // Phase 4
+  getAppInfo: () => AppInfo;                      // Phase 5
 }
 ```
 
@@ -767,9 +861,9 @@ export interface AppRouterDeps {
 
 | # | Assumption | Impact if wrong | Mitigation |
 |:--|:-----------|:----------------|:-----------|
-| A1 | `createFsHostService({ rootPath })` 接受绝对路径作为 rootPath | Phase 1 adapter 拼接逻辑不对 | 读 `host/service.ts` 确认内部如何使用 rootPath |
-| A2 | Filesystem router 的 `{ workspacePath, path }` 签名需要 adapter 拼接为绝对路径 | 若 FsHostService 自己拼接则 adapter 多此一举 | 对照 router Zod schema 和 FsService 方法签名 |
-| A3 | terminal-host daemon IPC 协议已定义（从 superset 复制的代码） | Phase 5 需要匹配协议 | 读 `terminal-host/index.ts` 确认消息格式 |
-| A4 | electron-vite 能解析 `@signoff/ui/*` wildcard exports | Phase 2 第一步就会暴露 | 2.1 验证步骤会立即发现 |
-| A5 | `trpc-electron@0.1.2` 不支持 tRPC subscription | Terminal 数据流需用 IPC event 替代 | Phase 5 用 mutation + IPC event 模式，后续可迁移 |
-| A6 | `postinstall` script 在 CI (`bun install`) 中也会执行 | CI 环境无 Electron headers 可能 fail | 脚本内检测 `better-sqlite3` 是否存在，不存在则 skip |
+| A1 | `FsEntry` 的 `kind` 字段值为 `"directory"` / `"file"` / `"symlink"` | Phase 1 adapter 映射错误 | 读 `packages/workspace-fs/src/types.ts` 确认 |
+| A2 | `FsReadResult` 包含 `content: string` + `encoding: string` 字段 | Phase 1 readFile adapter 映射错误 | 同上 |
+| A3 | Terminal daemon 通信走 Unix socket（非 tRPC），renderer 需要 IPC 转发 | Phase 4 架构设计不对 | 读 `terminal-host/index.ts` 的 `net.createServer` 入口确认 |
+| A4 | `postinstall` 在 CI `bun install` 中也会执行 | CI 环境可能无 Electron headers | 脚本内检测 `binding.gyp` 是否存在，不存在则 skip |
+| A5 | electron-vite 能解析 `@signoff/ui/*` wildcard exports | Phase 7 阻塞 | Phase 7 第一步验证 |
+| A6 | `trpc-electron@0.1.2` 不支持 subscription | Terminal/window 实时事件需 IPC fallback | Phase 8 验证 |
