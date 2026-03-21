@@ -42,13 +42,16 @@ describe("getMetadata", () => {
 		const meta = await getMetadata({ rootPath, absolutePath: filePath });
 
 		expect(meta).not.toBeNull();
-		expect(meta!.kind).toEqual("file");
-		expect(meta!.size).toBeGreaterThan(0);
-		expect(meta!.revision).toBeTruthy();
+		expect(meta?.kind).toEqual("file");
+		expect(meta?.size).toBeGreaterThan(0);
+		expect(meta?.revision).toBeTruthy();
 		// Dates should be valid ISO strings
-		expect(new Date(meta!.createdAt!).toISOString()).toEqual(meta!.createdAt);
-		expect(new Date(meta!.modifiedAt!).toISOString()).toEqual(meta!.modifiedAt);
-		expect(new Date(meta!.accessedAt!).toISOString()).toEqual(meta!.accessedAt);
+		const createdAt = meta?.createdAt ?? "";
+		const modifiedAt = meta?.modifiedAt ?? "";
+		const accessedAt = meta?.accessedAt ?? "";
+		expect(new Date(createdAt).toISOString()).toEqual(createdAt);
+		expect(new Date(modifiedAt).toISOString()).toEqual(modifiedAt);
+		expect(new Date(accessedAt).toISOString()).toEqual(accessedAt);
 	});
 
 	test("returns metadata for a directory", async () => {
@@ -59,7 +62,7 @@ describe("getMetadata", () => {
 		const meta = await getMetadata({ rootPath, absolutePath: dirPath });
 
 		expect(meta).not.toBeNull();
-		expect(meta!.kind).toEqual("directory");
+		expect(meta?.kind).toEqual("directory");
 	});
 
 	test("returns null for a non-existent path", async () => {
@@ -84,8 +87,8 @@ describe("getMetadata", () => {
 		const meta = await getMetadata({ rootPath, absolutePath: linkPath });
 
 		expect(meta).not.toBeNull();
-		expect(meta!.kind).toEqual("symlink");
-		expect(meta!.symlinkTarget).toEqual(targetPath);
+		expect(meta?.kind).toEqual("symlink");
+		expect(meta?.symlinkTarget).toEqual(targetPath);
 	});
 });
 

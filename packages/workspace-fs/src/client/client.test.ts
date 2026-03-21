@@ -7,7 +7,7 @@ function createMockTransport() {
 		calls,
 		request: async (method: string, input: unknown) => {
 			calls.push({ type: "request", method, input });
-			return {} as any;
+			return {} as never;
 		},
 		subscribe: (method: string, input: unknown) => {
 			calls.push({ type: "subscribe", method, input });

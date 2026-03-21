@@ -35,7 +35,7 @@ interface AsyncQueueState<T> {
 	cleanup: (() => Promise<void>) | null;
 }
 
-function createAsyncQueue<T>(
+export function createAsyncQueue<T>(
 	subscribe: (push: (value: T) => void) => Promise<() => Promise<void>>,
 ): AsyncIterable<T> {
 	const state: AsyncQueueState<T> = {

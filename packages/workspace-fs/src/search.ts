@@ -142,7 +142,7 @@ function parseGlobPatterns(input: string): string[] {
 		.filter((pattern) => pattern.length > 0);
 }
 
-function normalizePathForGlob(input: string): string {
+export function normalizePathForGlob(input: string): string {
 	let normalized = input.replace(/\\/g, "/");
 	if (normalized.startsWith("./")) {
 		normalized = normalized.slice(2);
@@ -153,7 +153,7 @@ function normalizePathForGlob(input: string): string {
 	return normalized;
 }
 
-function normalizeGlobPattern(pattern: string): string {
+export function normalizeGlobPattern(pattern: string): string {
 	let normalized = normalizePathForGlob(pattern);
 	if (normalized.endsWith("/")) {
 		normalized = `${normalized}**`;
@@ -168,7 +168,7 @@ function escapeRegexCharacter(character: string): string {
 	return character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
-function globToRegExp(pattern: string): RegExp {
+export function globToRegExp(pattern: string): RegExp {
 	const normalizedPattern = normalizeGlobPattern(pattern);
 	let regex = "^";
 
@@ -217,7 +217,7 @@ function globToRegExp(pattern: string): RegExp {
 
 const defaultIgnoreMatchers = DEFAULT_IGNORE_PATTERNS.map(globToRegExp);
 
-function createPathFilterMatcher({
+export function createPathFilterMatcher({
 	includePattern,
 	excludePattern,
 }: {
@@ -234,7 +234,7 @@ function createPathFilterMatcher({
 	};
 }
 
-function matchesPathFilters(
+export function matchesPathFilters(
 	relativePath: string,
 	matcher: PathFilterMatcher,
 ): boolean {
@@ -344,7 +344,7 @@ function safeSearchLimit(limit: number | undefined): number {
 	return Math.max(1, Math.min(limit ?? 20, MAX_SEARCH_RESULTS));
 }
 
-function isBinaryContent(buffer: Buffer): boolean {
+export function isBinaryContent(buffer: Buffer): boolean {
 	const checkLength = Math.min(buffer.length, BINARY_CHECK_SIZE);
 	for (let index = 0; index < checkLength; index++) {
 		if (buffer[index] === 0) {
@@ -354,7 +354,7 @@ function isBinaryContent(buffer: Buffer): boolean {
 	return false;
 }
 
-function formatPreviewLine(line: string): string {
+export function formatPreviewLine(line: string): string {
 	const normalized = line.trim();
 	if (!normalized) {
 		return "";
@@ -365,7 +365,7 @@ function formatPreviewLine(line: string): string {
 	return `${normalized.slice(0, MAX_PREVIEW_LENGTH - 3)}...`;
 }
 
-function rankContentMatches(
+export function rankContentMatches(
 	matches: InternalContentMatch[],
 	query: string,
 	limit: number,
@@ -406,7 +406,7 @@ async function defaultRunRipgrep(
 	return { stdout: result.stdout };
 }
 
-async function searchContentWithRipgrep({
+export async function searchContentWithRipgrep({
 	rootPath,
 	query,
 	includeHidden,
@@ -656,7 +656,7 @@ function shouldIndexRelativePath(
 	return !defaultIgnoreMatchers.some((matcher) => matcher.test(normalizedPath));
 }
 
-function applySearchPatchEvent({
+export function applySearchPatchEvent({
 	itemsByPath,
 	rootPath,
 	includeHidden,

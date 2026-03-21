@@ -277,7 +277,9 @@ export function reconcileRenameEvents(
 	return reconciled;
 }
 
-function internalToFsWatchEvent(event: InternalWatchEvent): FsWatchEvent {
+export function internalToFsWatchEvent(
+	event: InternalWatchEvent,
+): FsWatchEvent {
 	return {
 		kind: event.kind,
 		absolutePath: event.absolutePath,
@@ -285,7 +287,7 @@ function internalToFsWatchEvent(event: InternalWatchEvent): FsWatchEvent {
 	};
 }
 
-function internalToSearchPatchEvent(
+export function internalToSearchPatchEvent(
 	event: InternalWatchEvent,
 ): SearchPatchEvent | null {
 	if (event.kind === "overflow") {

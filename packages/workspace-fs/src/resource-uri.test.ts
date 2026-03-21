@@ -34,4 +34,56 @@ describe("workspace fs resource uri", () => {
 			absolutePath: "c:/Users/Kietho/project/README.md",
 		});
 	});
+
+	it("handles empty absolute path", () => {
+		const resourceUri = toWorkspaceFsResourceUri({
+			workspaceId: "ws",
+			absolutePath: "",
+		});
+		expect(resourceUri).toBe("workspace-fs://ws/");
+	});
+
+	it("handles UNC paths (// prefix)", () => {
+		const resourceUri = toWorkspaceFsResourceUri({
+			workspaceId: "ws",
+			absolutePath: "//server/share/file.txt",
+		});
+		const parsed = parseWorkspaceFsResourceUri(resourceUri);
+		expect(parsed?.absolutePath).toBe("//server/share/file.txt");
+	});
+
+	it("handles .. segments (parent directory traversal)", () => {
+		const resourceUri = toWorkspaceFsResourceUri({
+			workspaceId: "ws",
+			absolutePath: "/root/a/b/../c/file.ts",
+		});
+		const parsed = parseWorkspaceFsResourceUri(resourceUri);
+		expect(parsed?.absolutePath).toBe("/root/a/c/file.ts");
+	});
+
+	it("handles Windows drive letter with leading slash", () => {
+		const resourceUri = toWorkspaceFsResourceUri({
+			workspaceId: "ws",
+			absolutePath: "/D:/projects/file.ts",
+		});
+		const parsed = parseWorkspaceFsResourceUri(resourceUri);
+		expect(parsed?.absolutePath).toBe("d:/projects/file.ts");
+	});
+
+	it("handles bare Windows drive letter", () => {
+		const resourceUri = toWorkspaceFsResourceUri({
+			workspaceId: "ws",
+			absolutePath: "E:/data",
+		});
+		const parsed = parseWorkspaceFsResourceUri(resourceUri);
+		expect(parsed?.absolutePath).toBe("e:/data");
+	});
+
+	it("returns null for non-matching scheme", () => {
+		expect(parseWorkspaceFsResourceUri("http://example.com")).toBeNull();
+	});
+
+	it("returns null for uri without path after workspace id", () => {
+		expect(parseWorkspaceFsResourceUri("workspace-fs://ws")).toBeNull();
+	});
 });
