@@ -40,6 +40,9 @@ export const DEFAULT_WINDOW = {
 	MIN_HEIGHT: 400,
 } as const;
 
+/** Default terminal scrollback lines */
+export const DEFAULT_TERMINAL_SCROLLBACK = 10_000;
+
 /** File names for persistent state */
 export const STATE_FILES = {
 	/** App state (lowdb JSON) */
