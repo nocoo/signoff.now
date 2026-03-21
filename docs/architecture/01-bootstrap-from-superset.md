@@ -883,7 +883,19 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass | ✅ `a796614` |
 | 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` — trimmed ai-elements/, next-themes | L2+L3: lint + typecheck pass | ✅ `456b8e6` |
 
-**Phase 2 Gate:** `bun run test:ci` (466 tests pass, coverage ≥ 90%) + `bun run lint` + `bun run typecheck` ✅ All pass
+**Phase 2 Review fixes:**
+
+| Commit | Description |
+|:---|:---|
+| `a83b406` | `fix: enforce coverage gate on workspace-fs via check-coverage.ts` — workspace-fs was bypassing the unified L1 coverage gate |
+| `4b8bae0` | `fix: trim local-db cloud/browser remnants and regenerate migration` — removed `neonProjectId`, `notificationSoundsMuted`, `browserHistory` table |
+| `8d6529b` | `test: add schema-migration consistency test for local-db` — 12 tests to catch schema/migration drift |
+| `07ab96a` | `test: add pure function tests for workspace-fs package` — partial coverage improvement |
+| `1bd7daf` | `test: bring workspace-fs coverage to 91% and unify all gates` — 136 tests, removed `--threshold 50` override, all 4 packages use 90% gate |
+| `f5c6879` | `fix: remove stale bun-test type stub and add bun-types to workspace-fs` — superset-era `bun-test.d.ts` shadowed bun-types Expect interface |
+| `461158a` | `chore: remove phantom coverage output declarations from turbo tasks` — `turbo.jsonc` test/test:ci outputs `[]` instead of `coverage/**` |
+
+**Phase 2 Gate:** `bun run test:ci` (586 tests pass, coverage ≥ 90%) + `bun run lint` (126 files, 0 diagnostics) + `bun run typecheck` (0 errors) ✅ All pass
 
 ---
 
