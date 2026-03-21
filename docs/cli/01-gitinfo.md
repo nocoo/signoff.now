@@ -22,7 +22,7 @@ Supports **standard non-bare working tree repositories only**. The following lay
 - Bare repositories (`git init --bare`)
 - Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
 
-**Git worktrees** (`git worktree add`) are **not a supported target layout**. If invoked inside a linked worktree, behavior is undefined — git commands may resolve paths to the main working tree's `.git` dir, and fields like `repoRoot`, `hooks`, `gitDirSizeKiB`, and `repoState` may report values from the main tree rather than the linked worktree. The `config.worktreeCount` field reflects `git worktree list` output but exists for informational purposes only.
+**Git worktrees** (`git worktree add`) are **not a supported target layout**. If invoked inside a linked worktree, behavior is undefined for fields that access `.git/` via `FsReader` — in linked worktrees, `.git` is a file (containing `gitdir: <path>`) not a directory, so `FsReader` calls that assume `.git/` is a directory (e.g., `hooks`, `gitDirSizeKiB`, `repoState`) will fail or return incorrect results. Standard git commands (including `git rev-parse --show-toplevel` for `repoRoot`) work correctly in linked worktrees. The `config.worktreeCount` field reflects `git worktree list` output but exists for informational purposes only.
 
 ### Empty repository handling
 
@@ -153,7 +153,7 @@ apps/gitinfo/
     │   ├── core/
     │   │   ├── meta.ts                   # Repo root, name, remotes, HEAD, git version
     │   │   ├── meta.test.ts
-    │   │   ├── status.ts                 # Working tree: staged/modified/untracked, repo state
+    │   │   ├── status.ts                 # Working tree: staged/modified/untracked, stash, repo state
     │   │   ├── status.test.ts
     │   │   ├── branches.ts               # Branch list, tracking, ahead/behind, merged
     │   │   ├── branches.test.ts
@@ -165,7 +165,7 @@ apps/gitinfo/
     │   │   ├── tags.test.ts
     │   │   ├── files.ts                  # Tracked count, type dist, largest, churn (slow)
     │   │   ├── files.test.ts
-    │   │   ├── config.ts                 # .git size, objects, hooks, stash, worktrees, config
+    │   │   ├── config.ts                 # .git size, objects, hooks, worktrees, config
     │   │   └── config.test.ts
     │   ├── collectors/
     │   │   ├── types.ts                  # Collector<T> interface, CollectorTier
@@ -228,7 +228,7 @@ interface GitInfoReport {
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
 | `firstCommitAuthorDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** this is the root commit's author date, which can be rewritten or forged — it is not a reliable "repo creation timestamp" |
 
-> **Note:** `isBare` is not a report field. It is checked at startup as a guard: if `git rev-parse --is-bare-repository` returns `true`, gitinfo exits with an error message ("bare repositories are not supported"). See [Scope](#scope).
+> **Note:** `isBare` is not a report field. It is checked at startup as a guard **before** resolving `repoRoot` — if `git rev-parse --is-bare-repository` returns `true`, gitinfo exits with an error message ("bare repositories are not supported"). This must run first because `git rev-parse --show-toplevel` (used for `repoRoot`) fatals in a bare repository. See [Scope](#scope) and [Bootstrap](#bootstrap-before-collectors-run).
 
 ### Section: Status
 
@@ -239,7 +239,7 @@ interface GitInfoReport {
 | `untracked` | `string[]` | instant | `git status --porcelain=v2` |
 | `conflicted` | `string[]` | instant | `git status --porcelain=v2` |
 | `stashCount` | `number` | instant | `git stash list` → count lines in TypeScript |
-| `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `.git/MERGE_HEAD`, `.git/rebase-merge`, `.git/rebase-apply`, `.git/CHERRY_PICK_HEAD`, `.git/BISECT_LOG`, `.git/REVERT_HEAD` |
+| `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `join(repoRoot, ".git", "MERGE_HEAD")`, `join(repoRoot, ".git", "rebase-merge")`, `join(repoRoot, ".git", "rebase-apply")`, `join(repoRoot, ".git", "CHERRY_PICK_HEAD")`, `join(repoRoot, ".git", "BISECT_LOG")`, `join(repoRoot, ".git", "REVERT_HEAD")` |
 
 ### Section: Branches
 
@@ -302,10 +302,10 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(".git")` (wraps `du -sk` internally) |
+| `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(join(repoRoot, ".git"))` (wraps `du -sk` internally) |
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
 | `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript |
-| `hooks` | `string[]` | instant | `FsReader.readdir(".git/hooks")` → filter out `.sample` files; also check `git config core.hooksPath` for custom hooks dir |
+| `hooks` | `string[]` | instant | `FsReader.readdir(join(repoRoot, ".git", "hooks"))` → filter out `.sample` files; also check `git config core.hooksPath` for custom hooks dir |
 | `localConfig` | `Record<string, string[]>` | instant | `git config --local --list` → group by key; values array to preserve multi-value keys |
 
 ---
@@ -430,9 +430,14 @@ Some values are prerequisites for the collector system, not outputs of it. These
 // Bootstrap commands use cwd = --cwd flag value or process.cwd()
 // After repoRoot is resolved, all subsequent commands use cwd = repoRoot
 const targetDir = opts.cwd ?? process.cwd();
+
+// 1. Bare guard FIRST — git rev-parse --show-toplevel fatals in bare repos,
+//    so we must detect and reject bare repos before calling it.
+await guardNotBare(exec, targetDir);               // git rev-parse --is-bare-repository (cwd = targetDir); exit if "true"
+
+// 2. Now safe to resolve working tree root
 const repoRoot = await getRepoRoot(exec, targetDir); // git rev-parse --show-toplevel (cwd = targetDir)
 const hasHead = await checkHasHead(exec, repoRoot);  // git rev-parse --verify HEAD (cwd = repoRoot)
-const isBare = await checkIsBare(exec, repoRoot);    // guard: exit if bare (cwd = repoRoot)
 ```
 
 `repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths against `ctx.repoRoot`. All `CommandExecutor` calls in collectors pass `{ cwd: ctx.repoRoot }` in options.
