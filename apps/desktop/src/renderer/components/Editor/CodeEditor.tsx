@@ -17,7 +17,8 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { useEffect, useRef } from "react";
-import { detectLanguage, loadLanguage } from "./languages";
+import { loadLanguage } from "./language-loader";
+import { detectLanguage } from "./languages";
 
 export interface CodeEditorProps {
 	/** File content to display. */

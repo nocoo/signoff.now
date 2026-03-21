@@ -118,6 +118,30 @@ describe("changes router", () => {
 			expect(untracked).toHaveLength(1);
 		});
 
+		it("maps added, deleted, and renamed statuses", async () => {
+			(mockGit.status as ReturnType<typeof mock>).mockImplementation(() =>
+				Promise.resolve({
+					files: [
+						{ path: "added.ts", index: "A", working_dir: " " },
+						{ path: "deleted.ts", index: "D", working_dir: " " },
+						{ path: "renamed.ts", index: "R", working_dir: " " },
+					],
+					staged: [],
+					modified: [],
+					not_added: [],
+					current: "main",
+					tracking: null,
+				}),
+			);
+
+			const result = await router.status({ workspacePath: "/test/repo" });
+			expect(result.files[0].status).toBe("added");
+			expect(result.files[0].staged).toBe(true);
+			expect(result.files[1].status).toBe("deleted");
+			expect(result.files[2].status).toBe("renamed");
+			expect(result.tracking).toBeNull();
+		});
+
 		it("passes workspace path to simple-git", async () => {
 			await router.status({ workspacePath: "/test/repo" });
 			expect(mockGit.status).toHaveBeenCalledTimes(1);
@@ -196,6 +220,22 @@ describe("changes router", () => {
 
 			expect(result.hash).toBe("abc1234");
 			expect(mockGit.commit).toHaveBeenCalledTimes(1);
+		});
+
+		it("handles commit with null summary", async () => {
+			(mockGit.commit as ReturnType<typeof mock>).mockImplementation(() =>
+				Promise.resolve({ commit: "def5678", summary: null }),
+			);
+			const result = await router.commit({
+				workspacePath: "/test/repo",
+				message: "msg",
+			});
+			expect(result.hash).toBe("def5678");
+			expect(result.summary).toEqual({
+				changes: 0,
+				insertions: 0,
+				deletions: 0,
+			});
 		});
 	});
 

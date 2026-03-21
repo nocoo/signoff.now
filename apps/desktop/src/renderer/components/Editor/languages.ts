@@ -1,11 +1,9 @@
 /**
  * Language detection — maps file extensions to CodeMirror language support.
  *
- * Pure function for easy testing. Returns a LanguageSupport instance
+ * Pure function for easy testing. Returns a language identifier
  * or null for unrecognized extensions.
  */
-
-import type { LanguageSupport } from "@codemirror/language";
 
 /** Supported language identifiers. */
 export type LanguageId =
@@ -52,58 +50,4 @@ export function detectLanguage(filename: string): LanguageId | null {
 	};
 
 	return map[ext] ?? null;
-}
-
-/**
- * Lazily load the CodeMirror language extension for a given language ID.
- * Returns null for unsupported languages.
- */
-export async function loadLanguage(
-	langId: LanguageId,
-): Promise<LanguageSupport | null> {
-	switch (langId) {
-		case "javascript":
-		case "jsx": {
-			const { javascript } = await import("@codemirror/lang-javascript");
-			return javascript({ jsx: langId === "jsx" });
-		}
-		case "typescript":
-		case "tsx": {
-			const { javascript } = await import("@codemirror/lang-javascript");
-			return javascript({
-				jsx: langId === "tsx",
-				typescript: true,
-			});
-		}
-		case "python": {
-			const { python } = await import("@codemirror/lang-python");
-			return python();
-		}
-		case "json": {
-			const { json } = await import("@codemirror/lang-json");
-			return json();
-		}
-		case "markdown": {
-			const { markdown } = await import("@codemirror/lang-markdown");
-			return markdown();
-		}
-		case "html": {
-			const { html } = await import("@codemirror/lang-html");
-			return html();
-		}
-		case "css": {
-			const { css } = await import("@codemirror/lang-css");
-			return css();
-		}
-		case "yaml": {
-			const { yaml } = await import("@codemirror/lang-yaml");
-			return yaml();
-		}
-		case "sql": {
-			const { sql } = await import("@codemirror/lang-sql");
-			return sql();
-		}
-		default:
-			return null;
-	}
 }
