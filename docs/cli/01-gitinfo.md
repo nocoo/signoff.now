@@ -304,8 +304,8 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 |-------|------|------|-------------|
 | `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(join(repoRoot, ".git"))` (wraps `du -sk` internally) |
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
-| `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript |
-| `hooks` | `string[]` | instant | `FsReader.readdir(join(repoRoot, ".git", "hooks"))` → filter out `.sample` files; also check `git config core.hooksPath` for custom hooks dir |
+| `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript. **Includes the main working tree** — a repo with no linked worktrees returns 1, not 0 |
+| `hooks` | `string[]` | instant | First check `git config core.hooksPath`: if set, use that directory (resolved against `repoRoot` if relative); if not set, fall back to `join(repoRoot, ".git", "hooks")`. Read **only the effective directory** via `FsReader.readdir()` → filter out `.sample` files. Do **not** merge both directories — Git ignores `.git/hooks` when `core.hooksPath` is configured |
 | `localConfig` | `Record<string, string[]>` | instant | `git config --local --list` → group by key; values array to preserve multi-value keys |
 
 ---
@@ -383,7 +383,7 @@ interface FsReader {
 | Field | Uses FsReader | Reason |
 |-------|:---:|--------|
 | `repoState` | ✅ | `exists(join(repoRoot, ".git", "MERGE_HEAD"))`, etc. |
-| `hooks` | ✅ | `readdir(join(repoRoot, ".git", "hooks"))` |
+| `hooks` | ✅ | `readdir()` on the effective hooks dir: `core.hooksPath` (resolved) or `join(repoRoot, ".git", "hooks")` |
 | `gitDirSizeKiB` | ✅ | `dirSizeKiB(join(repoRoot, ".git"))` |
 | `largestTracked` | ✅ | `fileSize(join(repoRoot, filePath))` per tracked file |
 
@@ -528,7 +528,7 @@ const logsCollector: Collector<GitLogs> = {
 
 - **Co-located**: `*.test.ts` alongside source files
 - **Framework**: `bun:test` (`describe`, `it`, `expect`)
-- **Mock pattern**: `createMockExecutor()` for git commands + `createMockFsReader()` for filesystem access (only needed by `repoState`, `hooks`, `gitDirSizeKiB` tests)
+- **Mock pattern**: `createMockExecutor()` for git commands + `createMockFsReader()` for filesystem access (needed by `repoState`, `hooks`, `gitDirSizeKiB`, and `largestTracked` tests — see [FsReader usage table](#fsreader--filesystem-access))
 - **Edge cases**: empty repo, detached HEAD, no remotes, Unicode author names, zero tags, merge-in-progress, Windows-style line endings in git output
 - **Integration test isolation**: Integration tests (real git commands, temp repos) live in `src/__integration__/` with `.integration.test.ts` suffix. Isolation is handled via `bunfig.toml` at the package level:
 
