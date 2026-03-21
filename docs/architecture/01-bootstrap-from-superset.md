@@ -219,7 +219,7 @@ signoff.now/
 ```
 apps/desktop/
 ├── electron.vite.config.ts       # 🟢 3-target Vite config
-├── electron-builder.yml          # 🟢 Packaging config
+├── electron-builder.ts           # 🟢 Packaging config (TypeScript, not yml)
 ├── package.json
 ├── tsconfig.json                 # 🟢 extends @signoff/typescript/electron.json
 ├── tsr.config.json               # 🟢 TanStack Router file-based config
@@ -267,8 +267,15 @@ apps/desktop/
 │       ├── components/           # 🟢 App-level components
 │       ├── stores/               # 🟢 Zustand stores
 │       └── lib/                  # 🟢 Client-side utilities
-└── resources/                    # 🟢 Icons, assets
+│   └── resources/                # 🟢 Icons, assets (at src/resources/, not root)
+│       ├── build/                # 🟢 App icons for electron-builder
+│       ├── public/               # 🟢 Static assets served by renderer
+│       ├── sounds/               # 🔴 Trimmed (notification ringtones)
+│       └── tray/                 # 🟢 System tray icons
+└── scripts/                      # 🟢 Build scripts (generate-file-icons, copy-native-modules, etc.)
 ```
+
+> **注意：** `resources` 在 `package.json` 中声明为 `"resources": "src/resources"`，electron-builder 通过此路径定位打包资源。
 
 **关键路径对齐说明：** tRPC 路径是 `src/lib/trpc/`（不是 `src/main/lib/trpc/`）。这是 superset 的实际结构 — `src/lib/` 位于 main/preload/renderer 的同级目录，使得 main window 可以通过 `import { createAppRouter } from "lib/trpc/routers"` 直接引用，renderer 也可以共享类型定义。
 
@@ -290,17 +297,28 @@ apps/desktop/
 ```
 1. Initialize local SQLite DB (WAL mode, Drizzle migrations)
 2. Apply shell environment to process.env (shell-env)
-3. Register custom protocol (signoff://) for deep linking
-4. Register single instance lock
-5. app.whenReady() →
-   a. 🟢 Create BrowserWindow (frameless, traffic lights at {x:16, y:16})
-   b. 🟢 Register tRPC IPC handler (createIPCHandler from trpc-electron)
-   c. 🟢 Start terminal daemon, reconcile sessions
-   d. 🟢 Create application menu
-   e. 🟢 Init auto-updater
-   f. 🟢 Process pending deep links
-   g. 🔴 Removed: Sentry init, PostHog, agent-setup hooks, notification server
+3. Register custom protocols as privileged (before app.whenReady):
+   a. 🟢 signoff-icon:// — bypassCSP, supportFetchAPI (project icons in renderer/CSP)
+   b. 🟢 signoff-font:// — bypassCSP, supportFetchAPI (system fonts like SF Mono)
+4. Register protocol client (signoff://) for deep linking
+5. Request single instance lock
+6. app.whenReady() →
+   a. 🟢 Register icon protocol handler (serve project icons from local disk)
+   b. 🟢 Register font protocol handler (serve /System/Library/Fonts/*.otf on macOS)
+   c. 🟢 Ensure project icons directory exists
+   d. 🟢 Init app state (lowdb)
+   e. 🟢 Reconcile daemon terminal sessions
+   f. 🟢 Pre-warm terminal runtime
+   g. 🟢 makeAppSetup(() => MainWindow()) — create BrowserWindow
+   h. 🟢 Setup auto-updater
+   i. 🟢 Init system tray
+   j. 🟢 Process pending deep links
+   k. 🔴 Removed: initSentry, loadWebviewBrowserExtension, setupAgentHooks,
+             registerWithMacOSNotificationCenter, requestAppleEventsAccess,
+             setWorkspaceDockIcon, outlit, getHostServiceManager
 ```
+
+**为什么保留 icon/font 协议：** 这两个自定义协议与云功能无关。`signoff-icon://` 让 renderer 在 CSP 限制下加载项目图标；`signoff-font://` 让 renderer 使用 macOS 系统字体（如 SF Mono）作为终端/编辑器字体。不保留这两步会导致项目图标显示空白、系统字体不可用。
 
 ### tRPC Router (Desktop IPC)
 
