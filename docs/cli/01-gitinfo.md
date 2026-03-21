@@ -245,6 +245,20 @@ interface GitInfoReport {
 | `stashCount` | `number` | instant | `git stash list` → count lines in TypeScript |
 | `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `await ctx.gitPath("MERGE_HEAD")`, `await ctx.gitPath("rebase-merge")`, `await ctx.gitPath("rebase-apply")`, `await ctx.gitPath("CHERRY_PICK_HEAD")`, `await ctx.gitPath("BISECT_LOG")`, `await ctx.gitPath("REVERT_HEAD")`. Uses `gitPath()` so per-worktree files resolve correctly in linked worktrees |
 
+**`GitStatusEntry`** — parsed from `git status --porcelain=v2 -z`:
+
+```typescript
+interface GitStatusEntry {
+  path: string;              // current path (new path for renames/copies)
+  indexStatus: string;       // porcelain v2 X field (e.g., "M", "A", "R", "C", "D")
+  workTreeStatus: string;    // porcelain v2 Y field
+  sourcePath?: string;       // original path — present only for rename (R) and copy (C) entries
+  renameScore?: number;      // similarity percentage (0–100) — present only for R/C entries
+}
+```
+
+**Rename/copy parsing (porcelain v2 `-z`):** For ordinary changed entries, `git status` emits a single NUL-terminated record. For rename/copy entries (status `R` or `C`), it emits the main record followed by an **additional NUL-delimited token** containing the original path. The parser must detect `R`/`C` status codes and consume this extra token. The rename score is embedded in the main record's sub-field. Untracked (`?`) and ignored (`!`) entries are single-token records with just the path.
+
 ### Section: Branches
 
 **Empty repo note:** In an empty repo (no commits), `current` returns the branch name from the symbolic ref (e.g., `"main"`) because `git branch --show-current` reads `HEAD` — which exists as a symbolic ref even without commits. However, `local` / `totalLocal` return `[]` / `0` because `git for-each-ref refs/heads/` only lists refs backed by actual commits. This means `current = "main"` with `totalLocal = 0` is a valid and expected state, not a bug. Consumers should not assume that `current` being non-null implies `totalLocal >= 1`.
@@ -305,7 +319,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l -- <file>` per file via exec (the `--` is required to prevent filenames starting with `-` from being parsed as options), sum in TypeScript. Uses working tree files; silently skips deleted-but-tracked files (see above) |
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes; silently skips deleted-but-tracked files (see above) |
 | `largestBlobs?` | `GitBlobInfo[]` | **slow** | **Two-step:** (1) `git rev-list --objects -z --all` → NUL-delimited token stream: each object emits a `<sha>` token; blobs with an associated path emit an additional `path=<filename>` token immediately after. Commits and trees have no `path=` token. Split on `\0` and correlate SHA with its following `path=` token if present; (2) feed SHAs to `git cat-file --batch-check` → outputs `<sha> <type> <size>` per object; **filter to `type == "blob"` only** — discard commit/tree/tag objects. Sort by size descending in TypeScript. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
-| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log -z --pretty=format: --name-only -n 1000 HEAD` → split on `\0`, count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
+| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log -z --pretty=format: --name-only -n 1000 HEAD` → split on `\0`, count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Known limitation:** rename commits emit both the old and new path, so a single rename counts as one change to each path. This means a frequently renamed file's churn is split across its historical names, and the old path receives an inflated count. `--follow` cannot be used here because it only works for a single file, not a bulk log scan. **Optional:** omitted when `--full` is not active |
 | `binaryFiles?` | `string[]` | **slow** | **Two-step** (no shell substitution — see [CommandExecutor](#commandexecutor--subprocess-spawning)): (1) `git hash-object -t tree /dev/null` → returns the empty tree SHA; (2) `git diff -z --numstat <empty-tree-sha> HEAD --` → NUL-delimited; lines with `-\t-` prefix are binary. Guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
 ### Section: Config
