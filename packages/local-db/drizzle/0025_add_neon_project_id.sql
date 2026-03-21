@@ -1,1 +1,0 @@
-ALTER TABLE `projects` ADD `neon_project_id` text;

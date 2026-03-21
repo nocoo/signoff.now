@@ -1,1 +1,0 @@
-ALTER TABLE `settings` ADD `show_presets_bar` integer;

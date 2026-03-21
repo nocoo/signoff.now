@@ -42,7 +42,6 @@ export const projects = sqliteTable(
 		worktreeBaseDir: text("worktree_base_dir"),
 		hideImage: integer("hide_image", { mode: "boolean" }),
 		iconUrl: text("icon_url"),
-		neonProjectId: text("neon_project_id"),
 		defaultApp: text("default_app").$type<ExternalApp>(),
 	},
 	(table) => [
@@ -189,9 +188,6 @@ export const settings = sqliteTable("settings", {
 	}),
 	branchPrefixMode: text("branch_prefix_mode").$type<BranchPrefixMode>(),
 	branchPrefixCustom: text("branch_prefix_custom"),
-	notificationSoundsMuted: integer("notification_sounds_muted", {
-		mode: "boolean",
-	}),
 	deleteLocalBranch: integer("delete_local_branch", { mode: "boolean" }),
 	fileOpenMode: text("file_open_mode").$type<FileOpenMode>(),
 	showPresetsBar: integer("show_presets_bar", { mode: "boolean" }),
@@ -209,29 +205,3 @@ export const settings = sqliteTable("settings", {
 
 export type InsertSettings = typeof settings.$inferInsert;
 export type SelectSettings = typeof settings.$inferSelect;
-
-/**
- * Browser history table - persists browsing history for URL autocomplete
- */
-export const browserHistory = sqliteTable(
-	"browser_history",
-	{
-		id: text("id")
-			.primaryKey()
-			.$defaultFn(() => uuidv4()),
-		url: text("url").notNull().unique(),
-		title: text("title").notNull().default(""),
-		faviconUrl: text("favicon_url"),
-		lastVisitedAt: integer("last_visited_at")
-			.notNull()
-			.$defaultFn(() => Date.now()),
-		visitCount: integer("visit_count").notNull().default(1),
-	},
-	(table) => [
-		index("browser_history_url_idx").on(table.url),
-		index("browser_history_last_visited_at_idx").on(table.lastVisitedAt),
-	],
-);
-
-export type InsertBrowserHistory = typeof browserHistory.$inferInsert;
-export type SelectBrowserHistory = typeof browserHistory.$inferSelect;

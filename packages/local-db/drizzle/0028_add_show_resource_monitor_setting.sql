@@ -1,1 +1,0 @@
-ALTER TABLE `settings` ADD `show_resource_monitor` integer;

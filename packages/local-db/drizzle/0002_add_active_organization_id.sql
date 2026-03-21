@@ -1,1 +1,0 @@
-ALTER TABLE `settings` ADD `active_organization_id` text;

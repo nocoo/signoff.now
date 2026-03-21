@@ -1,1 +1,0 @@
-ALTER TABLE `workspaces` ADD `is_unnamed` integer DEFAULT false;

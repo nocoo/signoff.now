@@ -446,7 +446,6 @@ export const projects = sqliteTable("projects", {
   hideImage: integer("hide_image", { mode: "boolean" }),
   iconUrl: text("icon_url"),
   defaultApp: text("default_app").$type<ExternalApp>(),
-  // 🔴 Trimmed: neonProjectId (cloud feature)
 }, (table) => [
   index("projects_main_repo_path_idx").on(table.mainRepoPath),
   index("projects_last_opened_at_idx").on(table.lastOpenedAt),
@@ -510,6 +509,20 @@ export const workspaceSections = sqliteTable("workspace_sections", {
 - `organizationMembers` — cloud org membership
 - `tasks` — cloud task management
 - `browserHistory` — embedded browser history (no browser feature)
+
+🔴 **Trimmed columns**:
+- `projects.neonProjectId` — Neon cloud Postgres
+- `settings.notificationSoundsMuted` — notification ringtones
+- `settings.telemetryEnabled` — telemetry
+- `settings.showResourceMonitor` — OS metrics
+- `settings.activeOrganizationId` — cloud org
+- `settings.agentPresetOverrides` — AI agent
+- `settings.agentCustomDefinitions` — AI agent
+- `settings.navigationStyle` — removed UI mode
+- `settings.groupTabsPosition` — removed UI mode
+- `settings.selectedRingtoneId` — notification ringtones
+
+🔴 **Migration strategy**: Regenerated single `0000_plain_kabuki.sql` from trimmed schema (replaces superset's 37 incremental migrations). Includes manually added partial unique index `workspaces_unique_branch_per_project`.
 
 ### 4.2 Layout System
 
@@ -635,9 +648,10 @@ export const settings = sqliteTable("settings", {
   deleteLocalBranch: integer("delete_local_branch", { mode: "boolean" }),
   openLinksInApp: integer("open_links_in_app", { mode: "boolean" }),
   worktreeBaseDir: text("worktree_base_dir"),
-  // 🔴 Trimmed fields (cloud/metrics features):
-  //   agentPresetOverrides, agentCustomDefinitions, selectedRingtoneId,
-  //   activeOrganizationId, notificationSoundsMuted, showResourceMonitor
+  // 🔴 Trimmed fields (cloud/metrics/AI features):
+  //   neonProjectId (projects), agentPresetOverrides, agentCustomDefinitions,
+  //   selectedRingtoneId, activeOrganizationId, notificationSoundsMuted,
+  //   showResourceMonitor, telemetryEnabled, navigationStyle, groupTabsPosition
 });
 ```
 

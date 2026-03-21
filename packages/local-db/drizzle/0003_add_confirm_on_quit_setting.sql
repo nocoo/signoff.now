@@ -1,1 +1,0 @@
-ALTER TABLE `settings` ADD `confirm_on_quit` integer;

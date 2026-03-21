@@ -1,1 +1,0 @@
-ALTER TABLE `settings` ADD `notification_sounds_muted` integer;

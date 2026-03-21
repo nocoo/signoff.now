@@ -1,1 +1,0 @@
-ALTER TABLE `settings` ADD `persist_terminal` integer DEFAULT true;
