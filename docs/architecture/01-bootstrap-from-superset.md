@@ -85,18 +85,20 @@ signoff.now/
   "workspaces": ["packages/*", "apps/*", "tooling/*"],
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
+    "@types/bun": "^1.3.0",
     "husky": "^9.0.0",
-    "turbo": "^2.8.7"
+    "turbo": "^2.8.7",
+    "typescript": "^5.9.3"
   },
   "scripts": {
-    "dev": "turbo run dev --filter=@signoff/desktop",
-    "build": "turbo build --filter=@signoff/desktop",
+    "dev": "turbo run dev",
+    "build": "turbo build",
     "test": "turbo test",
-    "test:ci": "turbo test:ci",
+    "test:ci": "bun run scripts/check-coverage.ts",
     "lint": "bunx @biomejs/biome check .",
     "lint:fix": "bunx @biomejs/biome check --write --unsafe .",
     "format": "bunx @biomejs/biome format --write .",
-    "typecheck": "turbo typecheck",
+    "typecheck": "tsc --noEmit && turbo typecheck",
     "prepare": "husky",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo clean",
@@ -977,27 +979,29 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 **Coverage enforcement 实现：**
 
 ```jsonc
-// package.json scripts
+// Root package.json scripts
 {
-  "test": "turbo test",                          // 普通测试（无 coverage）
-  "test:ci": "turbo test:ci",                    // 含 coverage + threshold
-  "lint": "bunx @biomejs/biome check .",         // Biome only
-  "typecheck": "turbo typecheck"                 // tsc --noEmit
+  "test": "turbo test",                                      // 普通测试（无 coverage）
+  "test:ci": "bun run scripts/check-coverage.ts",            // 直接调 check-coverage（不走 turbo 空跑）
+  "lint": "bunx @biomejs/biome check .",                     // Biome only
+  "typecheck": "tsc --noEmit && turbo typecheck"             // 根 tsc 验证 scripts/，turbo 验证各 package
 }
 ```
 
 ```jsonc
-// apps/desktop/package.json scripts
+// apps/desktop/package.json scripts (Phase 3+ 落地后)
 {
   "test": "bun test",
-  "test:ci": "bun test --coverage && bun run check-coverage",
-  "check-coverage": "bun run scripts/check-coverage.ts"
+  "test:ci": "bun run ../../scripts/check-coverage.ts",      // 复用根 check-coverage
+  "typecheck": "tsc --noEmit"
 }
 ```
 
-`scripts/check-coverage.ts` 解析 `bun test --coverage` 的输出，逻辑如下：
-- **零测试 / 0 total lines**: 视为 pass（无代码可覆盖，不阻塞 commit）
-- **有测试但覆盖率 < 90%**: `process.exit(1)`，阻塞 commit
+`scripts/check-coverage.ts` 自行 spawn `bun test --coverage` 子进程并解析输出（不依赖 stdin pipe），逻辑如下：
+- **零测试文件 ("0 test files")**: 视为 pass（无代码可覆盖，不阻塞 commit）
+- **测试失败**: 原样传播 exit code
+- **测试通过但覆盖率 < 90%**: `process.exit(1)`，阻塞 commit
+- **测试通过且覆盖率 ≥ 90%**: pass
 - 这保证 commit #1（空 monorepo）和纯配置 commit 不会被误拦，同时有代码后立即生效
 
 每个有测试的 package 都有对应的 `test:ci` script。
