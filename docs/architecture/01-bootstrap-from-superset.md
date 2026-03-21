@@ -977,9 +977,13 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 **Phase 8 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (全功能验证)
 
+> **Post-bootstrap status**: Router/store infrastructure is wired end-to-end (tRPC factory routers connected via `AppRouterDeps`). Renderer components remain as scaffold placeholders (static demo data in file explorer, "No projects yet" in workspace sidebar, placeholder pane content). These are populated progressively as each feature matures beyond the scaffold phase.
+
 ---
 
 ### L4 E2E Checkpoints
+
+> ⚠️ **Status**: L4 E2E infrastructure (Playwright Electron) is **not yet implemented**. No `test:e2e` script, no Playwright config, no test files exist. The checkpoints below describe the intended scope — implementation is deferred to a dedicated setup phase after the bootstrap is complete.
 
 L4 (Playwright Electron E2E) 在以下时机手动执行：
 
