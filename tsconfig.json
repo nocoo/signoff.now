@@ -1,0 +1,8 @@
+{
+	"extends": "@signoff/typescript/base.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": ".cache/tsbuildinfo.json"
+	},
+	"include": [],
+	"exclude": ["node_modules", "apps", "packages", "tooling"]
+}
