@@ -296,7 +296,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes; silently skips deleted-but-tracked files (see above) |
 | `largestBlobs?` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then `git cat-file --batch-check`. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
 | `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only -n 1000 HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
-| `binaryFiles?` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary; guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
+| `binaryFiles?` | `string[]` | **slow** | **Two-step** (no shell substitution — see [CommandExecutor](#commandexecutor--subprocess-spawning)): (1) `git hash-object -t tree /dev/null` → returns the empty tree SHA; (2) `git diff --numstat <empty-tree-sha> HEAD --` → lines with `-\t-` prefix are binary. Guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
 ### Section: Config
 
@@ -519,10 +519,10 @@ const logsCollector: Collector<GitLogs> = {
 
 | Layer | Content | Threshold | Husky Stage |
 |-------|---------|-----------|-------------|
-| **L1 Unit Test** | All core functions, collectors, arg parser, formatters | ≥ 95% line coverage | pre-commit |
+| **L1 Unit Test** | All core functions, collectors, arg parser, formatters | ≥ 95% line coverage (when coverage data exists; pass-through if no test files or no coverable code — see `check-coverage.ts`) | pre-commit |
 | **L2 Lint** | Biome strict (correctness/suspicious/complexity/style all error) | 0 warnings | pre-commit |
 | **L3 Typecheck** | `tsc --noEmit` | 0 errors | pre-push |
-| **L4 Integration** | `*.integration.test.ts` files in a separate `__integration__/` directory; run manually via `bun test __integration__/` | Pass | manual |
+| **L4 Integration** | `*.integration.test.ts` files in `src/__integration__/`; run manually via `bun test src/__integration__/` | Pass | manual |
 
 ### Unit test approach
 
@@ -547,7 +547,7 @@ This ensures both `bun test` (direct) and `check-coverage.ts` (which runs bare `
 "test:ci": "bun run ../../scripts/check-coverage.ts --threshold 95"
 ```
 
-Runs `bun test --coverage`, parses "All files" line, fails if line coverage < 95%.
+Runs `bun test --coverage`, parses the "All files" summary line, and fails if line coverage < 95%. **Caveat:** if no coverage data is present (no test files or no coverable code), the script passes through without enforcing the threshold — see `scripts/check-coverage.ts`.
 
 ---
 
