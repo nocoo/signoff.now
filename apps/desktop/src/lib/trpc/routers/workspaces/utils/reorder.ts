@@ -28,7 +28,7 @@ export function reorderItems<T extends HasTabOrder>(
 	return result.map((item, index) => ({
 		...item,
 		tabOrder: index,
-	}));
+	})) as T[];
 }
 
 /**
