@@ -814,27 +814,201 @@ export const settings = sqliteTable("settings", {
 
 ## 6. Atomic Commits Plan
 
-| # | Commit | Scope | Files |
-|:---|:---|:---|:---|
-| 1 | `chore: init monorepo with bun + turborepo + biome` | Root | `package.json`, `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore` |
-| 2 | `chore: add shared typescript configs` | `tooling/` | `tooling/typescript/{base,electron,internal-package}.json`, `tooling/typescript/package.json` |
-| 3 | `feat: add shared package` | `packages/shared` | `packages/shared/{package.json,src/index.ts,tsconfig.json}` |
-| 4 | `feat: add workspace-fs package` | `packages/workspace-fs` | 🟢 Copy from superset, full package |
-| 5 | `feat: add local-db package with sqlite schema` | `packages/local-db` | Schema (trimmed synced tables), migrations, Drizzle config |
-| 6 | `feat: add ui package with base shadcn setup` | `packages/ui` | `packages/ui/{package.json,src/,tailwind.css,components.json}` |
-| 7 | `feat: scaffold desktop app with electron-vite` | `apps/desktop` | Electron config, main entry, preload, renderer shell |
-| 8 | `feat: add tRPC IPC layer` | `apps/desktop` | `src/lib/trpc/` router assembly, `workspace-fs-service.ts`, preload bridge |
-| 9 | `feat: add terminal system with node-pty + @xterm/xterm` | `apps/desktop` | Terminal daemon, PTY subprocess, xterm renderer |
-| 10 | `feat: add workspace and project management` | `apps/desktop` | Zustand stores, tRPC routers, sidebar UI |
-| 11 | `feat: add layout system with mosaic panels` | `apps/desktop` | Mosaic layout, tab management, resizable panels |
-| 12 | `feat: add code editor with codemirror 6` | `apps/desktop` | CodeMirror integration, language modes |
-| 13 | `feat: add diff viewer with git integration` | `apps/desktop` | simple-git, @pierre/diffs, changes router, diff UI |
-| 14 | `feat: add settings system` | `apps/desktop` | Settings schema, tRPC router, settings UI pages |
-| 15 | `chore: add keyboard shortcuts system` | `apps/desktop` | Hotkeys store, shortcut registration |
+每个 commit 必须满足：**可构建 + lint 通过 + 已有测试通过**。
+
+### Phase 1: Monorepo Foundation
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 1 | `chore: init monorepo with bun + turborepo + biome` | Root | `package.json`, `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore` | `bun install && bun run lint` |
+| 2 | `chore: add shared typescript configs` | `tooling/` | `tooling/typescript/{base,electron,internal-package}.json`, `package.json` | `bun run typecheck` (no-op but no error) |
+
+### Phase 2: Shared Packages
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 3 | `feat: add shared package with constants and types` | `packages/shared` | `package.json`, `src/index.ts`, `tsconfig.json`, zod types, hotkeys, terminal-link-parsing | `bun test` — 裁剪自 superset 的 7 个 `*.test.ts` |
+| 4 | `feat: add workspace-fs package` | `packages/workspace-fs` | 🟢 Copy from superset — `src/{client,core,host}/`, `resource-uri.ts` | `bun test` — 保留 superset 的 6 个 `*.test.ts` |
+| 5 | `feat: add local-db package with sqlite schema` | `packages/local-db` | Schema (trimmed synced tables), migrations, Drizzle config, zod.ts | `bun run typecheck` |
+| 6 | `feat: add ui package with base shadcn setup` | `packages/ui` | `package.json`, `src/components/ui/`, `globals.css`, `components.json` | `bun run typecheck` |
+
+### Phase 3: Desktop App Scaffold
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 7 | `feat: scaffold desktop app with electron-vite` | `apps/desktop` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `bunfig.toml` (test preload), `src/main/index.ts` (boot skeleton), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/` | `bun run dev` — Electron 窗口启动 |
+| 8 | `feat: add test setup with electron mocks` | `apps/desktop` | `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `bunfig.toml` `[test]` section | `bun test` — 空测试通过 |
+
+### Phase 4: Core Infrastructure
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 9 | `feat: add tRPC IPC layer` | `apps/desktop` | `src/lib/trpc/index.ts`, `src/lib/trpc/routers/index.ts` (createAppRouter), `workspace-fs-service.ts`, preload bridge | `bun test` + `bun run typecheck` |
+| 10 | `feat: add local-db initialization in main process` | `apps/desktop` | `src/main/lib/local-db/` (SQLite WAL init, Drizzle instance), `src/main/lib/app-state/` (lowdb), `src/main/lib/window-state/` | `bun run dev` — DB 文件创建 |
+
+### Phase 5: Terminal System
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 11 | `feat: add terminal daemon with node-pty` | `apps/desktop` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | `bun test` — terminal session tests |
+| 12 | `feat: add terminal renderer with @xterm/xterm` | `apps/desktop` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | `bun run dev` — terminal 可输入 |
+
+### Phase 6: Workspace & Layout
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 13 | `feat: add project and workspace tRPC routers` | `apps/desktop` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand stores (`sidebar-state.ts`) | `bun test` |
+| 14 | `feat: add dashboard layout with sidebar` | `apps/desktop` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | `bun run dev` — sidebar 渲染 |
+| 15 | `feat: add mosaic layout with tab management` | `apps/desktop` | Zustand `stores/tabs/`, `react-mosaic-component` integration, `react-resizable-panels`, `@dnd-kit` drag-drop | `bun run dev` — split/tab 工作 |
+
+### Phase 7: Editor & Diff
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 16 | `feat: add code editor with codemirror 6` | `apps/desktop` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | `bun run dev` — 文件可打开编辑 |
+| 17 | `feat: add diff viewer with git integration` | `apps/desktop` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | `bun test` — changes router tests |
+| 18 | `feat: add filesystem router with workspace-fs` | `apps/desktop` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | `bun test` |
+
+### Phase 8: Settings & Polish
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 19 | `feat: add settings system` | `apps/desktop` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | `bun test` |
+| 20 | `feat: add keyboard shortcuts system` | `apps/desktop` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | `bun test` |
+| 21 | `feat: add custom protocol handlers for icons and fonts` | `apps/desktop` | `signoff-icon://`, `signoff-font://` protocol registration in `src/main/index.ts`, project-icons utils | `bun run dev` — 图标/字体加载 |
+
+### Phase 9: Testing & CI
+
+| # | Commit | Scope | Key Files | Verify |
+|:---|:---|:---|:---|:---|
+| 22 | `chore: add husky with pre-commit and pre-push hooks` | Root | `.husky/pre-commit` (UT + lint), `.husky/pre-push` (typecheck), `package.json` scripts | `git commit` 触发 hook |
+| 23 | `chore: add github actions ci workflow` | Root | `.github/workflows/ci.yml` (lint → test → typecheck, parallel jobs) | Push 触发 CI |
 
 ---
 
-## 7. Key Architectural Decisions
+## 7. Testing Strategy
+
+### Four-Layer Verification (adapted for Electron desktop app)
+
+| Layer | Content | Trigger | Status |
+|:---|:---|:---|:---|
+| **L1 — UT** | Unit tests for tRPC routers, Zustand stores, utility functions, shared packages | `pre-commit` (husky) | 覆盖率 ≥ 90% |
+| **L2 — Lint** | Biome check (lint + format), TypeScript strict mode | `pre-commit` (husky) | 零错误零警告 |
+| **L3 — Integration** | tRPC router integration tests (mock Electron, real SQLite) | `pre-push` (husky) | 覆盖所有 router |
+| **L4 — E2E** | Playwright Electron tests for核心主干流程 | 按需执行 | 核心流程覆盖 |
+
+**与标准四层的适配说明：**
+
+- **L3** 不叫 "API E2E" 因为没有 REST API。Desktop app 的 "API" 是 tRPC IPC router — 用 `bun test` + mock Electron APIs 测试 router 逻辑
+- **L4** 使用 Playwright 的 [Electron support](https://playwright.dev/docs/api/class-electron) 而非 HTTP server
+- Superset 当前没有 E2E 和 husky，但我们在裁剪版中增加这些基础设施
+
+### Test Runner & Convention
+
+🟢 Aligned with superset:
+
+| Aspect | Convention |
+|:---|:---|
+| **Runner** | `bun test` (Bun built-in test runner) |
+| **File pattern** | `*.test.ts` / `*.test.tsx` (co-located with source) |
+| **No** `*.spec.ts`, **no** `__tests__/` directories |
+| **Test setup** | `apps/desktop/test-setup.ts` — mock Electron APIs, `@signoff/local-db` |
+| **Test preload** | `apps/desktop/bunfig.toml` → `[test] preload` |
+| **Test env** | `NODE_ENV=test`, `SKIP_ENV_VALIDATION=1` |
+
+### `apps/desktop/bunfig.toml`
+
+🟢 Aligned with superset:
+
+```toml
+[test]
+preload = ["./src/main/terminal-host/xterm-env-polyfill.ts", "./test-setup.ts"]
+
+[test.env]
+NODE_ENV = "test"
+SKIP_ENV_VALIDATION = "1"
+```
+
+### `apps/desktop/test-setup.ts`
+
+🟢 Aligned — Mock these Electron APIs so `bun test` can run without a real Electron process:
+
+- `electron` — `app`, `dialog`, `BrowserWindow`, `ipcMain`, `shell`, `clipboard`, `screen`
+- `document` / `electronTRPC` browser globals
+- `@signoff/local-db` — Drizzle schema objects (mock with zod)
+- `main/lib/local-db` — better-sqlite3 instance (not available in Bun)
+
+### husky Hooks
+
+🔴 **Intentional divergence** — superset 没有 husky，我们新增：
+
+```
+.husky/
+├── pre-commit     # bun run test && bun run lint
+└── pre-push       # bun run typecheck
+```
+
+**pre-commit:**
+```bash
+#!/bin/sh
+bun run test
+bun run lint
+```
+
+**pre-push:**
+```bash
+#!/bin/sh
+bun run typecheck
+```
+
+### CI Pipeline
+
+🟢 Aligned with superset's GitHub Actions structure，🔴 新增 coverage check：
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+```
+
+### Test Coverage by Package
+
+| Package | Existing superset tests | Bootstrap target |
+|:---|:---|:---|
+| `packages/shared` | 7 `*.test.ts` (agent-command, names, terminal-link-parsing, auth) | 🟢 直接保留 |
+| `packages/workspace-fs` | 6 `*.test.ts` (client, fs, host/service, resource-uri, search, watch) | 🟢 直接保留 |
+| `packages/local-db` | 0 (mock at integration layer) | 保持不变 |
+| `packages/ui` | 0 | 按需添加 |
+| `apps/desktop` | ~90+ `*.test.ts` (裁剪后保留相关测试) | 🟢 保留与保留模块对应的测试 |
+
+---
+
+## 8. Key Architectural Decisions
 
 ### Q1: Why keep Electron (not Tauri)?
 
