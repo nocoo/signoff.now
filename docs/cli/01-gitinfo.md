@@ -11,6 +11,10 @@
 - **Testable** — Command executor dependency injection; all core functions are pure and independently testable
 - **Bun-only** — Leverages Bun.spawn for subprocess execution; runs directly as TypeScript
 
+### Platform support
+
+**macOS and Linux only.** The implementation depends on POSIX utilities (`du -sk` for directory sizing, `wc -l` for line counting) and assumes Unix path semantics. Windows is not supported — there is no planned fallback for missing POSIX commands, and paths are not normalized for Windows separators.
+
 ### Scope
 
 Supports **standard non-bare working tree repositories only**. The following layouts are explicitly unsupported:
@@ -18,7 +22,7 @@ Supports **standard non-bare working tree repositories only**. The following lay
 - Bare repositories (`git init --bare`)
 - Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
 
-**Git worktrees:** `gitinfo` works correctly when invoked inside a linked worktree — it reports on the single worktree it's running in. It does **not** discover, traverse, or aggregate data across linked worktrees. The `config.worktreeCount` field reports the number from `git worktree list` but no per-worktree breakdown is provided.
+**Git worktrees** (`git worktree add`) are **not a supported target layout**. If invoked inside a linked worktree, behavior is undefined — git commands may resolve paths to the main working tree's `.git` dir, and fields like `repoRoot`, `hooks`, `gitDirSizeKiB`, and `repoState` may report values from the main tree rather than the linked worktree. The `config.worktreeCount` field reflects `git worktree list` output but exists for informational purposes only.
 
 ### Empty repository handling
 
@@ -141,7 +145,7 @@ apps/gitinfo/
     ├── executor/
     │   ├── types.ts                      # CommandExecutor + FsReader interfaces
     │   ├── bun-executor.ts               # Real CommandExecutor via Bun.spawn
-    │   ├── bun-fs-reader.ts              # Real FsReader via node:fs/promises + du
+    │   ├── bun-fs-reader.ts              # Real FsReader via node:fs/promises + du (POSIX)
     │   ├── mock-executor.ts              # Deterministic fake for unit tests
     │   └── mock-fs-reader.ts             # Deterministic fake for fs-dependent tests
     ├── commands/
@@ -218,9 +222,9 @@ interface GitInfoReport {
 | `repoName` | `string` | instant | derived from root path or remote URL |
 | `head` | `string \| null` | instant | `git rev-parse HEAD`; null in empty repo (no commits) |
 | `headShort` | `string \| null` | instant | `git rev-parse --short HEAD`; null in empty repo |
-| `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD` (null if detached) |
+| `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD`; exits non-zero when HEAD is detached → map non-zero exit code to `null` |
 | `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix; null if no remote or origin/HEAD not set |
-| `remotes` | `GitRemote[]` | instant | `git remote -v` |
+| `remotes` | `GitRemote[]` | instant | `git remote -v` → outputs two lines per remote (fetch/push); parse and **group by remote name** into one `GitRemote` object per remote: `{ name: string; fetchUrl: string; pushUrl: string }`. If fetch and push URLs differ, both are preserved |
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
 | `firstCommitAuthorDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** this is the root commit's author date, which can be rewritten or forged — it is not a reliable "repo creation timestamp" |
 
@@ -241,7 +245,7 @@ interface GitInfoReport {
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `current` | `string \| null` | instant | `git branch --show-current` |
+| `current` | `string \| null` | instant | `git branch --show-current`; returns empty string when HEAD is detached → map empty string to `null` in TypeScript (consistent with `meta.currentBranch` null semantics) |
 | `local` | `GitBranchInfo[]` | moderate | `git for-each-ref --format=... refs/heads/` |
 | `remote` | `string[]` | moderate | `git for-each-ref --format='%(if)%(symref)%(then)%(else)%(refname:short)%(end)' refs/remotes/` → skip symbolic refs (e.g., `origin/HEAD`); filter empty lines in TypeScript |
 | `totalLocal` | `number` | instant | `git for-each-ref --format='%(refname:short)' refs/heads/` → count lines in TypeScript |
@@ -264,7 +268,7 @@ interface GitInfoReport {
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin and hangs); guard: return `[]` when `!hasHead` |
+| `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin instead of the log; in non-TTY contexts like Bun.spawn, stdin is empty so it silently returns zero results, producing incorrect output); guard: return `[]` when `!hasHead` |
 | `totalAuthors` | `number` | moderate | derived from authors; 0 in empty repo |
 | `activeRecent` | `number` | moderate | `git shortlog -sne --no-merges --since='90 days ago' HEAD`; guard: return 0 when `!hasHead` |
 | `authorStats?` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN' -n 1000 HEAD`; guard: skip when `!hasHead`. **Optional:** omitted when `--full` is not active |
@@ -287,7 +291,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 | `trackedCount` | `number` | instant | `git ls-files` → count lines in TypeScript |
 | `typeDistribution` | `Record<string, number>` | moderate | `git ls-files` → parse extensions in TypeScript |
 | `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files, not HEAD |
-| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `stat` per file via `FsReader.stat()`, sort in TypeScript. Uses working tree file sizes |
+| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes |
 | `largestBlobs?` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then `git cat-file --batch-check`. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
 | `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only -n 1000 HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
 | `binaryFiles?` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary; guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
@@ -353,7 +357,7 @@ type CommandExecutor = (
 
 ### FsReader — filesystem access
 
-A small interface for the few operations that read the filesystem directly (repo state detection, hooks listing, .git directory size). Tests inject a mock; real implementation uses `node:fs/promises` + `Bun.spawn` for `du`.
+A small interface for the few operations that read the filesystem directly (repo state detection, hooks listing, .git directory size). Tests inject a mock; real implementation uses `node:fs/promises` for file operations and `Bun.spawn` + `du -sk` for directory sizing (POSIX-only, see [Platform support](#platform-support)).
 
 **Path convention:** All paths passed to `FsReader` methods are **absolute**. Callers must resolve relative paths against `ctx.repoRoot` before calling (e.g., `path.join(ctx.repoRoot, ".git", "hooks")`). This avoids ambiguity when `--cwd` differs from the actual repo root, or when invoked from a subdirectory. The `CommandExecutor` also receives `cwd: ctx.repoRoot` in its `ExecOptions` to ensure git commands run in the correct directory.
 
@@ -421,13 +425,15 @@ Some values are prerequisites for the collector system, not outputs of it. These
 
 ```typescript
 // Resolved at startup, NOT by a collector:
-// exec runs all commands with cwd = repoRoot (or --cwd if specified)
-const repoRoot = await getRepoRoot(exec);       // git rev-parse --show-toplevel
-const hasHead = await checkHasHead(exec);        // git rev-parse --verify HEAD
-const isBare = await checkIsBare(exec);          // guard: exit if bare
+// Bootstrap commands use cwd = --cwd flag value or process.cwd()
+// After repoRoot is resolved, all subsequent commands use cwd = repoRoot
+const targetDir = opts.cwd ?? process.cwd();
+const repoRoot = await getRepoRoot(exec, targetDir); // git rev-parse --show-toplevel (cwd = targetDir)
+const hasHead = await checkHasHead(exec, repoRoot);  // git rev-parse --verify HEAD (cwd = repoRoot)
+const isBare = await checkIsBare(exec, repoRoot);    // guard: exit if bare (cwd = repoRoot)
 ```
 
-`repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths against `ctx.repoRoot`. All `CommandExecutor` calls pass `{ cwd: ctx.repoRoot }` in options.
+`repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it. All `FsReader` calls resolve paths against `ctx.repoRoot`. All `CommandExecutor` calls in collectors pass `{ cwd: ctx.repoRoot }` in options.
 
 ### Tier model: collector-level gate, field-level branching
 
