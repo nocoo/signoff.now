@@ -11,6 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DashboardLayoutRouteImport } from './routes/_dashboard/layout'
 import { Route as DashboardPageRouteImport } from './routes/_dashboard/page'
+import { Route as DashboardSettingsLayoutRouteImport } from './routes/_dashboard/settings/layout'
+import { Route as DashboardSettingsTerminalRouteImport } from './routes/_dashboard/settings/terminal'
+import { Route as DashboardSettingsPresetsRouteImport } from './routes/_dashboard/settings/presets'
+import { Route as DashboardSettingsKeyboardRouteImport } from './routes/_dashboard/settings/keyboard'
+import { Route as DashboardSettingsGitRouteImport } from './routes/_dashboard/settings/git'
+import { Route as DashboardSettingsBehaviorRouteImport } from './routes/_dashboard/settings/behavior'
+import { Route as DashboardSettingsAppearanceRouteImport } from './routes/_dashboard/settings/appearance'
 
 const DashboardLayoutRoute = DashboardLayoutRouteImport.update({
   id: '/_dashboard',
@@ -21,24 +28,111 @@ const DashboardPageRoute = DashboardPageRouteImport.update({
   path: '/',
   getParentRoute: () => DashboardLayoutRoute,
 } as any)
+const DashboardSettingsLayoutRoute = DashboardSettingsLayoutRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => DashboardLayoutRoute,
+} as any)
+const DashboardSettingsTerminalRoute =
+  DashboardSettingsTerminalRouteImport.update({
+    id: '/terminal',
+    path: '/terminal',
+    getParentRoute: () => DashboardSettingsLayoutRoute,
+  } as any)
+const DashboardSettingsPresetsRoute =
+  DashboardSettingsPresetsRouteImport.update({
+    id: '/presets',
+    path: '/presets',
+    getParentRoute: () => DashboardSettingsLayoutRoute,
+  } as any)
+const DashboardSettingsKeyboardRoute =
+  DashboardSettingsKeyboardRouteImport.update({
+    id: '/keyboard',
+    path: '/keyboard',
+    getParentRoute: () => DashboardSettingsLayoutRoute,
+  } as any)
+const DashboardSettingsGitRoute = DashboardSettingsGitRouteImport.update({
+  id: '/git',
+  path: '/git',
+  getParentRoute: () => DashboardSettingsLayoutRoute,
+} as any)
+const DashboardSettingsBehaviorRoute =
+  DashboardSettingsBehaviorRouteImport.update({
+    id: '/behavior',
+    path: '/behavior',
+    getParentRoute: () => DashboardSettingsLayoutRoute,
+  } as any)
+const DashboardSettingsAppearanceRoute =
+  DashboardSettingsAppearanceRouteImport.update({
+    id: '/appearance',
+    path: '/appearance',
+    getParentRoute: () => DashboardSettingsLayoutRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof DashboardPageRoute
+  '/settings': typeof DashboardSettingsLayoutRouteWithChildren
+  '/settings/appearance': typeof DashboardSettingsAppearanceRoute
+  '/settings/behavior': typeof DashboardSettingsBehaviorRoute
+  '/settings/git': typeof DashboardSettingsGitRoute
+  '/settings/keyboard': typeof DashboardSettingsKeyboardRoute
+  '/settings/presets': typeof DashboardSettingsPresetsRoute
+  '/settings/terminal': typeof DashboardSettingsTerminalRoute
 }
 export interface FileRoutesByTo {
+  '/settings': typeof DashboardSettingsLayoutRouteWithChildren
   '/': typeof DashboardPageRoute
+  '/settings/appearance': typeof DashboardSettingsAppearanceRoute
+  '/settings/behavior': typeof DashboardSettingsBehaviorRoute
+  '/settings/git': typeof DashboardSettingsGitRoute
+  '/settings/keyboard': typeof DashboardSettingsKeyboardRoute
+  '/settings/presets': typeof DashboardSettingsPresetsRoute
+  '/settings/terminal': typeof DashboardSettingsTerminalRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_dashboard': typeof DashboardLayoutRouteWithChildren
+  '/_dashboard/settings': typeof DashboardSettingsLayoutRouteWithChildren
   '/_dashboard/': typeof DashboardPageRoute
+  '/_dashboard/settings/appearance': typeof DashboardSettingsAppearanceRoute
+  '/_dashboard/settings/behavior': typeof DashboardSettingsBehaviorRoute
+  '/_dashboard/settings/git': typeof DashboardSettingsGitRoute
+  '/_dashboard/settings/keyboard': typeof DashboardSettingsKeyboardRoute
+  '/_dashboard/settings/presets': typeof DashboardSettingsPresetsRoute
+  '/_dashboard/settings/terminal': typeof DashboardSettingsTerminalRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/settings'
+    | '/settings/appearance'
+    | '/settings/behavior'
+    | '/settings/git'
+    | '/settings/keyboard'
+    | '/settings/presets'
+    | '/settings/terminal'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/_dashboard' | '/_dashboard/'
+  to:
+    | '/settings'
+    | '/'
+    | '/settings/appearance'
+    | '/settings/behavior'
+    | '/settings/git'
+    | '/settings/keyboard'
+    | '/settings/presets'
+    | '/settings/terminal'
+  id:
+    | '__root__'
+    | '/_dashboard'
+    | '/_dashboard/settings'
+    | '/_dashboard/'
+    | '/_dashboard/settings/appearance'
+    | '/_dashboard/settings/behavior'
+    | '/_dashboard/settings/git'
+    | '/_dashboard/settings/keyboard'
+    | '/_dashboard/settings/presets'
+    | '/_dashboard/settings/terminal'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -61,14 +155,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardPageRouteImport
       parentRoute: typeof DashboardLayoutRoute
     }
+    '/_dashboard/settings': {
+      id: '/_dashboard/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof DashboardSettingsLayoutRouteImport
+      parentRoute: typeof DashboardLayoutRoute
+    }
+    '/_dashboard/settings/terminal': {
+      id: '/_dashboard/settings/terminal'
+      path: '/terminal'
+      fullPath: '/settings/terminal'
+      preLoaderRoute: typeof DashboardSettingsTerminalRouteImport
+      parentRoute: typeof DashboardSettingsLayoutRoute
+    }
+    '/_dashboard/settings/presets': {
+      id: '/_dashboard/settings/presets'
+      path: '/presets'
+      fullPath: '/settings/presets'
+      preLoaderRoute: typeof DashboardSettingsPresetsRouteImport
+      parentRoute: typeof DashboardSettingsLayoutRoute
+    }
+    '/_dashboard/settings/keyboard': {
+      id: '/_dashboard/settings/keyboard'
+      path: '/keyboard'
+      fullPath: '/settings/keyboard'
+      preLoaderRoute: typeof DashboardSettingsKeyboardRouteImport
+      parentRoute: typeof DashboardSettingsLayoutRoute
+    }
+    '/_dashboard/settings/git': {
+      id: '/_dashboard/settings/git'
+      path: '/git'
+      fullPath: '/settings/git'
+      preLoaderRoute: typeof DashboardSettingsGitRouteImport
+      parentRoute: typeof DashboardSettingsLayoutRoute
+    }
+    '/_dashboard/settings/behavior': {
+      id: '/_dashboard/settings/behavior'
+      path: '/behavior'
+      fullPath: '/settings/behavior'
+      preLoaderRoute: typeof DashboardSettingsBehaviorRouteImport
+      parentRoute: typeof DashboardSettingsLayoutRoute
+    }
+    '/_dashboard/settings/appearance': {
+      id: '/_dashboard/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof DashboardSettingsAppearanceRouteImport
+      parentRoute: typeof DashboardSettingsLayoutRoute
+    }
   }
 }
 
+interface DashboardSettingsLayoutRouteChildren {
+  DashboardSettingsAppearanceRoute: typeof DashboardSettingsAppearanceRoute
+  DashboardSettingsBehaviorRoute: typeof DashboardSettingsBehaviorRoute
+  DashboardSettingsGitRoute: typeof DashboardSettingsGitRoute
+  DashboardSettingsKeyboardRoute: typeof DashboardSettingsKeyboardRoute
+  DashboardSettingsPresetsRoute: typeof DashboardSettingsPresetsRoute
+  DashboardSettingsTerminalRoute: typeof DashboardSettingsTerminalRoute
+}
+
+const DashboardSettingsLayoutRouteChildren: DashboardSettingsLayoutRouteChildren =
+  {
+    DashboardSettingsAppearanceRoute: DashboardSettingsAppearanceRoute,
+    DashboardSettingsBehaviorRoute: DashboardSettingsBehaviorRoute,
+    DashboardSettingsGitRoute: DashboardSettingsGitRoute,
+    DashboardSettingsKeyboardRoute: DashboardSettingsKeyboardRoute,
+    DashboardSettingsPresetsRoute: DashboardSettingsPresetsRoute,
+    DashboardSettingsTerminalRoute: DashboardSettingsTerminalRoute,
+  }
+
+const DashboardSettingsLayoutRouteWithChildren =
+  DashboardSettingsLayoutRoute._addFileChildren(
+    DashboardSettingsLayoutRouteChildren,
+  )
+
 interface DashboardLayoutRouteChildren {
+  DashboardSettingsLayoutRoute: typeof DashboardSettingsLayoutRouteWithChildren
   DashboardPageRoute: typeof DashboardPageRoute
 }
 
 const DashboardLayoutRouteChildren: DashboardLayoutRouteChildren = {
+  DashboardSettingsLayoutRoute: DashboardSettingsLayoutRouteWithChildren,
   DashboardPageRoute: DashboardPageRoute,
 }
 

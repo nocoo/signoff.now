@@ -135,9 +135,9 @@ describe("workspaces.get", () => {
 
 		const result = await router.get({ id: workspace.id });
 		expect(result).not.toBeNull();
-		expect(result!.name).toBe("WS");
-		expect(result!.project.name).toBe("Proj");
-		expect(result!.worktree?.branch).toBe("feat");
+		expect(result?.name).toBe("WS");
+		expect(result?.project.name).toBe("Proj");
+		expect(result?.worktree?.branch).toBe("feat");
 	});
 
 	test("returns undefined for non-existent workspace", async () => {

@@ -95,7 +95,7 @@ describe("projects.get", () => {
 		const project = seedProject({ name: "My Project" });
 		const result = await router.get({ id: project.id });
 		expect(result).not.toBeNull();
-		expect(result!.name).toBe("My Project");
+		expect(result?.name).toBe("My Project");
 	});
 
 	test("returns null for non-existent project", async () => {

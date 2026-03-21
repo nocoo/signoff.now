@@ -243,7 +243,7 @@ describe("getWorkspace", () => {
 
 		const result = getWorkspace(db, workspace.id);
 		expect(result).not.toBeNull();
-		expect(result!.name).toBe("My WS");
+		expect(result?.name).toBe("My WS");
 	});
 
 	test("returns undefined for non-existent ID", () => {
@@ -257,7 +257,7 @@ describe("getProject", () => {
 
 		const result = getProject(db, project.id);
 		expect(result).not.toBeNull();
-		expect(result!.name).toBe("My Project");
+		expect(result?.name).toBe("My Project");
 	});
 
 	test("returns undefined for non-existent ID", () => {
@@ -272,7 +272,7 @@ describe("getWorktree", () => {
 
 		const result = getWorktree(db, worktree.id);
 		expect(result).not.toBeNull();
-		expect(result!.branch).toBe("feature-x");
+		expect(result?.branch).toBe("feature-x");
 	});
 
 	test("returns undefined for non-existent ID", () => {
@@ -293,10 +293,10 @@ describe("getWorkspaceWithRelations", () => {
 
 		const result = getWorkspaceWithRelations(db, workspace.id);
 		expect(result).not.toBeNull();
-		expect(result!.name).toBe("WS");
-		expect(result!.project.name).toBe("Proj");
-		expect(result!.worktree).not.toBeNull();
-		expect(result!.worktree!.branch).toBe("feat");
+		expect(result?.name).toBe("WS");
+		expect(result?.project.name).toBe("Proj");
+		expect(result?.worktree).not.toBeNull();
+		expect(result?.worktree?.branch).toBe("feat");
 	});
 
 	test("returns undefined for non-existent workspace", () => {
@@ -411,7 +411,7 @@ describe("selectNextActiveWorkspace", () => {
 			lastOpenedAt: 1000,
 			tabOrder: 0,
 		});
-		const ws2 = seedWorkspace(project.id, {
+		const _ws2 = seedWorkspace(project.id, {
 			id: "ws-new",
 			lastOpenedAt: 2000,
 			tabOrder: 1,
@@ -419,7 +419,7 @@ describe("selectNextActiveWorkspace", () => {
 
 		const next = selectNextActiveWorkspace(db, project.id, ws1.id);
 		expect(next).not.toBeNull();
-		expect(next!.id).toBe("ws-new");
+		expect(next?.id).toBe("ws-new");
 	});
 
 	test("excludes the specified workspace from candidates", () => {
@@ -429,14 +429,14 @@ describe("selectNextActiveWorkspace", () => {
 			lastOpenedAt: 9999,
 			tabOrder: 0,
 		});
-		const ws2 = seedWorkspace(project.id, {
+		const _ws2 = seedWorkspace(project.id, {
 			id: "ws-keep",
 			lastOpenedAt: 1000,
 			tabOrder: 1,
 		});
 
 		const next = selectNextActiveWorkspace(db, project.id, ws1.id);
-		expect(next!.id).toBe("ws-keep");
+		expect(next?.id).toBe("ws-keep");
 	});
 
 	test("excludes workspaces with deletingAt set", () => {
@@ -446,20 +446,20 @@ describe("selectNextActiveWorkspace", () => {
 			lastOpenedAt: 1000,
 			tabOrder: 0,
 		});
-		const ws2 = seedWorkspace(project.id, {
+		const _ws2 = seedWorkspace(project.id, {
 			id: "ws-deleting",
 			lastOpenedAt: 9999,
 			deletingAt: now,
 			tabOrder: 1,
 		});
-		const ws3 = seedWorkspace(project.id, {
+		const _ws3 = seedWorkspace(project.id, {
 			id: "ws-alive",
 			lastOpenedAt: 500,
 			tabOrder: 2,
 		});
 
 		const next = selectNextActiveWorkspace(db, project.id, ws1.id);
-		expect(next!.id).toBe("ws-alive");
+		expect(next?.id).toBe("ws-alive");
 	});
 
 	test("returns undefined when no other workspaces exist", () => {
@@ -484,8 +484,8 @@ describe("getBranchWorkspace", () => {
 
 		const result = getBranchWorkspace(db, project.id);
 		expect(result).not.toBeNull();
-		expect(result!.type).toBe("branch");
-		expect(result!.name).toBe("Main Branch");
+		expect(result?.type).toBe("branch");
+		expect(result?.name).toBe("Main Branch");
 	});
 
 	test("returns undefined when no branch workspace exists", () => {
