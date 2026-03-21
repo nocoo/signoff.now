@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { app, protocol } from "electron";
 import { makeAppSetup } from "lib/electron-app/factories/app/setup";
+import { ensureSignoffHomeDirExists } from "main/lib/app-environment";
+import { initAppState } from "main/lib/app-state";
+import { closeLocalDb, initLocalDb } from "main/lib/local-db";
 import {
 	ensureProjectIconsDir,
 	getProjectIconPath,
@@ -45,6 +48,15 @@ process.on("unhandledRejection", (reason) => {
 
 // ─── 5. App ready ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+	// Ensure all signoff directories exist
+	ensureSignoffHomeDirExists();
+
+	// Initialize local SQLite database (WAL mode + Drizzle)
+	initLocalDb();
+
+	// Initialize app state (lowdb-style JSON)
+	initAppState();
+
 	// Register icon protocol handler
 	protocol.handle(ICON_PROTOCOL, (request) => {
 		const url = new URL(request.url);
@@ -89,4 +101,9 @@ app.on("window-all-closed", () => {
 	if (PLATFORM !== "darwin") {
 		app.quit();
 	}
+});
+
+// ─── 7. Cleanup on quit ─────────────────────────────────────────────────────
+app.on("will-quit", () => {
+	closeLocalDb();
 });

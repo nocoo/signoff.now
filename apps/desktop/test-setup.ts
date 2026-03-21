@@ -80,11 +80,31 @@ mock.module("electron", () => ({
 // ─── Mock: trpc-electron ─────────────────────────────────────────────────────
 mock.module("trpc-electron/main", () => ({
 	createIPCHandler: () => {},
+	exposeElectronTRPC: () => {},
 }));
 
 mock.module("trpc-electron/preload", () => ({
 	exposeElectronTRPC: () => {},
 }));
+
+// ─── Mock: better-sqlite3 (native module not available in Bun) ───────────────
+mock.module("better-sqlite3", () => {
+	class MockDatabase {
+		pragma() {
+			return "";
+		}
+		exec() {}
+		prepare() {
+			return {
+				run: () => ({ changes: 0 }),
+				get: () => undefined,
+				all: () => [],
+			};
+		}
+		close() {}
+	}
+	return { default: MockDatabase };
+});
 
 // ─── Mock: @signoff/local-db ─────────────────────────────────────────────────
 mock.module("@signoff/local-db", () => ({
@@ -95,10 +115,25 @@ mock.module("@signoff/local-db", () => ({
 	settings: {},
 }));
 
+mock.module("@signoff/local-db/schema", () => ({
+	projects: {},
+	worktrees: {},
+	workspaces: {},
+	workspaceSections: {},
+	settings: {},
+	projectsRelations: {},
+	worktreesRelations: {},
+	workspacesRelations: {},
+	workspaceSectionsRelations: {},
+}));
+
 // ─── Mock: main/lib/local-db (better-sqlite3 not available in Bun) ───────────
 mock.module("./src/main/lib/local-db", () => ({
 	db: null,
-	initLocalDb: () => {},
+	getDb: () => null,
+	getSqlite: () => null,
+	initLocalDb: () => null,
+	closeLocalDb: () => {},
 }));
 
 // ─── Browser globals ─────────────────────────────────────────────────────────
