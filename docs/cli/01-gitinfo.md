@@ -308,9 +308,11 @@ interface GitStatusEntry {
 
 ### Section: Files
 
-All fields in this section use the **working tree** (via `git ls-files`) as their basis, not HEAD. This means staged-but-uncommitted files are included. All four non-slow fields share the same `git ls-files` source, but they intentionally diverge for deleted-but-tracked files: `trackedCount` and `typeDistribution` only need the filename (so they include these files), while `totalLines` and `largestTracked` need file content/size on disk (so they silently skip them — see below). The slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) necessarily use commit history and may not cover staged-only files — this difference is documented per field.
+All fields in this section use the **working tree** (via `git ls-files`) as their basis, not HEAD. This means staged-but-uncommitted files are included. All four non-slow fields share the same `git ls-files` source, but they intentionally diverge on certain edge cases: deleted-but-tracked files and submodule (gitlink) entries receive special handling documented below. The slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) necessarily use commit history and may not cover staged-only files — this difference is documented per field.
 
 **Deleted-but-tracked files:** When a tracked file has been deleted from the working tree but not yet `git rm`'d, `git ls-files` still lists it. Operations that access the file on disk (`wc -l` for line counting, `FsReader.fileSize()` for size) will fail. The implementation must **silently skip** such files — they contribute to `trackedCount` and `typeDistribution` (which only need the filename), but are excluded from `totalLines` and `largestTracked` (which need file content/size). No error is reported for these files.
+
+**Submodule (gitlink) entries:** `git ls-files -z` also lists submodule paths (git mode `160000`). In the working tree, a submodule path is a directory, not a regular file — `wc -l` reports "Is a directory" and `FsReader.fileSize()` returns the directory inode size, not the content size. The implementation must **silently skip gitlink entries** from all four non-slow fields. To detect them, use `git ls-files -z --stage` and filter out entries where the mode starts with `160000`. Alternatively, before processing each path, check whether it is a regular file (not a directory/symlink) and skip otherwise — this also handles the deleted-but-tracked case. Submodule entries do not have a file extension in the traditional sense and should not contribute to `typeDistribution`.
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
@@ -347,7 +349,7 @@ All fields in this section use the **working tree** (via `git ls-files`) as thei
 1. **Parallel execution** — All collectors run concurrently via `Promise.all`
 2. **Tier gating** — Slow fields use optional types (`field?: Type`) and are omitted from the TypeScript object (and thus from JSON output) when `--full` is not active. This ensures JSON schema stability: default mode always produces the same set of keys; `--full` mode adds additional keys
 3. **Limit by default** — Slow log-based commands use `-n 1000` or `--since='1 year ago'` to bound traversal
-4. **Early exit** — Check `git rev-list --count HEAD`; if > 50k, warn for expensive ops
+4. **Early exit** — Check `git rev-list --count HEAD`; if > 50k, emit a warning to **stderr** (never stdout — stdout is reserved for the JSON/pretty report and must remain pipe-safe). The warning is informational only and does not change the exit code or skip any fields. Example: `⚠ Large repository (52341 commits) — slow fields may take a while`
 
 ---
 
