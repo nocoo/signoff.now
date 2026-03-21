@@ -112,10 +112,10 @@ describe("listDirectory", () => {
 		expect(names).toEqual(["aaa", "zzz", "aaa.txt", "bbb.txt"]);
 
 		// Verify kinds
-		expect(entries[0].kind).toEqual("directory");
-		expect(entries[1].kind).toEqual("directory");
-		expect(entries[2].kind).toEqual("file");
-		expect(entries[3].kind).toEqual("file");
+		expect(entries[0]?.kind).toEqual("directory");
+		expect(entries[1]?.kind).toEqual("directory");
+		expect(entries[2]?.kind).toEqual("file");
+		expect(entries[3]?.kind).toEqual("file");
 	});
 });
 

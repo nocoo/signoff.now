@@ -37,7 +37,9 @@ describe("createAsyncQueue", () => {
 		})();
 
 		await new Promise((r) => setTimeout(r, 10));
-		pushFn?.(42);
+		if (pushFn) {
+			(pushFn as (value: number) => void)(42);
+		}
 
 		const result = await iterPromise;
 		expect(result.value).toBe(42);
@@ -55,7 +57,7 @@ describe("createAsyncQueue", () => {
 		expect(first.value).toBe(1);
 
 		const returnResult = await iter.return?.(undefined);
-		expect(returnResult.done).toBe(true);
+		expect(returnResult?.done).toBe(true);
 
 		const afterReturn = await iter.next();
 		expect(afterReturn.done).toBe(true);
@@ -74,7 +76,9 @@ describe("createAsyncQueue", () => {
 		await iter.return?.(undefined);
 
 		// Push after close — should not throw
-		pushFn?.(99);
+		if (pushFn) {
+			(pushFn as (value: number) => void)(99);
+		}
 	});
 
 	test("calls cleanup when return() is called", async () => {
