@@ -1,0 +1,2 @@
+[install]
+linker = "isolated" # Prevent hoisting from resolving transitive deps that break native rebuilds.

@@ -1,0 +1,33 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"ui": "tui",
+	"globalPassThroughEnv": ["NODE_ENV", "CI"],
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**", "dist-electron/**", "release/**"]
+		},
+		"dev": {
+			"cache": false,
+			"persistent": true
+		},
+		"test": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"]
+		},
+		"test:ci": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"]
+		},
+		"typecheck": {
+			"dependsOn": ["^build"],
+			"outputs": [".cache/tsbuildinfo.json"]
+		},
+		"lint": {
+			"outputs": []
+		},
+		"clean": {
+			"cache": false
+		}
+	}
+}

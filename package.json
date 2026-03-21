@@ -1,0 +1,31 @@
+{
+	"name": "@signoff/repo",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"packageManager": "bun@1.3.6",
+	"workspaces": [
+		"packages/*",
+		"apps/*",
+		"tooling/*"
+	],
+	"devDependencies": {
+		"@biomejs/biome": "2.4.2",
+		"husky": "^9.0.0",
+		"turbo": "^2.8.7"
+	},
+	"scripts": {
+		"dev": "turbo run dev --filter=@signoff/desktop",
+		"build": "turbo build --filter=@signoff/desktop",
+		"test": "turbo test",
+		"test:ci": "turbo test:ci",
+		"lint": "bunx @biomejs/biome check .",
+		"lint:fix": "bunx @biomejs/biome check --write --unsafe .",
+		"format": "bunx @biomejs/biome format --write .",
+		"typecheck": "turbo typecheck",
+		"prepare": "husky",
+		"clean": "git clean -xdf node_modules",
+		"clean:workspaces": "turbo clean",
+		"db:generate:desktop": "bun run --cwd packages/local-db generate"
+	}
+}
