@@ -11,18 +11,20 @@
 	],
 	"devDependencies": {
 		"@biomejs/biome": "2.4.2",
+		"@types/bun": "^1.3.11",
 		"husky": "^9.0.0",
-		"turbo": "^2.8.7"
+		"turbo": "^2.8.7",
+		"typescript": "^5.9.3"
 	},
 	"scripts": {
-		"dev": "turbo run dev --filter=@signoff/desktop",
-		"build": "turbo build --filter=@signoff/desktop",
+		"dev": "turbo run dev",
+		"build": "turbo build",
 		"test": "turbo test",
-		"test:ci": "turbo test:ci",
+		"test:ci": "bun run scripts/check-coverage.ts",
 		"lint": "bunx @biomejs/biome check .",
 		"lint:fix": "bunx @biomejs/biome check --write --unsafe .",
 		"format": "bunx @biomejs/biome format --write .",
-		"typecheck": "turbo typecheck",
+		"typecheck": "tsc --noEmit && turbo typecheck",
 		"prepare": "husky",
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
