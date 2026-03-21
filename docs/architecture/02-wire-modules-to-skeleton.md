@@ -170,15 +170,49 @@ export async function closeAllFsHostServices(): Promise<void> {
 
 **新建**: `apps/desktop/src/main/lib/workspace-fs/adapter.ts`
 
-Router 内部已经做了 `join(workspacePath, relativePath)` 生成 `fullPath`，然后传 `{ workspacePath, path: fullPath }`。Adapter 需要拦截这些调用，取出 `path`/`fullPath` 作为 `absolutePath` 委托给 `FsHostService`：
+Router 内部已经做了 `join(workspacePath, relativePath)` 生成 `fullPath`，然后传 `{ workspacePath, path: fullPath }`。Adapter 需要拦截这些调用，取出 `path`/`fullPath` 作为 `absolutePath` 委托给 `FsHostService`。
+
+**真实类型参照**（`packages/workspace-fs/src/types.ts`）：
+
+```ts
+// FsEntry — listDirectory 返回值，仅 3 个字段
+interface FsEntry { absolutePath: string; name: string; kind: FsEntryKind }
+type FsEntryKind = "file" | "directory" | "symlink" | "other";
+
+// FsReadResult — discriminated union，text 时 content: string
+type FsReadResult =
+  | { kind: "text"; content: string; byteLength: number; exceededLimit: boolean; revision: string }
+  | { kind: "bytes"; content: Uint8Array; byteLength: number; exceededLimit: boolean; revision: string };
+
+// FsWriteResult — ok/fail union
+type FsWriteResult =
+  | { ok: true; revision: string }
+  | { ok: false; reason: "conflict" | "exists" | "not-found"; ... };
+
+// FsMetadata — 无 name 字段，用 absolutePath + modifiedAt
+interface FsMetadata {
+  absolutePath: string; kind: FsEntryKind; size: number | null;
+  createdAt: string | null; modifiedAt: string | null; accessedAt: string | null;
+  symlinkTarget?: string | null; revision: string;
+  // ... mode, permissions, owner, group (optional)
+}
+```
+
+**新建**: `apps/desktop/src/main/lib/workspace-fs/adapter.ts`
 
 ```ts
 import type { FsHostService } from "@signoff/workspace-fs/host";
+import { basename } from "node:path";
 import { getFsHostService } from "./index";
 
 /**
  * Adapts the router's { workspacePath, path } call convention
  * to FsHostService's { absolutePath } interface.
+ *
+ * Type mappings:
+ *   FsEntry { absolutePath, name, kind }  →  DirectoryEntry { name, isDirectory, isSymlink, size }
+ *   FsReadResult { kind: "text", content }  →  FileContent { content, encoding }
+ *   FsMetadata { absolutePath, kind, size, modifiedAt }  →  FileMetadata { name, isDirectory, isSymlink, size, mtime }
  */
 export function createFsAdapter() {
   function getFs(workspacePath: string): FsHostService {
@@ -190,13 +224,13 @@ export function createFsAdapter() {
       const result = await getFs(input.workspacePath).listDirectory({
         absolutePath: input.path,
       });
-      // Router expects DirectoryEntry[], FsHostService returns { entries: FsEntry[] }
-      // Need to map FsEntry → DirectoryEntry
+      // FsEntry → DirectoryEntry
+      // FsEntry has no size/isSymlink — derive from kind, size requires getMetadata per-entry
       return result.entries.map((e) => ({
         name: e.name,
         isDirectory: e.kind === "directory",
-        isSymlink: e.isSymlink ?? false,
-        size: e.size ?? 0,
+        isSymlink: e.kind === "symlink",
+        size: 0, // FsEntry doesn't carry size; enrichment deferred to getMetadata calls
       }));
     },
 
@@ -204,14 +238,25 @@ export function createFsAdapter() {
       const result = await getFs(input.workspacePath).readFile({
         absolutePath: input.path,
       });
-      return { content: result.content, encoding: result.encoding ?? "utf-8" };
+      // FsReadResult is a discriminated union; for text files return content string
+      if (result.kind === "text") {
+        return { content: result.content, encoding: "utf-8" };
+      }
+      // Binary file: decode as latin1 to avoid data loss, renderer should detect and handle
+      return {
+        content: new TextDecoder("latin1").decode(result.content),
+        encoding: "binary",
+      };
     },
 
     writeFile: async (input: { workspacePath: string; path: string; content: string }) => {
-      await getFs(input.workspacePath).writeFile({
+      const result = await getFs(input.workspacePath).writeFile({
         absolutePath: input.path,
         content: input.content,
       });
+      if ("ok" in result && !result.ok) {
+        throw new Error(`writeFile failed: ${result.reason}`);
+      }
     },
 
     createDirectory: async (input: { workspacePath: string; path: string }) => {
@@ -234,33 +279,53 @@ export function createFsAdapter() {
       });
     },
 
-    getMetadata: async (input: { path: string }) => {
-      // getMetadata 不传 workspacePath — 需要从上下文推断
-      // 或者修改 router Zod schema 也传 workspacePath
-      const result = await getFsHostService(input.path).getMetadata({
+    getMetadata: async (input: { workspacePath: string; path: string }) => {
+      const result = await getFs(input.workspacePath).getMetadata({
         absolutePath: input.path,
       });
       if (!result) throw new Error(`File not found: ${input.path}`);
+      // FsMetadata → FileMetadata
+      // FsMetadata has no `name` — extract from absolutePath via basename()
+      // FsMetadata uses `modifiedAt: string | null` (ISO) — convert to epoch ms
       return {
-        name: result.name,
+        name: basename(result.absolutePath),
         isDirectory: result.kind === "directory",
-        isSymlink: result.isSymlink ?? false,
+        isSymlink: result.kind === "symlink" || !!result.symlinkTarget,
         size: result.size ?? 0,
-        mtime: result.mtime ?? 0,
+        mtime: result.modifiedAt ? new Date(result.modifiedAt).getTime() : 0,
       };
     },
   };
 }
 ```
 
-> **⚠️ FsEntry → DirectoryEntry 映射**：`FsService` 返回 `FsEntry { name, kind, isSymlink?, size? }`，router 期望 `DirectoryEntry { name, isDirectory, isSymlink, size }`。Adapter 做 `kind === "directory"` → `isDirectory: true` 转换。需确认 `FsEntry` 的精确字段（`packages/workspace-fs/src/types.ts`）。
+### 1.2b 修复 getMetadata router schema
+
+🔧 Implement — 当前 router 的 `getMetadata` Zod schema 只接受 `{ workspacePath, relativePath }`，但 `createFilesystemRouter` 内部只传 `{ path: fullPath }` 给 `fs.getMetadata`，**漏掉了 `workspacePath`**。
+
+**修改**: `apps/desktop/src/lib/trpc/routers/filesystem/index.ts`
+
+```diff
+  // createFilesystemRouter 的 getMetadata 方法：
+  async getMetadata(input: {
+    workspacePath: string;
+    relativePath: string;
+  }): Promise<FileMetadata> {
+    const fullPath = join(input.workspacePath, input.relativePath);
+-   return fs.getMetadata({ path: fullPath });
++   return fs.getMetadata({ workspacePath: input.workspacePath, path: fullPath });
+  },
+```
+
+这样 adapter 的 `getMetadata` 就能拿到 `workspacePath` 来获取正确的 `FsHostService` 实例。
 
 ### 1.3 替换空对象占位
 
 🔌 Wire — 修改 `apps/desktop/src/main/index.ts`。
 
 ```diff
-+ import { createFsAdapter, closeAllFsHostServices } from "./lib/workspace-fs/adapter";
++ import { createFsAdapter } from "./lib/workspace-fs/adapter";
++ import { closeAllFsHostServices } from "./lib/workspace-fs";
 
   const deps: AppRouterDeps = {
     getDb,
@@ -479,6 +544,65 @@ test: add PaneContent and FileExplorer wiring tests
 
 > **数据流方向**：PTY 输出通过 Socket 推送到 renderer，不走 tRPC query/subscription。renderer 直连 daemon Socket（通过 main process 转发 IPC）。这与 superset 的架构一致。
 
+### 4.2b 实现 Terminal IPC Event Bridge
+
+🔧 Implement — main → renderer 的实时数据推送通道。
+
+**当前状态**：preload 已暴露 `App.ipcRenderer.on(channel, listener)` （`preload/index.ts:16`），renderer 可监听。但 main process 没有对应的 `webContents.send()` 调用——需要补全这个桥。
+
+**新建**: `apps/desktop/src/main/lib/terminal/ipc-bridge.ts`
+
+```ts
+import type { BrowserWindow } from "electron";
+
+/** IPC channel 约定 */
+export const TERMINAL_IPC = {
+  DATA: "terminal:data",        // main → renderer: PTY 输出
+  EXIT: "terminal:exit",        // main → renderer: PTY 退出
+  ERROR: "terminal:error",      // main → renderer: PTY 错误
+} as const;
+
+/**
+ * 桥接 daemon Socket 事件到 renderer IPC.
+ * 当 daemon 推送 session event 时，通过 webContents.send 转发到 renderer。
+ */
+export function createTerminalIpcBridge(getWindow: () => BrowserWindow | null) {
+  return {
+    onData(sessionId: string, data: string) {
+      getWindow()?.webContents.send(TERMINAL_IPC.DATA, { sessionId, data });
+    },
+    onExit(sessionId: string, exitCode: number, signal?: number) {
+      getWindow()?.webContents.send(TERMINAL_IPC.EXIT, { sessionId, exitCode, signal });
+    },
+    onError(sessionId: string, error: string) {
+      getWindow()?.webContents.send(TERMINAL_IPC.ERROR, { sessionId, error });
+    },
+  };
+}
+```
+
+**Renderer 侧消费**（在 Terminal.tsx 中）：
+
+```ts
+// 监听 main process 推送的 PTY 输出
+useEffect(() => {
+  const cleanup = window.App.ipcRenderer.on(
+    "terminal:data",
+    (payload: { sessionId: string; data: string }) => {
+      if (payload.sessionId === currentSessionId) {
+        xtermRef.current?.write(payload.data);
+      }
+    },
+  );
+  return cleanup; // App.ipcRenderer.on 返回 removeListener 函数
+}, [currentSessionId]);
+```
+
+**需要修改的文件**：
+- `apps/desktop/src/main/lib/terminal/ipc-bridge.ts` (new)
+- `apps/desktop/src/main/lib/terminal/index.ts` — manager 在收到 daemon session event 时调用 bridge
+- `apps/desktop/src/renderer/components/Terminal/Terminal.tsx` — 通过 `App.ipcRenderer.on` 监听
+
 ### 4.3 创建 Terminal React 组件
 
 🔧 Implement — 从零创建。
@@ -501,9 +625,10 @@ import { trpc } from "../../lib/trpc";
 2. `useEffect` mount：创建 XTerm → attach FitAddon → mount 到 DOM → setup copy/paste/keyboard handlers
 3. `trpc.terminal.createOrAttach.useMutation()` 创建 PTY session
 4. xterm `onData` → `trpc.terminal.write.mutate({ sessionId, data })`
-5. PTY 输出 → 通过 preload 暴露的 IPC event 接收 → `xterm.write(data)`
-6. resize → debounced `trpc.terminal.resize.mutate()`
-7. cleanup → `trpc.terminal.detach.mutate()` + xterm.dispose()
+5. PTY 输出 → `App.ipcRenderer.on("terminal:data", ...)` 接收 → `xterm.write(data)`（见 4.2b IPC bridge）
+6. PTY 退出 → `App.ipcRenderer.on("terminal:exit", ...)` 处理退出状态
+7. resize → debounced `trpc.terminal.resize.mutate()`
+8. cleanup → `trpc.terminal.detach.mutate()` + xterm.dispose() + remove IPC listeners
 
 ### 4.4 PaneContent 接入 Terminal
 
@@ -540,14 +665,16 @@ import { trpc } from "../../lib/trpc";
 | Layer | Test | File |
 |:------|:-----|:-----|
 | L1 | Terminal manager fork/connect/write (mock child_process) | `main/lib/terminal/__tests__/index.test.ts` |
+| L1 | IPC bridge 正确调用 webContents.send (mock BrowserWindow) | `main/lib/terminal/__tests__/ipc-bridge.test.ts` |
 | L1 | Terminal router 正确委托 manager | `lib/trpc/routers/terminal/__tests__/index.test.ts` |
-| L1 | Terminal.tsx render 不 crash (mock xterm) | `renderer/components/Terminal/__tests__/Terminal.test.tsx` |
-| L2 | 创建 session → 写入 → 接收输出 → kill | `main/lib/terminal/__tests__/integration.test.ts` |
+| L1 | Terminal.tsx render + IPC listener setup (mock xterm + IPC) | `renderer/components/Terminal/__tests__/Terminal.test.tsx` |
+| L2 | 创建 session → 写入 → IPC 接收输出 → kill | `main/lib/terminal/__tests__/integration.test.ts` |
 
 ### Commits
 
 ```
 feat: implement terminal manager (prewarm, reconcile, restart)
+feat: implement terminal IPC event bridge (main → renderer)
 feat: implement terminal tRPC router
 feat: create Terminal.tsx React component with xterm integration
 feat: render Terminal in PaneContent
@@ -821,13 +948,14 @@ test: add e2e smoke test for alpha workflow
 ```
 Phase 0 (Unblock Runtime)           ← 必须先做，否则无法验证任何代码
     ↓
-Phase 1 (Filesystem)                ← Phase 0 完成后立即开始
+Phase 1 (Filesystem)          ┐
+Phase 2 (Project/Workspace)   ├──── 可并行：sidebar 接 projects router 不依赖 filesystem
+                              ┘
     ↓
-Phase 2 (Project/Workspace in UI)   ← 依赖 Phase 1 的 filesystem 基础
+Phase 3 (Real Pane Content)         ← 依赖 Phase 1 (filesystem for file tree/editor)
+                                       依赖 Phase 2 (project context for workspace selection)
     ↓
-Phase 3 (Real Pane Content)         ← 依赖 Phase 1 (filesystem) + Phase 2 (project context)
-    ↓
-Phase 4 (Terminal)                  ← 独立于 Phase 2/3，但排在后面因为复杂度高
+Phase 4 (Terminal)                  ← 独立于 Phase 2/3，排在后面因为复杂度高
     ↓
 Phase 5 (Stub Routers)       ┐
 Phase 6 (Settings Binding)   ├──── 可并行，互不依赖
@@ -861,9 +989,9 @@ export interface AppRouterDeps {
 
 | # | Assumption | Impact if wrong | Mitigation |
 |:--|:-----------|:----------------|:-----------|
-| A1 | `FsEntry` 的 `kind` 字段值为 `"directory"` / `"file"` / `"symlink"` | Phase 1 adapter 映射错误 | 读 `packages/workspace-fs/src/types.ts` 确认 |
-| A2 | `FsReadResult` 包含 `content: string` + `encoding: string` 字段 | Phase 1 readFile adapter 映射错误 | 同上 |
-| A3 | Terminal daemon 通信走 Unix socket（非 tRPC），renderer 需要 IPC 转发 | Phase 4 架构设计不对 | 读 `terminal-host/index.ts` 的 `net.createServer` 入口确认 |
-| A4 | `postinstall` 在 CI `bun install` 中也会执行 | CI 环境可能无 Electron headers | 脚本内检测 `binding.gyp` 是否存在，不存在则 skip |
-| A5 | electron-vite 能解析 `@signoff/ui/*` wildcard exports | Phase 7 阻塞 | Phase 7 第一步验证 |
-| A6 | `trpc-electron@0.1.2` 不支持 subscription | Terminal/window 实时事件需 IPC fallback | Phase 8 验证 |
+| A1 | `FsEntry.kind` uses exact values `"file"` / `"directory"` / `"symlink"` / `"other"` (verified in `types.ts:1`) | Phase 1 adapter `isDirectory`/`isSymlink` mapping wrong | Already verified — `FsEntryKind` is a literal union |
+| A2 | `FsReadResult.kind === "text"` for most source files; binary fallback via latin1 is acceptable | Phase 1 readFile returns garbled content for binary | Renderer should detect `encoding: "binary"` and show hex/binary view |
+| A3 | Terminal daemon communicates via Node.js `net.Socket` (not tRPC), renderer needs IPC forwarding via `webContents.send` | Phase 4 architecture design wrong | Verified in `terminal-host.ts` — uses `socket.write(JSON.stringify(event))`. IPC bridge (4.2b) handles main→renderer forwarding |
+| A4 | `postinstall` runs in CI during `bun install` | CI environment may lack Electron headers | Script checks for `binding.gyp` existence, skips if absent |
+| A5 | electron-vite can resolve `@signoff/ui/*` wildcard exports | Phase 7 blocked | Phase 7 first step validates |
+| A6 | `trpc-electron@0.1.2` does not support tRPC subscription | Terminal/window real-time events need IPC fallback | Phase 4 uses IPC bridge (4.2b); Phase 8 evaluates subscription support |
