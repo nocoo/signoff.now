@@ -899,28 +899,28 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 ---
 
-### Phase 3: Desktop App Scaffold 🚪
+### Phase 3: Desktop App Scaffold 🚪 ✅
 
 > TDD: 先建立 `test-setup.ts` mock 层，再搭 Electron 壳。从此 commit 起 desktop 包也有 UT gate。
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate | |
+| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 20 smoke tests pass; L1+L2 gate | ✅ `c7635dc` |
 
-**Phase 3 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (Electron 窗口启动)
+**Phase 3 Gate 🚪:** `bun run test:ci` (20 tests, 95.71% coverage) + `bun run lint` (0 diagnostics) + `bun run typecheck` (0 errors) ✅ All pass
 
 ---
 
-### Phase 4: Core Infrastructure
+### Phase 4: Core Infrastructure ✅
 
 > TDD: 先写 tRPC router 的 test，再写 router 实现。
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 8 | `feat: add tRPC IPC layer` | `src/lib/trpc/index.ts`, `src/lib/trpc/routers/index.ts` (createAppRouter), `workspace-fs-service.ts`, preload bridge | Test first: router assembly test → impl | |
-| 9 | `feat: add local-db initialization in main process` | `src/main/lib/local-db/` (SQLite WAL init, Drizzle instance), `src/main/lib/app-state/` (lowdb), `src/main/lib/window-state/` | Test first: DB init + window-state tests → impl | |
+| 8 | `feat: add tRPC IPC layer with 12 router stubs` | `src/lib/trpc/index.ts` (initTRPC + superjson), `src/lib/trpc/routers/index.ts` (createAppRouter with 12 sub-routers), preload `exposeElectronTRPC()`, main `createIPCHandler`, renderer `TRPCProvider` (ipcLink + QueryClient) | Test first: 16 router assembly + stub tests → impl | ✅ `e34f76b` |
+| 9 | `feat: add local-db initialization, app-state, and window-state persistence` | `src/main/lib/local-db/` (better-sqlite3 WAL + Drizzle + migration), `src/main/lib/app-state/` (JSON persistence), `src/main/lib/window-state/` (bounds persistence), boot sequence wiring | Test first: 7 tests for app-state, window-state, local-db API → impl | ✅ `24ad88c` |
 
-**Phase 4 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
+**Phase 4 Gate:** `bun run test:ci` (43 tests, 97.52% coverage) + `bun run lint` (0 diagnostics) + `bun run typecheck` (0 errors) ✅ All pass
 
 ---
 
