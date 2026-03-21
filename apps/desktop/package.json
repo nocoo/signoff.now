@@ -28,6 +28,7 @@
 		"drizzle-orm": "0.45.1",
 		"electron-updater": "^6.7.3",
 		"lowdb": "^7.0.1",
+		"node-pty": "1.1.0",
 		"react": "19.2.0",
 		"react-dom": "19.2.0",
 		"superjson": "^2.2.2",

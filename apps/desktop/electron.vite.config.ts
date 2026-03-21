@@ -20,7 +20,17 @@ export default defineConfig({
 		build: {
 			outDir: "dist/main",
 			lib: {
-				entry: path.resolve(__dirname, "src/main/index.ts"),
+				entry: {
+					index: path.resolve(__dirname, "src/main/index.ts"),
+					"terminal-host": path.resolve(
+						__dirname,
+						"src/main/terminal-host/index.ts",
+					),
+					"pty-subprocess": path.resolve(
+						__dirname,
+						"src/main/terminal-host/pty-subprocess.ts",
+					),
+				},
 			},
 			rollupOptions: {
 				external: [...runtimeDependencies],

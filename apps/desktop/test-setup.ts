@@ -87,6 +87,20 @@ mock.module("trpc-electron/preload", () => ({
 	exposeElectronTRPC: () => {},
 }));
 
+// ─── Mock: node-pty (native module not available in Bun) ─────────────────────
+mock.module("node-pty", () => ({
+	spawn: () => ({
+		pid: 12345,
+		onData: () => {},
+		onExit: () => {},
+		write: () => {},
+		resize: () => {},
+		kill: () => {},
+		pause: () => {},
+		resume: () => {},
+	}),
+}));
+
 // ─── Mock: better-sqlite3 (native module not available in Bun) ───────────────
 mock.module("better-sqlite3", () => {
 	class MockDatabase {
