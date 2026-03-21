@@ -46,6 +46,7 @@
 		"trpc-electron": "^0.1.2",
 		"tw-animate-css": "^1.3.4",
 		"uuid": "^13.0.0",
+		"zustand": "^5.0.2",
 		"zod": "^4.3.5"
 	},
 	"devDependencies": {

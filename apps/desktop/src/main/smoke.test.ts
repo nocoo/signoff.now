@@ -89,6 +89,52 @@ describe("shared/constants", () => {
 			DEFAULT_WINDOW.HEIGHT,
 		);
 	});
+
+	test("DEFAULT_TERMINAL_SCROLLBACK is 10_000", async () => {
+		const { DEFAULT_TERMINAL_SCROLLBACK } = await import("../shared/constants");
+		expect(DEFAULT_TERMINAL_SCROLLBACK).toBe(10_000);
+	});
+});
+
+// ─── Project Colors (@signoff/shared) ───────────────────────────────────────
+
+describe("shared/constants project-colors", () => {
+	test("PROJECT_COLORS has 9 color entries", async () => {
+		const { PROJECT_COLORS } = await import("@signoff/shared/constants");
+		expect(PROJECT_COLORS).toHaveLength(9);
+	});
+
+	test("first color is the default value", async () => {
+		const { PROJECT_COLORS, PROJECT_COLOR_DEFAULT } = await import(
+			"@signoff/shared/constants"
+		);
+		expect(PROJECT_COLORS[0].name).toBe("Default");
+		expect(PROJECT_COLORS[0].value).toBe(PROJECT_COLOR_DEFAULT);
+	});
+
+	test("PROJECT_COLOR_DEFAULT is 'default'", async () => {
+		const { PROJECT_COLOR_DEFAULT } = await import("@signoff/shared/constants");
+		expect(PROJECT_COLOR_DEFAULT).toBe("default");
+	});
+
+	test("PROJECT_COLOR_VALUES has correct length", async () => {
+		const { PROJECT_COLOR_VALUES, PROJECT_COLORS } = await import(
+			"@signoff/shared/constants"
+		);
+		expect(PROJECT_COLOR_VALUES).toHaveLength(PROJECT_COLORS.length);
+	});
+
+	test("all non-default colors are valid hex strings", async () => {
+		const { PROJECT_COLORS, PROJECT_COLOR_DEFAULT } = await import(
+			"@signoff/shared/constants"
+		);
+		const hexColors = PROJECT_COLORS.filter(
+			(c) => c.value !== PROJECT_COLOR_DEFAULT,
+		);
+		for (const color of hexColors) {
+			expect(color.value).toMatch(/^#[0-9a-f]{6}$/);
+		}
+	});
 });
 
 // ─── App Environment ─────────────────────────────────────────────────────────
