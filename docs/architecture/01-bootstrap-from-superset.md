@@ -864,12 +864,12 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 3 | `feat: add shared package with constants and types` | `packages/shared/package.json`, `src/`, `tsconfig.json` — 含裁剪自 superset 的 7 个 `*.test.ts` | Test first: 7 个测试全部 pass | |
-| 4 | `feat: add workspace-fs package` | 🟢 Copy from superset — `src/{client,core,host}/`, `resource-uri.ts` — 含 6 个 `*.test.ts` | Test first: 6 个测试全部 pass | |
-| 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass | |
-| 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` | L2+L3: lint + typecheck pass | |
+| 3 | `feat: add shared package with constants and types` | `packages/shared/package.json`, `src/`, `tsconfig.json` — 含裁剪自 superset 的 7 个 `*.test.ts` | Test first: 7 个测试全部 pass | ✅ `ba9397f` |
+| 4 | `feat: add workspace-fs package` | 🟢 Copy from superset — `src/{client,core,host}/`, `resource-uri.ts` — 含 6 个 `*.test.ts` | Test first: 6 个测试全部 pass | ✅ `4e27134` |
+| 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass | ✅ `a796614` |
+| 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` — trimmed ai-elements/, next-themes | L2+L3: lint + typecheck pass | ✅ `456b8e6` |
 
-**Phase 2 Gate:** `bun run test:ci` (13 tests pass, coverage ≥ 90%) + `bun run lint` + `bun run typecheck`
+**Phase 2 Gate:** `bun run test:ci` (466 tests pass, coverage ≥ 90%) + `bun run lint` + `bun run typecheck` ✅ All pass
 
 ---
 
