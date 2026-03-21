@@ -15,6 +15,10 @@
 
 **macOS and Linux only.** The implementation depends on POSIX utilities (`du -sk` for directory sizing, `wc -l` for line counting) and assumes Unix path semantics. Windows is not supported — there is no planned fallback for missing POSIX commands, and paths are not normalized for Windows separators.
 
+### Path encoding convention
+
+Git commands that output file paths will quote and escape filenames containing tabs, newlines, double quotes, or bytes outside the printable ASCII range (e.g., `"tab\tname.txt"`). To avoid broken path parsing, **all commands that output paths must use `-z` (NUL-delimited) mode** where the option is available (`git status -z`, `git ls-files -z`, `git log -z --name-only`). The TypeScript parser splits on `\0` instead of `\n`. This eliminates the need for Git's C-style dequoting and makes parsing unambiguous for any filename.
+
 ### Scope
 
 Supports **standard non-bare working tree repositories only**. The following layouts are explicitly unsupported:
@@ -234,14 +238,16 @@ interface GitInfoReport {
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `staged` | `GitStatusEntry[]` | instant | `git status --porcelain=v2` |
-| `modified` | `GitStatusEntry[]` | instant | `git status --porcelain=v2` |
-| `untracked` | `string[]` | instant | `git status --porcelain=v2` |
-| `conflicted` | `string[]` | instant | `git status --porcelain=v2` |
+| `staged` | `GitStatusEntry[]` | instant | `git status --porcelain=v2 -z` |
+| `modified` | `GitStatusEntry[]` | instant | `git status --porcelain=v2 -z` |
+| `untracked` | `string[]` | instant | `git status --porcelain=v2 -z` |
+| `conflicted` | `string[]` | instant | `git status --porcelain=v2 -z` |
 | `stashCount` | `number` | instant | `git stash list` → count lines in TypeScript |
 | `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `join(repoRoot, ".git", "MERGE_HEAD")`, `join(repoRoot, ".git", "rebase-merge")`, `join(repoRoot, ".git", "rebase-apply")`, `join(repoRoot, ".git", "CHERRY_PICK_HEAD")`, `join(repoRoot, ".git", "BISECT_LOG")`, `join(repoRoot, ".git", "REVERT_HEAD")` |
 
 ### Section: Branches
+
+**Empty repo note:** In an empty repo (no commits), `current` returns the branch name from the symbolic ref (e.g., `"main"`) because `git branch --show-current` reads `HEAD` — which exists as a symbolic ref even without commits. However, `local` / `totalLocal` return `[]` / `0` because `git for-each-ref refs/heads/` only lists refs backed by actual commits. This means `current = "main"` with `totalLocal = 0` is a valid and expected state, not a bug. Consumers should not assume that `current` being non-null implies `totalLocal >= 1`.
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
@@ -284,18 +290,18 @@ interface GitInfoReport {
 
 ### Section: Files
 
-All fields in this section use the **working tree** (via `git ls-files`) as their basis, not HEAD. This means staged-but-uncommitted files are included. This ensures `trackedCount`, `typeDistribution`, `totalLines`, and `largestTracked` are consistent with each other. The slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) necessarily use commit history and may not cover staged-only files — this difference is documented per field.
+All fields in this section use the **working tree** (via `git ls-files`) as their basis, not HEAD. This means staged-but-uncommitted files are included. All four non-slow fields share the same `git ls-files` source, but they intentionally diverge for deleted-but-tracked files: `trackedCount` and `typeDistribution` only need the filename (so they include these files), while `totalLines` and `largestTracked` need file content/size on disk (so they silently skip them — see below). The slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) necessarily use commit history and may not cover staged-only files — this difference is documented per field.
 
 **Deleted-but-tracked files:** When a tracked file has been deleted from the working tree but not yet `git rm`'d, `git ls-files` still lists it. Operations that access the file on disk (`wc -l` for line counting, `FsReader.fileSize()` for size) will fail. The implementation must **silently skip** such files — they contribute to `trackedCount` and `typeDistribution` (which only need the filename), but are excluded from `totalLines` and `largestTracked` (which need file content/size). No error is reported for these files.
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `trackedCount` | `number` | instant | `git ls-files` → count lines in TypeScript |
-| `typeDistribution` | `Record<string, number>` | moderate | `git ls-files` → parse extensions in TypeScript |
+| `trackedCount` | `number` | instant | `git ls-files -z` → split on `\0`, count entries in TypeScript |
+| `typeDistribution` | `Record<string, number>` | moderate | `git ls-files -z` → split on `\0`, parse extensions in TypeScript |
 | `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files; silently skips deleted-but-tracked files (see above) |
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes; silently skips deleted-but-tracked files (see above) |
-| `largestBlobs?` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then `git cat-file --batch-check`. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
-| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only -n 1000 HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
+| `largestBlobs?` | `GitBlobInfo[]` | **slow** | **Two-step:** (1) `git rev-list --objects --all` → outputs `<sha> <path>` lines (commits and trees have no path, blobs do); (2) feed SHAs to `git cat-file --batch-check` → outputs `<sha> <type> <size>` per object; **filter to `type == "blob"` only** — discard commit/tree/tag objects. Sort by size descending in TypeScript. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
+| `mostChanged?` | `GitFileChurn[]` | **slow** | `git log -z --pretty=format: --name-only -n 1000 HEAD` → split on `\0`, count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
 | `binaryFiles?` | `string[]` | **slow** | **Two-step** (no shell substitution — see [CommandExecutor](#commandexecutor--subprocess-spawning)): (1) `git hash-object -t tree /dev/null` → returns the empty tree SHA; (2) `git diff --numstat <empty-tree-sha> HEAD --` → lines with `-\t-` prefix are binary. Guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
 
 ### Section: Config
