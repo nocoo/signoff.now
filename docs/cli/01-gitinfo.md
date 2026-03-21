@@ -92,9 +92,9 @@ gitinfo contributors | jq '.authors | sort_by(-.commits) | .[0:5]'
 ┌────────────────────▼────────────────────────────────┐
 │  Core Layer                                         │
 │  src/commands/core/*.ts                             │
-│  Pure functions: one git command → one typed result  │
-│  Each accepts CommandExecutor via dependency         │
-│  injection                                          │
+│  Pure functions: exec commands → typed results       │
+│  All I/O goes through injected interfaces:           │
+│  CommandExecutor (git/OS commands) + FsReader (files) │
 └────────────────────┬────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────┐
@@ -119,10 +119,12 @@ apps/gitinfo/
     │   ├── output.ts                     # JSON + pretty formatters
     │   └── output.test.ts
     ├── executor/
-    │   ├── types.ts                      # CommandExecutor interface + ExecResult
-    │   ├── bun-executor.ts               # Real implementation via Bun.spawn
+    │   ├── types.ts                      # CommandExecutor + FsReader interfaces
+    │   ├── bun-executor.ts               # Real CommandExecutor via Bun.spawn
+    │   ├── bun-fs-reader.ts              # Real FsReader via node:fs/promises + du
     │   ├── bun-executor.test.ts          # Integration test (runs real git --version)
-    │   └── mock-executor.ts              # Deterministic fake for unit tests
+    │   ├── mock-executor.ts              # Deterministic fake for unit tests
+    │   └── mock-fs-reader.ts             # Deterministic fake for fs-dependent tests
     ├── commands/
     │   ├── types.ts                      # GitInfoReport + all section interfaces
     │   ├── core/
@@ -198,8 +200,9 @@ interface GitInfoReport {
 | `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix; null if no remote or origin/HEAD not set |
 | `remotes` | `GitRemote[]` | instant | `git remote -v` |
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
-| `isBare` | `boolean` | instant | `git rev-parse --is-bare-repository` |
 | `createdAt` | `string` | instant | `git log <root-commit> -1 --format=%aI` |
+
+> **Note:** `isBare` is not a report field. It is checked at startup as a guard: if `git rev-parse --is-bare-repository` returns `true`, gitinfo exits with an error message ("bare repositories are not supported"). See [Scope](#scope).
 
 ### Section: Status
 
@@ -209,8 +212,8 @@ interface GitInfoReport {
 | `modified` | `GitStatusEntry[]` | instant | `git status --porcelain=v2` |
 | `untracked` | `string[]` | instant | `git status --porcelain=v2` |
 | `conflicted` | `string[]` | instant | `git status --porcelain=v2` |
-| `stashCount` | `number` | instant | `git stash list \| wc -l` |
-| `repoState` | `RepoState` | instant | check `.git/MERGE_HEAD`, `.git/rebase-merge`, etc. |
+| `stashCount` | `number` | instant | `git stash list` → count lines in TypeScript |
+| `repoState` | `RepoState` | instant | `FsReader.exists()` checks for `.git/MERGE_HEAD`, `.git/rebase-merge`, `.git/rebase-apply`, `.git/CHERRY_PICK_HEAD`, `.git/BISECT_LOG`, `.git/REVERT_HEAD` |
 
 ### Section: Branches
 
@@ -219,8 +222,8 @@ interface GitInfoReport {
 | `current` | `string \| null` | instant | `git branch --show-current` |
 | `local` | `GitBranchInfo[]` | moderate | `git for-each-ref --format=... refs/heads/` |
 | `remote` | `string[]` | moderate | `git branch -r --format=...` |
-| `totalLocal` | `number` | instant | `git branch --format=... \| wc -l` |
-| `totalRemote` | `number` | instant | `git branch -r --format=... \| wc -l` |
+| `totalLocal` | `number` | instant | `git branch --format='%(refname:short)'` → count lines in TypeScript |
+| `totalRemote` | `number` | instant | `git branch -r --format='%(refname:short)'` → count lines in TypeScript |
 
 `GitBranchInfo` includes: `name`, `upstream`, `aheadBehind`, `lastCommitDate`, `isMerged`.
 
@@ -239,40 +242,40 @@ interface GitInfoReport {
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges` |
+| `authors` | `GitAuthorSummary[]` | moderate | `git shortlog -sne --no-merges HEAD` (HEAD is required — without a revision, shortlog reads stdin and hangs) |
 | `totalAuthors` | `number` | moderate | derived from authors |
-| `activeRecent` | `number` | moderate | `git shortlog -sne --since='90 days ago'` |
+| `activeRecent` | `number` | moderate | `git shortlog -sne --no-merges --since='90 days ago' HEAD` |
 | `authorStats` | `GitAuthorStats[]` | **slow** | `git log --numstat --pretty=tformat:'%aN'` |
 
 ### Section: Tags
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `count` | `number` | instant | `git tag -l \| wc -l` |
+| `count` | `number` | instant | `git tag -l` → count lines in TypeScript |
 | `tags` | `GitTagInfo[]` | moderate | `git for-each-ref --format=... refs/tags/` |
-| `latestTag` | `string \| null` | instant | `git describe --tags --abbrev=0` |
-| `commitsSinceTag` | `number \| null` | instant | `git rev-list <tag>..HEAD --count` |
+| `latestReachableTag` | `string \| null` | instant | `git describe --tags --abbrev=0` → nearest tag reachable from HEAD (not necessarily the newest tag in the repo; on branched histories, tags on other branches are invisible) |
+| `commitsSinceTag` | `number \| null` | instant | `git rev-list <latestReachableTag>..HEAD --count`; null when no reachable tag exists |
 
 ### Section: Files
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `trackedCount` | `number` | instant | `git ls-files \| wc -l` |
-| `typeDistribution` | `Record<string, number>` | moderate | `git ls-files` + extension parse |
-| `totalLines` | `number` | moderate | `git ls-files -z \| xargs -0 wc -l` |
-| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z \| xargs -0 wc -c \| sort -rn` |
-| `largestBlobs` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all \| git cat-file --batch-check` |
-| `mostChanged` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only \| sort \| uniq -c` |
+| `trackedCount` | `number` | instant | `git ls-files` → count lines in TypeScript |
+| `typeDistribution` | `Record<string, number>` | moderate | `git ls-files` → parse extensions in TypeScript |
+| `totalLines` | `number` | moderate | `git diff --stat $(git hash-object -t tree /dev/null) HEAD --` → parse total insertions as line count |
+| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-tree -r -l HEAD` → parse size column (4th field), sort in TypeScript |
+| `largestBlobs` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then pipe stdout to `git cat-file --batch-check` (two exec calls, second reads first's output) |
+| `mostChanged` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only` → count occurrences in TypeScript |
 | `binaryFiles` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary |
 
 ### Section: Config
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `gitDirSizeKiB` | `number` | instant | `du -sk .git` → parse first field as KiB integer |
+| `gitDirSizeKiB` | `number` | instant | `FsReader.dirSizeKiB(".git")` (wraps `du -sk` internally) |
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
-| `worktreeCount` | `number` | instant | `git worktree list \| wc -l` |
-| `hooks` | `string[]` | instant | `ls .git/hooks/ \| grep -v .sample` or custom `hooksPath` |
+| `worktreeCount` | `number` | instant | `git worktree list` → count lines in TypeScript |
+| `hooks` | `string[]` | instant | `FsReader.readdir(".git/hooks")` → filter out `.sample` files; also check `git config core.hooksPath` for custom hooks dir |
 | `localConfig` | `Record<string, string[]>` | instant | `git config --local --list` → group by key; values array to preserve multi-value keys |
 
 ---
@@ -296,7 +299,11 @@ interface GitInfoReport {
 
 ## Executor Interface
 
-The dependency injection boundary. Real implementation uses `Bun.spawn`; tests inject a mock that returns deterministic output.
+All I/O in core functions goes through two injected interfaces — no direct `Bun.spawn`, `fs`, or shell pipeline calls in core code.
+
+### CommandExecutor — subprocess spawning
+
+Real implementation uses `Bun.spawn`; tests inject a mock with deterministic output. Each invocation runs **a single command** (no shell pipelines). When a git command's output needs post-processing (e.g., counting lines), the parsing happens in TypeScript, not via piping to `wc`/`sort`/`grep`.
 
 ```typescript
 // src/executor/types.ts
@@ -320,7 +327,34 @@ type CommandExecutor = (
 ) => Promise<ExecResult>;
 ```
 
-### Mock executor for tests
+### FsReader — filesystem access
+
+A small interface for the few operations that read the filesystem directly (repo state detection, hooks listing, .git directory size). Tests inject a mock; real implementation uses `node:fs/promises` + `Bun.spawn` for `du`.
+
+```typescript
+// src/executor/types.ts
+
+interface FsReader {
+  /** Check if a file or directory exists */
+  exists(path: string): Promise<boolean>;
+  /** List files in a directory (non-recursive) */
+  readdir(path: string): Promise<string[]>;
+  /** Get directory size in KiB (wraps du -sk) */
+  dirSizeKiB(path: string): Promise<number>;
+}
+```
+
+**Why two interfaces?** The data model table (below) marks each field's I/O source. Most fields use only `CommandExecutor` (git commands). A few use `FsReader`:
+
+| Field | Uses FsReader | Reason |
+|-------|:---:|--------|
+| `repoState` | ✅ | Checks `.git/MERGE_HEAD`, `.git/rebase-merge`, etc. |
+| `hooks` | ✅ | Lists `.git/hooks/` directory |
+| `gitDirSizeKiB` | ✅ | `du -sk .git` via `dirSizeKiB()` |
+
+Everything else is pure `CommandExecutor`.
+
+### Mock helpers for tests
 
 ```typescript
 // src/executor/mock-executor.ts
@@ -335,9 +369,17 @@ function createMockExecutor(
     return { stdout: match.stdout, stderr: match.stderr ?? "", exitCode: match.exitCode ?? 0 };
   };
 }
+
+// src/executor/mock-fs-reader.ts
+
+function createMockFsReader(opts: {
+  files?: Map<string, string[]>;   // path → readdir result
+  exists?: Map<string, boolean>;   // path → exists result
+  sizes?: Map<string, number>;     // path → dirSizeKiB result
+}): FsReader { /* ... */ }
 ```
 
-**Pattern:** Each core function test creates a mock executor with hardcoded git stdout for that specific command, then asserts the parsed output. No filesystem or network access required.
+**Pattern:** Each core function test injects the appropriate mock(s). Most tests only need `createMockExecutor` since they only call git commands. Tests for `repoState`, `hooks`, and `gitDirSizeKiB` additionally inject `createMockFsReader`.
 
 ---
 
@@ -350,6 +392,7 @@ type CollectorTier = "instant" | "moderate" | "slow";
 
 interface CollectorContext {
   exec: CommandExecutor;
+  fs: FsReader;
   repoRoot: string;
   activeTiers: Set<CollectorTier>;
 }
@@ -385,7 +428,7 @@ interface Collector<T> {
 
 - **Co-located**: `*.test.ts` alongside source files
 - **Framework**: `bun:test` (`describe`, `it`, `expect`)
-- **Mock pattern**: `createMockExecutor()` with pre-programmed `Map<commandString, response>`
+- **Mock pattern**: `createMockExecutor()` for git commands + `createMockFsReader()` for filesystem access (only needed by `repoState`, `hooks`, `gitDirSizeKiB` tests)
 - **Edge cases**: empty repo, detached HEAD, no remotes, Unicode author names, zero tags, merge-in-progress, Windows-style line endings in git output
 
 ### Coverage enforcement
@@ -477,7 +520,7 @@ Add to root `biome.jsonc` overrides array:
 | 1 | docs | `docs: add gitinfo cli design document` | `docs/cli/01-gitinfo.md`, `docs/cli/README.md`, update `docs/README.md` |
 | 2 | feat | `feat: scaffold apps/gitinfo package` | `package.json`, `tsconfig.json`, empty `src/main.ts`, `bun install` |
 | 3 | chore | `chore: add biome strict override for apps/gitinfo` | Root `biome.jsonc` override |
-| 4 | feat | `feat(gitinfo): add command executor` | `executor/types.ts`, `bun-executor.ts`, `mock-executor.ts`, `bun-executor.test.ts` |
+| 4 | feat | `feat(gitinfo): add command executor` | `executor/types.ts`, `bun-executor.ts`, `bun-fs-reader.ts`, `mock-executor.ts`, `mock-fs-reader.ts`, `bun-executor.test.ts` |
 | 5 | feat | `feat(gitinfo): add cli argument parser` | `cli/args.ts`, `cli/args.test.ts` |
 | 6 | feat | `feat(gitinfo): add report type definitions` | `commands/types.ts` |
 | 7 | feat | `feat(gitinfo): add parse utilities` | `utils/parse.ts`, `utils/parse.test.ts` |
