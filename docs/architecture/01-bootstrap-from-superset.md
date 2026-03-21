@@ -957,9 +957,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 15 | `feat: add code editor with codemirror 6` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | L1+L2 gate | |
-| 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl | |
-| 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl | |
+| 15 | `feat: add code editor with codemirror 6` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | L1+L2 gate | ✅ `4a20a10` |
+| 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl | ✅ `16510f8` |
+| 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl | ✅ `1ec219d` |
 
 **Phase 7 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
