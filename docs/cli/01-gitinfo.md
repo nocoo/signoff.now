@@ -28,10 +28,10 @@ Supports **standard non-bare working tree repositories only**. The following lay
 
 An empty repo (`git init` with no commits) is a valid input. When HEAD does not exist:
 
-- Fields that depend on commits use nullable types (`string | null`, `number | null`) and return `null`
+- Fields that depend on commit history use the appropriate zero-value for their type: `null` for singular values (`string | null`, `GitCommitSummary | null`), `0` for counts (`number`), `[]` for lists (`GitAuthorSummary[]`), and `undefined` for optional slow fields. The exact return value is specified per field in the data model tables below
 - The `meta`, `status`, `branches`, `config` sections still return meaningful data (git version, repo root, untracked files, config, etc.)
 - The `logs`, `contributors`, `tags` sections return empty/zero/null values (not errors)
-- The `files` section: `trackedCount`/`typeDistribution` still work (via `git ls-files` which works in empty repos); `totalLines`/`largestTracked` return 0/empty (git ls-files returns tracked files even without commits if they're staged); slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) are skipped (they depend on commit history)
+- The `files` section: all non-slow fields (`trackedCount`, `typeDistribution`, `totalLines`, `largestTracked`) work normally even without commits — `git ls-files` lists staged files, and working tree operations (`wc -l`, `FsReader.fileSize()`) operate on the actual files. These fields are **not zeroed out** in empty repos. Slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) are skipped (they depend on commit history via `hasHead` guard)
 - Startup guards check `git rev-parse --verify HEAD` to detect this state; the result is passed to collectors via `CollectorContext.hasHead: boolean`
 - Every command in the data model table that uses `HEAD` is annotated with its empty repo behavior
 
@@ -224,7 +224,7 @@ interface GitInfoReport {
 | `headShort` | `string \| null` | instant | `git rev-parse --short HEAD`; null in empty repo |
 | `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD`; exits non-zero when HEAD is detached → map non-zero exit code to `null` |
 | `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix; null if no remote or origin/HEAD not set |
-| `remotes` | `GitRemote[]` | instant | `git remote -v` → outputs two lines per remote (fetch/push); parse and **group by remote name** into one `GitRemote` object per remote: `{ name: string; fetchUrl: string; pushUrl: string }`. If fetch and push URLs differ, both are preserved |
+| `remotes` | `GitRemote[]` | instant | `git remote -v` → outputs one fetch line and one-or-more push lines per remote; parse and **group by remote name** into one `GitRemote` object per remote: `{ name: string; fetchUrl: string; pushUrls: string[] }`. Git allows multiple push URLs per remote (`git remote set-url --add --push`), so `pushUrls` is an array |
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
 | `firstCommitAuthorDate` | `string \| null` | instant | `git log <root-commit> -1 --format=%aI`; null in empty repo. **Caveat:** this is the root commit's author date, which can be rewritten or forged — it is not a reliable "repo creation timestamp" |
 
@@ -286,12 +286,14 @@ interface GitInfoReport {
 
 All fields in this section use the **working tree** (via `git ls-files`) as their basis, not HEAD. This means staged-but-uncommitted files are included. This ensures `trackedCount`, `typeDistribution`, `totalLines`, and `largestTracked` are consistent with each other. The slow fields (`largestBlobs`, `mostChanged`, `binaryFiles`) necessarily use commit history and may not cover staged-only files — this difference is documented per field.
 
+**Deleted-but-tracked files:** When a tracked file has been deleted from the working tree but not yet `git rm`'d, `git ls-files` still lists it. Operations that access the file on disk (`wc -l` for line counting, `FsReader.fileSize()` for size) will fail. The implementation must **silently skip** such files — they contribute to `trackedCount` and `typeDistribution` (which only need the filename), but are excluded from `totalLines` and `largestTracked` (which need file content/size). No error is reported for these files.
+
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
 | `trackedCount` | `number` | instant | `git ls-files` → count lines in TypeScript |
 | `typeDistribution` | `Record<string, number>` | moderate | `git ls-files` → parse extensions in TypeScript |
-| `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files, not HEAD |
-| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes |
+| `totalLines` | `number` | moderate | `git ls-files -z` → `wc -l` per file via exec, sum in TypeScript. Uses working tree files; silently skips deleted-but-tracked files (see above) |
+| `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z` → `FsReader.fileSize()` per file, sort in TypeScript. Uses working tree file sizes; silently skips deleted-but-tracked files (see above) |
 | `largestBlobs?` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all` then `git cat-file --batch-check`. **History-based** — shows largest objects ever committed, not current working tree. **Optional:** omitted when `--full` is not active |
 | `mostChanged?` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only -n 1000 HEAD` → count occurrences in TypeScript; guard: skip when `!hasHead`. **History-based.** **Optional:** omitted when `--full` is not active |
 | `binaryFiles?` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary; guard: skip when `!hasHead`. **HEAD-based** — only detects binaries committed to HEAD. **Optional:** omitted when `--full` is not active |
