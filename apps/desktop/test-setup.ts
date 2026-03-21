@@ -120,26 +120,8 @@ mock.module("better-sqlite3", () => {
 	return { default: MockDatabase };
 });
 
-// ─── Mock: @signoff/local-db ─────────────────────────────────────────────────
-mock.module("@signoff/local-db", () => ({
-	projects: {},
-	worktrees: {},
-	workspaces: {},
-	workspaceSections: {},
-	settings: {},
-}));
-
-mock.module("@signoff/local-db/schema", () => ({
-	projects: {},
-	worktrees: {},
-	workspaces: {},
-	workspaceSections: {},
-	settings: {},
-	projectsRelations: {},
-	worktreesRelations: {},
-	workspacesRelations: {},
-	workspaceSectionsRelations: {},
-}));
+// NOTE: @signoff/local-db is NOT mocked — it's a pure TypeScript schema package
+// that works directly in Bun. Only native modules need mocking.
 
 // ─── Mock: main/lib/local-db (better-sqlite3 not available in Bun) ───────────
 mock.module("./src/main/lib/local-db", () => ({
