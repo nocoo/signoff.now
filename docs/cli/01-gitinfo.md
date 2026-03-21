@@ -66,8 +66,11 @@ gitinfo --pretty
 # Only branch info
 gitinfo branches
 
-# Branch info with slow fields (stale detection, etc.)
-gitinfo branches --full
+# Branch info including moderate fields
+gitinfo branches
+
+# Contributors with slow fields (per-author LOC stats)
+gitinfo contributors --full
 
 # Run against a different repo
 gitinfo --cwd /path/to/repo
@@ -91,11 +94,18 @@ gitinfo contributors | jq '.authors | sort_by(-.commits) | .[0:5]'
 └────────────────────┬────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────┐
+│  Bootstrap (in command orchestrator, before collect) │
+│  Resolve: repoRoot, hasHead, isBare guard           │
+│  Build CollectorContext with pre-computed values     │
+└────────────────────┬────────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────────┐
 │  Collectors Layer                                   │
 │  src/commands/collectors/*.collector.ts              │
 │  Orchestrate core functions into typed sections      │
 │  run-collectors.ts: parallel execution + error      │
 │  isolation per collector                            │
+│  Each collector gates slow fields via activeTiers   │
 └────────────────────┬────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────┐
@@ -201,7 +211,7 @@ interface GitInfoReport {
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
 | `gitVersion` | `string` | instant | `git --version` |
-| `repoRoot` | `string` | instant | `git rev-parse --show-toplevel` |
+| `repoRoot` | `string` | instant | reads from `ctx.repoRoot` (pre-computed at bootstrap via `git rev-parse --show-toplevel`) |
 | `repoName` | `string` | instant | derived from root path or remote URL |
 | `head` | `string \| null` | instant | `git rev-parse HEAD`; null in empty repo (no commits) |
 | `headShort` | `string \| null` | instant | `git rev-parse --short HEAD`; null in empty repo |
@@ -394,6 +404,25 @@ function createMockFsReader(opts: {
 
 ## Collector Framework
 
+### Bootstrap (before collectors run)
+
+Some values are prerequisites for the collector system, not outputs of it. These are resolved **before** any collector runs, in `main.ts` or the command orchestrator:
+
+```typescript
+// Resolved at startup, NOT by a collector:
+const repoRoot = await getRepoRoot(exec);       // git rev-parse --show-toplevel
+const hasHead = await checkHasHead(exec);        // git rev-parse --verify HEAD
+const isBare = await checkIsBare(exec);          // guard: exit if bare
+```
+
+`repoRoot` and `hasHead` are then passed into `CollectorContext` as pre-computed values. The `meta` collector still *reports* `repoRoot` in its output, but it reads it from `ctx.repoRoot` — it does not re-compute it.
+
+### Tier model: collector-level gate, field-level branching
+
+Each collector has a `tier` that acts as its **entry gate** — the *minimum* tier required to run the collector at all. The orchestrator skips collectors whose tier is not in `activeTiers`.
+
+Within a collector, individual fields may require a *higher* tier. The collector checks `ctx.activeTiers.has("slow")` internally and omits slow fields when that tier is inactive. This keeps the Collector interface simple (one `tier` field) while allowing mixed-tier sections.
+
 ```typescript
 // src/commands/collectors/types.ts
 
@@ -402,22 +431,58 @@ type CollectorTier = "instant" | "moderate" | "slow";
 interface CollectorContext {
   exec: CommandExecutor;
   fs: FsReader;
-  repoRoot: string;
+  repoRoot: string;              // pre-computed at bootstrap
   hasHead: boolean;              // false in empty repos (no commits)
   activeTiers: Set<CollectorTier>;
 }
 
 interface Collector<T> {
   name: string;
-  tier: CollectorTier;         // minimum tier to run
+  tier: CollectorTier;           // minimum tier to START this collector
   collect(ctx: CollectorContext): Promise<T>;
 }
 ```
 
+**Example: logs collector (entry tier = instant, has slow fields)**
+
+```typescript
+const logsCollector: Collector<GitLogs> = {
+  name: "logs",
+  tier: "instant",               // always runs (totalCommits, lastCommit are instant)
+  async collect(ctx) {
+    const totalCommits = ctx.hasHead
+      ? /* git rev-list --count HEAD */ : 0;
+    const lastCommit = ctx.hasHead
+      ? /* git log -1 ... */ : null;
+
+    // slow fields: only computed when --full is active
+    const commitFrequency = ctx.activeTiers.has("slow")
+      ? /* git log --format=%ad ... */ : undefined;
+
+    return { totalCommits, totalMerges, firstCommitDate, lastCommit, commitFrequency, conventionalTypes };
+  },
+};
+```
+
+### Tier assignment per collector
+
+| Collector | Entry tier | Has slow fields? |
+|-----------|:----------:|:---:|
+| meta | instant | no |
+| status | instant | no |
+| branches | moderate | no |
+| logs | instant | yes (`commitFrequency`, `conventionalTypes`) |
+| contributors | moderate | yes (`authorStats`) |
+| tags | instant | no |
+| files | instant | yes (`largestBlobs`, `mostChanged`, `binaryFiles`) |
+| config | instant | no |
+
 ### Orchestrator (`run-collectors.ts`)
 
-- Filters collectors by active tier
-- Runs all matching collectors via `Promise.all`
+- Filters collectors by entry tier: skip if `!activeTiers.has(collector.tier)`
+- Default mode (`activeTiers = {instant, moderate}`): runs all 8 collectors; slow fields within them return `undefined`
+- Full mode (`activeTiers = {instant, moderate, slow}`): runs all 8 collectors; slow fields are computed
+- All matching collectors run in parallel via `Promise.all`
 - Isolates errors: a failing collector produces a `CollectorError` entry, report section falls back to sensible defaults
 - Returns `{ results, errors }`
 
