@@ -11,6 +11,14 @@
 - **Testable** — Command executor dependency injection; all core functions are pure and independently testable
 - **Bun-only** — Leverages Bun.spawn for subprocess execution; runs directly as TypeScript
 
+### Scope
+
+Supports **standard non-bare working tree repositories only**. The following layouts are explicitly unsupported:
+
+- Bare repositories (`git init --bare`)
+- Separate git-dir layouts (`--git-dir` / `GIT_DIR` pointing elsewhere)
+- Git worktrees (`git worktree add`) — the tool runs against the repo it's invoked in, but does not traverse or aggregate across linked worktrees
+
 ---
 
 ## Usage
@@ -187,7 +195,7 @@ interface GitInfoReport {
 | `head` | `string` | instant | `git rev-parse HEAD` |
 | `headShort` | `string` | instant | `git rev-parse --short HEAD` |
 | `currentBranch` | `string \| null` | instant | `git symbolic-ref --short HEAD` (null if detached) |
-| `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` |
+| `defaultBranch` | `string \| null` | instant | `git symbolic-ref refs/remotes/origin/HEAD` → strip `refs/remotes/origin/` prefix; null if no remote or origin/HEAD not set |
 | `remotes` | `GitRemote[]` | instant | `git remote -v` |
 | `isShallow` | `boolean` | instant | `git rev-parse --is-shallow-repository` |
 | `isBare` | `boolean` | instant | `git rev-parse --is-bare-repository` |
@@ -255,17 +263,17 @@ interface GitInfoReport {
 | `largestTracked` | `FileSizeInfo[]` | moderate | `git ls-files -z \| xargs -0 wc -c \| sort -rn` |
 | `largestBlobs` | `GitBlobInfo[]` | **slow** | `git rev-list --objects --all \| git cat-file --batch-check` |
 | `mostChanged` | `GitFileChurn[]` | **slow** | `git log --pretty=format: --name-only \| sort \| uniq -c` |
-| `binaryFiles` | `string[]` | **slow** | `git diff --numstat 4b825dc...HEAD` |
+| `binaryFiles` | `string[]` | **slow** | `git diff --numstat $(git hash-object -t tree /dev/null) HEAD --` → lines with `-\t-` prefix are binary |
 
 ### Section: Config
 
 | Field | Type | Tier | Git Command |
 |-------|------|------|-------------|
-| `gitDirSizeBytes` | `number` | instant | `du -sk .git` |
+| `gitDirSizeKiB` | `number` | instant | `du -sk .git` → parse first field as KiB integer |
 | `objectStats` | `GitObjectStats` | instant | `git count-objects -v` |
 | `worktreeCount` | `number` | instant | `git worktree list \| wc -l` |
 | `hooks` | `string[]` | instant | `ls .git/hooks/ \| grep -v .sample` or custom `hooksPath` |
-| `localConfig` | `Record<string, string>` | instant | `git config --local --list` |
+| `localConfig` | `Record<string, string[]>` | instant | `git config --local --list` → group by key; values array to preserve multi-value keys |
 
 ---
 
