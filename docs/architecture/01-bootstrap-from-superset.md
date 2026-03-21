@@ -85,16 +85,19 @@ signoff.now/
   "workspaces": ["packages/*", "apps/*", "tooling/*"],
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
+    "husky": "^9.0.0",
     "turbo": "^2.8.7"
   },
   "scripts": {
     "dev": "turbo run dev --filter=@signoff/desktop",
     "build": "turbo build --filter=@signoff/desktop",
     "test": "turbo test",
+    "test:ci": "turbo test:ci",
     "lint": "bunx @biomejs/biome check .",
     "lint:fix": "bunx @biomejs/biome check --write --unsafe .",
     "format": "bunx @biomejs/biome format --write .",
     "typecheck": "turbo typecheck",
+    "prepare": "husky",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo clean",
     "db:generate:desktop": "bun run --cwd packages/local-db generate"
@@ -819,11 +822,14 @@ export const settings = sqliteTable("settings", {
 **每一个 commit 都必须通过 L1 + L2 gate，无例外。**
 
 ```
-L1 (UT):   bun run test        ← pre-commit hook 自动执行
-L2 (Lint): bun run lint        ← pre-commit hook 自动执行
-L3 (Integration): bun run typecheck  ← pre-push hook 自动执行
+L1 (UT):   bun run test:ci     ← pre-commit hook 自动执行 (含 coverage threshold)
+L2 (Lint): bun run lint        ← pre-commit hook 自动执行 (Biome only, 不含 typecheck)
+L3 (Type): bun run typecheck   ← pre-push hook 自动执行 (tsc --noEmit)
 L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 ```
+
+> **L2 只是 Biome lint+format，不包含 TypeScript 检查。** TypeScript strict mode 由 L3 独立负责。
+> 二者分开的原因：Biome 是毫秒级检查，适合 pre-commit；tsc 在大项目中可能需要数秒，放在 pre-push。
 
 **TDD 节奏：** 每个功能 commit 的工作顺序是 **test → impl → verify**：
 1. 先写 `*.test.ts`（fail）
@@ -832,7 +838,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 4. Commit
 
 **Phase Gate：** 每个 Phase 完成后执行全量验证：
-- `bun run test` (L1) + `bun run lint` (L2) + `bun run typecheck` (L3)
+- `bun run test:ci` (L1, 含 coverage ≥ 90%) + `bun run lint` (L2) + `bun run typecheck` (L3)
 - 标记有 🚪 的 Phase 额外执行 `bun run dev` 验证 Electron 启动
 
 ---
@@ -843,7 +849,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD |
 |:---|:---|:---|:---|
-| 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test && bun run lint`), `.husky/pre-push` (`bun run typecheck`) | L1: `bun test` 空通过; L2: `bun run lint` 零错误 |
+| 1 | `chore: init monorepo with bun + turborepo + biome + husky` | `package.json` (含 `test`, `test:ci`, `lint`, `prepare` scripts), `turbo.jsonc`, `biome.jsonc`, `bunfig.toml`, `.gitignore`, `.husky/pre-commit` (`bun run test:ci && bun run lint`), `.husky/pre-push` (`bun run typecheck`) | L1: `bun test:ci` 空通过 + coverage 0/0; L2: `bun run lint` 零错误 |
 | 2 | `chore: add shared typescript configs` | `tooling/typescript/{base,electron,internal-package}.json`, `package.json`, `tsconfig.json` | L1+L2 gate; L3: `bun run typecheck` 通过 |
 
 **Phase 1 Gate:** `bun run test && bun run lint && bun run typecheck`
@@ -871,7 +877,7 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD |
 |:---|:---|:---|:---|
-| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/` | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate |
+| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate |
 
 **Phase 3 Gate 🚪:** `bun run test && bun run lint && bun run typecheck` + `bun run dev` (Electron 窗口启动)
 
@@ -939,10 +945,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 |:---|:---|:---|:---|
 | 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl |
 | 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl |
-| 20 | `feat: add custom protocol handlers for icons and fonts` | `signoff-icon://`, `signoff-font://` protocol registration in `src/main/index.ts`, project-icons utils | L1+L2 gate |
-| 21 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test → typecheck, parallel jobs) | Push 触发 CI |
+| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI |
 
-**Phase 8 Gate 🚪:** `bun run test && bun run lint && bun run typecheck` + `bun run dev` (全功能验证)
+**Phase 8 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (全功能验证)
 
 ---
 
@@ -954,7 +959,7 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 |:---|:---|:---|
 | Phase 5 完成 | Terminal 可用 | 启动 app → 打开 terminal → 执行命令 → 验证输出 |
 | Phase 6 完成 | Workspace 可用 | 创建 project → 创建 workspace → split pane → 切换 tab |
-| Phase 8 完成 | 全功能 | 完整主干流程：open project → terminal → edit file → view diff → change settings |
+| Phase 8 完成 | 全功能 | 完整主干流程：open project → terminal → edit file → view diff → change settings → 验证项目图标/系统字体加载 |
 
 ---
 
@@ -962,18 +967,43 @@ L4 (Playwright Electron E2E) 在以下时机手动执行：
 
 ### Four-Layer Verification (adapted for Electron desktop app)
 
-| Layer | Content | Trigger | Gate |
-|:---|:---|:---|:---|
-| **L1 — UT** | `bun test` — tRPC routers, Zustand stores, utility functions, shared packages | **每次 commit** (husky pre-commit) | 覆盖率 ≥ 90% |
-| **L2 — Lint** | `bun run lint` — Biome check (lint + format) + TypeScript strict | **每次 commit** (husky pre-commit) | 零错误零警告 |
-| **L3 — Integration** | `bun run typecheck` — Full TypeScript type check across all packages | **每次 push** (husky pre-push) + Phase Gate | 零 type error |
-| **L4 — E2E** | Playwright Electron — 核心主干流程 | Phase 5/6/8 完成时手动执行 | 核心流程通过 |
+| Layer | Command | Content | Trigger | Gate |
+|:---|:---|:---|:---|:---|
+| **L1 — UT** | `bun run test:ci` | `bun test --coverage` + `scripts/check-coverage.sh` (threshold 90%) | **每次 commit** (husky pre-commit) | Coverage ≥ 90% 否则 exit 1 |
+| **L2 — Lint** | `bun run lint` | Biome check (lint + format)。**不含** TypeScript 检查 | **每次 commit** (husky pre-commit) | 零 diagnostic |
+| **L3 — Type** | `bun run typecheck` | `tsc --noEmit` — Full TypeScript strict type check | **每次 push** (husky pre-push) + Phase Gate | 零 type error |
+| **L4 — E2E** | `bun run test:e2e` | Playwright Electron — 核心主干流程 | Phase 5/6/8 完成时手动执行 | 核心流程通过 |
+
+**Coverage enforcement 实现：**
+
+```jsonc
+// package.json scripts
+{
+  "test": "turbo test",                          // 普通测试（无 coverage）
+  "test:ci": "turbo test:ci",                    // 含 coverage + threshold
+  "lint": "bunx @biomejs/biome check .",         // Biome only
+  "typecheck": "turbo typecheck"                 // tsc --noEmit
+}
+```
+
+```jsonc
+// apps/desktop/package.json scripts
+{
+  "test": "bun test",
+  "test:ci": "bun test --coverage && bun run check-coverage",
+  "check-coverage": "bun run scripts/check-coverage.ts"
+}
+```
+
+`scripts/check-coverage.ts` 解析 `bun test --coverage` 的输出，若总行覆盖率 < 90% 则 `process.exit(1)`。每个有测试的 package 都有对应的 `test:ci` script。
 
 **与标准四层的适配说明：**
 
-- **L3** 不叫 "API E2E" 因为没有 REST API。Desktop app 的 "API" 是 tRPC IPC router — L3 通过 typecheck 确保 router 的 input/output 类型完整性
+- **L2 ≠ L3**: Biome (L2) 和 TypeScript (L3) 严格分开。pre-commit 只跑 L1+L2（秒级），pre-push 跑 L3（可能数秒）。二者不交叉
+- **L3** 不叫 "API E2E" 因为没有 REST API。Desktop app 的 "API" 是 tRPC IPC router — L3 通过 `tsc --noEmit` 确保 router 的 input/output 类型完整性
+- **L1 coverage** 通过 `bun test --coverage` + `scripts/check-coverage.ts` 硬性执行，不是口号
 - **L4** 使用 Playwright 的 [Electron support](https://playwright.dev/docs/api/class-electron) 而非 HTTP server
-- 🔴 Superset 当前没有 E2E 和 husky，但我们从 commit #1 起就建立完整 gate
+- 🔴 Superset 当前没有 E2E、husky 和 coverage gate，但我们从 commit #1 起就建立完整 gate
 
 ### Test Runner & Convention
 
@@ -1016,21 +1046,21 @@ SKIP_ENV_VALIDATION = "1"
 
 ```
 .husky/
-├── pre-commit     # bun run test && bun run lint
+├── pre-commit     # bun run test:ci && bun run lint
 └── pre-push       # bun run typecheck
 ```
 
-**pre-commit:**
+**pre-commit (L1 + L2):**
 ```bash
 #!/bin/sh
-bun run test
-bun run lint
+bun run test:ci    # L1: bun test --coverage + threshold check (90%)
+bun run lint       # L2: Biome check only (NOT typecheck)
 ```
 
-**pre-push:**
+**pre-push (L3):**
 ```bash
 #!/bin/sh
-bun run typecheck
+bun run typecheck  # L3: tsc --noEmit
 ```
 
 ### CI Pipeline
@@ -1049,7 +1079,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run lint
+      - run: bun run lint              # L2: Biome only
 
   test:
     runs-on: ubuntu-latest
@@ -1057,7 +1087,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run test
+      - run: bun run test:ci           # L1: bun test --coverage + 90% threshold
 
   typecheck:
     runs-on: ubuntu-latest
@@ -1065,7 +1095,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
+      - run: bun run typecheck         # L3: tsc --noEmit
 ```
 
 ### Test Coverage by Package
