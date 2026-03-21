@@ -971,9 +971,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl | |
-| 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl | |
-| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI | |
+| 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl | ✅ `af06156` |
+| 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl | ✅ `ab72b77` |
+| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI | ✅ `d2ff6d9` |
 
 **Phase 8 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (全功能验证)
 
