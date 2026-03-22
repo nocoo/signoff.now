@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { ArgParseError, getHelpText, parseArgs } from "./cli/args.ts";
-import { formatJson, formatJsonPretty } from "./cli/output.ts";
+import { formatJson } from "./cli/output.ts";
 import { branchesCollector } from "./commands/collectors/branches.collector.ts";
 import { configCollector } from "./commands/collectors/config.collector.ts";
 import { contributorsCollector } from "./commands/collectors/contributors.collector.ts";
@@ -160,11 +160,7 @@ async function main(): Promise<void> {
 			console.log(formatPretty(report));
 		}
 	} else {
-		if (args.section) {
-			console.log(formatJson(report, args.section));
-		} else {
-			console.log(formatJsonPretty(report, args.section));
-		}
+		console.log(formatJson(report, args.section));
 	}
 }
 
