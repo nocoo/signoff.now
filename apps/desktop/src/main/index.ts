@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { app, protocol } from "electron";
+import { app, protocol, shell } from "electron";
 import { makeAppSetup } from "lib/electron-app/factories/app/setup";
 import type { AppRouterDeps } from "lib/trpc/routers";
 import { ensureSignoffHomeDirExists } from "main/lib/app-environment";
 import { initAppState } from "main/lib/app-state";
 import { closeLocalDb, getDb, initLocalDb } from "main/lib/local-db";
+import { buildApplicationMenu } from "main/lib/menu";
 import {
 	ensureProjectIconsDir,
 	getProjectIconPath,
@@ -106,6 +107,14 @@ app.whenReady().then(() => {
 	prewarmTerminalRuntime();
 	reconcileDaemonSessions();
 
+	// Build native application menu
+	buildApplicationMenu();
+
+	// Create the main window and wire IPC bridge for terminal events
+	let mainWindow: Electron.BrowserWindow | null = null;
+	const ipcBridge = createTerminalIpcBridge(() => mainWindow);
+	terminalManager.setIpcBridge(ipcBridge);
+
 	// Construct tRPC router dependencies
 	const deps: AppRouterDeps = {
 		getDb,
@@ -120,12 +129,20 @@ app.whenReady().then(() => {
 		settingsDb: createSettingsDbOps(),
 		// Terminal manager for PTY session operations
 		terminalManager,
+		// BrowserWindow provider (lazily assigned after window creation)
+		getWindow: () => mainWindow,
+		// App info provider
+		getAppInfo: () => ({
+			version: app.getVersion(),
+			platform: process.platform,
+			dataPath: app.getPath("userData"),
+		}),
+		// Shell operations for opening files/URLs externally
+		shellOps: {
+			showItemInFolder: shell.showItemInFolder,
+			openExternal: shell.openExternal,
+		},
 	};
-
-	// Create the main window and wire IPC bridge for terminal events
-	let mainWindow: Electron.BrowserWindow | null = null;
-	const ipcBridge = createTerminalIpcBridge(() => mainWindow);
-	terminalManager.setIpcBridge(ipcBridge);
 
 	makeAppSetup(() => {
 		mainWindow = MainWindow(deps);

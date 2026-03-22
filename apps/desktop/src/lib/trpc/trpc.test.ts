@@ -73,6 +73,16 @@ function createMockDeps() {
 			clearScrollback: () => Promise.resolve(),
 			listSessions: () => Promise.resolve({ sessions: [] }),
 		},
+		getWindow: () => null,
+		getAppInfo: () => ({
+			version: "0.0.0-test",
+			platform: "darwin",
+			dataPath: "/tmp/test-data",
+		}),
+		shellOps: {
+			showItemInFolder: () => {},
+			openExternal: () => Promise.resolve(),
+		},
 	};
 }
 
@@ -141,43 +151,75 @@ describe("lib/trpc/routers", () => {
 	});
 });
 
-// ─── Individual Router Stubs (remaining stubs only) ─────────────────────────
+// ─── Individual Router Factories ─────────────────────────────────────────────
 
-describe("remaining stub routers", () => {
-	test("windowRouter is a valid router", async () => {
-		const { windowRouter } = await import("./routers/window");
-		expect(windowRouter._def).toBeDefined();
+describe("router factories", () => {
+	test("createWindowRouter creates a valid router", async () => {
+		const { createWindowRouter } = await import("./routers/window");
+		const router = createWindowRouter(() => null);
+		expect(router._def).toBeDefined();
+		const record = router._def.record;
+		expect(record.minimize).toBeDefined();
+		expect(record.maximize).toBeDefined();
+		expect(record.close).toBeDefined();
+		expect(record.isMaximized).toBeDefined();
 	});
 
-	test("menuRouter is a valid router", async () => {
-		const { menuRouter } = await import("./routers/menu");
-		expect(menuRouter._def).toBeDefined();
+	test("createMenuRouter creates a valid router", async () => {
+		const { createMenuRouter } = await import("./routers/menu");
+		const router = createMenuRouter();
+		expect(router._def).toBeDefined();
+		const record = router._def.record;
+		expect(record.getMenu).toBeDefined();
+		expect(record.triggerAction).toBeDefined();
 	});
 
-	test("terminalRouter is a valid router with procedures", async () => {
+	test("createTerminalRouter creates a valid router with procedures", async () => {
 		const { createTerminalRouter } = await import("./routers/terminal/index");
-		// Create with a mock manager
 		const mockManager = {} as Parameters<typeof createTerminalRouter>[0];
-		const terminalRouter = createTerminalRouter(mockManager);
-		expect(terminalRouter._def).toBeDefined();
-		const record = terminalRouter._def.record;
+		const router = createTerminalRouter(mockManager);
+		expect(router._def).toBeDefined();
+		const record = router._def.record;
 		expect(record.createOrAttach).toBeDefined();
 		expect(record.write).toBeDefined();
 	});
 
-	test("configRouter is a valid router", async () => {
-		const { configRouter } = await import("./routers/config/index");
-		expect(configRouter._def).toBeDefined();
+	test("createConfigRouter creates a valid router", async () => {
+		const { createConfigRouter } = await import("./routers/config/index");
+		const router = createConfigRouter(() => ({
+			version: "0.0.0",
+			platform: "test",
+			dataPath: "/tmp",
+		}));
+		expect(router._def).toBeDefined();
+		const record = router._def.record;
+		expect(record.getAppVersion).toBeDefined();
+		expect(record.getPlatform).toBeDefined();
+		expect(record.getDataPath).toBeDefined();
 	});
 
-	test("externalRouter is a valid router", async () => {
-		const { externalRouter } = await import("./routers/external/index");
-		expect(externalRouter._def).toBeDefined();
+	test("createExternalRouter creates a valid router", async () => {
+		const { createExternalRouter } = await import("./routers/external/index");
+		const router = createExternalRouter({
+			showItemInFolder: () => {},
+			openExternal: () => Promise.resolve(),
+		});
+		expect(router._def).toBeDefined();
+		const record = router._def.record;
+		expect(record.openInFinder).toBeDefined();
+		expect(record.openUrl).toBeDefined();
+		expect(record.openInEditor).toBeDefined();
 	});
 
-	test("autoUpdateRouter is a valid router", async () => {
-		const { autoUpdateRouter } = await import("./routers/auto-update/index");
-		expect(autoUpdateRouter._def).toBeDefined();
+	test("createAutoUpdateRouter creates a valid router", async () => {
+		const { createAutoUpdateRouter } = await import(
+			"./routers/auto-update/index"
+		);
+		const router = createAutoUpdateRouter();
+		expect(router._def).toBeDefined();
+		const record = router._def.record;
+		expect(record.checkForUpdates).toBeDefined();
+		expect(record.getUpdateInfo).toBeDefined();
 	});
 });
 

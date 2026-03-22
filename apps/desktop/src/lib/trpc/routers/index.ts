@@ -1,24 +1,24 @@
 /**
  * Root tRPC app router assembly.
  *
- * Accepts runtime dependencies and wires factory-created routers
- * for projects, workspaces, changes, filesystem, settings, and hotkeys.
- * Remaining routers (window, menu, terminal, config, external, autoUpdate)
- * are still stubs pending future implementation.
+ * Accepts runtime dependencies and wires all sub-routers.
+ * Every router uses a factory pattern for dependency injection.
  */
 
 import { router } from "lib/trpc";
-import { autoUpdateRouter } from "./auto-update";
+import { createAutoUpdateRouter } from "./auto-update";
 import { createChangesTrpcRouter } from "./changes";
-import { configRouter } from "./config";
-import { externalRouter } from "./external";
+import type { AppInfo } from "./config";
+import { createConfigRouter } from "./config";
+import type { ShellOps } from "./external";
+import { createExternalRouter } from "./external";
 import { createFilesystemTrpcRouter } from "./filesystem";
 import { createHotkeysTrpcRouter } from "./hotkeys";
-import { menuRouter } from "./menu";
+import { createMenuRouter } from "./menu";
 import { createProjectsTrpcRouter } from "./projects";
 import { createSettingsTrpcRouter } from "./settings";
 import { createTerminalRouter } from "./terminal";
-import { windowRouter } from "./window";
+import { createWindowRouter } from "./window";
 import { createWorkspacesTrpcRouter } from "./workspaces";
 
 // ── Dependency interface ──────────────────────────────
@@ -43,6 +43,13 @@ export interface AppRouterDeps {
 	/** Terminal daemon manager for PTY session operations. */
 	// biome-ignore lint/suspicious/noExplicitAny: TerminalManager type varies across test/production
 	terminalManager: any;
+	/** Returns the main BrowserWindow (null if not yet created). */
+	// biome-ignore lint/suspicious/noExplicitAny: BrowserWindow type from electron
+	getWindow: () => any;
+	/** Returns app info (version, platform, dataPath). */
+	getAppInfo: () => AppInfo;
+	/** Shell operations for opening files/URLs externally. */
+	shellOps: ShellOps;
 }
 
 // ── Router assembly ───────────────────────────────────
@@ -55,7 +62,6 @@ export interface AppRouterDeps {
  */
 export function createAppRouter(deps: AppRouterDeps) {
 	return router({
-		// Factory-created routers with real implementations
 		projects: createProjectsTrpcRouter(deps.getDb),
 		workspaces: createWorkspacesTrpcRouter(deps.getDb),
 		changes: createChangesTrpcRouter(deps.getGit),
@@ -63,13 +69,11 @@ export function createAppRouter(deps: AppRouterDeps) {
 		settings: createSettingsTrpcRouter(deps.settingsDb),
 		hotkeys: createHotkeysTrpcRouter(deps.hotkeyStore),
 		terminal: createTerminalRouter(deps.terminalManager),
-
-		// Stub routers — pending future implementation
-		window: windowRouter,
-		menu: menuRouter,
-		config: configRouter,
-		external: externalRouter,
-		autoUpdate: autoUpdateRouter,
+		window: createWindowRouter(deps.getWindow),
+		menu: createMenuRouter(),
+		config: createConfigRouter(deps.getAppInfo),
+		external: createExternalRouter(deps.shellOps),
+		autoUpdate: createAutoUpdateRouter(),
 	});
 }
 

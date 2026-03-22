@@ -33,7 +33,7 @@ describe("createTerminalRouter", () => {
 	it("creates a router with all expected procedures", () => {
 		const manager = createMockManager();
 		const router = createTerminalRouter(
-			manager as Parameters<typeof createTerminalRouter>[0],
+			manager as unknown as Parameters<typeof createTerminalRouter>[0],
 		);
 
 		expect(router._def).toBeDefined();
@@ -51,7 +51,7 @@ describe("createTerminalRouter", () => {
 	it("has exactly 8 procedures", () => {
 		const manager = createMockManager();
 		const router = createTerminalRouter(
-			manager as Parameters<typeof createTerminalRouter>[0],
+			manager as unknown as Parameters<typeof createTerminalRouter>[0],
 		);
 
 		const record = router._def.record;
@@ -61,7 +61,7 @@ describe("createTerminalRouter", () => {
 	it("procedure names match expected API surface", () => {
 		const manager = createMockManager();
 		const router = createTerminalRouter(
-			manager as Parameters<typeof createTerminalRouter>[0],
+			manager as unknown as Parameters<typeof createTerminalRouter>[0],
 		);
 
 		const names = Object.keys(router._def.record).sort();
