@@ -914,13 +914,13 @@ refactor: consume @signoff/ui Dialog/Sheet globally
 
 **目标**：补全非关键路径的持久化和通信优化。
 
-### 8.1 Hotkey Persistence
+### 8.1 Hotkey Persistence ✅
 
 🔧 Implement — `createInMemoryHotkeyStore` → `createPersistentHotkeyStore(getDb)`。
 
 在 settings 表新增 `customHotkeys` JSON column（settings 表是单行设计，适合追加列）。
 
-### 8.2 tRPC Subscription 评估
+### 8.2 tRPC Subscription 评估 ✅
 
 🔧 Implement — 验证 `trpc-electron@0.1.2` 对 subscription 的支持。如果支持：
 
@@ -928,6 +928,11 @@ refactor: consume @signoff/ui Dialog/Sheet globally
 - Window `onMaximizedChange` 用 subscription
 
 如果不支持：保持 IPC event 模式，记录为 tech debt。
+
+**评估结果**：`trpc-electron@0.1.2` **支持** subscriptions（main.mjs 和 renderer.mjs
+均包含 `subscription.stop`、subscription 类型检测和完整的 observable 流）。
+但当前 terminal IPC event bridge 已经可靠运行且有测试覆盖，迁移收益低、风险高。
+**决定：保持 IPC event 模式**，记录为 tech debt 供后续优化。
 
 ### 8.3 E2E Smoke Test
 
