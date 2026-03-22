@@ -204,9 +204,8 @@ describe("getLargestBlobs", () => {
 			"aaa111 src/big.bin",
 			"bbb222 src/small.ts",
 			"ccc333 docs/readme.md",
-		]
-			.map((s) => s + NUL)
-			.join("");
+			"ddd444",
+		].join("\n");
 
 		const catFileOutput = [
 			"aaa111 blob 50000",
@@ -214,11 +213,11 @@ describe("getLargestBlobs", () => {
 			"ccc333 blob 2000",
 		].join("\n");
 
-		const shasInput = "aaa111\nbbb222\nccc333";
+		const shasInput = "aaa111\\nbbb222\\nccc333";
 
 		const exec = mockExec({
-			"git rev-list --objects -z --all": { stdout: revListOutput },
-			[`sh -c echo "${shasInput}" | git cat-file --batch-check`]: {
+			"git rev-list --objects --all": { stdout: revListOutput },
+			[`sh -c printf '${shasInput}\\n' | git cat-file --batch-check`]: {
 				stdout: catFileOutput,
 			},
 		});
@@ -237,10 +236,51 @@ describe("getLargestBlobs", () => {
 		});
 	});
 
+	it("skips tree/commit objects without paths", async () => {
+		const revListOutput = ["aaa111", "bbb222", "ccc333 src/file.ts"].join("\n");
+
+		const catFileOutput = "ccc333 blob 500\n";
+
+		const exec = mockExec({
+			"git rev-list --objects --all": { stdout: revListOutput },
+			[`sh -c printf 'ccc333\\n' | git cat-file --batch-check`]: {
+				stdout: catFileOutput,
+			},
+		});
+
+		const result = await getLargestBlobs(exec, CWD);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.path).toBe("src/file.ts");
+	});
+
 	it("returns empty on command failure", async () => {
 		const exec = mockExec({
-			"git rev-list --objects -z --all": { stdout: "", exitCode: 128 },
+			"git rev-list --objects --all": { stdout: "", exitCode: 128 },
 		});
+		const result = await getLargestBlobs(exec, CWD);
+		expect(result).toEqual([]);
+	});
+
+	it("returns empty when no objects have paths", async () => {
+		const revListOutput = "aaa111\nbbb222\n";
+		const exec = mockExec({
+			"git rev-list --objects --all": { stdout: revListOutput },
+		});
+		const result = await getLargestBlobs(exec, CWD);
+		expect(result).toEqual([]);
+	});
+
+	it("filters out non-blob objects from cat-file output", async () => {
+		const revListOutput = "aaa111 src/file.ts\n";
+		const catFileOutput = "aaa111 tree 300\n";
+
+		const exec = mockExec({
+			"git rev-list --objects --all": { stdout: revListOutput },
+			[`sh -c printf 'aaa111\\n' | git cat-file --batch-check`]: {
+				stdout: catFileOutput,
+			},
+		});
+
 		const result = await getLargestBlobs(exec, CWD);
 		expect(result).toEqual([]);
 	});
@@ -292,8 +332,9 @@ describe("getBinaryFiles", () => {
 	it("identifies binary files from numstat", async () => {
 		const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f7cb0cb10";
 
-		// NUL-delimited numstat: "-\t-\0<path>\0<added>\t<deleted>\0<path>\0"
-		const numstatOutput = ["-\t-", "image.png", "10\t5", "src/main.ts"]
+		// With -z, each NUL token is "<added>\t<deleted>\t<path>"
+		// Binary: "-\t-\t<path>"
+		const numstatOutput = [`-\t-\timage.png`, `10\t5\tsrc/main.ts`]
 			.join(NUL)
 			.concat(NUL);
 
@@ -310,6 +351,48 @@ describe("getBinaryFiles", () => {
 		expect(result).toEqual(["image.png"]);
 	});
 
+	it("handles multiple binary files", async () => {
+		const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f7cb0cb10";
+
+		const numstatOutput = [
+			`-\t-\timage.png`,
+			`-\t-\tvideo.mp4`,
+			`100\t50\tsrc/main.ts`,
+		]
+			.join(NUL)
+			.concat(NUL);
+
+		const exec = mockExec({
+			"git hash-object -t tree /dev/null": {
+				stdout: `${emptyTree}\n`,
+			},
+			[`git diff -z --numstat ${emptyTree} HEAD --`]: {
+				stdout: numstatOutput,
+			},
+		});
+
+		const result = await getBinaryFiles(exec, CWD, true);
+		expect(result).toEqual(["image.png", "video.mp4"]);
+	});
+
+	it("returns empty when no binaries exist", async () => {
+		const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f7cb0cb10";
+
+		const numstatOutput = `10\t5\tsrc/main.ts${NUL}`;
+
+		const exec = mockExec({
+			"git hash-object -t tree /dev/null": {
+				stdout: `${emptyTree}\n`,
+			},
+			[`git diff -z --numstat ${emptyTree} HEAD --`]: {
+				stdout: numstatOutput,
+			},
+		});
+
+		const result = await getBinaryFiles(exec, CWD, true);
+		expect(result).toEqual([]);
+	});
+
 	it("returns empty when no HEAD", async () => {
 		const exec = mockExec({});
 		const result = await getBinaryFiles(exec, CWD, false);
@@ -319,6 +402,21 @@ describe("getBinaryFiles", () => {
 	it("returns empty on hash-object failure", async () => {
 		const exec = mockExec({
 			"git hash-object -t tree /dev/null": { stdout: "", exitCode: 1 },
+		});
+		const result = await getBinaryFiles(exec, CWD, true);
+		expect(result).toEqual([]);
+	});
+
+	it("returns empty on diff failure", async () => {
+		const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f7cb0cb10";
+		const exec = mockExec({
+			"git hash-object -t tree /dev/null": {
+				stdout: `${emptyTree}\n`,
+			},
+			[`git diff -z --numstat ${emptyTree} HEAD --`]: {
+				stdout: "",
+				exitCode: 1,
+			},
 		});
 		const result = await getBinaryFiles(exec, CWD, true);
 		expect(result).toEqual([]);
@@ -359,17 +457,16 @@ describe("collectFiles", () => {
 
 	it("includes slow fields when includeSlow is true", async () => {
 		const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f7cb0cb10";
-		const shasInput = "aaa111";
 
 		const exec = mockExec({
 			"git ls-files -z --stage": {
 				stdout: `100644 abc123 0\tsrc/main.ts${NUL}`,
 			},
 			"wc -l -- src/main.ts": { stdout: "  50 src/main.ts\n" },
-			"git rev-list --objects -z --all": {
-				stdout: `aaa111 src/main.ts${NUL}`,
+			"git rev-list --objects --all": {
+				stdout: "aaa111 src/main.ts\n",
 			},
-			[`sh -c echo "${shasInput}" | git cat-file --batch-check`]: {
+			[`sh -c printf 'aaa111\\n' | git cat-file --batch-check`]: {
 				stdout: "aaa111 blob 3000\n",
 			},
 			"git log -z --pretty=format: --name-only -n 1000 HEAD": {
@@ -379,7 +476,7 @@ describe("collectFiles", () => {
 				stdout: `${emptyTree}\n`,
 			},
 			[`git diff -z --numstat ${emptyTree} HEAD --`]: {
-				stdout: ["10\t5", "src/main.ts"].join(NUL).concat(NUL),
+				stdout: `10\t5\tsrc/main.ts${NUL}`,
 			},
 		});
 		const fileSizes = new Map<string, number>([["/repo/src/main.ts", 3000]]);
@@ -390,7 +487,10 @@ describe("collectFiles", () => {
 		expect(result.trackedCount).toBe(1);
 		expect(result.totalLines).toBe(50);
 		expect(result.largestBlobs).toBeDefined();
+		expect(result.largestBlobs).toHaveLength(1);
+		expect(result.largestBlobs?.[0]?.path).toBe("src/main.ts");
 		expect(result.mostChanged).toEqual([{ path: "src/main.ts", count: 2 }]);
 		expect(result.binaryFiles).toBeDefined();
+		expect(result.binaryFiles).toEqual([]);
 	});
 });

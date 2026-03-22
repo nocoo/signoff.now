@@ -118,7 +118,8 @@ export async function getLargestTracked(
 
 /**
  * Find the largest blobs across all history.
- * 1. `git rev-list --objects -z --all` → parse NUL-separated tokens
+ * 1. `git rev-list --objects --all` → parse newline-separated lines
+ *    Each line is "<sha>" or "<sha> <path>"
  * 2. `git cat-file --batch-check` with blob SHAs → filter type=blob
  * Returns top 10 sorted descending by size.
  */
@@ -126,21 +127,19 @@ export async function getLargestBlobs(
 	exec: CommandExecutor,
 	cwd: string,
 ): Promise<GitBlobInfo[]> {
-	const revResult = await exec(
-		"git",
-		["rev-list", "--objects", "-z", "--all"],
-		{ cwd },
-	);
+	const revResult = await exec("git", ["rev-list", "--objects", "--all"], {
+		cwd,
+	});
 	if (revResult.exitCode !== 0 || revResult.stdout === "") return [];
 
-	// Parse: each NUL-separated token is "<sha> <path>" or just "<sha>"
-	const tokens = splitNul(revResult.stdout);
+	// Each line is "<sha> <path>" or just "<sha>" (for trees/commits)
+	const lines = splitLines(revResult.stdout);
 	const shaToPath = new Map<string, string>();
-	for (const token of tokens) {
-		const spaceIdx = token.indexOf(" ");
+	for (const line of lines) {
+		const spaceIdx = line.indexOf(" ");
 		if (spaceIdx === -1) continue;
-		const sha = token.slice(0, spaceIdx);
-		const path = token.slice(spaceIdx + 1);
+		const sha = line.slice(0, spaceIdx);
+		const path = line.slice(spaceIdx + 1);
 		if (path !== "") {
 			shaToPath.set(sha, path);
 		}
@@ -149,10 +148,10 @@ export async function getLargestBlobs(
 	if (shaToPath.size === 0) return [];
 
 	// Pass SHAs as stdin via shell wrapper (CommandExecutor has no stdin support)
-	const shasInput = Array.from(shaToPath.keys()).join("\n");
+	const shasInput = Array.from(shaToPath.keys()).join("\\n");
 	const batchResult = await exec(
 		"sh",
-		["-c", `echo "${shasInput}" | git cat-file --batch-check`],
+		["-c", `printf '${shasInput}\\n' | git cat-file --batch-check`],
 		{ cwd },
 	);
 
@@ -239,27 +238,18 @@ export async function getBinaryFiles(
 	const tokens = splitNul(diffResult.stdout);
 	const binaries: string[] = [];
 
-	// NUL-delimited numstat: each record is "<added>\t<deleted>\t<path>"
-	// but with -z, paths are NUL-separated. Format varies:
-	// For non-renames: "<added>\t<deleted>\0<path>\0"
-	// Binary files have "-\t-" as added/deleted
-	let i = 0;
-	while (i < tokens.length) {
+	// With -z, each NUL-delimited token is "<added>\t<deleted>\t<path>"
+	// Binary files have "-\t-\t<path>"
+	// Renames have "<added>\t<deleted>\t<srcpath>\0<dstpath>" (two NUL tokens for paths)
+	for (let i = 0; i < tokens.length; i++) {
 		const token = tokens[i] as string;
-		// Check if this token starts with the numstat line
 		const parts = token.split("\t");
-		if (parts.length >= 2 && parts[0] === "-" && parts[1] === "-") {
-			// The path is the next NUL token
-			const path = tokens[i + 1];
-			if (path && path !== "") {
+		if (parts.length >= 3 && parts[0] === "-" && parts[1] === "-") {
+			// Binary: "-\t-\t<path>"
+			const path = parts[2] as string;
+			if (path !== "") {
 				binaries.push(path);
 			}
-			i += 2;
-		} else if (parts.length >= 3) {
-			// Non-binary entry: <added>\t<deleted>\t is followed by NUL then path
-			i += 2;
-		} else {
-			i++;
 		}
 	}
 
