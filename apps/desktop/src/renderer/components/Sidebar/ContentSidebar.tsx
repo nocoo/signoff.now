@@ -17,14 +17,20 @@ import {
 	GitBranch,
 	PanelLeftClose,
 	PanelLeftOpen,
+	Plus,
 } from "lucide-react";
 import { useCallback, useRef } from "react";
+import { trpc } from "../../lib/trpc";
+import { useActiveWorkspaceStore } from "../../stores/active-workspace";
 import {
 	MAX_SIDEBAR_WIDTH,
 	MIN_SIDEBAR_WIDTH,
 	SidebarMode,
 	useSidebarStore,
 } from "../../stores/sidebar-state";
+import { useTabsStore } from "../../stores/tabs";
+import { TabType } from "../../stores/tabs/types";
+import { LiveFileExplorer } from "../FileExplorer/FileExplorer";
 
 export function ContentSidebar() {
 	const {
@@ -142,13 +148,9 @@ export function ContentSidebar() {
 			<ScrollArea className="flex-1">
 				<div className="px-2 py-2">
 					{currentMode === SidebarMode.Tabs ? (
-						<div className="text-center text-xs text-muted-foreground">
-							No open tabs
-						</div>
+						<FileExplorerPanel />
 					) : (
-						<div className="text-center text-xs text-muted-foreground">
-							No changes
-						</div>
+						<ChangesPanel />
 					)}
 				</div>
 			</ScrollArea>
@@ -170,6 +172,183 @@ export function ContentSidebar() {
 					backgroundColor: isResizing ? "hsl(var(--primary) / 0.3)" : undefined,
 				}}
 			/>
+		</div>
+	);
+}
+
+/** File explorer panel — shows files when a workspace is active. */
+function FileExplorerPanel() {
+	const activeWorkspace = useActiveWorkspaceStore((s) => s.activeWorkspace);
+	const { addTab, addPane, panes } = useTabsStore();
+
+	const openTab = useCallback(
+		(tab: {
+			id: string;
+			label: string;
+			type: TabType;
+			isDirty: boolean;
+			data?: Record<string, unknown>;
+		}) => {
+			const paneIds = Object.keys(panes);
+			if (paneIds.length > 0) {
+				addTab(paneIds[0], tab);
+			} else {
+				addPane(tab);
+			}
+		},
+		[addTab, addPane, panes],
+	);
+
+	const handleFileSelect = useCallback(
+		(relativePath: string) => {
+			if (!activeWorkspace) return;
+			const fileName = relativePath.split("/").pop() ?? relativePath;
+
+			openTab({
+				id: `editor-${relativePath}-${Date.now()}`,
+				label: fileName,
+				type: TabType.Editor,
+				isDirty: false,
+				data: {
+					workspacePath: activeWorkspace.workspacePath,
+					filePath: relativePath,
+				},
+			});
+		},
+		[activeWorkspace, openTab],
+	);
+
+	if (!activeWorkspace) {
+		return (
+			<div className="text-center text-xs text-muted-foreground">
+				Select a workspace to browse files
+			</div>
+		);
+	}
+
+	return (
+		<div>
+			<div className="mb-2 flex items-center justify-between">
+				<span className="text-xs font-medium text-muted-foreground">Files</span>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="h-5 w-5"
+							onClick={() => {
+								if (!activeWorkspace) return;
+								openTab({
+									id: `terminal-${Date.now()}`,
+									label: "Terminal",
+									type: TabType.Terminal,
+									isDirty: false,
+									data: {
+										workspaceId: activeWorkspace.id,
+										workspacePath: activeWorkspace.workspacePath,
+									},
+								});
+							}}
+						>
+							<Plus className="h-3 w-3" />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>New Terminal</TooltipContent>
+				</Tooltip>
+			</div>
+			<LiveFileExplorer
+				workspacePath={activeWorkspace.workspacePath}
+				onFileSelect={handleFileSelect}
+			/>
+		</div>
+	);
+}
+
+/** Changes panel — shows git changes for the active workspace. */
+function ChangesPanel() {
+	const activeWorkspace = useActiveWorkspaceStore((s) => s.activeWorkspace);
+
+	if (!activeWorkspace) {
+		return (
+			<div className="text-center text-xs text-muted-foreground">
+				Select a workspace to see changes
+			</div>
+		);
+	}
+
+	return <ChangesContent workspacePath={activeWorkspace.workspacePath} />;
+}
+
+/** Git changes content — fetches and displays git status. */
+function ChangesContent({ workspacePath }: { workspacePath: string }) {
+	const { data, isLoading } = trpc.changes.status.useQuery({ workspacePath });
+	const { addTab, addPane, panes } = useTabsStore();
+	const activeWorkspace = useActiveWorkspaceStore((s) => s.activeWorkspace);
+
+	const handleDiffClick = useCallback(
+		(filePath: string, staged: boolean) => {
+			if (!activeWorkspace) return;
+			const tab = {
+				id: `diff-${filePath}-${staged ? "staged" : "unstaged"}-${Date.now()}`,
+				label: `${filePath.split("/").pop()} (diff)`,
+				type: TabType.Diff,
+				isDirty: false,
+				data: { workspacePath, filePath, staged },
+			};
+			const paneIds = Object.keys(panes);
+			if (paneIds.length > 0) {
+				addTab(paneIds[0], tab);
+			} else {
+				addPane(tab);
+			}
+		},
+		[workspacePath, activeWorkspace, addTab, addPane, panes],
+	);
+
+	if (isLoading) {
+		return (
+			<div className="text-center text-xs text-muted-foreground">
+				Loading changes…
+			</div>
+		);
+	}
+
+	if (!data?.files?.length) {
+		return (
+			<div className="text-center text-xs text-muted-foreground">
+				No changes
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex flex-col gap-0.5">
+			{data.files.map(
+				(file: { path: string; status: string; staged: boolean }) => (
+					<button
+						key={`${file.path}-${file.staged}`}
+						type="button"
+						onClick={() => handleDiffClick(file.path, file.staged)}
+						className="flex items-center gap-1.5 rounded px-1 py-0.5 text-xs hover:bg-accent/50"
+					>
+						<span
+							className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+								file.status === "added"
+									? "bg-green-500"
+									: file.status === "deleted"
+										? "bg-red-500"
+										: "bg-yellow-500"
+							}`}
+						/>
+						<span className="min-w-0 flex-1 truncate text-left">
+							{file.path}
+						</span>
+						<span className="text-muted-foreground text-[10px]">
+							{file.staged ? "S" : "U"}
+						</span>
+					</button>
+				),
+			)}
 		</div>
 	);
 }
