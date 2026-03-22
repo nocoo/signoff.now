@@ -1,0 +1,9 @@
+{
+	"routeFilePrefix": "",
+	"routeFileIgnorePrefix": "-",
+	"routesDirectory": "src/renderer/routes",
+	"generatedRouteTree": "src/renderer/routeTree.gen.ts",
+	"routeToken": "layout",
+	"indexToken": "page",
+	"autoCodeSplitting": true
+}

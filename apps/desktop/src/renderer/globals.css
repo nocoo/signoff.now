@@ -1,0 +1,20 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+	--app-region-height: 40px;
+	color-scheme: light dark;
+}
+
+body {
+	overflow: hidden;
+	user-select: none;
+	-webkit-app-region: drag;
+}
+
+/* Allow interaction in main content areas */
+#app {
+	-webkit-app-region: no-drag;
+}

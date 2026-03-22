@@ -883,45 +883,57 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 | 5 | `feat: add local-db package with sqlite schema` | Schema (trimmed synced tables), migrations, Drizzle config, `zod.ts` | L2+L3: lint + typecheck pass | ✅ `a796614` |
 | 6 | `feat: add ui package with base shadcn setup` | `packages/ui/package.json`, `src/components/ui/`, `globals.css`, `components.json` — trimmed ai-elements/, next-themes | L2+L3: lint + typecheck pass | ✅ `456b8e6` |
 
-**Phase 2 Gate:** `bun run test:ci` (466 tests pass, coverage ≥ 90%) + `bun run lint` + `bun run typecheck` ✅ All pass
+**Phase 2 Review fixes:**
+
+| Commit | Description |
+|:---|:---|
+| `a83b406` | `fix: enforce coverage gate on workspace-fs via check-coverage.ts` — workspace-fs was bypassing the unified L1 coverage gate |
+| `4b8bae0` | `fix: trim local-db cloud/browser remnants and regenerate migration` — removed `neonProjectId`, `notificationSoundsMuted`, `browserHistory` table |
+| `8d6529b` | `test: add schema-migration consistency test for local-db` — 12 tests to catch schema/migration drift |
+| `07ab96a` | `test: add pure function tests for workspace-fs package` — partial coverage improvement |
+| `1bd7daf` | `test: bring workspace-fs coverage to 91% and unify all gates` — 136 tests, removed `--threshold 50` override, all 4 packages use 90% gate |
+| `f5c6879` | `fix: remove stale bun-test type stub and add bun-types to workspace-fs` — superset-era `bun-test.d.ts` shadowed bun-types Expect interface |
+| `461158a` | `chore: remove phantom coverage output declarations from turbo tasks` — `turbo.jsonc` test/test:ci outputs `[]` instead of `coverage/**` |
+
+**Phase 2 Gate:** `bun run test:ci` (586 tests pass, coverage ≥ 90%) + `bun run lint` (126 files, 0 diagnostics) + `bun run typecheck` (0 errors) ✅ All pass
 
 ---
 
-### Phase 3: Desktop App Scaffold 🚪
+### Phase 3: Desktop App Scaffold 🚪 ✅
 
 > TDD: 先建立 `test-setup.ts` mock 层，再搭 Electron 壳。从此 commit 起 desktop 包也有 UT gate。
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 1 个 smoke test pass; L1+L2 gate | |
+| 7 | `feat: scaffold desktop app with electron-vite and test setup` | `electron.vite.config.ts`, `electron-builder.ts`, `tsconfig.json`, `tsr.config.json`, `bunfig.toml` (`[test]` preload), `test-setup.ts` (mock Electron APIs, `@signoff/local-db`), `src/main/index.ts` (boot skeleton, 含 `signoff-icon://` + `signoff-font://` 协议注册), `src/preload/index.ts`, `src/renderer/index.html` + `index.tsx`, `src/resources/`, project-icons utils | Test first: `test-setup.ts` + 20 smoke tests pass; L1+L2 gate | ✅ `c7635dc` |
 
-**Phase 3 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (Electron 窗口启动)
+**Phase 3 Gate 🚪:** `bun run test:ci` (20 tests, 95.71% coverage) + `bun run lint` (0 diagnostics) + `bun run typecheck` (0 errors) ✅ All pass
 
 ---
 
-### Phase 4: Core Infrastructure
+### Phase 4: Core Infrastructure ✅
 
 > TDD: 先写 tRPC router 的 test，再写 router 实现。
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 8 | `feat: add tRPC IPC layer` | `src/lib/trpc/index.ts`, `src/lib/trpc/routers/index.ts` (createAppRouter), `workspace-fs-service.ts`, preload bridge | Test first: router assembly test → impl | |
-| 9 | `feat: add local-db initialization in main process` | `src/main/lib/local-db/` (SQLite WAL init, Drizzle instance), `src/main/lib/app-state/` (lowdb), `src/main/lib/window-state/` | Test first: DB init + window-state tests → impl | |
+| 8 | `feat: add tRPC IPC layer with 12 router stubs` | `src/lib/trpc/index.ts` (initTRPC + superjson), `src/lib/trpc/routers/index.ts` (createAppRouter with 12 sub-routers), preload `exposeElectronTRPC()`, main `createIPCHandler`, renderer `TRPCProvider` (ipcLink + QueryClient) | Test first: 16 router assembly + stub tests → impl | ✅ `e34f76b` |
+| 9 | `feat: add local-db initialization, app-state, and window-state persistence` | `src/main/lib/local-db/` (better-sqlite3 WAL + Drizzle + migration), `src/main/lib/app-state/` (JSON persistence), `src/main/lib/window-state/` (bounds persistence), boot sequence wiring | Test first: 7 tests for app-state, window-state, local-db API → impl | ✅ `24ad88c` |
 
-**Phase 4 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
+**Phase 4 Gate:** `bun run test:ci` (43 tests, 97.52% coverage) + `bun run lint` (0 diagnostics) + `bun run typecheck` (0 errors) ✅ All pass
 
 ---
 
-### Phase 5: Terminal System 🚪
+### Phase 5: Terminal System ✅
 
 > TDD: terminal session management 先写 test，daemon/pty 可依赖 superset 已有测试。
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl | |
-| 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl | |
+| 10 | `feat: add terminal daemon with node-pty` | `src/main/terminal-host/index.ts`, `pty-subprocess.ts`, `src/main/lib/terminal/` (session mgmt), `xterm-env-polyfill.ts` | Test first: terminal session tests → impl | ✅ `f350dff` |
+| 11 | `feat: add terminal renderer with @xterm/xterm` | `src/renderer/screens/.../Terminal/helpers.ts`, xterm component, addon setup (WebGL, fit, search, ligatures, clipboard) | Test first: helpers.test.ts → impl | ✅ `30ad39e` |
 
-**Phase 5 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入)
+**Phase 5 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (terminal 可输入) ✅ All pass
 
 ---
 
@@ -931,9 +943,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 12 | `feat: add project and workspace tRPC routers` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand `stores/sidebar-state.ts` | Test first: projects CRUD + workspaces CRUD tests → impl | |
-| 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate | |
-| 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl | |
+| 12 | `feat: add project and workspace tRPC routers` | `src/lib/trpc/routers/projects/`, `routers/workspaces/`, Zustand `stores/sidebar-state.ts` | Test first: projects CRUD + workspaces CRUD tests → impl | ✅ `4e557aa`…`6010112` |
+| 13 | `feat: add dashboard layout with sidebar` | `routes/_dashboard/layout.tsx`, sidebar components, `routes/page.tsx` (redirect) | L1+L2 gate | ✅ `f8de94d` |
+| 14 | `feat: add mosaic layout with tab management` | Zustand `stores/tabs/`, `react-mosaic-component`, `react-resizable-panels`, `@dnd-kit` | Test first: tabs store tests → impl | ✅ `e181dbc` |
 
 **Phase 6 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (sidebar + split/tab 工作)
 
@@ -945,9 +957,9 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 15 | `feat: add code editor with codemirror 6` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | L1+L2 gate | |
-| 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl | |
-| 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl | |
+| 15 | `feat: add code editor with codemirror 6` | CodeMirror view/state, language modes, theme-one-dark, `@headless-tree` file explorer | L1+L2 gate | ✅ `4a20a10` |
+| 16 | `feat: add diff viewer with git integration` | `src/lib/trpc/routers/changes/`, `simple-git`, `@pierre/diffs`, Zustand `stores/changes/` | Test first: changes router tests → impl | ✅ `16510f8` |
+| 17 | `feat: add filesystem router with workspace-fs` | `src/lib/trpc/routers/filesystem/`, file explorer UI, `Fuse.js` search | Test first: filesystem router tests → impl | ✅ `1ec219d` |
 
 **Phase 7 Gate:** `bun run test:ci && bun run lint && bun run typecheck`
 
@@ -959,15 +971,19 @@ L4 (E2E):  按需手动执行         ← Phase Gate 时执行
 
 | # | Commit | Key Files | TDD | Status |
 |:---|:---|:---|:---|:---|
-| 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl | |
-| 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl | |
-| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI | |
+| 18 | `feat: add settings system` | `src/lib/trpc/routers/settings/`, `routes/settings/` (appearance, terminal, keyboard, git, behavior, presets), settings Zustand store | Test first: settings router tests → impl | ✅ `af06156` |
+| 19 | `feat: add keyboard shortcuts system` | Zustand `stores/hotkeys/`, hotkeys tRPC router, keyboard settings page | Test first: hotkeys store tests → impl | ✅ `ab72b77` |
+| 20 | `chore: add github actions ci workflow` | `.github/workflows/ci.yml` (lint → test:ci → typecheck, parallel jobs) | Push 触发 CI | ✅ `d2ff6d9` |
 
 **Phase 8 Gate 🚪:** `bun run test:ci && bun run lint && bun run typecheck` + `bun run dev` (全功能验证)
+
+> **Post-bootstrap status**: Router/store infrastructure is wired end-to-end (tRPC factory routers connected via `AppRouterDeps`). Renderer components remain as scaffold placeholders (static demo data in file explorer, "No projects yet" in workspace sidebar, placeholder pane content). These are populated progressively as each feature matures beyond the scaffold phase.
 
 ---
 
 ### L4 E2E Checkpoints
+
+> ⚠️ **Status**: L4 E2E infrastructure (Playwright Electron) is **not yet implemented**. No `test:e2e` script, no Playwright config, no test files exist. The checkpoints below describe the intended scope — implementation is deferred to a dedicated setup phase after the bootstrap is complete.
 
 L4 (Playwright Electron E2E) 在以下时机手动执行：
 

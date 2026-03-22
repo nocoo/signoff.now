@@ -1,0 +1,14 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"extends": "@signoff/typescript/electron.json",
+	"compilerOptions": {
+		"baseUrl": ".",
+		"paths": {
+			"*": ["src/*"]
+		},
+		"outDir": "dist",
+		"types": ["bun-types"]
+	},
+	"include": ["src/**/*", "*.ts", "*.d.ts", "vite/**/*"],
+	"exclude": ["node_modules", "dist", "out", "release", "src/renderer/dist"]
+}
