@@ -200,24 +200,33 @@ describe("getLargestTracked", () => {
 
 describe("getLargestBlobs", () => {
 	it("returns top 10 blobs sorted by size descending", async () => {
+		const sha1 = "a".repeat(40);
+		const sha2 = "b".repeat(40);
+		const sha3 = "c".repeat(40);
+		const sha4 = "d".repeat(40);
+
+		// -z format: NUL-separated tokens; SHA then optional path=<filename>
 		const revListOutput = [
-			"aaa111 src/big.bin",
-			"bbb222 src/small.ts",
-			"ccc333 docs/readme.md",
-			"ddd444",
-		].join("\n");
+			sha1,
+			"path=src/big.bin",
+			sha2,
+			"path=src/small.ts",
+			sha3,
+			"path=docs/readme.md",
+			sha4, // commit/tree with no path
+		]
+			.join(NUL)
+			.concat(NUL);
 
 		const catFileOutput = [
-			"aaa111 blob 50000",
-			"bbb222 blob 1000",
-			"ccc333 blob 2000",
+			`${sha1} blob 50000`,
+			`${sha2} blob 1000`,
+			`${sha3} blob 2000`,
 		].join("\n");
 
-		const shasInput = "aaa111\\nbbb222\\nccc333";
-
 		const exec = mockExec({
-			"git rev-list --objects --all": { stdout: revListOutput },
-			[`sh -c printf '${shasInput}\\n' | git cat-file --batch-check`]: {
+			"git rev-list --objects -z --all": { stdout: revListOutput },
+			"git cat-file --batch-check": {
 				stdout: catFileOutput,
 			},
 		});
@@ -225,25 +234,32 @@ describe("getLargestBlobs", () => {
 		const result = await getLargestBlobs(exec, CWD);
 		expect(result).toHaveLength(3);
 		expect(result[0]).toEqual({
-			sha: "aaa111",
+			sha: sha1,
 			path: "src/big.bin",
 			sizeBytes: 50000,
 		});
 		expect(result[1]).toEqual({
-			sha: "ccc333",
+			sha: sha3,
 			path: "docs/readme.md",
 			sizeBytes: 2000,
 		});
 	});
 
 	it("skips tree/commit objects without paths", async () => {
-		const revListOutput = ["aaa111", "bbb222", "ccc333 src/file.ts"].join("\n");
+		const sha1 = "a".repeat(40);
+		const sha2 = "b".repeat(40);
+		const sha3 = "c".repeat(40);
 
-		const catFileOutput = "ccc333 blob 500\n";
+		// sha1 and sha2 have no path= token (tree/commit); sha3 has a path
+		const revListOutput = [sha1, sha2, sha3, "path=src/file.ts"]
+			.join(NUL)
+			.concat(NUL);
+
+		const catFileOutput = `${sha3} blob 500\n`;
 
 		const exec = mockExec({
-			"git rev-list --objects --all": { stdout: revListOutput },
-			[`sh -c printf 'ccc333\\n' | git cat-file --batch-check`]: {
+			"git rev-list --objects -z --all": { stdout: revListOutput },
+			"git cat-file --batch-check": {
 				stdout: catFileOutput,
 			},
 		});
@@ -255,28 +271,31 @@ describe("getLargestBlobs", () => {
 
 	it("returns empty on command failure", async () => {
 		const exec = mockExec({
-			"git rev-list --objects --all": { stdout: "", exitCode: 128 },
+			"git rev-list --objects -z --all": { stdout: "", exitCode: 128 },
 		});
 		const result = await getLargestBlobs(exec, CWD);
 		expect(result).toEqual([]);
 	});
 
 	it("returns empty when no objects have paths", async () => {
-		const revListOutput = "aaa111\nbbb222\n";
+		const sha1 = "a".repeat(40);
+		const sha2 = "b".repeat(40);
+		const revListOutput = [sha1, sha2].join(NUL).concat(NUL);
 		const exec = mockExec({
-			"git rev-list --objects --all": { stdout: revListOutput },
+			"git rev-list --objects -z --all": { stdout: revListOutput },
 		});
 		const result = await getLargestBlobs(exec, CWD);
 		expect(result).toEqual([]);
 	});
 
 	it("filters out non-blob objects from cat-file output", async () => {
-		const revListOutput = "aaa111 src/file.ts\n";
-		const catFileOutput = "aaa111 tree 300\n";
+		const sha1 = "a".repeat(40);
+		const revListOutput = [sha1, "path=src/file.ts"].join(NUL).concat(NUL);
+		const catFileOutput = `${sha1} tree 300\n`;
 
 		const exec = mockExec({
-			"git rev-list --objects --all": { stdout: revListOutput },
-			[`sh -c printf 'aaa111\\n' | git cat-file --batch-check`]: {
+			"git rev-list --objects -z --all": { stdout: revListOutput },
+			"git cat-file --batch-check": {
 				stdout: catFileOutput,
 			},
 		});
@@ -457,17 +476,18 @@ describe("collectFiles", () => {
 
 	it("includes slow fields when includeSlow is true", async () => {
 		const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f7cb0cb10";
+		const sha1 = "a".repeat(40);
 
 		const exec = mockExec({
 			"git ls-files -z --stage": {
 				stdout: `100644 abc123 0\tsrc/main.ts${NUL}`,
 			},
 			"wc -l -- src/main.ts": { stdout: "  50 src/main.ts\n" },
-			"git rev-list --objects --all": {
-				stdout: "aaa111 src/main.ts\n",
+			"git rev-list --objects -z --all": {
+				stdout: [sha1, "path=src/main.ts"].join(NUL) + NUL,
 			},
-			[`sh -c printf 'aaa111\\n' | git cat-file --batch-check`]: {
-				stdout: "aaa111 blob 3000\n",
+			"git cat-file --batch-check": {
+				stdout: `${sha1} blob 3000\n`,
 			},
 			"git log -z --pretty=format: --name-only -n 1000 HEAD": {
 				stdout: `src/main.ts${NUL}src/main.ts${NUL}`,

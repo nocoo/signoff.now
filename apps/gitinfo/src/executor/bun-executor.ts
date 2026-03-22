@@ -13,6 +13,7 @@ export function createBunExecutor(): CommandExecutor {
 		const proc = Bun.spawn([cmd, ...args], {
 			cwd: opts?.cwd,
 			env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+			stdin: opts?.stdin != null ? new Blob([opts.stdin]) : undefined,
 			stdout: "pipe",
 			stderr: "pipe",
 		});

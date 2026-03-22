@@ -118,42 +118,51 @@ export async function getLargestTracked(
 
 /**
  * Find the largest blobs across all history.
- * 1. `git rev-list --objects --all` → parse newline-separated lines
- *    Each line is "<sha>" or "<sha> <path>"
- * 2. `git cat-file --batch-check` with blob SHAs → filter type=blob
+ * 1. `git rev-list --objects -z --all` → NUL-delimited token stream:
+ *    each object emits a `<sha>` token; blobs with a path emit an
+ *    additional `path=<filename>` token immediately after.
+ * 2. `git cat-file --batch-check` via stdin → `<sha> <type> <size>`;
+ *    filter to type=blob only.
  * Returns top 10 sorted descending by size.
  */
 export async function getLargestBlobs(
 	exec: CommandExecutor,
 	cwd: string,
 ): Promise<GitBlobInfo[]> {
-	const revResult = await exec("git", ["rev-list", "--objects", "--all"], {
-		cwd,
-	});
+	const revResult = await exec(
+		"git",
+		["rev-list", "--objects", "-z", "--all"],
+		{ cwd },
+	);
 	if (revResult.exitCode !== 0 || revResult.stdout === "") return [];
 
-	// Each line is "<sha> <path>" or just "<sha>" (for trees/commits)
-	const lines = splitLines(revResult.stdout);
+	// NUL-delimited tokens: <sha> tokens are 40-char hex; path tokens start with "path="
+	const tokens = splitNul(revResult.stdout);
 	const shaToPath = new Map<string, string>();
-	for (const line of lines) {
-		const spaceIdx = line.indexOf(" ");
-		if (spaceIdx === -1) continue;
-		const sha = line.slice(0, spaceIdx);
-		const path = line.slice(spaceIdx + 1);
-		if (path !== "") {
-			shaToPath.set(sha, path);
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i] as string;
+		// SHA tokens are 40-char hex strings
+		if (/^[0-9a-f]{40}$/.test(token)) {
+			// Check if next token is a path= token
+			const next = tokens[i + 1];
+			if (next && next.startsWith("path=")) {
+				const path = next.slice(5);
+				if (path !== "") {
+					shaToPath.set(token, path);
+				}
+				i++; // skip the path= token
+			}
 		}
 	}
 
 	if (shaToPath.size === 0) return [];
 
-	// Pass SHAs as stdin via shell wrapper (CommandExecutor has no stdin support)
-	const shasInput = Array.from(shaToPath.keys()).join("\\n");
-	const batchResult = await exec(
-		"sh",
-		["-c", `printf '${shasInput}\\n' | git cat-file --batch-check`],
-		{ cwd },
-	);
+	// Pass SHAs as stdin to git cat-file --batch-check (no shell)
+	const shasInput = Array.from(shaToPath.keys()).join("\n") + "\n";
+	const batchResult = await exec("git", ["cat-file", "--batch-check"], {
+		cwd,
+		stdin: shasInput,
+	});
 
 	if (batchResult.exitCode !== 0 || batchResult.stdout === "") return [];
 
