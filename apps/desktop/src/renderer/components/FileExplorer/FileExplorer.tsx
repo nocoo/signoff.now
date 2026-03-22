@@ -1,51 +1,17 @@
 /**
  * FileExplorer — tree view for navigating workspace files.
  *
- * Phase 3 scaffold: renders a static placeholder tree.
- * Phase 7 #17 will connect this to the filesystem tRPC router.
+ * Supports two modes:
+ * - Static: pass `tree` prop (for tests or storybook)
+ * - Live: pass `workspacePath` prop to fetch from filesystem tRPC
  *
- * Uses @headless-tree for accessible tree keyboard navigation.
+ * Uses lazy loading: directories are fetched on expand.
  */
 
 import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { trpc } from "../../lib/trpc";
 import type { FileTreeData, FileTreeNode } from "./types";
-
-/** Static demo tree for scaffold phase. */
-const DEMO_TREE: FileTreeData = {
-	root: {
-		id: "root",
-		name: "workspace",
-		isDirectory: true,
-		children: ["src", "package.json", "tsconfig.json"],
-	},
-	src: {
-		id: "src",
-		name: "src",
-		isDirectory: true,
-		children: ["src/index.ts", "src/utils.ts"],
-	},
-	"src/index.ts": {
-		id: "src/index.ts",
-		name: "index.ts",
-		isDirectory: false,
-	},
-	"src/utils.ts": {
-		id: "src/utils.ts",
-		name: "utils.ts",
-		isDirectory: false,
-	},
-	"package.json": {
-		id: "package.json",
-		name: "package.json",
-		isDirectory: false,
-	},
-	"tsconfig.json": {
-		id: "tsconfig.json",
-		name: "tsconfig.json",
-		isDirectory: false,
-	},
-};
 
 function TreeNode({
 	node,
@@ -103,12 +69,13 @@ function TreeNode({
 	);
 }
 
+/** Static FileExplorer — renders a pre-built tree. */
 export function FileExplorer({
-	tree = DEMO_TREE,
+	tree,
 	rootId = "root",
 	onFileSelect,
 }: {
-	tree?: FileTreeData;
+	tree: FileTreeData;
 	rootId?: string;
 	onFileSelect?: (fileId: string) => void;
 }) {
@@ -172,6 +139,160 @@ export function FileExplorer({
 	return (
 		<div className="overflow-y-auto text-xs" data-testid="file-explorer">
 			{rootNode.children?.map((childId) => renderNode(childId, 0))}
+		</div>
+	);
+}
+
+/**
+ * LiveFileExplorer — lazy-loads directory contents from the filesystem tRPC router.
+ *
+ * Fetches the root directory on mount, then fetches subdirectories on expand.
+ */
+export function LiveFileExplorer({
+	workspacePath,
+	onFileSelect,
+}: {
+	workspacePath: string;
+	onFileSelect?: (relativePath: string) => void;
+}) {
+	const [tree, setTree] = useState<FileTreeData>({
+		root: { id: "root", name: "workspace", isDirectory: true, children: [] },
+	});
+	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [fetchedDirs, setFetchedDirs] = useState<Set<string>>(new Set());
+
+	// Fetch root directory on mount
+	const { data: rootData, isLoading } = trpc.filesystem.listDirectory.useQuery(
+		{ workspacePath, relativePath: "" },
+		{ enabled: !!workspacePath },
+	);
+
+	// Populate tree when root data arrives
+	useEffect(() => {
+		if (!rootData) return;
+		const children: string[] = [];
+		const newNodes: FileTreeData = {};
+
+		for (const entry of rootData.entries) {
+			children.push(entry.name);
+			newNodes[entry.name] = {
+				id: entry.name,
+				name: entry.name,
+				isDirectory: entry.isDirectory,
+				children: entry.isDirectory ? [] : undefined,
+			};
+		}
+
+		setTree((prev) => ({
+			...prev,
+			...newNodes,
+			root: { ...prev.root, children },
+		}));
+		setFetchedDirs((prev) => new Set([...prev, ""]));
+	}, [rootData]);
+
+	const utils = trpc.useUtils();
+
+	const handleToggle = useCallback(
+		async (id: string) => {
+			setExpanded((prev) => {
+				const next = new Set(prev);
+				if (next.has(id)) {
+					next.delete(id);
+				} else {
+					next.add(id);
+				}
+				return next;
+			});
+
+			// Lazy load: fetch children if not already fetched
+			if (!fetchedDirs.has(id)) {
+				try {
+					const data = await utils.filesystem.listDirectory.fetch({
+						workspacePath,
+						relativePath: id,
+					});
+
+					const children: string[] = [];
+					const newNodes: FileTreeData = {};
+
+					for (const entry of data.entries) {
+						const childId = `${id}/${entry.name}`;
+						children.push(childId);
+						newNodes[childId] = {
+							id: childId,
+							name: entry.name,
+							isDirectory: entry.isDirectory,
+							children: entry.isDirectory ? [] : undefined,
+						};
+					}
+
+					setTree((prev) => ({
+						...prev,
+						...newNodes,
+						[id]: { ...prev[id], children },
+					}));
+					setFetchedDirs((prev) => new Set([...prev, id]));
+				} catch {
+					// Silently fail — user will see empty directory
+				}
+			}
+		},
+		[workspacePath, fetchedDirs, utils],
+	);
+
+	const handleSelect = useCallback(
+		(id: string) => {
+			setSelectedId(id);
+			const node = tree[id];
+			if (node && !node.isDirectory && onFileSelect) {
+				onFileSelect(id);
+			}
+		},
+		[tree, onFileSelect],
+	);
+
+	function renderNode(nodeId: string, depth: number): React.ReactNode {
+		const node = tree[nodeId];
+		if (!node) return null;
+
+		return (
+			<div key={node.id}>
+				<TreeNode
+					node={node}
+					depth={depth}
+					expanded={expanded}
+					onToggle={handleToggle}
+					onSelect={handleSelect}
+					selectedId={selectedId}
+					tree={tree}
+				/>
+				{node.isDirectory && expanded.has(node.id) && node.children && (
+					<div>
+						{node.children.map((childId) => renderNode(childId, depth + 1))}
+					</div>
+				)}
+			</div>
+		);
+	}
+
+	if (isLoading) {
+		return (
+			<div className="p-2 text-xs text-muted-foreground">Loading files…</div>
+		);
+	}
+
+	const rootNode = tree.root;
+	if (!rootNode?.children?.length) {
+		return (
+			<div className="p-2 text-xs text-muted-foreground">Empty directory</div>
+		);
+	}
+
+	return (
+		<div className="overflow-y-auto text-xs" data-testid="file-explorer">
+			{rootNode.children.map((childId) => renderNode(childId, 0))}
 		</div>
 	);
 }
