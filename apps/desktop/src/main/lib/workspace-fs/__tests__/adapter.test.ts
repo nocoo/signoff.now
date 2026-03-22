@@ -1,3 +1,4 @@
+// @ts-nocheck — mock.mockImplementationOnce overrides cause false type mismatches
 /**
  * Tests for the workspace-fs adapter.
  *

@@ -6,16 +6,46 @@
  * - Collapsed icon-only view (52px)
  * - Drag to resize via mouse
  * - Toggle collapse via button
+ * - Real project list from tRPC
+ * - Add project dialog
  */
 
-import { ChevronLeft, ChevronRight, FolderGit2, Plus } from "lucide-react";
-import { useCallback, useRef } from "react";
+import {
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@signoff/ui/dialog";
+import { Input } from "@signoff/ui/input";
+import { Label } from "@signoff/ui/label";
+import {
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	FolderGit2,
+	Plus,
+} from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { trpc } from "../../lib/trpc";
 import {
 	COLLAPSED_WORKSPACE_SIDEBAR_WIDTH,
 	MAX_WORKSPACE_SIDEBAR_WIDTH,
 	MIN_WORKSPACE_SIDEBAR_WIDTH,
 	useWorkspaceSidebarStore,
 } from "../../stores/workspace-sidebar-state";
+
+const PROJECT_COLORS = [
+	"#ef4444",
+	"#f97316",
+	"#eab308",
+	"#22c55e",
+	"#3b82f6",
+	"#8b5cf6",
+	"#ec4899",
+	"#06b6d4",
+];
 
 export function WorkspaceSidebar() {
 	const {
@@ -29,6 +59,9 @@ export function WorkspaceSidebar() {
 	} = useWorkspaceSidebarStore();
 
 	const sidebarRef = useRef<HTMLDivElement>(null);
+	const [expandedProjectId, setExpandedProjectId] = useState<string | null>(
+		null,
+	);
 
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent) => {
@@ -87,31 +120,21 @@ export function WorkspaceSidebar() {
 				</button>
 			</div>
 
-			{/* Project list placeholder */}
+			{/* Project list */}
 			<div className="flex-1 overflow-y-auto px-2">
 				{collapsed ? (
-					<div className="flex flex-col items-center gap-2 pt-2">
-						<div className="rounded p-2 text-muted-foreground hover:bg-accent">
-							<FolderGit2 className="h-5 w-5" />
-						</div>
-					</div>
+					<CollapsedProjectList />
 				) : (
-					<div className="py-2 text-center text-xs text-muted-foreground">
-						No projects yet
-					</div>
+					<ExpandedProjectList
+						expandedProjectId={expandedProjectId}
+						onToggleProject={setExpandedProjectId}
+					/>
 				)}
 			</div>
 
 			{/* Footer: add project */}
 			<div className="border-t border-border p-2">
-				<button
-					type="button"
-					className="flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-					title="Add project"
-				>
-					<Plus className="h-3.5 w-3.5" />
-					{!collapsed && <span>Add Project</span>}
-				</button>
+				<AddProjectButton collapsed={collapsed} />
 			</div>
 
 			{/* Resize handle */}
@@ -136,5 +159,268 @@ export function WorkspaceSidebar() {
 				/>
 			)}
 		</div>
+	);
+}
+
+/** Collapsed view — icon per project. */
+function CollapsedProjectList() {
+	const { data: projectList } = trpc.projects.list.useQuery();
+
+	if (!projectList?.length) {
+		return (
+			<div className="flex flex-col items-center gap-2 pt-2">
+				<div className="rounded p-2 text-muted-foreground hover:bg-accent">
+					<FolderGit2 className="h-5 w-5" />
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex flex-col items-center gap-1 pt-2">
+			{projectList.map(
+				(project: { id: string; name: string; color: string }) => (
+					<button
+						key={project.id}
+						type="button"
+						className="flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white"
+						style={{ backgroundColor: project.color }}
+						title={project.name}
+					>
+						{project.name.charAt(0).toUpperCase()}
+					</button>
+				),
+			)}
+		</div>
+	);
+}
+
+/** Expanded view — project tree with workspaces. */
+function ExpandedProjectList({
+	expandedProjectId,
+	onToggleProject,
+}: {
+	expandedProjectId: string | null;
+	onToggleProject: (id: string | null) => void;
+}) {
+	const { data: projectList, isLoading } = trpc.projects.list.useQuery();
+
+	if (isLoading) {
+		return (
+			<div className="py-2 text-center text-xs text-muted-foreground">
+				Loading…
+			</div>
+		);
+	}
+
+	if (!projectList?.length) {
+		return (
+			<div
+				className="py-2 text-center text-xs text-muted-foreground"
+				data-testid="no-projects"
+			>
+				No projects yet
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex flex-col gap-0.5 py-1">
+			{projectList.map(
+				(project: {
+					id: string;
+					name: string;
+					color: string;
+					mainRepoPath: string;
+				}) => (
+					<ProjectItem
+						key={project.id}
+						project={project}
+						isExpanded={expandedProjectId === project.id}
+						onToggle={() =>
+							onToggleProject(
+								expandedProjectId === project.id ? null : project.id,
+							)
+						}
+					/>
+				),
+			)}
+		</div>
+	);
+}
+
+/** Single project row with expandable workspace list. */
+function ProjectItem({
+	project,
+	isExpanded,
+	onToggle,
+}: {
+	project: {
+		id: string;
+		name: string;
+		color: string;
+		mainRepoPath: string;
+	};
+	isExpanded: boolean;
+	onToggle: () => void;
+}) {
+	return (
+		<div>
+			<button
+				type="button"
+				onClick={onToggle}
+				className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+				data-testid={`project-item-${project.id}`}
+			>
+				<div
+					className="h-3 w-3 shrink-0 rounded-sm"
+					style={{ backgroundColor: project.color }}
+				/>
+				<span className="min-w-0 flex-1 truncate">{project.name}</span>
+				<ChevronDown
+					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
+				/>
+			</button>
+			{isExpanded && <WorkspaceList projectId={project.id} />}
+		</div>
+	);
+}
+
+/** Workspace list for a project (fetched on expand). */
+function WorkspaceList({ projectId }: { projectId: string }) {
+	const { data: workspaceList, isLoading } = trpc.workspaces.list.useQuery({
+		projectId,
+	});
+
+	if (isLoading) {
+		return (
+			<div className="py-1 pl-7 text-xs text-muted-foreground">Loading…</div>
+		);
+	}
+
+	if (!workspaceList?.length) {
+		return (
+			<div className="py-1 pl-7 text-xs text-muted-foreground">
+				No workspaces
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex flex-col gap-0.5 py-0.5">
+			{workspaceList.map((ws: { id: string; name: string; branch: string }) => (
+				<button
+					key={ws.id}
+					type="button"
+					className="flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-xs hover:bg-accent"
+					data-testid={`workspace-item-${ws.id}`}
+				>
+					<span className="min-w-0 flex-1 truncate">
+						{ws.name || ws.branch}
+					</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
+/** Add Project button + dialog. */
+function AddProjectButton({ collapsed }: { collapsed: boolean }) {
+	const [open, setOpen] = useState(false);
+	const [name, setName] = useState("");
+	const [path, setPath] = useState("");
+	const [color, setColor] = useState(PROJECT_COLORS[0]);
+
+	const utils = trpc.useUtils();
+	const createMutation = trpc.projects.create.useMutation({
+		onSuccess: () => {
+			utils.projects.list.invalidate();
+			setOpen(false);
+			setName("");
+			setPath("");
+			setColor(PROJECT_COLORS[0]);
+		},
+	});
+
+	const handleSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!name.trim() || !path.trim()) return;
+		createMutation.mutate({
+			name: name.trim(),
+			mainRepoPath: path.trim(),
+			color,
+		});
+	};
+
+	return (
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogTrigger asChild>
+				<button
+					type="button"
+					className="flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+					title="Add project"
+					data-testid="add-project-btn"
+				>
+					<Plus className="h-3.5 w-3.5" />
+					{!collapsed && <span>Add Project</span>}
+				</button>
+			</DialogTrigger>
+			<DialogContent className="max-w-md">
+				<DialogHeader>
+					<DialogTitle>Add Project</DialogTitle>
+				</DialogHeader>
+				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="project-name">Name</Label>
+						<Input
+							id="project-name"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+							placeholder="My Project"
+							data-testid="project-name-input"
+						/>
+					</div>
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="project-path">Repository Path</Label>
+						<Input
+							id="project-path"
+							value={path}
+							onChange={(e) => setPath(e.target.value)}
+							placeholder="/path/to/repo"
+							data-testid="project-path-input"
+						/>
+					</div>
+					<div className="flex flex-col gap-2">
+						<Label>Color</Label>
+						<div className="flex gap-2">
+							{PROJECT_COLORS.map((c) => (
+								<button
+									key={c}
+									type="button"
+									onClick={() => setColor(c)}
+									className={`h-6 w-6 rounded-full border-2 ${
+										color === c ? "border-foreground" : "border-transparent"
+									}`}
+									style={{ backgroundColor: c }}
+									data-testid={`color-${c}`}
+								/>
+							))}
+						</div>
+					</div>
+					<DialogFooter>
+						<button
+							type="submit"
+							disabled={
+								!name.trim() || !path.trim() || createMutation.isPending
+							}
+							className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+							data-testid="create-project-submit"
+						>
+							{createMutation.isPending ? "Creating…" : "Create Project"}
+						</button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
 	);
 }
