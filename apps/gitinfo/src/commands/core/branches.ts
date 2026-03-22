@@ -22,7 +22,7 @@ export async function getLocalBranches(
 		"git",
 		[
 			"for-each-ref",
-			"--format=%(refname:short)%(09)%(upstream:short)%(09)%(upstream:trackshort)%(09)%(committerdate:iso-strict)",
+			"--format=%(refname:short)%(09)%(upstream:short)%(09)%(upstream:track)%(09)%(committerdate:iso-strict)",
 			"refs/heads/",
 		],
 		{ cwd },
@@ -48,12 +48,12 @@ export async function getLocalBranches(
 		const parts = line.split("\t");
 		const name = parts[0] ?? "";
 		const upstream = parts[1] || null;
-		const trackShort = parts[2] ?? "";
+		const trackInfo = parts[2] ?? "";
 		const lastCommitDate = parts[3] ?? "";
 
 		let aheadBehind: { ahead: number; behind: number } | null = null;
 		if (upstream) {
-			aheadBehind = parseTrackShort(trackShort);
+			aheadBehind = parseTrack(trackInfo);
 		}
 
 		branches.push({
@@ -68,15 +68,30 @@ export async function getLocalBranches(
 	return branches;
 }
 
-function parseTrackShort(
-	trackShort: string,
-): { ahead: number; behind: number } | null {
-	if (trackShort === "=") return { ahead: 0, behind: 0 };
-	if (trackShort === ">") return { ahead: 1, behind: 0 };
-	if (trackShort === "<") return { ahead: 0, behind: 1 };
-	if (trackShort === "<>") return { ahead: 1, behind: 1 };
-	if (trackShort === "") return null;
-	return null;
+/**
+ * Parse `%(upstream:track)` output into ahead/behind counts.
+ * Formats: "[ahead N]", "[behind N]", "[ahead N, behind M]", "" (up to date), "[gone]"
+ */
+function parseTrack(track: string): { ahead: number; behind: number } | null {
+	if (track === "[gone]") return null;
+
+	// Empty string means up-to-date (called only when upstream exists)
+	if (track === "") return { ahead: 0, behind: 0 };
+
+	let ahead = 0;
+	let behind = 0;
+
+	const aheadMatch = track.match(/ahead (\d+)/);
+	if (aheadMatch) {
+		ahead = Number.parseInt(aheadMatch[1] as string, 10);
+	}
+
+	const behindMatch = track.match(/behind (\d+)/);
+	if (behindMatch) {
+		behind = Number.parseInt(behindMatch[1] as string, 10);
+	}
+
+	return { ahead, behind };
 }
 
 export async function getRemoteBranches(
