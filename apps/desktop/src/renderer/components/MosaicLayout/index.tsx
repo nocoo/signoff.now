@@ -15,6 +15,7 @@ import { PaneContent } from "./PaneContent";
 import { TabBar } from "./TabBar";
 
 import "react-mosaic-component/react-mosaic-component.css";
+import "./mosaic-theme.css";
 
 function PaneTile({ paneId }: { paneId: PaneId }) {
 	const pane = useTabsStore((s) => s.panes[paneId]);
@@ -65,7 +66,12 @@ export function MosaicLayout() {
 			)}
 			value={layout}
 			onChange={(newLayout) => setLayout(newLayout ?? null)}
-			className="mosaic-signoff"
+			resize="DISABLED"
+			className={
+				document.documentElement.classList.contains("light")
+					? "mosaic-theme-light"
+					: "mosaic-theme-dark"
+			}
 		/>
 	);
 }
