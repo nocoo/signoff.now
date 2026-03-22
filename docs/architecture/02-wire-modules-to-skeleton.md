@@ -497,7 +497,7 @@ test: add PaneContent and FileExplorer wiring tests
 
 ---
 
-## Phase 4: Implement Terminal
+## Phase 4: Implement Terminal ✅
 
 **目标**：用户能在 pane 中打开真实 terminal session。
 
