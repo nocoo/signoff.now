@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS settings (
 	editor_font_size integer,
 	worktree_base_dir text,
 	open_links_in_app integer,
-	default_editor text
+	default_editor text,
+	custom_hotkeys text
 );
 `;
 

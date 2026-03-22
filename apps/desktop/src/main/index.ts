@@ -123,8 +123,8 @@ app.whenReady().then(() => {
 		getGit: (cwd?: string) => require("simple-git").simpleGit(cwd),
 		// @signoff/workspace-fs operations — adapter bridges router convention to FsHostService
 		fsOps: createFsAdapter(),
-		// Hotkey store (in-memory for now, persistence in future phase)
-		hotkeyStore: createInMemoryHotkeyStore(),
+		// Hotkey store (persistent via SQLite settings.customHotkeys)
+		hotkeyStore: createPersistentHotkeyStore(),
 		// Settings db operations
 		settingsDb: createSettingsDbOps(),
 		// Terminal manager for PTY session operations
@@ -207,9 +207,14 @@ function createSettingsDbOps() {
 	};
 }
 
-/** Creates an in-memory hotkey store (persistence deferred to future phase). */
-function createInMemoryHotkeyStore() {
-	// Import default hotkeys from the renderer store types
+/**
+ * Persistent hotkey store backed by the settings.customHotkeys JSON column.
+ *
+ * Stores only user overrides (action → keys mapping). At read time, merges
+ * overrides on top of DEFAULT_BINDINGS so new defaults are picked up
+ * automatically.
+ */
+function createPersistentHotkeyStore() {
 	const DEFAULT_BINDINGS = [
 		{
 			action: "quickOpen",
@@ -269,33 +274,66 @@ function createInMemoryHotkeyStore() {
 	];
 
 	type Binding = (typeof DEFAULT_BINDINGS)[number];
-	let bindings: Binding[] = [...DEFAULT_BINDINGS];
+
+	/** Read custom overrides from SQLite settings row. */
+	function getOverrides(): Record<string, string> {
+		try {
+			const db = getDb();
+			const row = db
+				.select({ customHotkeys: settings.customHotkeys })
+				.from(settings)
+				.where(eq(settings.id, 1))
+				.get();
+			return (row?.customHotkeys as Record<string, string>) ?? {};
+		} catch {
+			return {};
+		}
+	}
+
+	/** Persist custom overrides to SQLite settings row. */
+	function setOverrides(overrides: Record<string, string>): void {
+		const db = getDb();
+		const existing = db.select().from(settings).where(eq(settings.id, 1)).get();
+		if (existing) {
+			db.update(settings)
+				.set({ customHotkeys: overrides })
+				.where(eq(settings.id, 1))
+				.run();
+		} else {
+			db.insert(settings).values({ id: 1, customHotkeys: overrides }).run();
+		}
+	}
+
+	/** Merge defaults with persisted overrides. */
+	function resolvedBindings(): Binding[] {
+		const overrides = getOverrides();
+		return DEFAULT_BINDINGS.map((b) =>
+			overrides[b.action] ? { ...b, keys: overrides[b.action] } : b,
+		);
+	}
 
 	return {
 		async list() {
-			return [...bindings];
+			return resolvedBindings();
 		},
 		async get(action: string) {
-			return bindings.find((b) => b.action === action) ?? null;
+			return resolvedBindings().find((b) => b.action === action) ?? null;
 		},
 		async update(action: string, keys: string) {
-			bindings = bindings.map((b) =>
-				b.action === action ? { ...b, keys } : b,
-			);
-			return bindings.find((b) => b.action === action) ?? null;
+			const overrides = getOverrides();
+			overrides[action] = keys;
+			setOverrides(overrides);
+			return resolvedBindings().find((b) => b.action === action) ?? null;
 		},
 		async reset(action: string) {
-			const def = DEFAULT_BINDINGS.find((b) => b.action === action);
-			if (def) {
-				bindings = bindings.map((b) =>
-					b.action === action ? { ...b, keys: def.keys } : b,
-				);
-			}
-			return bindings.find((b) => b.action === action) ?? null;
+			const overrides = getOverrides();
+			delete overrides[action];
+			setOverrides(overrides);
+			return resolvedBindings().find((b) => b.action === action) ?? null;
 		},
 		async resetAll() {
-			bindings = [...DEFAULT_BINDINGS];
-			return [...bindings];
+			setOverrides({});
+			return resolvedBindings();
 		},
 	};
 }

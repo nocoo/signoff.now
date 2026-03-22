@@ -201,6 +201,9 @@ export const settings = sqliteTable("settings", {
 	worktreeBaseDir: text("worktree_base_dir"),
 	openLinksInApp: integer("open_links_in_app", { mode: "boolean" }),
 	defaultEditor: text("default_editor").$type<ExternalApp>(),
+	customHotkeys: text("custom_hotkeys", { mode: "json" }).$type<
+		Record<string, string>
+	>(),
 });
 
 export type InsertSettings = typeof settings.$inferInsert;
