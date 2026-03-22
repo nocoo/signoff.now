@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { platform } from "node:os";
 import path from "node:path";
 import { app, protocol, shell } from "electron";
 import { makeAppSetup } from "lib/electron-app/factories/app/setup";
@@ -22,10 +23,11 @@ import { createFsAdapter } from "main/lib/workspace-fs/adapter";
 import {
 	FONT_PROTOCOL,
 	ICON_PROTOCOL,
-	PLATFORM,
 	PROTOCOL_SCHEME,
 } from "shared/constants";
 import { MainWindow } from "./windows/main";
+
+const PLATFORM = platform();
 
 // ─── 1. Register custom protocols as privileged (MUST be before app.whenReady) ─
 protocol.registerSchemesAsPrivileged([

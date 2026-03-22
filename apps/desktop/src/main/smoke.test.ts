@@ -48,8 +48,9 @@ describe.if(hasElectronMock)("test-setup mocks", () => {
 // ─── Shared Constants ────────────────────────────────────────────────────────
 
 describe("shared/constants", () => {
-	test("PLATFORM is a valid platform string", async () => {
-		const { PLATFORM } = await import("../shared/constants");
+	test("PLATFORM from node:os is a valid platform string", async () => {
+		const { platform } = await import("node:os");
+		const PLATFORM = platform();
 		expect(typeof PLATFORM).toBe("string");
 		expect(PLATFORM.length).toBeGreaterThan(0);
 		expect([

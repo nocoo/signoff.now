@@ -1,12 +1,8 @@
-import { platform } from "node:os";
-
 /**
  * Desktop app constants.
- * Pure values — no Electron imports, safe for all environments including tests.
+ * Pure values — no Node.js or Electron imports, safe for all environments
+ * including renderer and tests.
  */
-
-/** Current platform identifier */
-export const PLATFORM = platform();
 
 /** Custom protocol scheme for deep linking */
 export const PROTOCOL_SCHEME = "signoff";
