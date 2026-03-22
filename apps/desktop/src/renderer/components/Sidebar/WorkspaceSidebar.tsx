@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { trpc } from "../../lib/trpc";
+import { useActiveWorkspaceStore } from "../../stores/active-workspace";
 import {
 	COLLAPSED_WORKSPACE_SIDEBAR_WIDTH,
 	MAX_WORKSPACE_SIDEBAR_WIDTH,
@@ -294,16 +295,46 @@ function ProjectItem({
 					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
 				/>
 			</button>
-			{isExpanded && <WorkspaceList projectId={project.id} />}
+			{isExpanded && (
+				<WorkspaceList
+					projectId={project.id}
+					mainRepoPath={project.mainRepoPath}
+				/>
+			)}
 		</div>
 	);
 }
 
 /** Workspace list for a project (fetched on expand). */
-function WorkspaceList({ projectId }: { projectId: string }) {
+function WorkspaceList({
+	projectId,
+	mainRepoPath,
+}: {
+	projectId: string;
+	mainRepoPath: string;
+}) {
 	const { data: workspaceList, isLoading } = trpc.workspaces.list.useQuery({
 		projectId,
 	});
+	const setActiveMutation = trpc.workspaces.setActive.useMutation();
+	const activeWorkspace = useActiveWorkspaceStore((s) => s.activeWorkspace);
+	const setActiveWorkspace = useActiveWorkspaceStore(
+		(s) => s.setActiveWorkspace,
+	);
+
+	const handleActivate = useCallback(
+		(ws: { id: string; name: string; branch: string }) => {
+			setActiveWorkspace({
+				id: ws.id,
+				projectId,
+				workspacePath: mainRepoPath,
+				branch: ws.branch,
+				name: ws.name || ws.branch,
+			});
+			setActiveMutation.mutate({ id: ws.id });
+		},
+		[projectId, mainRepoPath, setActiveWorkspace, setActiveMutation],
+	);
 
 	if (isLoading) {
 		return (
@@ -321,18 +352,26 @@ function WorkspaceList({ projectId }: { projectId: string }) {
 
 	return (
 		<div className="flex flex-col gap-0.5 py-0.5">
-			{workspaceList.map((ws: { id: string; name: string; branch: string }) => (
-				<button
-					key={ws.id}
-					type="button"
-					className="flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-xs hover:bg-accent"
-					data-testid={`workspace-item-${ws.id}`}
-				>
-					<span className="min-w-0 flex-1 truncate">
-						{ws.name || ws.branch}
-					</span>
-				</button>
-			))}
+			{workspaceList.map((ws: { id: string; name: string; branch: string }) => {
+				const isActive = activeWorkspace?.id === ws.id;
+				return (
+					<button
+						key={ws.id}
+						type="button"
+						onClick={() => handleActivate(ws)}
+						className={`flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-xs ${
+							isActive
+								? "bg-accent text-foreground font-medium"
+								: "hover:bg-accent"
+						}`}
+						data-testid={`workspace-item-${ws.id}`}
+					>
+						<span className="min-w-0 flex-1 truncate">
+							{ws.name || ws.branch}
+						</span>
+					</button>
+				);
+			})}
 		</div>
 	);
 }
