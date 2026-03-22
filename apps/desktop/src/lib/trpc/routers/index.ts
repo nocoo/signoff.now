@@ -70,7 +70,7 @@ export function createAppRouter(deps: AppRouterDeps) {
 		hotkeys: createHotkeysTrpcRouter(deps.hotkeyStore),
 		terminal: createTerminalRouter(deps.terminalManager),
 		window: createWindowRouter(deps.getWindow),
-		menu: createMenuRouter(),
+		menu: createMenuRouter(deps.getWindow),
 		config: createConfigRouter(deps.getAppInfo),
 		external: createExternalRouter(deps.shellOps),
 		autoUpdate: createAutoUpdateRouter(),

@@ -167,7 +167,7 @@ describe("router factories", () => {
 
 	test("createMenuRouter creates a valid router", async () => {
 		const { createMenuRouter } = await import("./routers/menu");
-		const router = createMenuRouter();
+		const router = createMenuRouter(() => null);
 		expect(router._def).toBeDefined();
 		const record = router._def.record;
 		expect(record.getMenu).toBeDefined();
