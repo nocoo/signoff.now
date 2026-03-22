@@ -20,6 +20,10 @@
 			"types": "./src/host/index.ts",
 			"default": "./src/host/index.ts"
 		},
+		"./watch": {
+			"types": "./src/watch.ts",
+			"default": "./src/watch.ts"
+		},
 		"./resource-uri": {
 			"types": "./src/resource-uri.ts",
 			"default": "./src/resource-uri.ts"
