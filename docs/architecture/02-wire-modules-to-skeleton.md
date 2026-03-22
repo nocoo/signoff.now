@@ -120,7 +120,7 @@ docs: update CLAUDE.md native rebuild section
 
 ---
 
-## Phase 1: Wire Filesystem
+## Phase 1: Wire Filesystem ✅
 
 **目标**：`filesystem` router 的 7 个操作可用（listDirectory / readFile / writeFile / createDirectory / deletePath / movePath / getMetadata）。
 
