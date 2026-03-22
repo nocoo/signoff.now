@@ -364,7 +364,7 @@ test: add filesystem adapter and integration tests
 
 ---
 
-## Phase 2: Wire Project/Workspace Data into Renderer
+## Phase 2: Wire Project/Workspace Data into Renderer ✅
 
 **目标**：WorkspaceSidebar 显示真实 project 列表，支持添加项目和切换 workspace。
 
