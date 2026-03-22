@@ -93,7 +93,7 @@ export function NewWorkspaceModal() {
 								<SelectValue placeholder="Select a project" />
 							</SelectTrigger>
 							<SelectContent>
-								{projectList?.map((p) => (
+								{projectList?.map((p: { id: string; name: string }) => (
 									<SelectItem key={p.id} value={p.id}>
 										{p.name}
 									</SelectItem>
