@@ -9,6 +9,7 @@
  */
 
 import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { NewWorkspaceModal } from "../../components/NewWorkspaceModal";
 import { ContentSidebar } from "../../components/Sidebar/ContentSidebar";
 import { WorkspaceSidebar } from "../../components/Sidebar/WorkspaceSidebar";
 import { TopBar } from "../../components/TopBar";
@@ -34,6 +35,8 @@ function DashboardLayout() {
 					<Outlet />
 				</main>
 			</div>
+
+			<NewWorkspaceModal />
 		</div>
 	);
 }
