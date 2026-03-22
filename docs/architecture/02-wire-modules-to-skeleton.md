@@ -866,7 +866,7 @@ test: add settings UI binding tests
 
 ---
 
-## Phase 7: Consume @signoff/ui
+## Phase 7: Consume @signoff/ui ✅
 
 **目标**：统一 UI 组件，将手写 HTML 替换为 `@signoff/ui` shadcn 组件。
 
