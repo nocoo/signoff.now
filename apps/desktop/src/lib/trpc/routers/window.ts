@@ -32,5 +32,16 @@ export function createWindowRouter(getWindow: () => BrowserWindow | null) {
 		isMaximized: publicProcedure.query(() => {
 			return { isMaximized: getWindow()?.isMaximized() ?? false };
 		}),
+
+		openDirectory: publicProcedure.mutation(async () => {
+			const { dialog } = await import("electron");
+			const win = getWindow();
+			if (!win) return { path: null };
+			const result = await dialog.showOpenDialog(win, {
+				properties: ["openDirectory"],
+			});
+			if (result.canceled || !result.filePaths.length) return { path: null };
+			return { path: result.filePaths[0] ?? null };
+		}),
 	});
 }
