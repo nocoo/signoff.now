@@ -78,7 +78,7 @@ export async function getCommitFrequency(
 	cwd: string,
 	hasHead: boolean,
 ): Promise<CommitFrequency | undefined> {
-	if (!hasHead) return undefined;
+	if (!hasHead) return { byDayOfWeek: {}, byHour: {}, byMonth: {} };
 
 	const [dayResult, hourResult, monthResult] = await Promise.all([
 		exec(
@@ -124,7 +124,7 @@ export async function getConventionalTypes(
 	cwd: string,
 	hasHead: boolean,
 ): Promise<Record<string, number> | undefined> {
-	if (!hasHead) return undefined;
+	if (!hasHead) return {};
 
 	const result = await exec(
 		"git",

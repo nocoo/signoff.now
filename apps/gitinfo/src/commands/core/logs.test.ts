@@ -154,9 +154,13 @@ describe("getCommitFrequency", () => {
 		});
 	});
 
-	it("returns undefined in empty repo", async () => {
+	it("returns zero-value in empty repo", async () => {
 		const exec = mockExec({});
-		expect(await getCommitFrequency(exec, CWD, false)).toBeUndefined();
+		expect(await getCommitFrequency(exec, CWD, false)).toEqual({
+			byDayOfWeek: {},
+			byHour: {},
+			byMonth: {},
+		});
 	});
 
 	it("returns empty maps when no commits in last year", async () => {
@@ -198,9 +202,9 @@ describe("getConventionalTypes", () => {
 		expect(types).toEqual({ feat: 2, fix: 2, chore: 1 });
 	});
 
-	it("returns undefined in empty repo", async () => {
+	it("returns zero-value in empty repo", async () => {
 		const exec = mockExec({});
-		expect(await getConventionalTypes(exec, CWD, false)).toBeUndefined();
+		expect(await getConventionalTypes(exec, CWD, false)).toEqual({});
 	});
 
 	it("returns empty object when no conventional commits", async () => {
@@ -297,7 +301,11 @@ describe("collectLogs", () => {
 		const exec = mockExec({});
 		const logs = await collectLogs(exec, CWD, false, true);
 		expect(logs.totalCommits).toBe(0);
-		expect(logs.commitFrequency).toBeUndefined();
-		expect(logs.conventionalTypes).toBeUndefined();
+		expect(logs.commitFrequency).toEqual({
+			byDayOfWeek: {},
+			byHour: {},
+			byMonth: {},
+		});
+		expect(logs.conventionalTypes).toEqual({});
 	});
 });

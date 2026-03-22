@@ -133,9 +133,9 @@ describe("getAuthorStats", () => {
 		]);
 	});
 
-	it("returns undefined when !hasHead", async () => {
+	it("returns zero-value when !hasHead", async () => {
 		const exec = mockExec({});
-		expect(await getAuthorStats(exec, CWD, false)).toBeUndefined();
+		expect(await getAuthorStats(exec, CWD, false)).toEqual([]);
 	});
 
 	it("returns undefined on non-zero exit code", async () => {
@@ -261,6 +261,6 @@ describe("collectContributors", () => {
 		expect(result.authors).toEqual([]);
 		expect(result.totalAuthors).toBe(0);
 		expect(result.activeRecent).toBe(0);
-		expect(result.authorStats).toBeUndefined();
+		expect(result.authorStats).toEqual([]);
 	});
 });

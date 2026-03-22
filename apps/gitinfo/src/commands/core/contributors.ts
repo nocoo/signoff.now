@@ -124,7 +124,7 @@ export async function getAuthorStats(
 	cwd: string,
 	hasHead: boolean,
 ): Promise<GitAuthorStats[] | undefined> {
-	if (!hasHead) return undefined;
+	if (!hasHead) return [];
 	const result = await exec(
 		"git",
 		["log", "--numstat", "--pretty=tformat:%aN <%aE>", "-n", "1000", "HEAD"],
