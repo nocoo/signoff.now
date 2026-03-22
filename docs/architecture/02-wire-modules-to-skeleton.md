@@ -910,7 +910,7 @@ refactor: consume @signoff/ui Dialog/Sheet globally
 
 ---
 
-## Phase 8: Persistence, Subscriptions, E2E
+## Phase 8: Persistence, Subscriptions, E2E ✅
 
 **目标**：补全非关键路径的持久化和通信优化。
 
@@ -934,7 +934,7 @@ refactor: consume @signoff/ui Dialog/Sheet globally
 但当前 terminal IPC event bridge 已经可靠运行且有测试覆盖，迁移收益低、风险高。
 **决定：保持 IPC event 模式**，记录为 tech debt 供后续优化。
 
-### 8.3 E2E Smoke Test
+### 8.3 E2E Smoke Test ✅
 
 🔧 Implement — Playwright/Spectron 级别的 E2E：启动 app → 添加 project → 打开文件 → 编辑 → 保存 → 开 terminal。
 
