@@ -10,6 +10,7 @@
  * - Add project dialog
  */
 
+import { Button } from "@signoff/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -20,6 +21,8 @@ import {
 } from "@signoff/ui/dialog";
 import { Input } from "@signoff/ui/input";
 import { Label } from "@signoff/ui/label";
+import { ScrollArea } from "@signoff/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@signoff/ui/tooltip";
 import {
 	ChevronDown,
 	ChevronLeft,
@@ -106,22 +109,29 @@ export function WorkspaceSidebar() {
 						Projects
 					</span>
 				)}
-				<button
-					type="button"
-					onClick={toggleCollapsed}
-					className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-					title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-				>
-					{collapsed ? (
-						<ChevronRight className="h-4 w-4" />
-					) : (
-						<ChevronLeft className="h-4 w-4" />
-					)}
-				</button>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="h-7 w-7"
+							onClick={toggleCollapsed}
+						>
+							{collapsed ? (
+								<ChevronRight className="h-4 w-4" />
+							) : (
+								<ChevronLeft className="h-4 w-4" />
+							)}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="right">
+						{collapsed ? "Expand sidebar" : "Collapse sidebar"}
+					</TooltipContent>
+				</Tooltip>
 			</div>
 
 			{/* Project list */}
-			<div className="flex-1 overflow-y-auto px-2">
+			<ScrollArea className="flex-1 px-2">
 				{collapsed ? (
 					<CollapsedProjectList />
 				) : (
@@ -130,7 +140,7 @@ export function WorkspaceSidebar() {
 						onToggleProject={setExpandedProjectId}
 					/>
 				)}
-			</div>
+			</ScrollArea>
 
 			{/* Footer: add project */}
 			<div className="border-t border-border p-2">
@@ -180,15 +190,18 @@ function CollapsedProjectList() {
 		<div className="flex flex-col items-center gap-1 pt-2">
 			{projectList.map(
 				(project: { id: string; name: string; color: string }) => (
-					<button
-						key={project.id}
-						type="button"
-						className="flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white"
-						style={{ backgroundColor: project.color }}
-						title={project.name}
-					>
-						{project.name.charAt(0).toUpperCase()}
-					</button>
+					<Tooltip key={project.id}>
+						<TooltipTrigger asChild>
+							<button
+								type="button"
+								className="flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white"
+								style={{ backgroundColor: project.color }}
+							>
+								{project.name.charAt(0).toUpperCase()}
+							</button>
+						</TooltipTrigger>
+						<TooltipContent side="right">{project.name}</TooltipContent>
+					</Tooltip>
 				),
 			)}
 		</div>
@@ -355,15 +368,15 @@ function AddProjectButton({ collapsed }: { collapsed: boolean }) {
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
-				<button
-					type="button"
-					className="flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-					title="Add project"
+				<Button
+					variant="ghost"
+					size="sm"
+					className="w-full justify-center gap-1.5 text-xs text-muted-foreground"
 					data-testid="add-project-btn"
 				>
 					<Plus className="h-3.5 w-3.5" />
 					{!collapsed && <span>Add Project</span>}
-				</button>
+				</Button>
 			</DialogTrigger>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
@@ -408,16 +421,15 @@ function AddProjectButton({ collapsed }: { collapsed: boolean }) {
 						</div>
 					</div>
 					<DialogFooter>
-						<button
+						<Button
 							type="submit"
 							disabled={
 								!name.trim() || !path.trim() || createMutation.isPending
 							}
-							className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
 							data-testid="create-project-submit"
 						>
 							{createMutation.isPending ? "Creating…" : "Create Project"}
-						</button>
+						</Button>
 					</DialogFooter>
 				</form>
 			</DialogContent>

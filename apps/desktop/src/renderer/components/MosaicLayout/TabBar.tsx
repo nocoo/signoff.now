@@ -8,6 +8,8 @@
  * - DnD-kit sortable for reordering (future)
  */
 
+import { Button } from "@signoff/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@signoff/ui/tooltip";
 import { FileText, Terminal, X } from "lucide-react";
 import { useTabsStore } from "../../stores/tabs";
 import type { PaneId, Tab } from "../../stores/tabs/types";
@@ -38,32 +40,39 @@ export function TabBar({
 			{tabs.map((tab) => {
 				const isActive = tab.id === activeTabId;
 				return (
-					<button
-						key={tab.id}
-						type="button"
-						onClick={() => setActiveTab(paneId, tab.id)}
-						className={`group flex h-full items-center gap-1.5 border-r border-border px-3 text-xs ${
-							isActive
-								? "bg-background text-foreground"
-								: "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-						}`}
-					>
-						<TabIcon type={tab.type} />
-						<span className="max-w-[120px] truncate">
-							{tab.label}
-							{tab.isDirty && <span className="ml-0.5 text-amber-500">●</span>}
-						</span>
-						<button
-							type="button"
-							onClick={(e) => {
-								e.stopPropagation();
-								removeTab(paneId, tab.id);
-							}}
-							className="ml-1 rounded p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
-						>
-							<X className="h-3 w-3" />
-						</button>
-					</button>
+					<Tooltip key={tab.id}>
+						<TooltipTrigger asChild>
+							<button
+								type="button"
+								onClick={() => setActiveTab(paneId, tab.id)}
+								className={`group flex h-full items-center gap-1.5 border-r border-border px-3 text-xs ${
+									isActive
+										? "bg-background text-foreground"
+										: "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+								}`}
+							>
+								<TabIcon type={tab.type} />
+								<span className="max-w-[120px] truncate">
+									{tab.label}
+									{tab.isDirty && (
+										<span className="ml-0.5 text-amber-500">●</span>
+									)}
+								</span>
+								<Button
+									variant="ghost"
+									size="icon"
+									className="ml-1 h-5 w-5 rounded p-0 opacity-0 hover:bg-muted group-hover:opacity-100"
+									onClick={(e) => {
+										e.stopPropagation();
+										removeTab(paneId, tab.id);
+									}}
+								>
+									<X className="h-3 w-3" />
+								</Button>
+							</button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom">{tab.label}</TooltipContent>
+					</Tooltip>
 				);
 			})}
 		</div>
