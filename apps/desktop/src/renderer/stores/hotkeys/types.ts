@@ -10,6 +10,8 @@ export type HotkeyAction =
 	| "prevTab"
 	| "toggleSidebar"
 	| "toggleContentSidebar"
+	| "toggleWorkspaceSidebar"
+	| "newWorkspace"
 	| "quickOpen"
 	| "openSettings"
 	| "focusTerminal"

@@ -46,6 +46,18 @@ export const DEFAULT_HOTKEYS: HotkeyBinding[] = [
 		label: "Toggle Content Sidebar",
 		category: "general",
 	},
+	{
+		action: "toggleWorkspaceSidebar",
+		keys: `${MOD}+Shift+E`,
+		label: "Toggle Workspace Sidebar",
+		category: "general",
+	},
+	{
+		action: "newWorkspace",
+		keys: `${MOD}+N`,
+		label: "New Workspace",
+		category: "general",
+	},
 
 	// Terminal
 	{
