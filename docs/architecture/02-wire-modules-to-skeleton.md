@@ -683,7 +683,7 @@ test: add terminal stack tests
 
 ---
 
-## Phase 5: Implement Remaining Stub Routers
+## Phase 5: Implement Remaining Stub Routers ✅
 
 **目标**：window / config / external / autoUpdate / menu 从 stub 变为真实实现。
 
