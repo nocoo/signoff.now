@@ -41,9 +41,9 @@ export const DEFAULT_HOTKEYS: HotkeyBinding[] = [
 		category: "general",
 	},
 	{
-		action: "toggleContentSidebar",
+		action: "toggleRightSidebar",
 		keys: `${MOD}+Shift+B`,
-		label: "Toggle Content Sidebar",
+		label: "Toggle Right Sidebar",
 		category: "general",
 	},
 	{

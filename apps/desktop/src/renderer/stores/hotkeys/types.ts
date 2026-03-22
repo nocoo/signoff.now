@@ -9,7 +9,7 @@ export type HotkeyAction =
 	| "nextTab"
 	| "prevTab"
 	| "toggleSidebar"
-	| "toggleContentSidebar"
+	| "toggleRightSidebar"
 	| "toggleWorkspaceSidebar"
 	| "newWorkspace"
 	| "quickOpen"

@@ -4,10 +4,10 @@
  * Supports:
  * - Expanded view (220-400px) with project/workspace tree
  * - Collapsed icon-only view (52px)
- * - Drag to resize via mouse
- * - Toggle collapse via button
  * - Real project list from tRPC
  * - Add project dialog
+ *
+ * Resize is handled by parent ResizablePanel — this component only renders content.
  */
 
 import { Button } from "@signoff/ui/button";
@@ -30,16 +30,11 @@ import {
 	FolderGit2,
 	Plus,
 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { trpc } from "../../lib/trpc";
 import { useActiveWorkspaceStore } from "../../stores/active-workspace";
 import { useNewWorkspaceModalStore } from "../../stores/new-workspace-modal";
-import {
-	COLLAPSED_WORKSPACE_SIDEBAR_WIDTH,
-	MAX_WORKSPACE_SIDEBAR_WIDTH,
-	MIN_WORKSPACE_SIDEBAR_WIDTH,
-	useWorkspaceSidebarStore,
-} from "../../stores/workspace-sidebar-state";
+import { useWorkspaceSidebarStore } from "../../stores/workspace-sidebar-state";
 
 const PROJECT_COLORS = [
 	"#ef4444",
@@ -52,68 +47,31 @@ const PROJECT_COLORS = [
 	"#06b6d4",
 ];
 
-export function WorkspaceSidebar() {
-	const {
-		isOpen,
-		width,
-		isResizing,
-		setWidth,
-		setIsResizing,
-		toggleCollapsed,
-		isCollapsed,
-	} = useWorkspaceSidebarStore();
+interface WorkspaceSidebarProps {
+	isCollapsed: boolean;
+}
 
-	const sidebarRef = useRef<HTMLDivElement>(null);
+export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
+	const toggleCollapsed = useWorkspaceSidebarStore((s) => s.toggleCollapsed);
 	const [expandedProjectId, setExpandedProjectId] = useState<string | null>(
 		null,
 	);
 	const openNewWorkspace = useNewWorkspaceModalStore((s) => s.open);
 
-	const handleMouseDown = useCallback(
-		(e: React.MouseEvent) => {
-			e.preventDefault();
-			setIsResizing(true);
-
-			const startX = e.clientX;
-			const startWidth = width;
-
-			const handleMouseMove = (moveEvent: MouseEvent) => {
-				const delta = moveEvent.clientX - startX;
-				setWidth(startWidth + delta);
-			};
-
-			const handleMouseUp = () => {
-				setIsResizing(false);
-				document.removeEventListener("mousemove", handleMouseMove);
-				document.removeEventListener("mouseup", handleMouseUp);
-			};
-
-			document.addEventListener("mousemove", handleMouseMove);
-			document.addEventListener("mouseup", handleMouseUp);
-		},
-		[width, setWidth, setIsResizing],
-	);
-
-	if (!isOpen) return null;
-
-	const collapsed = isCollapsed();
-
 	return (
 		<div
-			ref={sidebarRef}
-			className="relative flex h-full flex-col border-r border-border bg-sidebar"
-			style={{ width, minWidth: COLLAPSED_WORKSPACE_SIDEBAR_WIDTH }}
+			className="flex h-full flex-col bg-muted/45"
 			data-testid="workspace-sidebar"
 		>
 			{/* Header */}
 			<div className="flex h-10 items-center justify-between px-3">
-				{!collapsed && (
+				{!isCollapsed && (
 					<span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
 						Projects
 					</span>
 				)}
 				<div className="flex items-center gap-0.5">
-					{!collapsed && (
+					{!isCollapsed && (
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Button
@@ -137,7 +95,7 @@ export function WorkspaceSidebar() {
 								className="h-7 w-7"
 								onClick={toggleCollapsed}
 							>
-								{collapsed ? (
+								{isCollapsed ? (
 									<ChevronRight className="h-4 w-4" />
 								) : (
 									<ChevronLeft className="h-4 w-4" />
@@ -145,7 +103,7 @@ export function WorkspaceSidebar() {
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent side="right">
-							{collapsed ? "Expand sidebar" : "Collapse sidebar"}
+							{isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
 						</TooltipContent>
 					</Tooltip>
 				</div>
@@ -153,7 +111,7 @@ export function WorkspaceSidebar() {
 
 			{/* Project list */}
 			<ScrollArea className="flex-1 px-2">
-				{collapsed ? (
+				{isCollapsed ? (
 					<CollapsedProjectList />
 				) : (
 					<ExpandedProjectList
@@ -165,30 +123,8 @@ export function WorkspaceSidebar() {
 
 			{/* Footer: add project */}
 			<div className="border-t border-border p-2">
-				<AddProjectButton collapsed={collapsed} />
+				<AddProjectButton collapsed={isCollapsed} />
 			</div>
-
-			{/* Resize handle */}
-			{!collapsed && (
-				// biome-ignore lint/a11y/useSemanticElements: <hr> cannot serve as a vertical resize handle with absolute positioning
-				<div
-					role="separator"
-					tabIndex={0}
-					aria-orientation="vertical"
-					aria-valuenow={width}
-					aria-valuemin={MIN_WORKSPACE_SIDEBAR_WIDTH}
-					aria-valuemax={MAX_WORKSPACE_SIDEBAR_WIDTH}
-					className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-					onMouseDown={handleMouseDown}
-					data-testid="workspace-sidebar-resize"
-					style={{
-						opacity: isResizing ? 1 : undefined,
-						backgroundColor: isResizing
-							? "hsl(var(--primary) / 0.3)"
-							: undefined,
-					}}
-				/>
-			)}
 		</div>
 	);
 }

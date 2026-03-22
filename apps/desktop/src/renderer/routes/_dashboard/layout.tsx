@@ -1,41 +1,61 @@
 /**
  * Dashboard layout — the main app shell.
  *
- * Top bar + three-column layout:
+ * Top bar + two-column layout (matching superset):
  * 0. TopBar — drag handle, sidebar toggle, window controls
  * 1. Workspace sidebar (left) — project/workspace list, collapsible to 52px
- * 2. Content sidebar (middle-left) — tabs/changes mode, resizable 200-500px
- * 3. Main content area (right) — where the active workspace content renders
+ * 2. Outlet (right) — workspace page (mosaic + right sidebar)
  */
 
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { NewWorkspaceModal } from "../../components/NewWorkspaceModal";
-import { ContentSidebar } from "../../components/Sidebar/ContentSidebar";
+import { ResizablePanel } from "../../components/ResizablePanel";
 import { WorkspaceSidebar } from "../../components/Sidebar/WorkspaceSidebar";
 import { TopBar } from "../../components/TopBar";
+import {
+	COLLAPSED_WORKSPACE_SIDEBAR_WIDTH,
+	DEFAULT_WORKSPACE_SIDEBAR_WIDTH,
+	MAX_WORKSPACE_SIDEBAR_WIDTH,
+	useWorkspaceSidebarStore,
+} from "../../stores/workspace-sidebar-state";
 
 export const Route = createFileRoute("/_dashboard")({
 	component: DashboardLayout,
 });
 
 function DashboardLayout() {
+	const {
+		isOpen: isWorkspaceSidebarOpen,
+		width: workspaceSidebarWidth,
+		setWidth: setWorkspaceSidebarWidth,
+		isResizing: isWorkspaceSidebarResizing,
+		setIsResizing: setWorkspaceSidebarIsResizing,
+		isCollapsed: isWorkspaceSidebarCollapsed,
+	} = useWorkspaceSidebarStore();
+
 	return (
-		<div className="flex h-full w-full flex-col overflow-hidden">
+		<div className="flex flex-col h-full w-full">
 			<TopBar />
-
 			<div className="flex flex-1 overflow-hidden">
-				{/* Left: workspace/project list */}
-				<WorkspaceSidebar />
-
-				{/* Middle-left: tabs/changes sidebar */}
-				<ContentSidebar />
-
-				{/* Main content area */}
-				<main className="flex flex-1 flex-col overflow-hidden">
-					<Outlet />
-				</main>
+				{isWorkspaceSidebarOpen && (
+					<ResizablePanel
+						width={workspaceSidebarWidth}
+						onWidthChange={setWorkspaceSidebarWidth}
+						isResizing={isWorkspaceSidebarResizing}
+						onResizingChange={setWorkspaceSidebarIsResizing}
+						minWidth={COLLAPSED_WORKSPACE_SIDEBAR_WIDTH}
+						maxWidth={MAX_WORKSPACE_SIDEBAR_WIDTH}
+						handleSide="right"
+						clampWidth={false}
+						onDoubleClickHandle={() =>
+							setWorkspaceSidebarWidth(DEFAULT_WORKSPACE_SIDEBAR_WIDTH)
+						}
+					>
+						<WorkspaceSidebar isCollapsed={isWorkspaceSidebarCollapsed()} />
+					</ResizablePanel>
+				)}
+				<Outlet />
 			</div>
-
 			<NewWorkspaceModal />
 		</div>
 	);
