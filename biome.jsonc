@@ -46,6 +46,17 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["apps/gitinfo/**"],
+			"linter": {
+				"rules": {
+					"correctness": { "recommended": true },
+					"suspicious": { "recommended": true },
+					"complexity": { "recommended": true },
+					"style": { "recommended": true }
+				}
+			}
 		}
 	]
 }
