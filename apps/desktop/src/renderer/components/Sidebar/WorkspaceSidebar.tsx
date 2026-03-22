@@ -323,11 +323,18 @@ function WorkspaceList({
 	);
 
 	const handleActivate = useCallback(
-		(ws: { id: string; name: string; branch: string }) => {
+		(ws: {
+			id: string;
+			name: string;
+			branch: string;
+			worktree?: { path: string } | null;
+		}) => {
+			// Use worktree path when available, fall back to project's main repo
+			const workspacePath = ws.worktree?.path ?? mainRepoPath;
 			setActiveWorkspace({
 				id: ws.id,
 				projectId,
-				workspacePath: mainRepoPath,
+				workspacePath,
 				branch: ws.branch,
 				name: ws.name || ws.branch,
 			});
@@ -352,26 +359,33 @@ function WorkspaceList({
 
 	return (
 		<div className="flex flex-col gap-0.5 py-0.5">
-			{workspaceList.map((ws: { id: string; name: string; branch: string }) => {
-				const isActive = activeWorkspace?.id === ws.id;
-				return (
-					<button
-						key={ws.id}
-						type="button"
-						onClick={() => handleActivate(ws)}
-						className={`flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-xs ${
-							isActive
-								? "bg-accent text-foreground font-medium"
-								: "hover:bg-accent"
-						}`}
-						data-testid={`workspace-item-${ws.id}`}
-					>
-						<span className="min-w-0 flex-1 truncate">
-							{ws.name || ws.branch}
-						</span>
-					</button>
-				);
-			})}
+			{workspaceList.map(
+				(ws: {
+					id: string;
+					name: string;
+					branch: string;
+					worktree?: { path: string } | null;
+				}) => {
+					const isActive = activeWorkspace?.id === ws.id;
+					return (
+						<button
+							key={ws.id}
+							type="button"
+							onClick={() => handleActivate(ws)}
+							className={`flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-xs ${
+								isActive
+									? "bg-accent text-foreground font-medium"
+									: "hover:bg-accent"
+							}`}
+							data-testid={`workspace-item-${ws.id}`}
+						>
+							<span className="min-w-0 flex-1 truncate">
+								{ws.name || ws.branch}
+							</span>
+						</button>
+					);
+				},
+			)}
 		</div>
 	);
 }

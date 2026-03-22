@@ -29,17 +29,14 @@ export function createWorkspacesRouter(getDb: GetDb) {
 	return {
 		async list(input: { projectId: string }) {
 			const db = getDb();
-			return db
-				.select()
-				.from(workspaces)
-				.where(
-					and(
-						eq(workspaces.projectId, input.projectId),
-						isNull(workspaces.deletingAt),
-					),
-				)
-				.orderBy(asc(workspaces.tabOrder))
-				.all();
+			return db.query.workspaces.findMany({
+				where: and(
+					eq(workspaces.projectId, input.projectId),
+					isNull(workspaces.deletingAt),
+				),
+				orderBy: asc(workspaces.tabOrder),
+				with: { worktree: true },
+			});
 		},
 
 		async get(input: { id: string }) {
