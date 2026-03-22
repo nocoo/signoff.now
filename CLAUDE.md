@@ -52,14 +52,11 @@ bun run db:generate:desktop  # Drizzle schema generation
 ## Native Module Rebuild
 
 `better-sqlite3` must be compiled against Electron's Node headers (not Bun's).
-After `bun install`, rebuild:
+`bun install` automatically rebuilds via `postinstall` → `scripts/rebuild-native.sh`.
 
-```bash
-cd node_modules/.bun/better-sqlite3@12.6.2/node_modules/better-sqlite3
-npx --yes node-gyp rebuild --target=40.2.1 --arch=arm64 --dist-url=https://electronjs.org/headers
-```
+If the rebuild fails or you need to run it manually: `bash scripts/rebuild-native.sh`
 
-Symptoms: `ERR_DLOPEN_FAILED` with `NODE_MODULE_VERSION` mismatch (Bun=137, Electron 40=143).
+Symptoms of stale build: `ERR_DLOPEN_FAILED` with `NODE_MODULE_VERSION` mismatch (Bun=137, Electron 40=143).
 `node-pty` uses prebuilds and does NOT need rebuilding.
 
 ## Test Notes

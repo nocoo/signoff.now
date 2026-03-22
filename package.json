@@ -17,6 +17,7 @@
 		"typescript": "^5.9.3"
 	},
 	"scripts": {
+		"postinstall": "bash scripts/rebuild-native.sh",
 		"dev": "turbo run dev",
 		"build": "turbo build",
 		"test": "turbo test",
