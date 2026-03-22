@@ -121,7 +121,6 @@ app.whenReady().then(() => {
 	const deps: AppRouterDeps = {
 		getDb,
 		// simple-git factory: creates instance for a given cwd
-		// biome-ignore lint/suspicious/noExplicitAny: simple-git dynamic import
 		getGit: (cwd?: string) => require("simple-git").simpleGit(cwd),
 		// @signoff/workspace-fs operations — adapter bridges router convention to FsHostService
 		fsOps: createFsAdapter(),

@@ -1291,11 +1291,8 @@ describe("TerminalLinkParsing", () => {
 
 		describe("should detect 3 suffix links on a single line", () => {
 			for (let i = 0; i < testLinksWithSuffix.length - 2; i++) {
-				// biome-ignore lint/style/noNonNullAssertion: we know these indices are valid in the loop
 				const link1 = testLinksWithSuffix[i]!;
-				// biome-ignore lint/style/noNonNullAssertion: we know these indices are valid in the loop
 				const link2 = testLinksWithSuffix[i + 1]!;
-				// biome-ignore lint/style/noNonNullAssertion: we know these indices are valid in the loop
 				const link3 = testLinksWithSuffix[i + 2]!;
 				const line = ` ${link1.link} ${link2.link} ${link3.link} `;
 				it(`\`${line.replaceAll("\u00A0", "<nbsp>")}\``, () => {
@@ -1303,11 +1300,8 @@ describe("TerminalLinkParsing", () => {
 					expect(link1.suffix).toBeTruthy();
 					expect(link2.suffix).toBeTruthy();
 					expect(link3.suffix).toBeTruthy();
-					// biome-ignore lint/style/noNonNullAssertion: suffix is checked with toBeTruthy above
 					const link1Suffix = link1.suffix!;
-					// biome-ignore lint/style/noNonNullAssertion: suffix is checked with toBeTruthy above
 					const link2Suffix = link2.suffix!;
-					// biome-ignore lint/style/noNonNullAssertion: suffix is checked with toBeTruthy above
 					const link3Suffix = link3.suffix!;
 					const detectedLink1: IParsedLink = {
 						prefix: link1.prefix
