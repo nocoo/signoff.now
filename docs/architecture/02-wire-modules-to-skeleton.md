@@ -783,7 +783,7 @@ test: add stub router implementation tests
 
 ---
 
-## Phase 6: Bind Settings & Hotkeys UI to Routers
+## Phase 6: Bind Settings & Hotkeys UI to Routers ✅
 
 **目标**：至少 Appearance 和 Terminal 设置页面能真实保存和回读。
 
