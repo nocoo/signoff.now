@@ -796,26 +796,26 @@ Bun reads `bunfig.toml` from the package's `cwd` automatically. This applies to 
 
 ## Implementation Order (Atomic Commits)
 
-| # | Type | Commit Message | Content |
-|---|------|---------------|---------|
-| 1 | docs | `docs: add gitinfo cli design document` | `docs/cli/01-gitinfo.md`, `docs/cli/README.md`, update `docs/README.md` |
-| 2 | feat | `feat: scaffold apps/gitinfo package` | `package.json`, `tsconfig.json`, `bunfig.toml`, empty `src/main.ts`, `bun install` |
-| 3 | chore | `chore: add biome strict override for apps/gitinfo` | Root `biome.jsonc` override |
-| 4 | feat | `feat(gitinfo): add command executor` | `executor/types.ts`, `bun-executor.ts`, `bun-fs-reader.ts`, `mock-executor.ts`, `mock-fs-reader.ts`, `__integration__/executor.integration.test.ts` |
-| 5 | feat | `feat(gitinfo): add cli argument parser` | `cli/args.ts`, `cli/args.test.ts` |
-| 6 | feat | `feat(gitinfo): add report type definitions` | `commands/types.ts` |
-| 7 | feat | `feat(gitinfo): add parse utilities` | `utils/parse.ts`, `utils/parse.test.ts` |
-| 8 | feat | `feat(gitinfo): add core/meta` | `core/meta.ts`, `core/meta.test.ts` |
-| 9 | feat | `feat(gitinfo): add core/status` | `core/status.ts`, `core/status.test.ts` |
-| 10 | feat | `feat(gitinfo): add core/branches` | `core/branches.ts`, `core/branches.test.ts` |
-| 11 | feat | `feat(gitinfo): add core/logs` | `core/logs.ts`, `core/logs.test.ts` |
-| 12 | feat | `feat(gitinfo): add core/contributors` | `core/contributors.ts`, `core/contributors.test.ts` |
-| 13 | feat | `feat(gitinfo): add core/tags` | `core/tags.ts`, `core/tags.test.ts` |
-| 14 | feat | `feat(gitinfo): add core/files` | `core/files.ts`, `core/files.test.ts` |
-| 15 | feat | `feat(gitinfo): add core/config` | `core/config.ts`, `core/config.test.ts` |
-| 16 | feat | `feat(gitinfo): add collector framework` | `collectors/types.ts`, `run-collectors.ts`, `run-collectors.test.ts` |
-| 17 | feat | `feat(gitinfo): add all collectors` | 8 × `*.collector.ts` |
-| 18 | feat | `feat(gitinfo): add output formatters` | `cli/output.ts`, `cli/output.test.ts` |
-| 19 | feat | `feat(gitinfo): add pretty formatter` | `pretty/format.ts`, `pretty/format.test.ts` |
-| 20 | feat | `feat(gitinfo): wire up main entry point` | `src/main.ts` full dispatch |
-| 21 | chore | `chore(gitinfo): verify 95% coverage` | Ensure `test:ci` passes |
+| # | Type | Commit Message | Content | Status |
+|---|------|---------------|---------|--------|
+| 1 | docs | `docs: add gitinfo cli design document` | `docs/cli/01-gitinfo.md`, `docs/cli/README.md`, update `docs/README.md` | ✅ |
+| 2 | feat | `feat: scaffold apps/gitinfo package` | `package.json`, `tsconfig.json`, `bunfig.toml`, empty `src/main.ts`, `bun install` | ✅ |
+| 3 | chore | `chore: add biome strict override for apps/gitinfo` | Root `biome.jsonc` override | ✅ |
+| 4 | feat | `feat(gitinfo): add command executor` | `executor/types.ts`, `bun-executor.ts`, `bun-fs-reader.ts`, `mock-executor.ts`, `mock-fs-reader.ts`, `__integration__/executor.integration.test.ts` | ✅ |
+| 5 | feat | `feat(gitinfo): add cli argument parser` | `cli/args.ts`, `cli/args.test.ts` | ✅ |
+| 6 | feat | `feat(gitinfo): add report type definitions` | `commands/types.ts` | ✅ |
+| 7 | feat | `feat(gitinfo): add parse utilities` | `utils/parse.ts`, `utils/parse.test.ts` | ✅ |
+| 8 | feat | `feat(gitinfo): add core/meta` | `core/meta.ts`, `core/meta.test.ts` | ✅ |
+| 9 | feat | `feat(gitinfo): add core/status` | `core/status.ts`, `core/status.test.ts` | ✅ |
+| 10 | feat | `feat(gitinfo): add core/branches` | `core/branches.ts`, `core/branches.test.ts` | ✅ |
+| 11 | feat | `feat(gitinfo): add core/logs` | `core/logs.ts`, `core/logs.test.ts` | ✅ |
+| 12 | feat | `feat(gitinfo): add core/contributors` | `core/contributors.ts`, `core/contributors.test.ts` | ✅ |
+| 13 | feat | `feat(gitinfo): add core/tags` | `core/tags.ts`, `core/tags.test.ts` | ✅ |
+| 14 | feat | `feat(gitinfo): add core/files` | `core/files.ts`, `core/files.test.ts` | ✅ |
+| 15 | feat | `feat(gitinfo): add core/config` | `core/config.ts`, `core/config.test.ts` | ✅ |
+| 16 | feat | `feat(gitinfo): add collector framework` | `collectors/types.ts`, `run-collectors.ts`, `run-collectors.test.ts` | ✅ |
+| 17 | feat | `feat(gitinfo): add all collectors` | 8 × `*.collector.ts` | ✅ |
+| 18 | feat | `feat(gitinfo): add output formatters` | `cli/output.ts`, `cli/output.test.ts` | ✅ |
+| 19 | feat | `feat(gitinfo): add pretty formatter` | `pretty/format.ts`, `pretty/format.test.ts` | ✅ |
+| 20 | feat | `feat(gitinfo): wire up main entry point` | `src/main.ts` full dispatch | ✅ |
+| 21 | chore | `chore(gitinfo): verify 95% coverage` | Ensure `test:ci` passes | ✅ |
