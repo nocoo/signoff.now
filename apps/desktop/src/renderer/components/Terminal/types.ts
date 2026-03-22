@@ -9,6 +9,8 @@ export interface TerminalProps {
 	paneId: string;
 	tabId: string;
 	workspaceId: string;
+	/** Initial working directory for the terminal session. */
+	cwd?: string;
 }
 
 export type TerminalExitReason = "killed" | "exited" | "error";

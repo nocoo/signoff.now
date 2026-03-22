@@ -159,6 +159,7 @@ export function PaneContent({ tab }: { tab: Tab | undefined }) {
 					paneId={tab.id}
 					tabId={tab.id}
 					workspaceId={(tab.data?.workspaceId as string) ?? ""}
+					cwd={(tab.data?.workspacePath as string) ?? undefined}
 				/>
 			);
 		default:

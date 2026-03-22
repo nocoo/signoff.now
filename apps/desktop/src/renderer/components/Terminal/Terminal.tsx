@@ -39,7 +39,12 @@ declare global {
 	}
 }
 
-export function TerminalView({ paneId, tabId, workspaceId }: TerminalProps) {
+export function TerminalView({
+	paneId,
+	tabId,
+	workspaceId,
+	cwd,
+}: TerminalProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const xtermRef = useRef<XTerm | null>(null);
 	const fitAddonRef = useRef<FitAddon | null>(null);
@@ -103,6 +108,7 @@ export function TerminalView({ paneId, tabId, workspaceId }: TerminalProps) {
 				workspaceId,
 				cols: dims?.cols,
 				rows: dims?.rows,
+				cwd,
 			});
 		}
 
@@ -177,6 +183,7 @@ export function TerminalView({ paneId, tabId, workspaceId }: TerminalProps) {
 		detachMutation.mutate,
 		resizeMutation.mutate,
 		writeToTerminal,
+		cwd,
 	]);
 
 	return (
