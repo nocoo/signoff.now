@@ -62,6 +62,8 @@ export class TerminalManager {
 	private pendingRequests = new Map<string, PendingRequest>();
 	private ipcBridge: IpcBridge | null = null;
 	private disposed = false;
+	/** Tracks whether we've ever had a successful connection. */
+	private wasConnected = false;
 
 	/**
 	 * Set the IPC bridge for forwarding daemon events to the renderer.
@@ -194,8 +196,10 @@ export class TerminalManager {
 	// ── Private: daemon fork ────────────────────────────
 
 	private async forkDaemon(): Promise<void> {
-		// The daemon entry point — in production this is the bundled JS
-		const daemonScript = join(__dirname, "..", "terminal-host", "index.js");
+		// The daemon entry point — in production this is the bundled JS.
+		// electron-vite flattens all main entries into dist/main/, so terminal-host.js
+		// is a sibling of index.js (not in a subdirectory).
+		const daemonScript = join(__dirname, "terminal-host.js");
 
 		this.daemonProcess = fork(daemonScript, [], {
 			env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
@@ -266,6 +270,8 @@ export class TerminalManager {
 		this.streamSocket = await this.connectSocket();
 		this.setupStreamSocketListeners();
 		await this.authenticate(this.streamSocket, token, "stream");
+
+		this.wasConnected = true;
 	}
 
 	private connectSocket(): Promise<Socket> {
@@ -467,24 +473,39 @@ export class TerminalManager {
 
 	private send<T>(type: string, payload: unknown): Promise<T> {
 		return new Promise<T>((resolve, reject) => {
-			if (!this.controlSocket) {
-				reject(new Error("Control socket not connected"));
-				return;
+			const doSend = () => {
+				if (!this.controlSocket) {
+					reject(new Error("Control socket not connected"));
+					return;
+				}
+
+				const id = this.nextId();
+				const timer = setTimeout(() => {
+					this.pendingRequests.delete(id);
+					reject(new Error(`Request ${type} timed out`));
+				}, CONNECT_TIMEOUT_MS);
+
+				this.pendingRequests.set(id, {
+					resolve: resolve as (payload: unknown) => void,
+					reject,
+					timer,
+				});
+
+				this.sendRaw(id, type, payload);
+			};
+
+			// Auto-reconnect: if we had a connection that dropped, try to re-establish
+			if (!this.controlSocket && this.wasConnected && !this.disposed) {
+				this.prewarm()
+					.then(() => doSend())
+					.catch(() =>
+						reject(
+							new Error("Control socket not connected (reconnect failed)"),
+						),
+					);
+			} else {
+				doSend();
 			}
-
-			const id = this.nextId();
-			const timer = setTimeout(() => {
-				this.pendingRequests.delete(id);
-				reject(new Error(`Request ${type} timed out`));
-			}, CONNECT_TIMEOUT_MS);
-
-			this.pendingRequests.set(id, {
-				resolve: resolve as (payload: unknown) => void,
-				reject,
-				timer,
-			});
-
-			this.sendRaw(id, type, payload);
 		});
 	}
 
