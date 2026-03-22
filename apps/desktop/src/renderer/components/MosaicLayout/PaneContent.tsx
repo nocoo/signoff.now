@@ -9,6 +9,7 @@ import { trpc } from "../../lib/trpc";
 import type { Tab } from "../../stores/tabs/types";
 import { TabType } from "../../stores/tabs/types";
 import { CodeEditor } from "../Editor/CodeEditor";
+import { TerminalView } from "../Terminal/Terminal";
 
 function WelcomeContent() {
 	return (
@@ -152,6 +153,14 @@ export function PaneContent({ tab }: { tab: Tab | undefined }) {
 			return <EditorContent tab={tab} />;
 		case TabType.Diff:
 			return <DiffContent tab={tab} />;
+		case TabType.Terminal:
+			return (
+				<TerminalView
+					paneId={tab.id}
+					tabId={tab.id}
+					workspaceId={(tab.data?.workspaceId as string) ?? ""}
+				/>
+			);
 		default:
 			return <PlaceholderContent tab={tab} />;
 	}

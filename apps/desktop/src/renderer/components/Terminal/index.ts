@@ -1,9 +1,5 @@
 /**
  * Terminal component barrel export.
- *
- * 🔴 Phase 5 trimmed: No Terminal.tsx React component yet.
- * Only helpers, config, and types are exported.
- * The actual React component is Phase 6+ when hooks and lifecycle are wired.
  */
 
 export {
@@ -27,6 +23,7 @@ export {
 	setupKeyboardHandler,
 	setupPasteHandler,
 } from "./helpers";
+export { TerminalView } from "./Terminal";
 export type {
 	CreateOrAttachCallbacks,
 	CreateOrAttachInput,
