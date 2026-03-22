@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		"./globals.css": "./src/globals.css",
+		"./tokens.css": "./src/tokens.css",
 		"./lib/*": "./src/lib/*.ts",
 		"./hooks/*": "./src/hooks/*.ts",
 		"./utils": "./src/lib/utils.ts",
