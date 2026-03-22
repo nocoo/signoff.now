@@ -11,6 +11,16 @@ import { runCollectors } from "./commands/collectors/run-collectors.ts";
 import { statusCollector } from "./commands/collectors/status.collector.ts";
 import { tagsCollector } from "./commands/collectors/tags.collector.ts";
 import type { CollectorContext } from "./commands/collectors/types.ts";
+import {
+	EMPTY_BRANCHES,
+	EMPTY_CONFIG,
+	EMPTY_CONTRIBUTORS,
+	EMPTY_FILES,
+	EMPTY_LOGS,
+	EMPTY_META,
+	EMPTY_STATUS,
+	EMPTY_TAGS,
+} from "./commands/defaults.ts";
 import { formatPretty, formatPrettySection } from "./commands/pretty/format.ts";
 import type { CollectorTier, GitInfoReport } from "./commands/types.ts";
 import { createBunExecutor } from "./executor/bun-executor.ts";
@@ -136,19 +146,22 @@ async function main(): Promise<void> {
 	const { results, errors } = await runCollectors(ALL_COLLECTORS, ctx);
 	const durationMs = Math.round(performance.now() - startTime);
 
-	// 6. Assemble report
+	// 6. Assemble report (use defaults for any failed collectors)
 	const report: GitInfoReport = {
 		generatedAt: new Date().toISOString(),
 		tiers: Array.from(activeTiers),
 		durationMs,
-		meta: results.get("meta") as GitInfoReport["meta"],
-		status: results.get("status") as GitInfoReport["status"],
-		branches: results.get("branches") as GitInfoReport["branches"],
-		logs: results.get("logs") as GitInfoReport["logs"],
-		contributors: results.get("contributors") as GitInfoReport["contributors"],
-		tags: results.get("tags") as GitInfoReport["tags"],
-		files: results.get("files") as GitInfoReport["files"],
-		config: results.get("config") as GitInfoReport["config"],
+		meta: (results.get("meta") as GitInfoReport["meta"]) ?? EMPTY_META,
+		status: (results.get("status") as GitInfoReport["status"]) ?? EMPTY_STATUS,
+		branches:
+			(results.get("branches") as GitInfoReport["branches"]) ?? EMPTY_BRANCHES,
+		logs: (results.get("logs") as GitInfoReport["logs"]) ?? EMPTY_LOGS,
+		contributors:
+			(results.get("contributors") as GitInfoReport["contributors"]) ??
+			EMPTY_CONTRIBUTORS,
+		tags: (results.get("tags") as GitInfoReport["tags"]) ?? EMPTY_TAGS,
+		files: (results.get("files") as GitInfoReport["files"]) ?? EMPTY_FILES,
+		config: (results.get("config") as GitInfoReport["config"]) ?? EMPTY_CONFIG,
 		errors,
 	};
 
