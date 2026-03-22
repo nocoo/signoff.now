@@ -50,7 +50,7 @@
 
 ---
 
-## Phase 0: Unblock Runtime
+## Phase 0: Unblock Runtime ✅
 
 **目标**：`bun install && bun run dev` 零手动步骤启动 Electron。
 
