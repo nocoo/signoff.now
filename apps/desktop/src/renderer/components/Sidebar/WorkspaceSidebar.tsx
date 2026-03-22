@@ -33,6 +33,7 @@ import {
 import { useCallback, useRef, useState } from "react";
 import { trpc } from "../../lib/trpc";
 import { useActiveWorkspaceStore } from "../../stores/active-workspace";
+import { useNewWorkspaceModalStore } from "../../stores/new-workspace-modal";
 import {
 	COLLAPSED_WORKSPACE_SIDEBAR_WIDTH,
 	MAX_WORKSPACE_SIDEBAR_WIDTH,
@@ -66,6 +67,7 @@ export function WorkspaceSidebar() {
 	const [expandedProjectId, setExpandedProjectId] = useState<string | null>(
 		null,
 	);
+	const openNewWorkspace = useNewWorkspaceModalStore((s) => s.open);
 
 	const handleMouseDown = useCallback(
 		(e: React.MouseEvent) => {
@@ -110,25 +112,43 @@ export function WorkspaceSidebar() {
 						Projects
 					</span>
 				)}
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon"
-							className="h-7 w-7"
-							onClick={toggleCollapsed}
-						>
-							{collapsed ? (
-								<ChevronRight className="h-4 w-4" />
-							) : (
-								<ChevronLeft className="h-4 w-4" />
-							)}
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent side="right">
-						{collapsed ? "Expand sidebar" : "Collapse sidebar"}
-					</TooltipContent>
-				</Tooltip>
+				<div className="flex items-center gap-0.5">
+					{!collapsed && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon"
+									className="h-7 w-7 text-muted-foreground hover:text-foreground"
+									onClick={() => openNewWorkspace()}
+									data-testid="new-workspace-btn"
+								>
+									<Plus className="h-4 w-4" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side="right">New Workspace</TooltipContent>
+						</Tooltip>
+					)}
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								variant="ghost"
+								size="icon"
+								className="h-7 w-7"
+								onClick={toggleCollapsed}
+							>
+								{collapsed ? (
+									<ChevronRight className="h-4 w-4" />
+								) : (
+									<ChevronLeft className="h-4 w-4" />
+								)}
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="right">
+							{collapsed ? "Expand sidebar" : "Collapse sidebar"}
+						</TooltipContent>
+					</Tooltip>
+				</div>
 			</div>
 
 			{/* Project list */}
@@ -278,12 +298,14 @@ function ProjectItem({
 	isExpanded: boolean;
 	onToggle: () => void;
 }) {
+	const openNewWorkspace = useNewWorkspaceModalStore((s) => s.open);
+
 	return (
 		<div>
 			<button
 				type="button"
 				onClick={onToggle}
-				className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+				className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
 				data-testid={`project-item-${project.id}`}
 			>
 				<div
@@ -291,6 +313,22 @@ function ProjectItem({
 					style={{ backgroundColor: project.color }}
 				/>
 				<span className="min-w-0 flex-1 truncate">{project.name}</span>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<button
+							type="button"
+							className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-accent-foreground/10 group-hover:opacity-100"
+							onClick={(e) => {
+								e.stopPropagation();
+								openNewWorkspace(project.id);
+							}}
+							data-testid={`project-add-workspace-${project.id}`}
+						>
+							<Plus className="h-3 w-3" />
+						</button>
+					</TooltipTrigger>
+					<TooltipContent side="right">New Workspace</TooltipContent>
+				</Tooltip>
 				<ChevronDown
 					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
 				/>
@@ -408,6 +446,21 @@ function AddProjectButton({ collapsed }: { collapsed: boolean }) {
 		},
 	});
 
+	const openDirectoryMutation = trpc.window.openDirectory.useMutation();
+
+	const handleBrowse = async () => {
+		const result = await openDirectoryMutation.mutateAsync();
+		if (result.path) {
+			setPath(result.path);
+			// Auto-fill name from folder basename if name is empty
+			if (!name.trim()) {
+				const folderName =
+					result.path.split("/").pop() ?? result.path.split("\\").pop() ?? "";
+				setName(folderName);
+			}
+		}
+	};
+
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!name.trim() || !path.trim()) return;
@@ -448,13 +501,25 @@ function AddProjectButton({ collapsed }: { collapsed: boolean }) {
 					</div>
 					<div className="flex flex-col gap-2">
 						<Label htmlFor="project-path">Repository Path</Label>
-						<Input
-							id="project-path"
-							value={path}
-							onChange={(e) => setPath(e.target.value)}
-							placeholder="/path/to/repo"
-							data-testid="project-path-input"
-						/>
+						<div className="flex gap-2">
+							<Input
+								id="project-path"
+								value={path}
+								readOnly
+								placeholder="Select a folder…"
+								className="flex-1"
+								data-testid="project-path-input"
+							/>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={handleBrowse}
+								disabled={openDirectoryMutation.isPending}
+							>
+								Browse
+							</Button>
+						</div>
 					</div>
 					<div className="flex flex-col gap-2">
 						<Label>Color</Label>
