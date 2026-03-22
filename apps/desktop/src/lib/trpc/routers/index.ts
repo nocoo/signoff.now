@@ -17,7 +17,7 @@ import { createHotkeysTrpcRouter } from "./hotkeys";
 import { menuRouter } from "./menu";
 import { createProjectsTrpcRouter } from "./projects";
 import { createSettingsTrpcRouter } from "./settings";
-import { terminalRouter } from "./terminal";
+import { createTerminalRouter } from "./terminal";
 import { windowRouter } from "./window";
 import { createWorkspacesTrpcRouter } from "./workspaces";
 
@@ -40,6 +40,9 @@ export interface AppRouterDeps {
 	/** Settings database operations. */
 	// biome-ignore lint/suspicious/noExplicitAny: settings db interface varies
 	settingsDb: any;
+	/** Terminal daemon manager for PTY session operations. */
+	// biome-ignore lint/suspicious/noExplicitAny: TerminalManager type varies across test/production
+	terminalManager: any;
 }
 
 // ── Router assembly ───────────────────────────────────
@@ -59,11 +62,11 @@ export function createAppRouter(deps: AppRouterDeps) {
 		filesystem: createFilesystemTrpcRouter(deps.fsOps),
 		settings: createSettingsTrpcRouter(deps.settingsDb),
 		hotkeys: createHotkeysTrpcRouter(deps.hotkeyStore),
+		terminal: createTerminalRouter(deps.terminalManager),
 
 		// Stub routers — pending future implementation
 		window: windowRouter,
 		menu: menuRouter,
-		terminal: terminalRouter,
 		config: configRouter,
 		external: externalRouter,
 		autoUpdate: autoUpdateRouter,

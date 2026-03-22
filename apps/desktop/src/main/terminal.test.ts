@@ -281,20 +281,42 @@ describe("main/lib/terminal", () => {
 	test("reconcileDaemonSessions is exported and callable", async () => {
 		const { reconcileDaemonSessions } = await import("./lib/terminal");
 		expect(typeof reconcileDaemonSessions).toBe("function");
-		// Should not throw
+		// Calls are fire-and-forget; should not throw even without daemon
 		reconcileDaemonSessions();
 	});
 
 	test("prewarmTerminalRuntime is exported and callable", async () => {
 		const { prewarmTerminalRuntime } = await import("./lib/terminal");
 		expect(typeof prewarmTerminalRuntime).toBe("function");
+		// Calls are fire-and-forget; should not throw even without daemon
 		prewarmTerminalRuntime();
 	});
 
-	test("restartDaemon returns success", async () => {
-		const { restartDaemon } = await import("./lib/terminal");
-		const result = await restartDaemon();
-		expect(result).toEqual({ success: true });
+	test("TerminalManager class is exported", async () => {
+		const { TerminalManager } = await import("./lib/terminal");
+		expect(TerminalManager).toBeDefined();
+		const manager = new TerminalManager();
+		expect(manager).toBeDefined();
+		expect(typeof manager.prewarm).toBe("function");
+		expect(typeof manager.reconcile).toBe("function");
+		expect(typeof manager.restart).toBe("function");
+		expect(typeof manager.dispose).toBe("function");
+		expect(typeof manager.createOrAttach).toBe("function");
+		expect(typeof manager.write).toBe("function");
+		expect(typeof manager.resize).toBe("function");
+		expect(typeof manager.detach).toBe("function");
+		expect(typeof manager.kill).toBe("function");
+		expect(typeof manager.signal).toBe("function");
+		expect(typeof manager.clearScrollback).toBe("function");
+		expect(typeof manager.listSessions).toBe("function");
+		expect(typeof manager.setIpcBridge).toBe("function");
+	});
+
+	test("getTerminalManager returns singleton", async () => {
+		const { getTerminalManager } = await import("./lib/terminal");
+		const a = getTerminalManager();
+		const b = getTerminalManager();
+		expect(a).toBe(b);
 	});
 });
 

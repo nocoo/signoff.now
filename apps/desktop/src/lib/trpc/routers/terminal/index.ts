@@ -1,12 +1,12 @@
 /**
- * Terminal tRPC router — PTY session lifecycle over IPC.
+ * Terminal tRPC router — PTY session lifecycle over daemon NDJSON RPC.
  *
- * 🔴 Trimmed from superset: workspace DB lookups, DaemonTerminalManager,
- * cold restore ack, theme resolution. Phase 5 provides procedure stubs
- * with correct input validation so the type contract is stable.
+ * Factory function receives a TerminalManager and delegates all operations.
+ * The daemon handles actual PTY session management; this router is a thin proxy.
  */
 
 import { publicProcedure, router } from "lib/trpc";
+import type { TerminalManager } from "main/lib/terminal";
 import { z } from "zod";
 
 const SAFE_ID = z
@@ -18,100 +18,114 @@ const SAFE_ID = z
 		{ message: "Invalid id" },
 	);
 
-/** PTY session lifecycle */
-export const terminalRouter = router({
-	createOrAttach: publicProcedure
-		.input(
-			z.object({
-				paneId: SAFE_ID,
-				tabId: z.string(),
-				workspaceId: SAFE_ID,
-				cols: z.number().optional(),
-				rows: z.number().optional(),
-				cwd: z.string().optional(),
-				command: z.string().trim().min(1).optional(),
-			}),
-		)
-		.mutation(async ({ input }) => {
-			// TODO Phase 6+: Connect to daemon, create/attach session
-			return {
-				paneId: input.paneId,
-				isNew: true,
-				scrollback: "",
-				wasRecovered: false,
-				isColdRestore: false,
-				previousCwd: null,
-				snapshot: null,
-			};
-		}),
+/** Creates the terminal router with daemon proxy via TerminalManager. */
+export function createTerminalRouter(manager: TerminalManager) {
+	return router({
+		createOrAttach: publicProcedure
+			.input(
+				z.object({
+					paneId: SAFE_ID,
+					tabId: z.string(),
+					workspaceId: SAFE_ID,
+					cols: z.number().optional(),
+					rows: z.number().optional(),
+					cwd: z.string().optional(),
+					command: z.string().trim().min(1).optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				const response = await manager.createOrAttach({
+					sessionId: input.paneId,
+					cols: input.cols ?? 80,
+					rows: input.rows ?? 24,
+					workspaceId: input.workspaceId,
+					paneId: input.paneId,
+					tabId: input.tabId,
+					cwd: input.cwd,
+					command: input.command,
+				});
 
-	write: publicProcedure
-		.input(
-			z.object({
-				paneId: z.string(),
-				data: z.string(),
-				throwOnError: z.boolean().optional(),
+				return {
+					paneId: input.paneId,
+					isNew: response.isNew,
+					scrollback: "",
+					wasRecovered: response.wasRecovered,
+					isColdRestore: false,
+					previousCwd: null,
+					snapshot: response.snapshot,
+				};
 			}),
-		)
-		.mutation(async () => {
-			// TODO Phase 6+: Write to daemon session
-		}),
 
-	resize: publicProcedure
-		.input(
-			z.object({
-				paneId: z.string(),
-				cols: z.number(),
-				rows: z.number(),
+		write: publicProcedure
+			.input(
+				z.object({
+					paneId: z.string(),
+					data: z.string(),
+					throwOnError: z.boolean().optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				await manager.write(input.paneId, input.data);
 			}),
-		)
-		.mutation(async () => {
-			// TODO Phase 6+: Resize daemon session
-		}),
 
-	signal: publicProcedure
-		.input(
-			z.object({
-				paneId: z.string(),
-				signal: z.string().optional(),
+		resize: publicProcedure
+			.input(
+				z.object({
+					paneId: z.string(),
+					cols: z.number(),
+					rows: z.number(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				await manager.resize(input.paneId, input.cols, input.rows);
 			}),
-		)
-		.mutation(async () => {
-			// TODO Phase 6+: Send signal to daemon session
-		}),
 
-	kill: publicProcedure
-		.input(
-			z.object({
-				paneId: z.string(),
+		signal: publicProcedure
+			.input(
+				z.object({
+					paneId: z.string(),
+					signal: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				if (input.signal) {
+					await manager.signal(input.paneId, input.signal);
+				}
 			}),
-		)
-		.mutation(async () => {
-			// TODO Phase 6+: Kill daemon session
-		}),
 
-	detach: publicProcedure
-		.input(
-			z.object({
-				paneId: z.string(),
+		kill: publicProcedure
+			.input(
+				z.object({
+					paneId: z.string(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				await manager.kill(input.paneId);
 			}),
-		)
-		.mutation(async () => {
-			// TODO Phase 6+: Detach from daemon session
-		}),
 
-	clearScrollback: publicProcedure
-		.input(
-			z.object({
-				paneId: z.string(),
+		detach: publicProcedure
+			.input(
+				z.object({
+					paneId: z.string(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				await manager.detach(input.paneId);
 			}),
-		)
-		.mutation(async () => {
-			// TODO Phase 6+: Clear scrollback in daemon session
-		}),
 
-	listDaemonSessions: publicProcedure.query(async () => {
-		// TODO Phase 6+: List sessions from daemon
-		return { sessions: [] };
-	}),
-});
+		clearScrollback: publicProcedure
+			.input(
+				z.object({
+					paneId: z.string(),
+				}),
+			)
+			.mutation(async ({ input }) => {
+				await manager.clearScrollback(input.paneId);
+			}),
+
+		listDaemonSessions: publicProcedure.query(async () => {
+			const result = await manager.listSessions();
+			return { sessions: result.sessions };
+		}),
+	});
+}

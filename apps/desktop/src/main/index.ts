@@ -10,6 +10,12 @@ import {
 	ensureProjectIconsDir,
 	getProjectIconPath,
 } from "main/lib/project-icons";
+import {
+	getTerminalManager,
+	prewarmTerminalRuntime,
+	reconcileDaemonSessions,
+} from "main/lib/terminal";
+import { createTerminalIpcBridge } from "main/lib/terminal/ipc-bridge";
 import { closeAllFsHostServices } from "main/lib/workspace-fs";
 import { createFsAdapter } from "main/lib/workspace-fs/adapter";
 import {
@@ -95,6 +101,11 @@ app.whenReady().then(() => {
 	// Ensure project icons directory exists
 	ensureProjectIconsDir();
 
+	// Initialize terminal manager and pre-warm daemon
+	const terminalManager = getTerminalManager();
+	prewarmTerminalRuntime();
+	reconcileDaemonSessions();
+
 	// Construct tRPC router dependencies
 	const deps: AppRouterDeps = {
 		getDb,
@@ -107,10 +118,19 @@ app.whenReady().then(() => {
 		hotkeyStore: createInMemoryHotkeyStore(),
 		// Settings db operations
 		settingsDb: createSettingsDbOps(),
+		// Terminal manager for PTY session operations
+		terminalManager,
 	};
 
-	// Create the main window
-	makeAppSetup(() => MainWindow(deps));
+	// Create the main window and wire IPC bridge for terminal events
+	let mainWindow: Electron.BrowserWindow | null = null;
+	const ipcBridge = createTerminalIpcBridge(() => mainWindow);
+	terminalManager.setIpcBridge(ipcBridge);
+
+	makeAppSetup(() => {
+		mainWindow = MainWindow(deps);
+		return mainWindow;
+	});
 });
 
 // ─── 6. Quit when all windows closed (except macOS) ─────────────────────────
@@ -124,6 +144,11 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
 	closeLocalDb();
 	closeAllFsHostServices();
+	getTerminalManager()
+		.dispose()
+		.catch((err) => {
+			console.error("[main] Terminal manager dispose error:", err);
+		});
 });
 
 // ─── Dependency factories ──────────────────────────────────────────────────

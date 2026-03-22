@@ -57,6 +57,22 @@ function createMockDeps() {
 			get: () => Promise.resolve(null),
 			update: () => Promise.resolve({}),
 		},
+		terminalManager: {
+			createOrAttach: () =>
+				Promise.resolve({
+					isNew: true,
+					snapshot: null,
+					wasRecovered: false,
+					pid: null,
+				}),
+			write: () => Promise.resolve(),
+			resize: () => Promise.resolve(),
+			detach: () => Promise.resolve(),
+			kill: () => Promise.resolve(),
+			signal: () => Promise.resolve(),
+			clearScrollback: () => Promise.resolve(),
+			listSessions: () => Promise.resolve({ sessions: [] }),
+		},
 	};
 }
 
@@ -139,7 +155,10 @@ describe("remaining stub routers", () => {
 	});
 
 	test("terminalRouter is a valid router with procedures", async () => {
-		const { terminalRouter } = await import("./routers/terminal/index");
+		const { createTerminalRouter } = await import("./routers/terminal/index");
+		// Create with a mock manager
+		const mockManager = {} as Parameters<typeof createTerminalRouter>[0];
+		const terminalRouter = createTerminalRouter(mockManager);
 		expect(terminalRouter._def).toBeDefined();
 		const record = terminalRouter._def.record;
 		expect(record.createOrAttach).toBeDefined();
