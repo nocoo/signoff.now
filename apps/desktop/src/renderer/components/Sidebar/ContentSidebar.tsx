@@ -8,6 +8,10 @@
  * - Collapsible (0px when closed)
  */
 
+import { Button } from "@signoff/ui/button";
+import { ScrollArea } from "@signoff/ui/scroll-area";
+import { Separator } from "@signoff/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@signoff/ui/tooltip";
 import {
 	FileText,
 	GitBranch,
@@ -69,14 +73,19 @@ export function ContentSidebar() {
 	if (!isSidebarOpen) {
 		return (
 			<div className="flex h-full flex-col border-r border-border">
-				<button
-					type="button"
-					onClick={toggleSidebar}
-					className="p-2 text-muted-foreground hover:text-foreground"
-					title="Open sidebar"
-				>
-					<PanelLeftOpen className="h-4 w-4" />
-				</button>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							onClick={toggleSidebar}
+							className="m-1"
+						>
+							<PanelLeftOpen className="h-4 w-4" />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="right">Open sidebar</TooltipContent>
+				</Tooltip>
 			</div>
 		);
 	}
@@ -89,55 +98,60 @@ export function ContentSidebar() {
 			data-testid="content-sidebar"
 		>
 			{/* Header with mode toggle */}
-			<div className="flex h-10 items-center justify-between border-b border-border px-3">
+			<div className="flex h-10 items-center justify-between px-3">
 				<div className="flex gap-1">
-					<button
-						type="button"
+					<Button
+						variant={currentMode === SidebarMode.Tabs ? "secondary" : "ghost"}
+						size="sm"
+						className="h-7 text-xs"
 						onClick={() => setMode(SidebarMode.Tabs)}
-						className={`rounded px-2 py-1 text-xs font-medium ${
-							currentMode === SidebarMode.Tabs
-								? "bg-accent text-foreground"
-								: "text-muted-foreground hover:text-foreground"
-						}`}
 					>
-						<FileText className="mr-1 inline h-3.5 w-3.5" />
+						<FileText className="mr-1 h-3.5 w-3.5" />
 						Tabs
-					</button>
-					<button
-						type="button"
+					</Button>
+					<Button
+						variant={
+							currentMode === SidebarMode.Changes ? "secondary" : "ghost"
+						}
+						size="sm"
+						className="h-7 text-xs"
 						onClick={() => setMode(SidebarMode.Changes)}
-						className={`rounded px-2 py-1 text-xs font-medium ${
-							currentMode === SidebarMode.Changes
-								? "bg-accent text-foreground"
-								: "text-muted-foreground hover:text-foreground"
-						}`}
 					>
-						<GitBranch className="mr-1 inline h-3.5 w-3.5" />
+						<GitBranch className="mr-1 h-3.5 w-3.5" />
 						Changes
-					</button>
+					</Button>
 				</div>
-				<button
-					type="button"
-					onClick={toggleSidebar}
-					className="rounded p-1 text-muted-foreground hover:text-foreground"
-					title="Close sidebar"
-				>
-					<PanelLeftClose className="h-4 w-4" />
-				</button>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="h-7 w-7"
+							onClick={toggleSidebar}
+						>
+							<PanelLeftClose className="h-4 w-4" />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>Close sidebar</TooltipContent>
+				</Tooltip>
 			</div>
 
-			{/* Content area placeholder */}
-			<div className="flex-1 overflow-y-auto px-2 py-2">
-				{currentMode === SidebarMode.Tabs ? (
-					<div className="text-center text-xs text-muted-foreground">
-						No open tabs
-					</div>
-				) : (
-					<div className="text-center text-xs text-muted-foreground">
-						No changes
-					</div>
-				)}
-			</div>
+			<Separator />
+
+			{/* Content area */}
+			<ScrollArea className="flex-1">
+				<div className="px-2 py-2">
+					{currentMode === SidebarMode.Tabs ? (
+						<div className="text-center text-xs text-muted-foreground">
+							No open tabs
+						</div>
+					) : (
+						<div className="text-center text-xs text-muted-foreground">
+							No changes
+						</div>
+					)}
+				</div>
+			</ScrollArea>
 
 			{/* Resize handle */}
 			{/* biome-ignore lint/a11y/useSemanticElements: <hr> cannot serve as a vertical resize handle with absolute positioning */}
