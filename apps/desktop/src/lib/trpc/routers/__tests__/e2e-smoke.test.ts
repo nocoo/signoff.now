@@ -1,16 +1,17 @@
 /**
- * E2E Smoke Test — Alpha Acceptance Criteria
+ * E2E Smoke Test — Alpha Integration Criteria
  *
- * Integration test that exercises the full alpha workflow through
- * the factory routers with a real in-memory SQLite database.
+ * Integration test that exercises the factory routers with a real
+ * in-memory SQLite database. Validates data-layer integration for
+ * alpha features, not full Electron startup or GUI interaction.
  *
- * Validates all 6 alpha acceptance criteria:
- * 1. App starts without ABI crash (verified by DB init)
- * 2. Real project/workspace list
- * 3. Browse and open real files (filesystem router)
- * 4. Edit files and see diff (filesystem + changes router)
- * 5. Terminal session (verified by router factory existence)
- * 6. Settings pages save and read back
+ * What each criterion actually tests:
+ * 1. DB initializes via Drizzle without ABI mismatch
+ * 2. Project + workspace CRUD through real SQLite
+ * 3. Filesystem router reads/lists real temp files
+ * 4. Filesystem router writes and reads back edits
+ * 5. Terminal router factory is importable (no daemon test)
+ * 6. Settings + hotkey customizations persist via SQLite
  */
 
 import { Database } from "bun:sqlite";
@@ -266,8 +267,8 @@ afterAll(() => {
 
 // ── Tests ────────────────────────────────────────────────
 
-describe("alpha acceptance criteria (e2e smoke)", () => {
-	// ── AC1: App starts without ABI crash ────────────────
+describe("alpha integration criteria (e2e smoke)", () => {
+	// ── AC1: DB initializes without ABI mismatch ────────
 	test("AC1: database initializes without ABI crash", () => {
 		// If we get here, SQLite + Drizzle initialized successfully
 		const row = db.select().from(settings).where(eq(settings.id, 1)).get();
@@ -346,8 +347,8 @@ describe("alpha acceptance criteria (e2e smoke)", () => {
 		expect(content).toBe(newContent);
 	});
 
-	// ── AC5: Terminal session router exists ───────────────
-	test("AC5: terminal router factory is importable", async () => {
+	// ── AC5: Terminal router factory importable ──────────
+	test("AC5: terminal router factory is importable (no daemon)", async () => {
 		const { createTerminalRouter } = await import("../../routers/terminal");
 		expect(typeof createTerminalRouter).toBe("function");
 	});
