@@ -12,10 +12,13 @@
 body {
 	overflow: hidden;
 	user-select: none;
-	-webkit-app-region: drag;
+	-webkit-app-region: no-drag;
 }
 
-/* Allow interaction in main content areas */
-#app {
+/* Drag region utility classes for frameless window */
+.drag {
+	-webkit-app-region: drag;
+}
+.no-drag {
 	-webkit-app-region: no-drag;
 }
