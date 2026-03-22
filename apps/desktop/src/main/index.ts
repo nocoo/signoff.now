@@ -10,6 +10,8 @@ import {
 	ensureProjectIconsDir,
 	getProjectIconPath,
 } from "main/lib/project-icons";
+import { closeAllFsHostServices } from "main/lib/workspace-fs";
+import { createFsAdapter } from "main/lib/workspace-fs/adapter";
 import {
 	FONT_PROTOCOL,
 	ICON_PROTOCOL,
@@ -99,8 +101,8 @@ app.whenReady().then(() => {
 		// simple-git factory: creates instance for a given cwd
 		// biome-ignore lint/suspicious/noExplicitAny: simple-git dynamic import
 		getGit: (cwd?: string) => require("simple-git").simpleGit(cwd),
-		// @signoff/workspace-fs operations (placeholder — real wiring in Phase 9+)
-		fsOps: {},
+		// @signoff/workspace-fs operations — adapter bridges router convention to FsHostService
+		fsOps: createFsAdapter(),
 		// Hotkey store (in-memory for now, persistence in future phase)
 		hotkeyStore: createInMemoryHotkeyStore(),
 		// Settings db operations
@@ -121,6 +123,7 @@ app.on("window-all-closed", () => {
 // ─── 7. Cleanup on quit ─────────────────────────────────────────────────────
 app.on("will-quit", () => {
 	closeLocalDb();
+	closeAllFsHostServices();
 });
 
 // ─── Dependency factories ──────────────────────────────────────────────────

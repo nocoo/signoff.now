@@ -120,7 +120,10 @@ export function createFilesystemRouter(fs: FsOperations) {
 			relativePath: string;
 		}): Promise<FileMetadata> {
 			const fullPath = join(input.workspacePath, input.relativePath);
-			return fs.getMetadata({ path: fullPath });
+			return fs.getMetadata({
+				workspacePath: input.workspacePath,
+				path: fullPath,
+			});
 		},
 	};
 }
