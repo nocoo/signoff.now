@@ -418,7 +418,7 @@ test: add WorkspaceSidebar wiring tests
 
 ---
 
-## Phase 3: Render Real Pane Content
+## Phase 3: Render Real Pane Content ✅
 
 **目标**：PaneContent 渲染 CodeEditor（文件）、FileExplorer 使用真实目录、Diff viewer 基础可用。
 
