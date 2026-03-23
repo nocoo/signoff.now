@@ -179,7 +179,7 @@ function CollapsedProjectList() {
 
 	if (!projectList?.length) {
 		return (
-			<div className="flex flex-col items-center gap-2 pt-2">
+			<div className="flex flex-col items-center gap-2 pt-2 px-2">
 				<div className="rounded p-2 text-muted-foreground hover:bg-accent">
 					<FolderGit2 className="h-5 w-5" />
 				</div>
@@ -188,7 +188,7 @@ function CollapsedProjectList() {
 	}
 
 	return (
-		<div className="flex flex-col items-center gap-1 pt-2">
+		<div className="flex flex-col items-center gap-1 pt-2 px-2">
 			{projectList.map(
 				(project: { id: string; name: string; color: string }) => (
 					<Tooltip key={project.id}>

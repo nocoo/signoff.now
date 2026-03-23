@@ -239,7 +239,7 @@ describe("L3 E2E: Project READ operations", () => {
 		expect(list).toHaveLength(3);
 
 		// Verify ordering by tabOrder (creation order), not name
-		const names = list.map((p) => p.name);
+		const names = list.map((p: { name: string }) => p.name);
 		expect(names).toEqual(["Z Last", "A First", "M Middle"]);
 	});
 
@@ -258,7 +258,7 @@ describe("L3 E2E: Project READ operations", () => {
 			.run();
 
 		const list = await router.list();
-		const visible = list.find((p) => p.id === created.id);
+		const visible = list.find((p: { id: string }) => p.id === created.id);
 		expect(visible).toBeUndefined();
 		expect(list).toHaveLength(0);
 	});
@@ -506,13 +506,13 @@ describe("L3 E2E: Project DELETE operations", () => {
 		});
 
 		const before = await router.list();
-		const beforeIds = before.map((p) => p.id);
+		const beforeIds = before.map((p: { id: string }) => p.id);
 		expect(beforeIds).toContain(created.id);
 
 		await router.delete({ id: created.id });
 
 		const after = await router.list();
-		const afterIds = after.map((p) => p.id);
+		const afterIds = after.map((p: { id: string }) => p.id);
 		expect(afterIds).not.toContain(created.id);
 	});
 
@@ -563,18 +563,16 @@ describe("L3 E2E: Project REORDER operations", () => {
 		}
 
 		// Move last item (index 4) to first position (index 0)
-		const reordered = await router.reorder({
+		await router.reorder({
 			fromIndex: 4,
 			toIndex: 0,
 		});
 
-		expect(reordered[0].id).toBe(projects[4].id); // Project 4 now first
-		expect(reordered[1].id).toBe(projects[0].id); // Project 0 now second
-		expect(reordered[4].id).toBe(projects[3].id); // Project 3 now last
-
 		// Verify list returns new order
 		const list = await router.list();
-		expect(list[0].id).toBe(projects[4].id);
+		expect(list[0].id).toBe(projects[4].id); // Project 4 now first
+		expect(list[1].id).toBe(projects[0].id); // Project 0 now second
+		expect(list[4].id).toBe(projects[3].id); // Project 3 now last
 	});
 
 	test("reorders projects moving from lower to higher index", async () => {
@@ -590,13 +588,14 @@ describe("L3 E2E: Project REORDER operations", () => {
 		}
 
 		// Move first item to last position
-		const reordered = await router.reorder({
+		await router.reorder({
 			fromIndex: 0,
 			toIndex: 4,
 		});
 
-		expect(reordered[0].id).toBe(projects[1].id); // Was index 1
-		expect(reordered[4].id).toBe(projects[0].id); // Now last
+		const list = await router.list();
+		expect(list[0].id).toBe(projects[1].id); // Was index 1
+		expect(list[4].id).toBe(projects[0].id); // Now last
 	});
 
 	test("maintains sequential tabOrder after reorder", async () => {
@@ -612,7 +611,7 @@ describe("L3 E2E: Project REORDER operations", () => {
 		await router.reorder({ fromIndex: 3, toIndex: 1 });
 
 		const list = await router.list();
-		const tabOrders = list.map((p) => p.tabOrder);
+		const tabOrders = list.map((p: { tabOrder: number }) => p.tabOrder);
 
 		// Should be 0, 1, 2, 3, 4 sequentially
 		expect(tabOrders).toEqual([0, 1, 2, 3, 4]);
@@ -630,14 +629,15 @@ describe("L3 E2E: Project REORDER operations", () => {
 		}
 
 		const before = await router.list();
-		const reordered = await router.reorder({
+		await router.reorder({
 			fromIndex: 2,
 			toIndex: 2,
 		});
 
-		expect(reordered[2].id).toBe(before[2].id);
-		expect(reordered[0].id).toBe(before[0].id);
-		expect(reordered[4].id).toBe(before[4].id);
+		const after = await router.list();
+		expect(after[2].id).toBe(before[2].id);
+		expect(after[0].id).toBe(before[0].id);
+		expect(after[4].id).toBe(before[4].id);
 	});
 
 	test("reorder adjacent items swaps them correctly", async () => {
@@ -652,14 +652,15 @@ describe("L3 E2E: Project REORDER operations", () => {
 		}
 
 		// Swap positions 1 and 2
-		const reordered = await router.reorder({
+		await router.reorder({
 			fromIndex: 1,
 			toIndex: 2,
 		});
 
-		expect(reordered[0].id).toBe(projects[0].id); // Unchanged
-		expect(reordered[1].id).toBe(projects[2].id); // Was 2, now 1
-		expect(reordered[2].id).toBe(projects[1].id); // Was 1, now 2
+		const list = await router.list();
+		expect(list[0].id).toBe(projects[0].id); // Unchanged
+		expect(list[1].id).toBe(projects[2].id); // Was 2, now 1
+		expect(list[2].id).toBe(projects[1].id); // Was 1, now 2
 	});
 
 	test("reorder updates tabOrder in database", async () => {
