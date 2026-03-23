@@ -29,6 +29,10 @@ describe("useActiveWorkspaceStore", () => {
 		expect(useActiveWorkspaceStore.getState().activeProjectId).toBeNull();
 	});
 
+	test("starts with overview as default activePageId", () => {
+		expect(useActiveWorkspaceStore.getState().activePageId).toBe("overview");
+	});
+
 	test("starts with null expandedProjectId", () => {
 		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBeNull();
 	});
@@ -57,6 +61,20 @@ describe("useActiveWorkspaceStore", () => {
 		expect(useActiveWorkspaceStore.getState().activeProjectId).toBeNull();
 	});
 
+	test("sets activePageId", () => {
+		useActiveWorkspaceStore.getState().setActivePageId("contributors");
+		expect(useActiveWorkspaceStore.getState().activePageId).toBe(
+			"contributors",
+		);
+	});
+
+	test("resets activePageId to overview when project changes", () => {
+		useActiveWorkspaceStore.getState().setActivePageId("branches");
+		expect(useActiveWorkspaceStore.getState().activePageId).toBe("branches");
+		useActiveWorkspaceStore.getState().setActiveProjectId("proj-2");
+		expect(useActiveWorkspaceStore.getState().activePageId).toBe("overview");
+	});
+
 	test("sets expandedProjectId", () => {
 		useActiveWorkspaceStore.getState().setExpandedProjectId("proj-1");
 		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBe("proj-1");
@@ -71,10 +89,12 @@ describe("useActiveWorkspaceStore", () => {
 	test("reset clears all state", () => {
 		useActiveWorkspaceStore.getState().setActiveWorkspace(MOCK_WORKSPACE);
 		useActiveWorkspaceStore.getState().setActiveProjectId("proj-1");
+		useActiveWorkspaceStore.getState().setActivePageId("files");
 		useActiveWorkspaceStore.getState().setExpandedProjectId("proj-2");
 		useActiveWorkspaceStore.getState().reset();
 		expect(useActiveWorkspaceStore.getState().activeWorkspace).toBeNull();
 		expect(useActiveWorkspaceStore.getState().activeProjectId).toBeNull();
+		expect(useActiveWorkspaceStore.getState().activePageId).toBe("overview");
 		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBeNull();
 	});
 });
