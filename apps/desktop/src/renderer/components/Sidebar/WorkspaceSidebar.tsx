@@ -258,16 +258,20 @@ function ProjectItem({
 						onToggle();
 					}
 				}}
-				className="group flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+				className="group flex w-full cursor-pointer items-center gap-2.5 rounded-md pl-3 pr-2 py-1.5 text-left text-sm hover:bg-accent"
 				data-testid={`project-item-${project.id}`}
 			>
 				<div
-					className="h-3 w-3 shrink-0 rounded-sm"
+					className="flex size-6 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold text-white"
 					style={{ backgroundColor: project.color }}
-				/>
-				<span className="min-w-0 flex-1 truncate">{project.name}</span>
+				>
+					{project.name.charAt(0).toUpperCase()}
+				</div>
+				<span className="min-w-0 flex-1 truncate font-medium">
+					{project.name}
+				</span>
 				<ChevronDown
-					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
+					className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
 				/>
 			</div>
 			{isExpanded === true && <PageList projectId={project.id} />}
@@ -300,14 +304,16 @@ function PageList({ projectId }: { projectId: string }) {
 							setActivePageId(page.id);
 						}}
 						className={cn(
-							"flex items-center gap-2 rounded py-1 pl-7 pr-2 text-left text-xs",
+							"flex items-center gap-2.5 rounded-md py-1.5 pl-3 pr-2 text-left text-[13px]",
 							isActive
 								? "bg-accent font-medium text-foreground"
 								: "text-muted-foreground hover:bg-accent hover:text-foreground",
 						)}
 						data-testid={`page-item-${page.id}`}
 					>
-						<Icon className="h-3.5 w-3.5 shrink-0" />
+						<span className="flex size-5 shrink-0 items-center justify-center">
+							<Icon className="size-4" />
+						</span>
 						<span className="min-w-0 flex-1 truncate">{page.label}</span>
 					</button>
 				);
