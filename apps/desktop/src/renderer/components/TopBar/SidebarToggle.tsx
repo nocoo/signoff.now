@@ -25,7 +25,7 @@ export function SidebarToggle() {
 				<Button
 					variant="ghost"
 					size="icon"
-					className="h-7 w-7 text-muted-foreground hover:text-foreground"
+					className="h-7 w-7 text-muted-foreground hover:text-foreground no-drag"
 					onClick={toggleCollapsed}
 					data-testid="sidebar-toggle-btn"
 				>
