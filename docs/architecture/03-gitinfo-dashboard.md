@@ -76,40 +76,21 @@ The original plan (`execFile("bun", ["run", "gitinfo", ...])`) has three fatal i
 
 3. **gitinfo bin points to raw TS**: `apps/gitinfo/package.json:6` defines `"bin": { "gitinfo": "./src/main.ts" }` — a TypeScript source file that needs Bun to execute. This cannot run under Node.js.
 
-### Chosen approach: Rewrite collectors to use `node:child_process`
+### Rejected: naive `execFile` + devDependency approach
 
-Port the gitinfo collector logic into a library that runs under Node.js (Electron's runtime). The key change: replace `Bun.spawn` executor with a `node:child_process.execFile` executor.
+An earlier draft proposed creating a `node:child_process.execFile` executor and treating `@signoff/gitinfo` as a devDependency (types only). This was rejected because:
+- `execFile` **throws** on non-zero exit code — collectors like `meta.ts:L28` and `config.ts:L15` branch on `exitCode !== 0` and would crash instead
+- `execFile` has **no stdin support** — `files.ts:L45` pipes blob SHAs via stdin to `git cat-file --batch-check`
+- Treating gitinfo as devDependency means collector *code* isn't available at runtime — only types. But we need to call the actual collector functions.
 
-#### Implementation plan
+### Chosen approach: in-process library call via `node:child_process.spawn`
 
-1. **Create `apps/desktop/src/main/gitinfo/` directory** — a main-process module containing:
-   - `executor.ts` — `createNodeExecutor()` that implements `CommandExecutor` using `node:child_process.execFile` instead of `Bun.spawn`
-   - `fs-reader.ts` — `createNodeFsReader()` using `node:fs/promises` + `execFile("du", ...)` instead of `Bun.spawn("du", ...)`
-   - `collect.ts` — `collectAll(projectPath)` function that:
-     1. Bootstraps context (repoRoot, gitDir, hasHead) using git commands via the Node executor
-     2. Runs all 8 collectors from `@signoff/gitinfo` with the Node-compatible executor
-     3. Assembles and returns `GitInfoReport`
+The gitinfo collectors are pure async functions that depend only on injected `CommandExecutor` and `FsReader` interfaces — they never call Bun APIs directly. We provide Node.js implementations of these interfaces and call the collectors in-process.
 
-2. **Add `@signoff/gitinfo` as a devDependency of desktop** — for TYPE imports only (the types are the package's export). The actual collector code is copied/adapted into the main process module.
-
-   Wait — `@signoff/gitinfo` exports only types (`commands/types.ts`). The collector functions use `Bun.spawn` internally. We have two options:
-
-   **Option A (Recommended)**: Re-implement the `CommandExecutor` and `FsReader` interfaces using Node APIs, then import the collector functions directly. The collectors are pure async functions that receive a `CollectorContext` — they don't call Bun APIs themselves. Only the *executor* uses Bun.
-
-   This works because:
-   - All 8 collectors call `ctx.exec(cmd, args)` — they never call `Bun.spawn` directly
-   - All filesystem operations go through `ctx.fs.*` — they never call Bun FS APIs directly
-   - The collector architecture was designed for dependency injection
-
-   **Changes needed**:
-   - `@signoff/gitinfo` must export collector functions and types (new export paths)
-   - `apps/desktop/package.json` adds `"@signoff/gitinfo": "workspace:*"` to dependencies
-   - Desktop creates Node-compatible executor/fs-reader implementations
-   - At build time, electron-vite bundles the collector code (pure TS, no native modules) into the main process bundle
-
-   **Option B**: Shell out to system `git` directly using `simple-git` (already a dependency). But this would mean reimplementing all 40+ collector functions from scratch.
-
-   **Decision**: Option A. The collector code is pure TypeScript that depends only on the injected `CommandExecutor` and `FsReader` interfaces. We provide Node.js implementations of these interfaces.
+**Key design points**:
+1. **`@signoff/gitinfo` is a runtime `dependency`** of desktop (not devDependency) — electron-vite bundles the collector code (pure TS, no native modules) into the main process output
+2. **Node executor uses `spawn`** (not `execFile`) — resolves (never rejects) on any exit code, returns `{ stdout, stderr, exitCode }`, supports stdin piping
+3. **New export paths** added to `@signoff/gitinfo/package.json` to expose collectors, executor types, and defaults
 
 ### New exports from `@signoff/gitinfo`
 
@@ -716,16 +697,25 @@ function DashboardCard({ title, icon, children, className }: {
 
 ```
 apps/gitinfo/
-├── package.json              # Updated exports (add ./collectors, ./core/*)
-└── src/commands/
-    └── types.ts              # Existing — types + executor interfaces
+├── package.json              # Updated exports: ./executor, ./collectors, ./collectors/run, ./collectors/all, ./defaults
+└── src/
+    ├── executor/
+    │   └── types.ts          # CommandExecutor, ExecResult, ExecOptions, FsReader interfaces
+    ├── commands/
+    │   ├── types.ts          # GitInfoReport, CollectorTier, CollectorError
+    │   ├── defaults.ts       # EMPTY_* constants
+    │   └── collectors/
+    │       ├── types.ts      # CollectorContext, Collector<T>
+    │       ├── run-collectors.ts  # runCollectors()
+    │       ├── all.ts        # NEW barrel — re-exports all 8 collectors
+    │       └── *.collector.ts    # 8 collector files
 
 apps/desktop/
-├── package.json              # Add @signoff/gitinfo to dependencies
+├── package.json              # Add "@signoff/gitinfo": "workspace:*" to dependencies (runtime, not devDependency)
 └── src/
     ├── main/gitinfo/
-    │   ├── executor.ts       # createNodeExecutor() — node:child_process
-    │   ├── fs-reader.ts      # createNodeFsReader() — node:fs/promises
+    │   ├── executor.ts       # createNodeExecutor() — node:child_process.spawn (never rejects, supports stdin)
+    │   ├── fs-reader.ts      # createNodeFsReader() — node:fs/promises + exec("du")
     │   └── collect.ts        # collectAll(projectPath) — orchestrator
     ├── lib/trpc/routers/
     │   ├── gitinfo/
@@ -751,9 +741,9 @@ apps/desktop/
         │   ├── MosaicLayout/
         │   │   └── index.tsx            # Modified — dashboard fallback in layout===null
         │   └── Sidebar/
-        │       └── WorkspaceSidebar.tsx  # + refresh button, activeProjectId integration
+        │       └── WorkspaceSidebar.tsx  # + refresh button, activeProjectId + expandedProjectId from store
         └── stores/
-            └── active-workspace.ts      # + activeProjectId field
+            └── active-workspace.ts      # + activeProjectId, expandedProjectId (lifted from useState)
 ```
 
 ---
