@@ -40,6 +40,11 @@ export function BranchesCard({ branches }: BranchesCardProps) {
 									>
 										{branch.name}
 									</span>
+									{branch.upstream && (
+										<span className="shrink-0 max-w-32 truncate text-muted-foreground">
+											→ {branch.upstream}
+										</span>
+									)}
 									{branch.aheadBehind && (
 										<span className="shrink-0 tabular-nums text-muted-foreground">
 											{branch.aheadBehind.ahead > 0 && (

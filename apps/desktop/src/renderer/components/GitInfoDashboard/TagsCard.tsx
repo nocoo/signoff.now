@@ -40,6 +40,11 @@ export function TagsCard({ tags }: TagsCardProps) {
 								<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
 									{tag.type}
 								</span>
+								{tag.message && (
+									<span className="max-w-32 shrink-0 truncate text-muted-foreground">
+										{tag.message}
+									</span>
+								)}
 								{tag.date && (
 									<span className="shrink-0 text-muted-foreground">
 										{relativeDate(tag.date)}

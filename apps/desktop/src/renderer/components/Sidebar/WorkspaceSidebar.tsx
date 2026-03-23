@@ -198,7 +198,7 @@ function CollapsedProjectList() {
 								className={cn(
 									"flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white",
 									activeProjectId === project.id &&
-										"ring-2 ring-foreground ring-offset-1 ring-offset-background",
+										"ring-2 ring-primary ring-offset-1 ring-offset-background",
 								)}
 								style={{ backgroundColor: project.color }}
 								onClick={() => setActiveProjectId(project.id)}

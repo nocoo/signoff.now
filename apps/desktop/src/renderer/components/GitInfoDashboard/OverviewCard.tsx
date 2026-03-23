@@ -3,8 +3,11 @@
  */
 
 import type { GitConfig, GitLogs, GitMeta, GitStatus } from "@signoff/gitinfo";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@signoff/ui/tooltip";
 import { cn } from "@signoff/ui/utils";
-import { GitBranch, Globe, Info } from "lucide-react";
+import { Copy, GitBranch, Globe, Info } from "lucide-react";
+import { useCallback } from "react";
+import { trpc } from "../../lib/trpc";
 import { DashboardCard } from "./DashboardCard";
 import {
 	formatNumber,
@@ -49,6 +52,24 @@ export function OverviewCard({
 	const hasConflicts = status.conflicted.length > 0;
 	const remoteUrl = meta.remotes[0]?.fetchUrl;
 
+	const openUrlMutation = trpc.external.openUrl.useMutation();
+
+	const handleCopyHead = useCallback(() => {
+		if (meta.headShort) {
+			navigator.clipboard.writeText(meta.head ?? meta.headShort);
+		}
+	}, [meta.head, meta.headShort]);
+
+	const handleOpenRemote = useCallback(() => {
+		if (remoteUrl) {
+			// Convert git SSH URLs to HTTPS for browser
+			const httpUrl = remoteUrl
+				.replace(/^git@([^:]+):/, "https://$1/")
+				.replace(/\.git$/, "");
+			openUrlMutation.mutate({ url: httpUrl });
+		}
+	}, [remoteUrl, openUrlMutation]);
+
 	return (
 		<DashboardCard title="Overview" icon={<Info className="h-4 w-4" />}>
 			{/* Repo name + branch */}
@@ -67,9 +88,19 @@ export function OverviewCard({
 						</span>
 					)}
 					{meta.headShort && (
-						<code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
-							{meta.headShort}
-						</code>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									onClick={handleCopyHead}
+									className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs font-mono hover:bg-muted/80"
+								>
+									{meta.headShort}
+									<Copy className="h-2.5 w-2.5 text-muted-foreground" />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent>Copy full SHA</TooltipContent>
+						</Tooltip>
 					)}
 				</div>
 			</div>
@@ -99,10 +130,14 @@ export function OverviewCard({
 
 			{/* Remote */}
 			{remoteUrl && (
-				<div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+				<button
+					type="button"
+					onClick={handleOpenRemote}
+					className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+				>
 					<Globe className="h-3 w-3 shrink-0" />
 					<span className="truncate">{remoteUrl}</span>
-				</div>
+				</button>
 			)}
 
 			{/* Stats grid */}
@@ -117,10 +152,15 @@ export function OverviewCard({
 					/>
 				)}
 				{logs.lastCommit && (
-					<StatNumber
-						label="Last commit"
-						value={relativeDate(logs.lastCommit.date)}
-					/>
+					<div className="flex flex-col gap-0.5">
+						<span className="text-xs text-muted-foreground">Last commit</span>
+						<span className="text-lg font-semibold tabular-nums">
+							{relativeDate(logs.lastCommit.date)}
+						</span>
+						<span className="truncate text-xs text-muted-foreground">
+							{logs.lastCommit.author}
+						</span>
+					</div>
 				)}
 			</div>
 		</DashboardCard>

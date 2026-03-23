@@ -78,6 +78,13 @@ export function StatusCard({ status }: StatusCardProps) {
 					className="text-yellow-400"
 				/>
 			)}
+			{status.untracked.length > 0 && (
+				<FileList
+					label="Untracked"
+					files={status.untracked}
+					className="text-muted-foreground"
+				/>
+			)}
 		</DashboardCard>
 	);
 }

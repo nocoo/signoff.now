@@ -4,6 +4,7 @@
 
 import type { GitFiles } from "@signoff/gitinfo";
 import { FileText } from "lucide-react";
+import { useState } from "react";
 import { BarChart } from "./BarChart";
 import { DashboardCard } from "./DashboardCard";
 import { formatBytes, formatNumber, StatNumber } from "./StatNumber";
@@ -70,13 +71,69 @@ export function FilesCard({ files }: FilesCardProps) {
 
 			{/* Most changed files (slow tier) */}
 			{churnItems.length > 0 && (
-				<div>
+				<div className="mb-3">
 					<h4 className="mb-2 text-xs font-medium text-muted-foreground">
 						Most changed files
 					</h4>
 					<BarChart items={churnItems} direction="horizontal" />
 				</div>
 			)}
+
+			{/* Largest blobs (slow tier) */}
+			{files.largestBlobs && files.largestBlobs.length > 0 && (
+				<div className="mb-3">
+					<h4 className="mb-2 text-xs font-medium text-muted-foreground">
+						Largest blobs
+					</h4>
+					<div className="max-h-40 overflow-y-auto">
+						<div className="flex flex-col gap-1">
+							{files.largestBlobs.slice(0, 10).map((b) => (
+								<div key={b.sha} className="flex items-center gap-2 text-xs">
+									<span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+										{b.path}
+									</span>
+									<span className="shrink-0 tabular-nums">
+										{formatBytes(b.sizeBytes)}
+									</span>
+								</div>
+							))}
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Binary files (slow tier) */}
+			{files.binaryFiles && files.binaryFiles.length > 0 && (
+				<BinaryFileList files={files.binaryFiles} />
+			)}
 		</DashboardCard>
+	);
+}
+
+function BinaryFileList({ files }: { files: string[] }) {
+	const [expanded, setExpanded] = useState(false);
+
+	return (
+		<div>
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded)}
+				className="text-xs text-muted-foreground hover:text-foreground"
+			>
+				{expanded ? "▼" : "▶"} Binary files ({files.length})
+			</button>
+			{expanded && (
+				<div className="mt-1 max-h-32 overflow-y-auto pl-3">
+					{files.map((f) => (
+						<div
+							key={f}
+							className="truncate font-mono text-xs text-muted-foreground"
+						>
+							{f}
+						</div>
+					))}
+				</div>
+			)}
+		</div>
 	);
 }
