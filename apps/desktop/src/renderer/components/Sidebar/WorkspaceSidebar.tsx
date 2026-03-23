@@ -24,12 +24,14 @@ import { Input } from "@signoff/ui/input";
 import { Label } from "@signoff/ui/label";
 import { ScrollArea } from "@signoff/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@signoff/ui/tooltip";
+import { cn } from "@signoff/ui/utils";
 import {
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	FolderGit2,
 	Plus,
+	RefreshCw,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { trpc } from "../../lib/trpc";
@@ -54,10 +56,28 @@ interface WorkspaceSidebarProps {
 
 export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
 	const toggleCollapsed = useWorkspaceSidebarStore((s) => s.toggleCollapsed);
-	const [expandedProjectId, setExpandedProjectId] = useState<string | null>(
-		null,
+	const expandedProjectId = useActiveWorkspaceStore((s) => s.expandedProjectId);
+	const setExpandedProjectId = useActiveWorkspaceStore(
+		(s) => s.setExpandedProjectId,
 	);
+	const activeProjectId = useActiveWorkspaceStore((s) => s.activeProjectId);
 	const openNewWorkspace = useNewWorkspaceModalStore((s) => s.open);
+
+	const utils = trpc.useUtils();
+	const refreshMutation = trpc.gitinfo.refresh.useMutation({
+		onSuccess: () => {
+			if (activeProjectId) {
+				utils.gitinfo.getReport.invalidate({ projectId: activeProjectId });
+			}
+		},
+	});
+
+	const handleRefresh = () => {
+		if (activeProjectId) {
+			refreshMutation.mutate({ projectId: activeProjectId });
+		}
+	};
+	const isRefreshing = refreshMutation.isPending;
 
 	return (
 		<div
@@ -72,6 +92,25 @@ export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
 					</span>
 				)}
 				<div className="flex items-center gap-0.5">
+					{activeProjectId && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon"
+									className="h-7 w-7 text-muted-foreground hover:text-foreground"
+									onClick={handleRefresh}
+									disabled={isRefreshing}
+									data-testid="refresh-gitinfo-btn"
+								>
+									<RefreshCw
+										className={cn("h-4 w-4", isRefreshing && "animate-spin")}
+									/>
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side="right">Refresh Git Info</TooltipContent>
+						</Tooltip>
+					)}
 					{!isCollapsed && (
 						<Tooltip>
 							<TooltipTrigger asChild>
@@ -133,6 +172,10 @@ export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
 /** Collapsed view — icon per project. */
 function CollapsedProjectList() {
 	const { data: projectList } = trpc.projects.list.useQuery();
+	const activeProjectId = useActiveWorkspaceStore((s) => s.activeProjectId);
+	const setActiveProjectId = useActiveWorkspaceStore(
+		(s) => s.setActiveProjectId,
+	);
 
 	if (!projectList?.length) {
 		return (
@@ -152,8 +195,13 @@ function CollapsedProjectList() {
 						<TooltipTrigger asChild>
 							<button
 								type="button"
-								className="flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white"
+								className={cn(
+									"flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white",
+									activeProjectId === project.id &&
+										"ring-2 ring-foreground ring-offset-1 ring-offset-background",
+								)}
 								style={{ backgroundColor: project.color }}
+								onClick={() => setActiveProjectId(project.id)}
 							>
 								{project.name.charAt(0).toUpperCase()}
 							</button>
@@ -175,6 +223,9 @@ function ExpandedProjectList({
 	onToggleProject: (id: string | null) => void;
 }) {
 	const { data: projectList, isLoading } = trpc.projects.list.useQuery();
+	const setActiveProjectId = useActiveWorkspaceStore(
+		(s) => s.setActiveProjectId,
+	);
 
 	if (isLoading) {
 		return (
@@ -208,11 +259,12 @@ function ExpandedProjectList({
 						key={project.id}
 						project={project}
 						isExpanded={expandedProjectId === project.id}
-						onToggle={() =>
-							onToggleProject(
-								expandedProjectId === project.id ? null : project.id,
-							)
-						}
+						onToggle={() => {
+							const isExpanding = expandedProjectId !== project.id;
+							onToggleProject(isExpanding ? project.id : null);
+							// Always set activeProjectId on click (dashboard stays even on collapse)
+							setActiveProjectId(project.id);
+						}}
 					/>
 				),
 			)}
@@ -304,6 +356,12 @@ function WorkspaceList({
 	const setActiveWorkspace = useActiveWorkspaceStore(
 		(s) => s.setActiveWorkspace,
 	);
+	const setActiveProjectId = useActiveWorkspaceStore(
+		(s) => s.setActiveProjectId,
+	);
+	const setExpandedProjectId = useActiveWorkspaceStore(
+		(s) => s.setExpandedProjectId,
+	);
 
 	const handleActivate = useCallback(
 		(ws: {
@@ -321,9 +379,18 @@ function WorkspaceList({
 				branch: ws.branch,
 				name: ws.name || ws.branch,
 			});
+			setActiveProjectId(projectId);
+			setExpandedProjectId(projectId);
 			setActiveMutation.mutate({ id: ws.id });
 		},
-		[projectId, mainRepoPath, setActiveWorkspace, setActiveMutation],
+		[
+			projectId,
+			mainRepoPath,
+			setActiveWorkspace,
+			setActiveProjectId,
+			setExpandedProjectId,
+			setActiveMutation,
+		],
 	);
 
 	if (isLoading) {
