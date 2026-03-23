@@ -30,6 +30,7 @@
 		"@codemirror/view": "^6.40.0",
 		"@headless-tree/core": "^1.6.3",
 		"@headless-tree/react": "^1.6.3",
+		"@signoff/gitinfo": "workspace:*",
 		"@signoff/local-db": "workspace:*",
 		"@signoff/shared": "workspace:*",
 		"@signoff/ui": "workspace:*",
