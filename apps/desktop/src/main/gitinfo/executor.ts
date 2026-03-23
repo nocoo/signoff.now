@@ -34,16 +34,16 @@ export function createNodeExecutor(): CommandExecutor {
 				timeout: timeoutMs,
 			});
 
-			if (opts?.stdin != null) {
-				proc.stdin!.write(opts.stdin);
-				proc.stdin!.end();
+			if (opts?.stdin != null && proc.stdin) {
+				proc.stdin.write(opts.stdin);
+				proc.stdin.end();
 			}
 
 			const stdoutChunks: Buffer[] = [];
 			const stderrChunks: Buffer[] = [];
 
-			proc.stdout!.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-			proc.stderr!.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+			proc.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+			proc.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
 			proc.on("close", (code) => {
 				resolve({
