@@ -23,7 +23,7 @@ async function runOsvScanner(): Promise<boolean> {
 	} catch (error) {
 		// osv-scanner exits non-zero when vulnerabilities found
 		if (error instanceof Error && "exitCode" in error) {
-			const proc = error as Error & { stdout: Buffer; stderr: Buffer };
+			const proc = error as unknown as { stdout: Buffer; stderr: Buffer };
 			console.log(proc.stdout?.toString() || "");
 			console.error(proc.stderr?.toString() || "");
 		}
@@ -53,7 +53,7 @@ async function runGitleaks(): Promise<boolean> {
 		return true;
 	} catch (error) {
 		if (error instanceof Error && "exitCode" in error) {
-			const proc = error as Error & { stdout: Buffer; stderr: Buffer };
+			const proc = error as unknown as { stdout: Buffer; stderr: Buffer };
 			console.log(proc.stdout?.toString() || "");
 			console.error(proc.stderr?.toString() || "");
 		}

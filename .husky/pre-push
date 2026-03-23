@@ -1,1 +1,6 @@
-bun run typecheck
+# L2 + G2 — pre-push (<3min)
+# L2: Integration tests (tRPC routers with real SQLite + real git + real filesystem)
+bun run test:l2
+
+# G2: Security gate (osv-scanner + gitleaks)
+bun run security

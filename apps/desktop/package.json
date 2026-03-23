@@ -11,7 +11,8 @@
 		"clean": "git clean -xdf .cache .turbo dist dist-electron node_modules out",
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
 		"test": "bun test --pass-with-no-tests",
-		"test:ci": "bun run ../../scripts/check-coverage.ts"
+		"test:ci": "bun run ../../scripts/check-coverage.ts",
+		"test:l2": "bun test src/lib/trpc/routers/__tests__/e2e-smoke.test.ts src/lib/trpc/routers/__tests__/l2-integration.test.ts"
 	},
 	"dependencies": {
 		"@codemirror/commands": "^6.10.3",

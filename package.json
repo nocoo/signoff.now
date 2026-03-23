@@ -31,7 +31,8 @@
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
 		"db:generate:desktop": "bun run --cwd packages/local-db generate",
-		"security": "bun run scripts/run-security.ts"
+		"security": "bun run scripts/run-security.ts",
+		"test:l2": "bun test --cwd apps/desktop src/lib/trpc/routers/__tests__/e2e-smoke.test.ts src/lib/trpc/routers/__tests__/l2-integration.test.ts"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [

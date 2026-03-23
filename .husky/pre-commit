@@ -1,1 +1,7 @@
-bun run test:ci && bun run lint
+# L1 + G1 — pre-commit (<30s)
+# L1: Unit tests with coverage gate
+bun run test:ci
+
+# G1: Static analysis (lint-staged for incremental + typecheck)
+bunx lint-staged --concurrent false
+bun run typecheck
