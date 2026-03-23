@@ -1,8 +1,8 @@
 /**
- * WorkspaceSidebar — left panel showing projects and workspaces.
+ * WorkspaceSidebar — left panel showing projects and dashboard pages.
  *
  * Supports:
- * - Expanded view (220-400px) with project/workspace tree
+ * - Expanded view (220-400px) with project/page tree
  * - Collapsed icon-only view (52px)
  * - Real project list from tRPC
  * - Add project dialog
@@ -26,18 +26,23 @@ import { ScrollArea } from "@signoff/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@signoff/ui/tooltip";
 import { cn } from "@signoff/ui/utils";
 import {
+	Activity,
 	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
+	FileText,
 	FolderGit2,
+	GitBranch,
+	LayoutDashboard,
 	Plus,
 	RefreshCw,
+	Tag,
+	Users,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { trpc } from "../../lib/trpc";
-import { useActiveWorkspaceStore } from "../../stores/active-workspace";
-import { useNewWorkspaceModalStore } from "../../stores/new-workspace-modal";
-import { useWorkspaceSidebarStore } from "../../stores/workspace-sidebar-state";
+import {
+	type DashboardPage,
+	useActiveWorkspaceStore,
+} from "../../stores/active-workspace";
 
 const PROJECT_COLORS = [
 	"#ef4444",
@@ -50,18 +55,25 @@ const PROJECT_COLORS = [
 	"#06b6d4",
 ];
 
+const DASHBOARD_PAGES: {
+	id: DashboardPage;
+	label: string;
+	icon: React.ComponentType<{ className?: string }>;
+}[] = [
+	{ id: "overview", label: "Overview", icon: LayoutDashboard },
+	{ id: "contributors", label: "Contributors", icon: Users },
+	{ id: "activity", label: "Activity", icon: Activity },
+	{ id: "branches", label: "Branches", icon: GitBranch },
+	{ id: "files", label: "Files", icon: FileText },
+	{ id: "tags", label: "Tags", icon: Tag },
+];
+
 interface WorkspaceSidebarProps {
 	isCollapsed: boolean;
 }
 
 export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
-	const toggleCollapsed = useWorkspaceSidebarStore((s) => s.toggleCollapsed);
-	const expandedProjectId = useActiveWorkspaceStore((s) => s.expandedProjectId);
-	const setExpandedProjectId = useActiveWorkspaceStore(
-		(s) => s.setExpandedProjectId,
-	);
 	const activeProjectId = useActiveWorkspaceStore((s) => s.activeProjectId);
-	const openNewWorkspace = useNewWorkspaceModalStore((s) => s.open);
 
 	const utils = trpc.useUtils();
 	const refreshMutation = trpc.gitinfo.refresh.useMutation({
@@ -92,7 +104,7 @@ export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
 					</span>
 				)}
 				<div className="flex items-center gap-0.5">
-					{activeProjectId && (
+					{activeProjectId !== null && (
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Button
@@ -111,54 +123,12 @@ export function WorkspaceSidebar({ isCollapsed }: WorkspaceSidebarProps) {
 							<TooltipContent side="right">Refresh Git Info</TooltipContent>
 						</Tooltip>
 					)}
-					{!isCollapsed && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button
-									variant="ghost"
-									size="icon"
-									className="h-7 w-7 text-muted-foreground hover:text-foreground"
-									onClick={() => openNewWorkspace()}
-									data-testid="new-workspace-btn"
-								>
-									<Plus className="h-4 w-4" />
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent side="right">New Workspace</TooltipContent>
-						</Tooltip>
-					)}
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="icon"
-								className="h-7 w-7"
-								onClick={toggleCollapsed}
-							>
-								{isCollapsed ? (
-									<ChevronRight className="h-4 w-4" />
-								) : (
-									<ChevronLeft className="h-4 w-4" />
-								)}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent side="right">
-							{isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-						</TooltipContent>
-					</Tooltip>
 				</div>
 			</div>
 
 			{/* Project list */}
 			<ScrollArea className={cn("flex-1", isCollapsed ? "px-1" : "px-2")}>
-				{isCollapsed ? (
-					<CollapsedProjectList />
-				) : (
-					<ExpandedProjectList
-						expandedProjectId={expandedProjectId}
-						onToggleProject={setExpandedProjectId}
-					/>
-				)}
+				{isCollapsed ? <CollapsedProjectList /> : <ExpandedProjectList />}
 			</ScrollArea>
 
 			{/* Footer: add project */}
@@ -214,15 +184,13 @@ function CollapsedProjectList() {
 	);
 }
 
-/** Expanded view — project tree with workspaces. */
-function ExpandedProjectList({
-	expandedProjectId,
-	onToggleProject,
-}: {
-	expandedProjectId: string | null;
-	onToggleProject: (id: string | null) => void;
-}) {
+/** Expanded view — project tree with dashboard pages. */
+function ExpandedProjectList() {
 	const { data: projectList, isLoading } = trpc.projects.list.useQuery();
+	const expandedProjectId = useActiveWorkspaceStore((s) => s.expandedProjectId);
+	const setExpandedProjectId = useActiveWorkspaceStore(
+		(s) => s.setExpandedProjectId,
+	);
 	const setActiveProjectId = useActiveWorkspaceStore(
 		(s) => s.setActiveProjectId,
 	);
@@ -249,19 +217,14 @@ function ExpandedProjectList({
 	return (
 		<div className="flex flex-col gap-0.5 py-1">
 			{projectList.map(
-				(project: {
-					id: string;
-					name: string;
-					color: string;
-					mainRepoPath: string;
-				}) => (
+				(project: { id: string; name: string; color: string }) => (
 					<ProjectItem
 						key={project.id}
 						project={project}
 						isExpanded={expandedProjectId === project.id}
 						onToggle={() => {
 							const isExpanding = expandedProjectId !== project.id;
-							onToggleProject(isExpanding ? project.id : null);
+							setExpandedProjectId(isExpanding ? project.id : null);
 							// Always set activeProjectId on click (dashboard stays even on collapse)
 							setActiveProjectId(project.id);
 						}}
@@ -272,26 +235,19 @@ function ExpandedProjectList({
 	);
 }
 
-/** Single project row with expandable workspace list. */
+/** Single project row with expandable page list. */
 function ProjectItem({
 	project,
 	isExpanded,
 	onToggle,
 }: {
-	project: {
-		id: string;
-		name: string;
-		color: string;
-		mainRepoPath: string;
-	};
+	project: { id: string; name: string; color: string };
 	isExpanded: boolean;
 	onToggle: () => void;
 }) {
-	const openNewWorkspace = useNewWorkspaceModalStore((s) => s.open);
-
 	return (
 		<div>
-			{/* biome-ignore lint/a11y/useSemanticElements: div used instead of button to avoid illegal nested button (inner add-workspace button) */}
+			{/* biome-ignore lint/a11y/useSemanticElements: div used instead of button to support keyboard interaction */}
 			<div
 				role="button"
 				tabIndex={0}
@@ -310,132 +266,52 @@ function ProjectItem({
 					style={{ backgroundColor: project.color }}
 				/>
 				<span className="min-w-0 flex-1 truncate">{project.name}</span>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<button
-							type="button"
-							className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-accent-foreground/10 group-hover:opacity-100"
-							onClick={(e) => {
-								e.stopPropagation();
-								openNewWorkspace(project.id);
-							}}
-							data-testid={`project-add-workspace-${project.id}`}
-						>
-							<Plus className="h-3 w-3" />
-						</button>
-					</TooltipTrigger>
-					<TooltipContent side="right">New Workspace</TooltipContent>
-				</Tooltip>
 				<ChevronDown
 					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
 				/>
 			</div>
-			{isExpanded === true && (
-				<WorkspaceList
-					projectId={project.id}
-					mainRepoPath={project.mainRepoPath}
-				/>
-			)}
+			{isExpanded === true && <PageList projectId={project.id} />}
 		</div>
 	);
 }
 
-/** Workspace list for a project (fetched on expand). */
-function WorkspaceList({
-	projectId,
-	mainRepoPath,
-}: {
-	projectId: string;
-	mainRepoPath: string;
-}) {
-	const { data: workspaceList, isLoading } = trpc.workspaces.list.useQuery({
-		projectId,
-	});
-	const setActiveMutation = trpc.workspaces.setActive.useMutation();
-	const activeWorkspace = useActiveWorkspaceStore((s) => s.activeWorkspace);
-	const setActiveWorkspace = useActiveWorkspaceStore(
-		(s) => s.setActiveWorkspace,
-	);
+/** Dashboard page list for a project (shown when expanded). */
+function PageList({ projectId }: { projectId: string }) {
+	const activeProjectId = useActiveWorkspaceStore((s) => s.activeProjectId);
+	const activePageId = useActiveWorkspaceStore((s) => s.activePageId);
+	const setActivePageId = useActiveWorkspaceStore((s) => s.setActivePageId);
 	const setActiveProjectId = useActiveWorkspaceStore(
 		(s) => s.setActiveProjectId,
 	);
-	const setExpandedProjectId = useActiveWorkspaceStore(
-		(s) => s.setExpandedProjectId,
-	);
-
-	const handleActivate = useCallback(
-		(ws: {
-			id: string;
-			name: string;
-			branch: string;
-			worktree?: { path: string } | null;
-		}) => {
-			// Use worktree path when available, fall back to project's main repo
-			const workspacePath = ws.worktree?.path ?? mainRepoPath;
-			setActiveWorkspace({
-				id: ws.id,
-				projectId,
-				workspacePath,
-				branch: ws.branch,
-				name: ws.name || ws.branch,
-			});
-			setActiveProjectId(projectId);
-			setExpandedProjectId(projectId);
-			setActiveMutation.mutate({ id: ws.id });
-		},
-		[
-			projectId,
-			mainRepoPath,
-			setActiveWorkspace,
-			setActiveProjectId,
-			setExpandedProjectId,
-			setActiveMutation,
-		],
-	);
-
-	if (isLoading) {
-		return (
-			<div className="py-1 pl-7 text-xs text-muted-foreground">Loading…</div>
-		);
-	}
-
-	if (!workspaceList?.length) {
-		return (
-			<div className="py-1 pl-7 text-xs text-muted-foreground">
-				No workspaces
-			</div>
-		);
-	}
 
 	return (
 		<div className="flex flex-col gap-0.5 py-0.5">
-			{workspaceList.map(
-				(ws: {
-					id: string;
-					name: string;
-					branch: string;
-					worktree?: { path: string } | null;
-				}) => {
-					const isActive = activeWorkspace?.id === ws.id;
-					return (
-						<button
-							key={ws.id}
-							type="button"
-							onClick={() => handleActivate(ws)}
-							className={`flex items-center gap-1.5 rounded py-1 pl-7 pr-2 text-left text-xs ${
-								isActive
-									? "bg-accent text-foreground font-medium"
-									: "hover:bg-accent"
-							}`}
-							data-testid={`workspace-item-${ws.id}`}
-						>
-							<span className="min-w-0 flex-1 truncate">
-								{ws.name || ws.branch}
-							</span>
-						</button>
-					);
-				},
-			)}
+			{DASHBOARD_PAGES.map((page) => {
+				const isActive =
+					activeProjectId === projectId && activePageId === page.id;
+				const Icon = page.icon;
+				return (
+					<button
+						key={page.id}
+						type="button"
+						onClick={() => {
+							setActiveProjectId(projectId);
+							// setActiveProjectId resets to overview, so set page after
+							setActivePageId(page.id);
+						}}
+						className={cn(
+							"flex items-center gap-2 rounded py-1 pl-7 pr-2 text-left text-xs",
+							isActive
+								? "bg-accent font-medium text-foreground"
+								: "text-muted-foreground hover:bg-accent hover:text-foreground",
+						)}
+						data-testid={`page-item-${page.id}`}
+					>
+						<Icon className="h-3.5 w-3.5 shrink-0" />
+						<span className="min-w-0 flex-1 truncate">{page.label}</span>
+					</button>
+				);
+			})}
 		</div>
 	);
 }
