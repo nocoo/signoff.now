@@ -66,22 +66,19 @@ Integrate `@signoff/gitinfo` collector pipeline into the desktop app as an in-pr
 
 ## 2. Data Source — In-Process Library (NOT CLI Spawn)
 
-### Why CLI spawn fails in packaged Electron
+### Rejected alternatives
 
-The original plan (`execFile("bun", ["run", "gitinfo", ...])`) has three fatal issues:
+Two earlier approaches were considered and rejected:
 
-1. **No Bun runtime in packaged app**: The desktop app ships as an Electron binary with Node.js runtime. Bun is a dev-time tool only — it's not bundled into the `electron-builder` output. `apps/desktop/package.json` has no mechanism to include Bun in the dist.
+**A. CLI spawn** (`execFile("bun", ["run", "gitinfo", ...])`):
+- No Bun runtime in packaged app — Electron ships Node.js only
+- `@signoff/gitinfo` bin points to raw TS (`src/main.ts`) — can't run under Node
+- Monorepo workspace links are gone after `electron-builder` packaging
 
-2. **No `@signoff/gitinfo` in runtime deps**: `@signoff/gitinfo` is not in desktop's `dependencies` or `devDependencies` (`apps/desktop/package.json:16`). It's a sibling workspace package. After packaging, the monorepo source tree and workspace links are gone.
-
-3. **gitinfo bin points to raw TS**: `apps/gitinfo/package.json:6` defines `"bin": { "gitinfo": "./src/main.ts" }` — a TypeScript source file that needs Bun to execute. This cannot run under Node.js.
-
-### Rejected: naive `execFile` + devDependency approach
-
-An earlier draft proposed creating a `node:child_process.execFile` executor and treating `@signoff/gitinfo` as a devDependency (types only). This was rejected because:
-- `execFile` **throws** on non-zero exit code — collectors like `meta.ts:L28` and `config.ts:L15` branch on `exitCode !== 0` and would crash instead
-- `execFile` has **no stdin support** — `files.ts:L45` pipes blob SHAs via stdin to `git cat-file --batch-check`
-- Treating gitinfo as devDependency means collector *code* isn't available at runtime — only types. But we need to call the actual collector functions.
+**B. `node:child_process.execFile` executor + devDependency**:
+- `execFile` throws on non-zero exit code — collectors branch on `exitCode !== 0` and would crash
+- `execFile` has no stdin support — `files.ts` pipes SHAs via stdin to `git cat-file --batch-check`
+- devDependency means only types available at runtime, not actual collector code
 
 ### Chosen approach: in-process library call via `node:child_process.spawn`
 
