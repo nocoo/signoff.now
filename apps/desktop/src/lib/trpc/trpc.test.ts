@@ -100,7 +100,7 @@ describe("lib/trpc/routers", () => {
 		expect(mod.createAppRouter).toBeDefined();
 	});
 
-	test("all 12 sub-routers are assembled", async () => {
+	test("all 13 sub-routers are assembled", async () => {
 		const { createAppRouter } = await import("./routers/index");
 		const appRouter = createAppRouter(createMockDeps());
 
@@ -120,7 +120,8 @@ describe("lib/trpc/routers", () => {
 		expect(subRouterNames).toContain("hotkeys");
 		expect(subRouterNames).toContain("external");
 		expect(subRouterNames).toContain("autoUpdate");
-		expect(subRouterNames).toHaveLength(12);
+		expect(subRouterNames).toContain("gitinfo");
+		expect(subRouterNames).toHaveLength(13);
 	});
 
 	test("factory routers have real procedures", async () => {

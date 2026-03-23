@@ -13,6 +13,7 @@ import { createConfigRouter } from "./config";
 import type { ShellOps } from "./external";
 import { createExternalRouter } from "./external";
 import { createFilesystemTrpcRouter } from "./filesystem";
+import { createGitInfoTrpcRouter } from "./gitinfo";
 import { createHotkeysTrpcRouter } from "./hotkeys";
 import { createMenuRouter } from "./menu";
 import { createProjectsTrpcRouter } from "./projects";
@@ -66,6 +67,7 @@ export function createAppRouter(deps: AppRouterDeps) {
 		workspaces: createWorkspacesTrpcRouter(deps.getDb),
 		changes: createChangesTrpcRouter(deps.getGit),
 		filesystem: createFilesystemTrpcRouter(deps.fsOps),
+		gitinfo: createGitInfoTrpcRouter(deps.getDb),
 		settings: createSettingsTrpcRouter(deps.settingsDb),
 		hotkeys: createHotkeysTrpcRouter(deps.hotkeyStore),
 		terminal: createTerminalRouter(deps.terminalManager),
