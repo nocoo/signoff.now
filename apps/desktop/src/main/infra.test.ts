@@ -1,4 +1,39 @@
-import { describe, expect, test } from "bun:test";
+/**
+ * Infra smoke tests — app state, window state, local-db exports.
+ *
+ * D1 Isolation: app-state and window-state paths are redirected to a
+ * temporary directory to prevent test runs from corrupting production
+ * data in ~/.signoff/data/.
+ */
+
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// ─── D1: Redirect all state paths to temp directory ─────────────────────────
+
+const TEST_HOME = join(tmpdir(), `signoff-infra-test-${Date.now()}`);
+const TEST_DATA_DIR = join(TEST_HOME, "data");
+
+beforeAll(() => {
+	mkdirSync(TEST_DATA_DIR, { recursive: true });
+});
+
+afterAll(() => {
+	rmSync(TEST_HOME, { recursive: true, force: true });
+});
+
+// Mock the environment module BEFORE importing app-state / window-state
+mock.module("main/lib/app-environment", () => ({
+	SIGNOFF_HOME_DIR: TEST_HOME,
+	getAppStatePath: () => join(TEST_DATA_DIR, "app-state.json"),
+	getWindowStatePath: () => join(TEST_DATA_DIR, "window-state.json"),
+	getDbDir: () => TEST_DATA_DIR,
+	ensureSignoffHomeDirExists: () => {
+		mkdirSync(TEST_DATA_DIR, { recursive: true });
+	},
+}));
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
