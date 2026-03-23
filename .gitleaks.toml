@@ -1,0 +1,10 @@
+# gitleaks configuration for signoff.now
+# https://github.com/gitleaks/gitleaks
+
+title = "signoff.now gitleaks config"
+
+[allowlist]
+  paths = [
+    '''bun\.lock''',
+    '''\.osv-scanner\.toml''',
+  ]

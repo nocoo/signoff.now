@@ -30,7 +30,8 @@
 		"prepare": "husky",
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
-		"db:generate:desktop": "bun run --cwd packages/local-db generate"
+		"db:generate:desktop": "bun run --cwd packages/local-db generate",
+		"security": "bun run scripts/run-security.ts"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [

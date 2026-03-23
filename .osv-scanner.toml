@@ -1,0 +1,6 @@
+[[IgnoredVulns]]
+# esbuild 0.18.20 via @esbuild-kit/core-utils (transitive, dev-only)
+# GHSA-67mh-4wv8-2f99: Server-Side Request Forgery in esbuild's development server
+# Not exploitable: we don't use esbuild's dev server, only electron-vite's
+id = "GHSA-67mh-4wv8-2f99"
+reason = "Transitive dev dependency via @esbuild-kit. esbuild dev server not exposed."
