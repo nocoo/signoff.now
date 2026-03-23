@@ -14,6 +14,7 @@ import { Button } from "@signoff/ui/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -238,10 +239,18 @@ function ProjectItem({
 
 	return (
 		<div>
-			<button
-				type="button"
+			{/* biome-ignore lint/a11y/useSemanticElements: div used instead of button to avoid illegal nested button (inner add-workspace button) */}
+			<div
+				role="button"
+				tabIndex={0}
 				onClick={onToggle}
-				className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+				onKeyDown={(e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						onToggle();
+					}
+				}}
+				className="group flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
 				data-testid={`project-item-${project.id}`}
 			>
 				<div
@@ -268,7 +277,7 @@ function ProjectItem({
 				<ChevronDown
 					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
 				/>
-			</button>
+			</div>
 			{isExpanded && (
 				<WorkspaceList
 					projectId={project.id}
@@ -423,6 +432,10 @@ function AddProjectButton({ collapsed }: { collapsed: boolean }) {
 			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>Add Project</DialogTitle>
+					<DialogDescription className="sr-only">
+						Create a new project by providing a name, repository path, and
+						color.
+					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">

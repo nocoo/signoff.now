@@ -9,6 +9,7 @@ import { Button } from "@signoff/ui/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -82,6 +83,10 @@ export function NewWorkspaceModal() {
 			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>New Workspace</DialogTitle>
+					<DialogDescription className="sr-only">
+						Create a new workspace by selecting a project and entering a branch
+						name.
+					</DialogDescription>
 				</DialogHeader>
 
 				<form onSubmit={handleSubmit} className="flex flex-col gap-4">
