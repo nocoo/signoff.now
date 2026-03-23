@@ -61,7 +61,7 @@ export function BarChart({
 		return (
 			<div className={cn("flex items-end gap-1", className)}>
 				{visible.map((item, i) => (
-					<Tooltip key={item.label}>
+					<Tooltip key={`${item.label}-${i}`}>
 						<TooltipTrigger asChild>
 							<div className="flex flex-1 flex-col items-center gap-1">
 								<div
@@ -91,7 +91,7 @@ export function BarChart({
 	return (
 		<div className={cn("flex flex-col gap-1.5", className)}>
 			{visible.map((item, i) => (
-				<div key={item.label} className="flex items-center gap-2">
+				<div key={`${item.label}-${i}`} className="flex items-center gap-2">
 					<span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
 						{item.label}
 					</span>
