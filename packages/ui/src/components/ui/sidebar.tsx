@@ -74,7 +74,7 @@ function SidebarProvider({
 	const [_open, _setOpen] = React.useState(defaultOpen);
 	const open = openProp ?? _open;
 	const setOpen = React.useCallback(
-		(value: boolean | ((value: boolean) => boolean)) => {
+		(value: boolean | ((prev: boolean) => boolean)) => {
 			const openState = typeof value === "function" ? value(open) : value;
 			if (setOpenProp) {
 				setOpenProp(openState);
@@ -91,7 +91,7 @@ function SidebarProvider({
 
 	// Helper to toggle the sidebar.
 	const toggleSidebar = React.useCallback(() => {
-		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
+		return isMobile ? setOpenMobile((prev) => !prev) : setOpen((prev) => !prev);
 	}, [isMobile, setOpen]);
 
 	// Adds a keyboard shortcut to toggle the sidebar.
@@ -619,7 +619,7 @@ function SidebarMenuSkeleton({
 			className={cn("flex h-8 items-center gap-2 rounded-md px-2", className)}
 			{...props}
 		>
-			{showIcon && (
+			{showIcon === true && (
 				<Skeleton
 					className="size-4 rounded-md"
 					data-sidebar="menu-skeleton-icon"

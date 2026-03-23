@@ -222,7 +222,7 @@ function getStreamSocketForClient(
 	clientState: ClientState,
 ): Socket | undefined {
 	const clientId = clientState.clientId;
-	if (!clientId) return undefined;
+	if (!clientId) return;
 	return clientsById.get(clientId)?.stream;
 }
 

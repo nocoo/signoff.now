@@ -28,7 +28,7 @@ interface ITestLink {
 	hasColEnd?: boolean;
 }
 
-const operatingSystems: ReadonlyArray<OperatingSystem> = [
+const operatingSystems: readonly OperatingSystem[] = [
 	OperatingSystem.Linux,
 	OperatingSystem.Macintosh,
 	OperatingSystem.Windows,
@@ -780,7 +780,7 @@ const testLinks: ITestLink[] = [
 		hasCol: true,
 	},
 ];
-const testLinksWithSuffix = testLinks.filter((e) => !!e.suffix);
+const testLinksWithSuffix = testLinks.filter((e) => Boolean(e.suffix));
 
 describe("TerminalLinkParsing", () => {
 	describe("removeLinkSuffix", () => {
@@ -1295,6 +1295,7 @@ describe("TerminalLinkParsing", () => {
 				const link2 = testLinksWithSuffix[i + 1]!;
 				const link3 = testLinksWithSuffix[i + 2]!;
 				const line = ` ${link1.link} ${link2.link} ${link3.link} `;
+				// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: combinatorial test covering all link permutations
 				it(`\`${line.replaceAll("\u00A0", "<nbsp>")}\``, () => {
 					expect(detectLinks(line, OperatingSystem.Linux).length).toBe(3);
 					expect(link1.suffix).toBeTruthy();

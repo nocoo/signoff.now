@@ -34,9 +34,9 @@ function SidebarCard({
 				className,
 			)}
 		>
-			{badge && <Badge variant="box">{badge}</Badge>}
+			{badge !== null && <Badge variant="box">{badge}</Badge>}
 
-			{onDismiss && (
+			{onDismiss !== null && (
 				<button
 					type="button"
 					onClick={onDismiss}
@@ -56,7 +56,7 @@ function SidebarCard({
 				{title}
 			</p>
 
-			{description && (
+			{description !== null && (
 				<p className="text-xs text-muted-foreground mt-1 leading-snug">
 					{description}
 				</p>
@@ -64,7 +64,7 @@ function SidebarCard({
 
 			{children}
 
-			{actionLabel && onAction && (
+			{actionLabel !== null && onAction !== null && (
 				<Button
 					variant="outline"
 					size="sm"

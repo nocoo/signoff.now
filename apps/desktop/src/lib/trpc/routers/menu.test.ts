@@ -38,7 +38,6 @@ describe("createMenuRouter", () => {
 
 	test("triggerAction forwards renderer action via IPC", async () => {
 		const win = createMockWindow();
-		// biome-ignore lint/suspicious/noExplicitAny: mock BrowserWindow
 		const router = createMenuRouter(() => win as any);
 		const caller = router.createCaller({});
 
@@ -53,7 +52,6 @@ describe("createMenuRouter", () => {
 
 	test("triggerAction handles view.toggleDevTools in main process", async () => {
 		const win = createMockWindow();
-		// biome-ignore lint/suspicious/noExplicitAny: mock BrowserWindow
 		const router = createMenuRouter(() => win as any);
 		const caller = router.createCaller({});
 
@@ -68,7 +66,6 @@ describe("createMenuRouter", () => {
 
 	test("triggerAction handles view.reload in main process", async () => {
 		const win = createMockWindow();
-		// biome-ignore lint/suspicious/noExplicitAny: mock BrowserWindow
 		const router = createMenuRouter(() => win as any);
 		const caller = router.createCaller({});
 
@@ -101,7 +98,6 @@ describe("createMenuRouter", () => {
 
 	test("triggerAction does not send IPC for main-process actions", async () => {
 		const win = createMockWindow();
-		// biome-ignore lint/suspicious/noExplicitAny: mock BrowserWindow
 		const router = createMenuRouter(() => win as any);
 		const caller = router.createCaller({});
 

@@ -63,6 +63,13 @@ export function createAsyncQueue<T>(
 		}
 	};
 
+	const handleCleanupError = (error: unknown) => {
+		console.error(
+			"[workspace-fs/createAsyncQueue] Cleanup after closed subscription failed:",
+			error,
+		);
+	};
+
 	void subscribe((value) => {
 		if (state.closed) {
 			return;
@@ -76,14 +83,13 @@ export function createAsyncQueue<T>(
 
 		state.queue.push(value);
 	})
-		.then((cleanup) => {
+		.then(async (cleanup) => {
 			if (state.closed) {
-				void cleanup().catch((error) => {
-					console.error(
-						"[workspace-fs/createAsyncQueue] Cleanup after closed subscription failed:",
-						error,
-					);
-				});
+				try {
+					await cleanup();
+				} catch (error) {
+					handleCleanupError(error);
+				}
 				return;
 			}
 			state.cleanup = cleanup;

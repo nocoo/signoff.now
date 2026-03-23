@@ -36,7 +36,7 @@ function EditorContent({ tab }: { tab: Tab }) {
 
 	const { data, isLoading, error } = trpc.filesystem.readFile.useQuery(
 		{ workspacePath, relativePath: filePath },
-		{ enabled: !!workspacePath && !!filePath },
+		{ enabled: Boolean(workspacePath) && Boolean(filePath) },
 	);
 
 	const writeMutation = trpc.filesystem.writeFile.useMutation();
@@ -48,7 +48,7 @@ function EditorContent({ tab }: { tab: Tab }) {
 	}, []);
 
 	const handleSave = useCallback(() => {
-		if (localContent != null && workspacePath && filePath) {
+		if (localContent !== null && workspacePath && filePath) {
 			writeMutation.mutate({
 				workspacePath,
 				relativePath: filePath,
@@ -105,7 +105,7 @@ function DiffContent({ tab }: { tab: Tab }) {
 
 	const { data, isLoading, error } = trpc.changes.diff.useQuery(
 		{ workspacePath, filePath, staged },
-		{ enabled: !!workspacePath && !!filePath },
+		{ enabled: Boolean(workspacePath) && Boolean(filePath) },
 	);
 
 	if (isLoading) {

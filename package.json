@@ -13,6 +13,7 @@
 		"@biomejs/biome": "2.4.2",
 		"@types/bun": "^1.3.11",
 		"husky": "^9.0.0",
+		"lint-staged": "^16.4.0",
 		"turbo": "^2.8.7",
 		"typescript": "^5.9.3"
 	},
@@ -30,5 +31,10 @@
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
 		"db:generate:desktop": "bun run --cwd packages/local-db generate"
+	},
+	"lint-staged": {
+		"*.{ts,tsx,js,jsx,json,jsonc,css}": [
+			"bunx @biomejs/biome check --write --error-on-warnings"
+		]
 	}
 }

@@ -39,7 +39,11 @@ const MAIN_PROCESS_ACTIONS: Record<
 > = {
 	"app.quit": () => {
 		// Dynamic import to avoid pulling electron into test bundles
-		import("electron").then(({ app }) => app?.quit?.()).catch(() => {});
+		import("electron")
+			.then(({ app }) => app?.quit?.())
+			.catch(() => {
+				// intentionally empty
+			});
 	},
 	"view.toggleDevTools": (win) => {
 		win?.webContents.toggleDevTools();

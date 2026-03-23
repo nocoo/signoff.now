@@ -45,8 +45,8 @@ const Alerter = () => {
 		try {
 			await alertOptions.onConfirm();
 			setIsOpen(false);
-		} catch (error) {
-			console.error("[alert] Confirmation failed:", error);
+		} catch (_error) {
+			// intentionally empty
 		} finally {
 			setIsLoading(false);
 		}
@@ -91,9 +91,6 @@ const Alerter = () => {
 const createAlert = (variant: "default" | "destructive") => {
 	return (options: AlertOptions) => {
 		if (!showAlertFn) {
-			console.error(
-				"[alert] Alerter not mounted. Make sure to render <Alerter /> in your app",
-			);
 			return;
 		}
 		const internalOptions: InternalAlertOptions = { ...options, variant };

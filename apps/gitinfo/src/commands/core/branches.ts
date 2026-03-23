@@ -81,12 +81,12 @@ function parseTrack(track: string): { ahead: number; behind: number } | null {
 	let ahead = 0;
 	let behind = 0;
 
-	const aheadMatch = track.match(/ahead (\d+)/);
+	const aheadMatch = /ahead (\d+)/.exec(track);
 	if (aheadMatch) {
 		ahead = Number.parseInt(aheadMatch[1] as string, 10);
 	}
 
-	const behindMatch = track.match(/behind (\d+)/);
+	const behindMatch = /behind (\d+)/.exec(track);
 	if (behindMatch) {
 		behind = Number.parseInt(behindMatch[1] as string, 10);
 	}

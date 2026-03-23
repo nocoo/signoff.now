@@ -116,7 +116,7 @@ export function createFsAdapter() {
 			return {
 				name: basename(result.absolutePath),
 				isDirectory: result.kind === "directory",
-				isSymlink: result.kind === "symlink" || !!result.symlinkTarget,
+				isSymlink: result.kind === "symlink" || Boolean(result.symlinkTarget),
 				size: result.size ?? 0,
 				mtime: result.modifiedAt ? new Date(result.modifiedAt).getTime() : 0,
 			};

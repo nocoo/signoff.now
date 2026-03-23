@@ -436,14 +436,14 @@ export async function readFile({
 		if (maxBytes !== undefined) {
 			const bytesToAttempt = Math.min(maxBytes + 1, remaining);
 			const buffer = Buffer.allocUnsafe(Math.max(bytesToAttempt, 0));
-			const { bytesRead } = await fileHandle.read(
+			const { bytesRead: limitedBytesRead } = await fileHandle.read(
 				buffer,
 				0,
 				bytesToAttempt,
 				startOffset,
 			);
-			const exceededLimit = bytesRead > maxBytes;
-			const actualBytes = Math.min(bytesRead, maxBytes);
+			const exceededLimit = limitedBytesRead > maxBytes;
+			const actualBytes = Math.min(limitedBytesRead, maxBytes);
 			const resultBuffer = buffer.subarray(0, actualBytes);
 
 			if (encoding) {
@@ -509,7 +509,9 @@ export async function getMetadata({
 		if (stats.isSymbolicLink()) {
 			try {
 				symlinkTarget = await fs.readlink(targetPath);
-			} catch {}
+			} catch {
+				// intentionally empty — symlink target may not be resolvable
+			}
 		}
 
 		return {

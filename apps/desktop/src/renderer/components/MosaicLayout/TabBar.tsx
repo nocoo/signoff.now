@@ -54,7 +54,7 @@ export function TabBar({
 								<TabIcon type={tab.type} />
 								<span className="max-w-[120px] truncate">
 									{tab.label}
-									{tab.isDirty && (
+									{tab.isDirty === true && (
 										<span className="ml-0.5 text-amber-500">●</span>
 									)}
 								</span>

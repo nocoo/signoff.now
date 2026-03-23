@@ -48,7 +48,7 @@ function Avatar({ className, size = "md", fullName, image }: AvatarProps) {
 
 	return (
 		<AvatarBase className={cn(avatarVariants({ size }), className)}>
-			{image && <AvatarImageBase src={image} />}
+			{image !== null && <AvatarImageBase src={image} />}
 			<AvatarFallbackBase className={cn(avatarFallbackVariants({ size }))}>
 				{fallbackText}
 			</AvatarFallbackBase>

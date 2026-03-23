@@ -40,12 +40,12 @@ export function BranchesCard({ branches }: BranchesCardProps) {
 									>
 										{branch.name}
 									</span>
-									{branch.upstream && (
+									{branch.upstream !== null && (
 										<span className="shrink-0 max-w-32 truncate text-muted-foreground">
 											→ {branch.upstream}
 										</span>
 									)}
-									{branch.aheadBehind && (
+									{branch.aheadBehind !== null && (
 										<span className="shrink-0 tabular-nums text-muted-foreground">
 											{branch.aheadBehind.ahead > 0 && (
 												<span className="text-green-400">
@@ -59,7 +59,7 @@ export function BranchesCard({ branches }: BranchesCardProps) {
 											)}
 										</span>
 									)}
-									{branch.isMerged && (
+									{branch.isMerged === true && (
 										<span className="text-green-400" title="Merged">
 											✓
 										</span>

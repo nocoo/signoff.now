@@ -11,7 +11,7 @@ export function makeAppSetup(
 	let mainWindow: BrowserWindow | null = null;
 
 	const initWindow = async () => {
-		mainWindow = await createMainWindow();
+		mainWindow = await Promise.resolve(createMainWindow());
 
 		// Open devtools in development
 		if (!app.isPackaged) {

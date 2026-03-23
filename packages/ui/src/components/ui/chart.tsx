@@ -71,7 +71,7 @@ function ChartContainer({
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
 	const colorConfig = Object.entries(config).filter(
-		([, config]) => config.theme || config.color,
+		([, itemConfig]) => itemConfig.theme || itemConfig.color,
 	);
 
 	if (!colorConfig.length) {
@@ -235,7 +235,7 @@ function ChartTooltipContent({
 													{itemConfig?.label || item.name}
 												</span>
 											</div>
-											{item.value && (
+											{item.value !== null && (
 												<span className="text-foreground font-mono font-medium tabular-nums">
 													{item.value.toLocaleString()}
 												</span>
@@ -316,7 +316,7 @@ function getPayloadConfigFromPayload(
 	key: string,
 ) {
 	if (typeof payload !== "object" || payload === null) {
-		return undefined;
+		return;
 	}
 
 	const payloadPayload =

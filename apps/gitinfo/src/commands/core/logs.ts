@@ -131,7 +131,7 @@ export async function getConventionalTypes(
 		["log", "--format=%s", "-n", "1000", "HEAD"],
 		{ cwd },
 	);
-	if (result.exitCode !== 0 || result.stdout === "") return undefined;
+	if (result.exitCode !== 0 || result.stdout === "") return;
 
 	const pattern = /^(\w+)(?:\(.+\))?!?:/;
 	const types: Record<string, number> = {};

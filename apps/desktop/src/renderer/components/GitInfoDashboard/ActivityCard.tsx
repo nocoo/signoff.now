@@ -55,7 +55,7 @@ export function ActivityCard({ logs }: ActivityCardProps) {
 				<StatNumber label="Merges" value={formatNumber(logs.totalMerges)} />
 			</div>
 
-			{freq && (
+			{freq !== null && (
 				<div className="grid grid-cols-2 gap-4">
 					{/* Day of week */}
 					<div>

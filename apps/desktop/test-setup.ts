@@ -134,7 +134,6 @@ mock.module("./src/main/lib/local-db", () => ({
 
 // ─── Browser globals ─────────────────────────────────────────────────────────
 if (typeof globalThis.document === "undefined") {
-	// biome-ignore lint/suspicious/noExplicitAny: test polyfill
 	(globalThis as any).document = {
 		createElement: () => ({
 			setAttribute: () => {},
@@ -151,7 +150,6 @@ if (typeof globalThis.document === "undefined") {
 
 // ─── electronTRPC global (used by trpc-electron renderer) ────────────────────
 if (typeof globalThis.electronTRPC === "undefined") {
-	// biome-ignore lint/suspicious/noExplicitAny: test polyfill
 	(globalThis as any).electronTRPC = {
 		sendMessage: () => {},
 		onMessage: () => () => {},

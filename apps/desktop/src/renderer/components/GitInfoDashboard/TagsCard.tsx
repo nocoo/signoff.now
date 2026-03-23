@@ -18,10 +18,10 @@ export function TagsCard({ tags }: TagsCardProps) {
 		<DashboardCard title="Tags" icon={<Tag className="h-4 w-4" />}>
 			<div className="mb-3 flex gap-4">
 				<StatNumber label="Total" value={tags.count} />
-				{tags.latestReachableTag && (
+				{tags.latestReachableTag !== null && (
 					<StatNumber label="Latest" value={tags.latestReachableTag} />
 				)}
-				{tags.commitsSinceTag != null && (
+				{tags.commitsSinceTag !== null && (
 					<StatNumber label="Since tag" value={tags.commitsSinceTag} />
 				)}
 			</div>
@@ -40,12 +40,12 @@ export function TagsCard({ tags }: TagsCardProps) {
 								<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
 									{tag.type}
 								</span>
-								{tag.message && (
+								{tag.message !== null && (
 									<span className="max-w-32 shrink-0 truncate text-muted-foreground">
 										{tag.message}
 									</span>
 								)}
-								{tag.date && (
+								{tag.date !== null && (
 									<span className="shrink-0 text-muted-foreground">
 										{relativeDate(tag.date)}
 									</span>

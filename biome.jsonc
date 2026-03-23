@@ -25,7 +25,108 @@
 	},
 	"linter": {
 		"rules": {
-			"recommended": true
+			"a11y": {
+				"recommended": true
+			},
+			"complexity": {
+				"recommended": true,
+				"noExcessiveCognitiveComplexity": {
+					"level": "error",
+					"options": { "maxAllowedComplexity": 40 }
+				},
+				"noExcessiveLinesPerFunction": "off",
+				"noVoid": "off",
+				"noForEach": "error",
+				"noUselessUndefined": "error",
+				"noImplicitCoercions": "off"
+			},
+			"correctness": {
+				"recommended": true,
+				"useImportExtensions": "off",
+				"noNodejsModules": "off",
+				"noUndeclaredDependencies": "off",
+				"noUnresolvedImports": "off",
+				"noUndeclaredVariables": "off",
+				"noSolidDestructuredProps": "off",
+				"useQwikValidLexicalScope": "off",
+				"noGlobalDirnameFilename": "off"
+			},
+			"performance": {
+				"recommended": true,
+				"useSolidForComponent": "off",
+				"noBarrelFile": "off",
+				"noReExportAll": "off",
+				"noNamespaceImport": "off"
+			},
+			"security": {
+				"recommended": true,
+				"noSecrets": "off"
+			},
+			"style": {
+				"recommended": true,
+				"noNonNullAssertion": "error",
+				"useConsistentArrayType": "error",
+				"useForOf": "error",
+				"noMagicNumbers": "off",
+				"noImplicitBoolean": "off",
+				"useBlockStatements": "off",
+				"useExportsLast": "off",
+				"useConsistentArrowReturn": "off",
+				"noDefaultExport": "off",
+				"noCommonJs": "off",
+				"noProcessEnv": "off",
+				"noEnum": "off",
+				"noParameterProperties": "off",
+				"noNegationElse": "off",
+				"noNamespace": "off",
+				"useFilenamingConvention": "off",
+				"noJsxLiterals": "off",
+				"useComponentExportOnlyModules": "off",
+				"useConsistentObjectDefinitions": "off",
+				"useConsistentMemberAccessibility": "off",
+				"noInferrableTypes": "off",
+				"noExportedImports": "off"
+			},
+			"suspicious": {
+				"recommended": true,
+				"noReactSpecificProps": "off",
+				"noConsole": "error",
+				"noEmptyBlockStatements": "error",
+				"noExplicitAny": "error",
+				"useAwait": "off",
+				"noArrayIndexKey": "error",
+				"noEvolvingTypes": "off"
+			},
+			"nursery": {
+				"recommended": true,
+				"useSortedClasses": "off",
+				"noHexColors": "off",
+				"noSyncScripts": "off",
+				"noTernary": "off",
+				"noIncrementDecrement": "off",
+				"noContinue": "off",
+				"noExcessiveLinesPerFile": "off",
+				"noExcessiveClassesPerFile": "off",
+				"noLeakedRender": "error",
+				"noJsxPropsBind": "off",
+				"noFloatingPromises": "off",
+				"noShadow": "error",
+				"useDestructuring": "off",
+				"useExplicitType": "off",
+				"useConsistentMethodSignatures": "off",
+				"useErrorCause": "off",
+				"useExpect": "off",
+				"useGlobalThis": "off",
+				"useRegexpExec": "error",
+				"useArraySortCompare": "error",
+				"noEqualsToNull": "error",
+				"noUnnecessaryConditions": "off",
+				"noUndeclaredEnvVars": "off",
+				"noNestedPromises": "error",
+				"noDivRegex": "off",
+				"noConditionalExpect": "off",
+				"useAwaitThenable": "error"
+			}
 		}
 	},
 	"overrides": [
@@ -58,24 +159,44 @@
 				"**/*.test.ts",
 				"**/*.test.tsx",
 				"**/*.spec.ts",
-				"**/*.spec.tsx"
+				"**/*.spec.tsx",
+				"**/test-setup.ts"
 			],
 			"linter": {
 				"rules": {
 					"style": {
 						"noNonNullAssertion": "off"
+					},
+					"suspicious": {
+						"noConsole": "off",
+						"noEmptyBlockStatements": "off",
+						"useAwait": "off",
+						"noExplicitAny": "off"
+					},
+					"nursery": {
+						"noConditionalExpect": "off",
+						"noJsxPropsBind": "off",
+						"noFloatingPromises": "off"
 					}
 				}
 			}
 		},
 		{
-			"includes": ["apps/gitinfo/**"],
+			"includes": [
+				"apps/desktop/src/main/**",
+				"apps/gitinfo/**",
+				"scripts/**",
+				"packages/workspace-fs/**",
+				"packages/local-db/**"
+			],
 			"linter": {
 				"rules": {
-					"correctness": { "recommended": true },
-					"suspicious": { "recommended": true },
-					"complexity": { "recommended": true },
-					"style": { "recommended": true }
+					"suspicious": {
+						"noConsole": "off"
+					},
+					"correctness": {
+						"noProcessGlobal": "off"
+					}
 				}
 			}
 		}

@@ -130,7 +130,7 @@ export async function getAuthorStats(
 		["log", "--numstat", "--pretty=tformat:%aN <%aE>", "-n", "1000", "HEAD"],
 		{ cwd },
 	);
-	if (result.exitCode !== 0) return undefined;
+	if (result.exitCode !== 0) return;
 	return parseNumstatLog(result.stdout);
 }
 

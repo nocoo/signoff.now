@@ -39,7 +39,7 @@ export function createAutoUpdateRouter() {
 					updateState = {
 						...updateState,
 						checking: false,
-						available: !!result?.updateInfo,
+						available: Boolean(result?.updateInfo),
 						version: result?.updateInfo?.version ?? null,
 					};
 				} else {

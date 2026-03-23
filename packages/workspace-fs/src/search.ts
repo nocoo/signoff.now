@@ -406,6 +406,7 @@ async function defaultRunRipgrep(
 	return { stdout: result.stdout };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ripgrep argument construction requires many conditional branches
 export async function searchContentWithRipgrep({
 	rootPath,
 	query,
@@ -632,7 +633,9 @@ async function searchContentWithScan({
 					fromIndex = matchIndex + lowerNeedle.length;
 				}
 			}
-		} catch {}
+		} catch {
+			// intentionally empty — skip unreadable files
+		}
 	}
 
 	return rankContentMatches(matches, query, safeLimit);

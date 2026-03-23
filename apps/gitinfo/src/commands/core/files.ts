@@ -250,8 +250,7 @@ export async function getBinaryFiles(
 	// With -z, each NUL-delimited token is "<added>\t<deleted>\t<path>"
 	// Binary files have "-\t-\t<path>"
 	// Renames have "<added>\t<deleted>\t<srcpath>\0<dstpath>" (two NUL tokens for paths)
-	for (let i = 0; i < tokens.length; i++) {
-		const token = tokens[i] as string;
+	for (const token of tokens) {
 		const parts = token.split("\t");
 		if (parts.length >= 3 && parts[0] === "-" && parts[1] === "-") {
 			// Binary: "-\t-\t<path>"

@@ -330,7 +330,7 @@ function ProjectItem({
 					className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "" : "-rotate-90"}`}
 				/>
 			</div>
-			{isExpanded && (
+			{isExpanded === true && (
 				<WorkspaceList
 					projectId={project.id}
 					mainRepoPath={project.mainRepoPath}

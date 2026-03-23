@@ -31,7 +31,7 @@ export function FilesCard({ files }: FilesCardProps) {
 					label="Total lines"
 					value={formatNumber(files.totalLines)}
 				/>
-				{files.binaryFiles && (
+				{Array.isArray(files.binaryFiles) && (
 					<StatNumber label="Binary" value={files.binaryFiles.length} />
 				)}
 			</div>
@@ -126,7 +126,7 @@ function BinaryFileList({ files }: { files: string[] }) {
 			>
 				{expanded ? "▼" : "▶"} Binary files ({files.length})
 			</button>
-			{expanded && (
+			{expanded === true && (
 				<div className="mt-1 max-h-32 overflow-y-auto pl-3">
 					{files.map((f) => (
 						<div

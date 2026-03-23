@@ -111,7 +111,7 @@ function FileList({
 			>
 				{expanded ? "▼" : "▶"} {label} ({files.length})
 			</button>
-			{expanded && (
+			{expanded === true && (
 				<div className="mt-1 max-h-32 overflow-y-auto pl-3">
 					{files.map((f) => (
 						<div

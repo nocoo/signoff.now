@@ -66,7 +66,10 @@ export function scrollToBottom(xterm: XTerm): void {
  */
 export function setupCopyHandler(xterm: XTerm): () => void {
 	const element = xterm.element;
-	if (!element) return () => {};
+	if (!element)
+		return () => {
+			/* no element */
+		};
 
 	const handleCopy = (event: ClipboardEvent) => {
 		const selection = xterm.getSelection();
@@ -87,7 +90,9 @@ export function setupCopyHandler(xterm: XTerm): () => void {
 		}
 
 		// Fallback path when clipboardData is unavailable.
-		void navigator.clipboard?.writeText(trimmedText).catch(() => {});
+		void navigator.clipboard?.writeText(trimmedText).catch(() => {
+			// intentionally empty
+		});
 	};
 
 	element.addEventListener("copy", handleCopy);
@@ -117,7 +122,10 @@ export function setupPasteHandler(
 	options: PasteHandlerOptions = {},
 ): () => void {
 	const textarea = xterm.textarea;
-	if (!textarea) return () => {};
+	if (!textarea)
+		return () => {
+			/* no textarea */
+		};
 
 	let cancelActivePaste: (() => void) | null = null;
 
@@ -261,6 +269,7 @@ export function setupKeyboardHandler(
 	const isMac = platform.includes("mac");
 	const isWindows = platform.includes("win");
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: keyboard handler requires exhaustive key combination matching
 	const handler = (event: KeyboardEvent): boolean => {
 		const isShiftEnter =
 			event.key === "Enter" &&

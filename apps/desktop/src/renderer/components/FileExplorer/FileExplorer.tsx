@@ -165,7 +165,7 @@ export function LiveFileExplorer({
 	// Fetch root directory on mount
 	const { data: rootData, isLoading } = trpc.filesystem.listDirectory.useQuery(
 		{ workspacePath, relativePath: "" },
-		{ enabled: !!workspacePath },
+		{ enabled: Boolean(workspacePath) },
 	);
 
 	// Populate tree when root data arrives

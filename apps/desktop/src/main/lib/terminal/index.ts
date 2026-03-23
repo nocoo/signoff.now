@@ -486,7 +486,7 @@ export class TerminalManager {
 				}, CONNECT_TIMEOUT_MS);
 
 				this.pendingRequests.set(id, {
-					resolve: resolve as (payload: unknown) => void,
+					resolve: resolve as (value: unknown) => void,
 					reject,
 					timer,
 				});

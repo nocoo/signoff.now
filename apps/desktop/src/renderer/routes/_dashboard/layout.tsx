@@ -37,7 +37,7 @@ function DashboardLayout() {
 		<div className="flex flex-col h-full w-full">
 			<TopBar />
 			<div className="flex flex-1 overflow-hidden">
-				{isWorkspaceSidebarOpen && (
+				{isWorkspaceSidebarOpen === true && (
 					<ResizablePanel
 						width={workspaceSidebarWidth}
 						onWidthChange={setWorkspaceSidebarWidth}

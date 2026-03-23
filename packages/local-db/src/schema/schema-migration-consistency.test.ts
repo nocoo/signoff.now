@@ -105,10 +105,10 @@ describe("schema-migration consistency", () => {
 	];
 
 	test("migration creates exactly the expected tables", () => {
-		const actualTables = getTableNames(db).sort();
+		const actualTables = getTableNames(db).sort((a, b) => a.localeCompare(b));
 		const expectedTables = drizzleTables
 			.map((t) => getDrizzleTableName(t as unknown as Record<string, unknown>))
-			.sort();
+			.sort((a, b) => a.localeCompare(b));
 		expect(actualTables).toEqual(expectedTables);
 	});
 

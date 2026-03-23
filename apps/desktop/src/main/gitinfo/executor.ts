@@ -30,11 +30,15 @@ export function createNodeExecutor(): CommandExecutor {
 			const proc = spawn(cmd, [...args], {
 				cwd: opts?.cwd,
 				env: opts?.env ? { ...process.env, ...opts.env } : undefined,
-				stdio: [opts?.stdin != null ? "pipe" : "ignore", "pipe", "pipe"],
+				stdio: [
+					typeof opts?.stdin === "string" ? "pipe" : "ignore",
+					"pipe",
+					"pipe",
+				],
 				timeout: timeoutMs,
 			});
 
-			if (opts?.stdin != null && proc.stdin) {
+			if (typeof opts?.stdin === "string" && proc.stdin) {
 				proc.stdin.write(opts.stdin);
 				proc.stdin.end();
 			}

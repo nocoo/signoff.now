@@ -27,7 +27,7 @@ export function GitInfoDashboard({ projectId }: GitInfoDashboardProps) {
 		error,
 	} = trpc.gitinfo.getReport.useQuery(
 		{ projectId },
-		{ enabled: !!projectId, staleTime: Number.POSITIVE_INFINITY },
+		{ enabled: Boolean(projectId), staleTime: Number.POSITIVE_INFINITY },
 	);
 
 	if (isLoading) return <DashboardSkeleton />;

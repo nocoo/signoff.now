@@ -76,18 +76,19 @@ export function OverviewCard({
 			<div className="mb-3">
 				<h3 className="text-lg font-semibold">{meta.repoName}</h3>
 				<div className="mt-1 flex flex-wrap items-center gap-2">
-					{meta.currentBranch && (
+					{meta.currentBranch !== null && (
 						<span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
 							<GitBranch className="h-3 w-3" />
 							{meta.currentBranch}
 						</span>
 					)}
-					{meta.defaultBranch && meta.defaultBranch !== meta.currentBranch && (
-						<span className="text-xs text-muted-foreground">
-							default: {meta.defaultBranch}
-						</span>
-					)}
-					{meta.headShort && (
+					{meta.defaultBranch !== null &&
+						meta.defaultBranch !== meta.currentBranch && (
+							<span className="text-xs text-muted-foreground">
+								default: {meta.defaultBranch}
+							</span>
+						)}
+					{meta.headShort !== null && (
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<button
@@ -121,7 +122,7 @@ export function OverviewCard({
 						{status.conflicted.length > 1 ? "s" : ""}
 					</span>
 				)}
-				{meta.isShallow && (
+				{meta.isShallow === true && (
 					<span className="rounded bg-yellow-500/15 px-2 py-0.5 text-xs font-medium text-yellow-400">
 						Shallow Clone
 					</span>
@@ -129,7 +130,7 @@ export function OverviewCard({
 			</div>
 
 			{/* Remote */}
-			{remoteUrl && (
+			{remoteUrl !== null && (
 				<button
 					type="button"
 					onClick={handleOpenRemote}
@@ -145,13 +146,13 @@ export function OverviewCard({
 				<StatNumber label="Commits" value={formatNumber(logs.totalCommits)} />
 				<StatNumber label="Merges" value={formatNumber(logs.totalMerges)} />
 				<StatNumber label="Git dir" value={formatSize(config.gitDirSizeKiB)} />
-				{logs.firstCommitDate && (
+				{logs.firstCommitDate !== null && (
 					<StatNumber
 						label="First commit"
 						value={relativeDate(logs.firstCommitDate)}
 					/>
 				)}
-				{logs.lastCommit && (
+				{logs.lastCommit !== null && (
 					<div className="flex flex-col gap-0.5">
 						<span className="text-xs text-muted-foreground">Last commit</span>
 						<span className="text-lg font-semibold tabular-nums">
