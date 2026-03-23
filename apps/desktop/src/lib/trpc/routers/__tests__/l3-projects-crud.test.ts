@@ -13,15 +13,15 @@
  * - REORDER: Tab order reordering with edge cases
  */
 
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as schema from "@signoff/local-db";
 import { projects } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
-import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import * as schema from "@signoff/local-db";
 import { createProjectsRouter } from "../../routers/projects";
 
 const CREATE_TABLES_SQL = `
@@ -552,14 +552,14 @@ describe("L3 E2E: Project REORDER operations", () => {
 
 	test("reorders projects moving from higher to lower index", async () => {
 		// Create 5 projects
-		const projects = [];
+		const items = [];
 		for (let i = 0; i < 5; i++) {
 			const p = await router.create({
 				mainRepoPath: `/tmp/reorder-${i}`,
 				name: `Project ${i}`,
 				color: `#${i}11111`,
 			});
-			projects.push(p);
+			items.push(p);
 		}
 
 		// Move last item (index 4) to first position (index 0)
@@ -570,21 +570,21 @@ describe("L3 E2E: Project REORDER operations", () => {
 
 		// Verify list returns new order
 		const list = await router.list();
-		expect(list[0].id).toBe(projects[4].id); // Project 4 now first
-		expect(list[1].id).toBe(projects[0].id); // Project 0 now second
-		expect(list[4].id).toBe(projects[3].id); // Project 3 now last
+		expect(list[0].id).toBe(items[4].id); // Project 4 now first
+		expect(list[1].id).toBe(items[0].id); // Project 0 now second
+		expect(list[4].id).toBe(items[3].id); // Project 3 now last
 	});
 
 	test("reorders projects moving from lower to higher index", async () => {
 		// Create 5 projects
-		const projects = [];
+		const items = [];
 		for (let i = 0; i < 5; i++) {
 			const p = await router.create({
 				mainRepoPath: `/tmp/low-high-${i}`,
 				name: `LH ${i}`,
 				color: "#000",
 			});
-			projects.push(p);
+			items.push(p);
 		}
 
 		// Move first item to last position
@@ -594,8 +594,8 @@ describe("L3 E2E: Project REORDER operations", () => {
 		});
 
 		const list = await router.list();
-		expect(list[0].id).toBe(projects[1].id); // Was index 1
-		expect(list[4].id).toBe(projects[0].id); // Now last
+		expect(list[0].id).toBe(items[1].id); // Was index 1
+		expect(list[4].id).toBe(items[0].id); // Now last
 	});
 
 	test("maintains sequential tabOrder after reorder", async () => {
@@ -618,14 +618,14 @@ describe("L3 E2E: Project REORDER operations", () => {
 	});
 
 	test("reordering with same fromIndex and toIndex is no-op", async () => {
-		const projects = [];
+		const items = [];
 		for (let i = 0; i < 5; i++) {
 			const p = await router.create({
 				mainRepoPath: `/tmp/noop-${i}`,
 				name: `N ${i}`,
 				color: "#000",
 			});
-			projects.push(p);
+			items.push(p);
 		}
 
 		const before = await router.list();
@@ -641,14 +641,14 @@ describe("L3 E2E: Project REORDER operations", () => {
 	});
 
 	test("reorder adjacent items swaps them correctly", async () => {
-		const projects = [];
+		const items = [];
 		for (let i = 0; i < 3; i++) {
 			const p = await router.create({
 				mainRepoPath: `/tmp/adjacent-${i}`,
 				name: `A ${i}`,
 				color: "#000",
 			});
-			projects.push(p);
+			items.push(p);
 		}
 
 		// Swap positions 1 and 2
@@ -658,20 +658,20 @@ describe("L3 E2E: Project REORDER operations", () => {
 		});
 
 		const list = await router.list();
-		expect(list[0].id).toBe(projects[0].id); // Unchanged
-		expect(list[1].id).toBe(projects[2].id); // Was 2, now 1
-		expect(list[2].id).toBe(projects[1].id); // Was 1, now 2
+		expect(list[0].id).toBe(items[0].id); // Unchanged
+		expect(list[1].id).toBe(items[2].id); // Was 2, now 1
+		expect(list[2].id).toBe(items[1].id); // Was 1, now 2
 	});
 
 	test("reorder updates tabOrder in database", async () => {
-		const projects = [];
+		const items = [];
 		for (let i = 0; i < 4; i++) {
 			const p = await router.create({
 				mainRepoPath: `/tmp/db-reorder-${i}`,
 				name: `DR ${i}`,
 				color: "#000",
 			});
-			projects.push(p);
+			items.push(p);
 		}
 
 		await router.reorder({ fromIndex: 0, toIndex: 3 });
