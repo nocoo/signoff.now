@@ -113,6 +113,14 @@ Port the gitinfo collector logic into a library that runs under Node.js (Electro
 
 ### New exports from `@signoff/gitinfo`
 
+The actual directory structure is:
+- Types: `src/commands/types.ts` (report types, CollectorTier, CollectorError)
+- Executor interfaces: `src/executor/types.ts` (CommandExecutor, ExecResult, ExecOptions, FsReader)
+- Collector types: `src/commands/collectors/types.ts` (CollectorContext, Collector<T>)
+- Collector runners: `src/commands/collectors/run-collectors.ts` (runCollectors)
+- Individual collectors: `src/commands/collectors/*.collector.ts` (8 files)
+- Defaults: `src/commands/defaults.ts` (EMPTY_* constants)
+
 ```ts
 // apps/gitinfo/package.json — updated exports
 {
@@ -121,41 +129,169 @@ Port the gitinfo collector logic into a library that runs under Node.js (Electro
       "types": "./src/commands/types.ts",
       "default": "./src/commands/types.ts"
     },
-    "./collectors": {
-      "types": "./src/commands/collector.ts",
-      "default": "./src/commands/collector.ts"
+    "./executor": {
+      "types": "./src/executor/types.ts",
+      "default": "./src/executor/types.ts"
     },
-    "./core/*": {
-      "types": "./src/commands/core/*.ts",
-      "default": "./src/commands/core/*.ts"
+    "./collectors": {
+      "types": "./src/commands/collectors/types.ts",
+      "default": "./src/commands/collectors/types.ts"
+    },
+    "./collectors/run": {
+      "default": "./src/commands/collectors/run-collectors.ts"
+    },
+    "./collectors/all": {
+      "default": "./src/commands/collectors/all.ts"
+    },
+    "./defaults": {
+      "default": "./src/commands/defaults.ts"
     }
   }
 }
 ```
 
+New file `apps/gitinfo/src/commands/collectors/all.ts` (barrel re-export):
+```ts
+export { metaCollector } from "./meta.collector";
+export { statusCollector } from "./status.collector";
+export { branchesCollector } from "./branches.collector";
+export { logsCollector } from "./logs.collector";
+export { contributorsCollector } from "./contributors.collector";
+export { tagsCollector } from "./tags.collector";
+export { filesCollector } from "./files.collector";
+export { configCollector } from "./config.collector";
+```
+
+Consumer imports in desktop:
+```ts
+import type { GitInfoReport } from "@signoff/gitinfo";
+import type { CommandExecutor, ExecOptions, ExecResult, FsReader } from "@signoff/gitinfo/executor";
+import type { CollectorContext } from "@signoff/gitinfo/collectors";
+import { runCollectors } from "@signoff/gitinfo/collectors/run";
+import { metaCollector, statusCollector, ... } from "@signoff/gitinfo/collectors/all";
+import { EMPTY_META, EMPTY_STATUS, ... } from "@signoff/gitinfo/defaults";
+```
+
 ### Node executor implementation
+
+The `CommandExecutor` contract (`apps/gitinfo/src/executor/types.ts`) requires:
+1. **Never throw on non-zero exit** — return `{ stdout, stderr, exitCode }` with the real exit code. Many collector functions branch on `exitCode !== 0` without try/catch (e.g., `getHead()` at `meta.ts:28`, `getHooks()` at `config.ts:89`, `getLargestBlobs()` at `files.ts:167`).
+2. **Support `stdin`** — `files.ts:162` pipes SHA list via `opts.stdin` to `git cat-file --batch-check`.
+3. **Support `timeoutMs`** — per-command timeout with process kill.
+4. **Trim stdout/stderr** — match `Bun.spawn` executor behavior (`bun-executor.ts:33`).
+
+`node:child_process.execFile` throws on non-zero exit by default. We must use `spawn` (lower level) or catch the error and extract exit code + stdout/stderr from it.
 
 ```ts
 // apps/desktop/src/main/gitinfo/executor.ts
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import type { CommandExecutor, ExecResult } from "@signoff/gitinfo";
+import { spawn } from "node:child_process";
+import type { CommandExecutor, ExecOptions, ExecResult } from "@signoff/gitinfo/executor";
 
-const execFileAsync = promisify(execFile);
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export function createNodeExecutor(): CommandExecutor {
-  return async (cmd, args, opts) => {
-    const { stdout, stderr } = await execFileAsync(cmd, [...args], {
-      cwd: opts?.cwd,
-      timeout: opts?.timeoutMs ?? 30_000,
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, ...opts?.env },
+  return async (
+    cmd: string,
+    args: readonly string[],
+    opts?: ExecOptions,
+  ): Promise<ExecResult> => {
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+    return new Promise((resolve) => {
+      const proc = spawn(cmd, [...args], {
+        cwd: opts?.cwd,
+        env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+        stdio: [opts?.stdin != null ? "pipe" : "ignore", "pipe", "pipe"],
+        timeout: timeoutMs,
+      });
+
+      // Write stdin if provided (e.g., SHA list for git cat-file --batch-check)
+      if (opts?.stdin != null) {
+        proc.stdin!.write(opts.stdin);
+        proc.stdin!.end();
+      }
+
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+
+      proc.stdout!.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+      proc.stderr!.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+      proc.on("close", (code) => {
+        resolve({
+          stdout: Buffer.concat(stdoutChunks).toString().trimEnd(),
+          stderr: Buffer.concat(stderrChunks).toString().trimEnd(),
+          exitCode: code ?? 1,
+        });
+      });
+
+      proc.on("error", () => {
+        resolve({
+          stdout: Buffer.concat(stdoutChunks).toString().trimEnd(),
+          stderr: Buffer.concat(stderrChunks).toString().trimEnd(),
+          exitCode: 1,
+        });
+      });
     });
-    return {
-      stdout: stdout.trimEnd(),
-      stderr: stderr.trimEnd(),
-      exitCode: 0,
-    };
+  };
+}
+```
+
+**Key differences from `createBunExecutor()`**:
+- Uses `node:child_process.spawn` instead of `Bun.spawn`
+- Resolves (never rejects) — matches the Bun executor's contract of always returning `ExecResult`
+- Stdin piped via `proc.stdin.write()` + `.end()` instead of `Bun.spawn({ stdin: new Blob([...]) })`
+- Timeout handled by `spawn`'s built-in `timeout` option (sends SIGTERM)
+
+### Node FsReader implementation
+
+The `FsReader` interface is already implemented using `node:fs/promises` in `bun-fs-reader.ts` (despite its name — it only uses `readdir`, `stat` from node:fs, and `du -sk` via the executor). We can either:
+
+**Option A**: Import `createBunFsReader` directly — it has no Bun-specific code.
+**Option B**: Copy it as `createNodeFsReader` for clarity.
+
+**Decision**: Option A — just re-export. The function uses `node:fs/promises` (standard Node API) and `exec("du", ["-sk", ...])` via the injected executor. Zero Bun dependencies.
+
+```ts
+// apps/desktop/src/main/gitinfo/fs-reader.ts
+// Re-export directly — createBunFsReader uses only node:fs/promises + exec("du")
+export { createBunFsReader as createNodeFsReader } from "@signoff/gitinfo/executor/fs-reader";
+```
+
+Wait — this file isn't exported. Add to gitinfo exports:
+```ts
+// In package.json exports:
+"./executor/fs-reader": {
+  "default": "./src/executor/bun-fs-reader.ts"
+}
+```
+
+Or simpler: just copy the 38-line file into desktop. It's trivial.
+
+**Decision**: Copy the file. It's 38 lines of `node:fs/promises` + `exec("du")`. No maintenance burden, avoids complex export wiring for an internal utility.
+
+```ts
+// apps/desktop/src/main/gitinfo/fs-reader.ts
+import { readdir, stat } from "node:fs/promises";
+import type { CommandExecutor, FsReader } from "@signoff/gitinfo/executor";
+
+export function createNodeFsReader(exec: CommandExecutor): FsReader {
+  return {
+    async exists(path: string): Promise<boolean> {
+      try { await stat(path); return true; } catch { return false; }
+    },
+    async readdir(dirPath: string): Promise<string[]> {
+      try { return await readdir(dirPath); } catch { return []; }
+    },
+    async fileSize(path: string): Promise<number> {
+      return (await stat(path)).size;
+    },
+    async dirSizeKiB(path: string): Promise<number> {
+      const result = await exec("du", ["-sk", path]);
+      if (result.exitCode !== 0) return 0;
+      const sizeStr = result.stdout.split("\t")[0];
+      return sizeStr ? Number.parseInt(sizeStr, 10) : 0;
+    },
   };
 }
 ```
@@ -238,30 +374,45 @@ Currently `expandedProjectId` is a `useState` inside `WorkspaceSidebar` (`Worksp
 
 ### Solution: Lift to Zustand store
 
-Add `activeProjectId` to `useActiveWorkspaceStore` (the existing store, not a new one):
+Add `activeProjectId` and lift `expandedProjectId` into `useActiveWorkspaceStore` (the existing store, not a new one):
 
 ```ts
 // apps/desktop/src/renderer/stores/active-workspace.ts
 interface ActiveWorkspaceState {
   activeWorkspace: ActiveWorkspace | null;
-  activeProjectId: string | null;           // NEW
+  activeProjectId: string | null;                      // NEW — which project's dashboard to show
+  expandedProjectId: string | null;                    // NEW — lifted from useState at WorkspaceSidebar.tsx:57
   setActiveWorkspace: (workspace: ActiveWorkspace | null) => void;
-  setActiveProjectId: (id: string | null) => void;  // NEW
+  setActiveProjectId: (id: string | null) => void;    // NEW
+  setExpandedProjectId: (id: string | null) => void;  // NEW — replaces onToggleProject prop
   reset: () => void;
 }
 ```
 
+**Why lift `expandedProjectId`?** Currently it is `useState` inside `WorkspaceSidebar` (`WorkspaceSidebar.tsx:57`). Problems:
+1. Lost on component remount or sidebar collapse/expand cycle
+2. Invisible to `CollapsedProjectList` (which renders independently)
+3. Invisible to `MosaicLayout` (which needs `activeProjectId`, set in the same click)
+
+After lifting, both `ExpandedProjectList` and `CollapsedProjectList` read from the same store. The `expandedProjectId` controls the sidebar tree expand/collapse, while `activeProjectId` controls which project's dashboard is displayed.
+
+**Migration**: Remove the `useState` at `WorkspaceSidebar.tsx:57` and `onToggleProject` prop. Replace with:
+```tsx
+const expandedProjectId = useActiveWorkspaceStore((s) => s.expandedProjectId);
+const setExpandedProjectId = useActiveWorkspaceStore((s) => s.setExpandedProjectId);
+```
+
 **State transitions:**
 
-| Action | `activeProjectId` | `activeWorkspace` |
-|--------|-------------------|-------------------|
-| Click project (expand) | Set to project.id | Unchanged |
-| Click project (collapse) | Keep (dashboard stays) | Unchanged |
-| Click collapsed project icon | Set to project.id | Unchanged |
-| Click workspace | Derived from workspace.projectId | Set to workspace |
-| Workspace activated | Set to workspace.projectId | Set to workspace |
+| Action | `activeProjectId` | `expandedProjectId` | `activeWorkspace` |
+|--------|-------------------|---------------------|-------------------|
+| Click project (expand) | Set to project.id | Set to project.id | Unchanged |
+| Click project (collapse) | Keep (dashboard stays) | Set to null | Unchanged |
+| Click collapsed project icon | Set to project.id | Unchanged (N/A in collapsed view) | Unchanged |
+| Click workspace | Derived from workspace.projectId | Unchanged | Set to workspace |
+| Workspace activated | Set to workspace.projectId | Set to workspace.projectId | Set to workspace |
 
-**Key rule**: `activeProjectId` is always set when a workspace is active — derived from `activeWorkspace.projectId`. The dashboard only shows when `activeProjectId` is set AND `activeWorkspace` is null (or mosaic layout has no panes).
+**Key rule**: `activeProjectId` is always set when a workspace is active — derived from `activeWorkspace.projectId`. The dashboard only shows when `activeProjectId` is set AND `activeWorkspace` is null (or mosaic layout has no panes). `expandedProjectId` is purely a sidebar UI concern — it controls which project's workspace subtree is visible in the expanded sidebar.
 
 ### Sidebar collapsed state — project selection
 
@@ -645,9 +796,9 @@ if (layout === null) {
 ### 10.3 WorkspaceSidebar — Project click + Collapsed state
 
 **Expanded state** (`ExpandedProjectList`):
-- `expandedProjectId` stays for tree expand/collapse UI
-- Additionally calls `setActiveProjectId(project.id)` on project click
-- `expandedProjectId` is lifted from `useState` to the Zustand store (so it persists across sidebar collapse/expand cycles)
+- Remove `useState<string | null>(null)` at line 57 and the `onToggleProject` prop chain
+- Read `expandedProjectId` / `setExpandedProjectId` from `useActiveWorkspaceStore`
+- On project click: call both `setExpandedProjectId(...)` (toggle) and `setActiveProjectId(project.id)` (always set)
 
 **Collapsed state** (`CollapsedProjectList`, line 147):
 - Add `onClick={() => setActiveProjectId(project.id)}` to project icon buttons
@@ -655,6 +806,7 @@ if (layout === null) {
 
 **Workspace activation** (existing `handleActivate` in `WorkspaceList`):
 - After setting `activeWorkspace`, also set `activeProjectId` to `workspace.projectId`
+- Also set `expandedProjectId` to `workspace.projectId` (ensures the parent project tree stays open)
 
 ### 10.4 Router deps
 
