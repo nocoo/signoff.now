@@ -25,6 +25,14 @@ describe("useActiveWorkspaceStore", () => {
 		expect(useActiveWorkspaceStore.getState().activeWorkspace).toBeNull();
 	});
 
+	test("starts with null activeProjectId", () => {
+		expect(useActiveWorkspaceStore.getState().activeProjectId).toBeNull();
+	});
+
+	test("starts with null expandedProjectId", () => {
+		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBeNull();
+	});
+
 	test("sets active workspace", () => {
 		useActiveWorkspaceStore.getState().setActiveWorkspace(MOCK_WORKSPACE);
 		expect(useActiveWorkspaceStore.getState().activeWorkspace).toEqual(
@@ -38,9 +46,35 @@ describe("useActiveWorkspaceStore", () => {
 		expect(useActiveWorkspaceStore.getState().activeWorkspace).toBeNull();
 	});
 
-	test("reset clears active workspace", () => {
+	test("sets activeProjectId", () => {
+		useActiveWorkspaceStore.getState().setActiveProjectId("proj-1");
+		expect(useActiveWorkspaceStore.getState().activeProjectId).toBe("proj-1");
+	});
+
+	test("clears activeProjectId", () => {
+		useActiveWorkspaceStore.getState().setActiveProjectId("proj-1");
+		useActiveWorkspaceStore.getState().setActiveProjectId(null);
+		expect(useActiveWorkspaceStore.getState().activeProjectId).toBeNull();
+	});
+
+	test("sets expandedProjectId", () => {
+		useActiveWorkspaceStore.getState().setExpandedProjectId("proj-1");
+		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBe("proj-1");
+	});
+
+	test("clears expandedProjectId", () => {
+		useActiveWorkspaceStore.getState().setExpandedProjectId("proj-1");
+		useActiveWorkspaceStore.getState().setExpandedProjectId(null);
+		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBeNull();
+	});
+
+	test("reset clears all state", () => {
 		useActiveWorkspaceStore.getState().setActiveWorkspace(MOCK_WORKSPACE);
+		useActiveWorkspaceStore.getState().setActiveProjectId("proj-1");
+		useActiveWorkspaceStore.getState().setExpandedProjectId("proj-2");
 		useActiveWorkspaceStore.getState().reset();
 		expect(useActiveWorkspaceStore.getState().activeWorkspace).toBeNull();
+		expect(useActiveWorkspaceStore.getState().activeProjectId).toBeNull();
+		expect(useActiveWorkspaceStore.getState().expandedProjectId).toBeNull();
 	});
 });
