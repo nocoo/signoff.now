@@ -145,7 +145,7 @@ export async function getLargestBlobs(
 		if (/^[0-9a-f]{40}$/.test(token)) {
 			// Check if next token is a path= token
 			const next = tokens[i + 1];
-			if (next && next.startsWith("path=")) {
+			if (next?.startsWith("path=")) {
 				const path = next.slice(5);
 				if (path !== "") {
 					shaToPath.set(token, path);
@@ -158,7 +158,7 @@ export async function getLargestBlobs(
 	if (shaToPath.size === 0) return [];
 
 	// Pass SHAs as stdin to git cat-file --batch-check (no shell)
-	const shasInput = Array.from(shaToPath.keys()).join("\n") + "\n";
+	const shasInput = `${Array.from(shaToPath.keys()).join("\n")}\n`;
 	const batchResult = await exec("git", ["cat-file", "--batch-check"], {
 		cwd,
 		stdin: shasInput,
