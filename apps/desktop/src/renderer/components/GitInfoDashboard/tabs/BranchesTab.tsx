@@ -30,7 +30,7 @@ export function BranchesTab({ branches }: BranchesTabProps) {
 				{branches.current !== null && (
 					<div className="flex flex-col gap-0.5">
 						<span className="text-xs text-muted-foreground">Current</span>
-						<span className="inline-flex items-center gap-1 text-lg font-semibold">
+						<span className="inline-flex items-center gap-1 text-sm font-semibold font-mono">
 							<GitBranch className="h-4 w-4 text-primary" />
 							{branches.current}
 						</span>
@@ -47,14 +47,16 @@ export function BranchesTab({ branches }: BranchesTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 text-xs">Name</TableHead>
-								<TableHead className="h-8 text-xs">Upstream</TableHead>
-								<TableHead className="h-8 text-right text-xs">Ahead</TableHead>
-								<TableHead className="h-8 text-right text-xs">Behind</TableHead>
-								<TableHead className="h-8 text-center text-xs">
+								<TableHead className="h-10 text-sm">Name</TableHead>
+								<TableHead className="h-10 text-sm">Upstream</TableHead>
+								<TableHead className="h-10 text-right text-sm">Ahead</TableHead>
+								<TableHead className="h-10 text-right text-sm">
+									Behind
+								</TableHead>
+								<TableHead className="h-10 text-center text-sm">
 									Merged
 								</TableHead>
-								<TableHead className="h-8 text-right text-xs">
+								<TableHead className="h-10 text-right text-sm">
 									Last Commit
 								</TableHead>
 							</TableRow>
@@ -66,16 +68,16 @@ export function BranchesTab({ branches }: BranchesTabProps) {
 									<TableRow key={branch.name}>
 										<TableCell
 											className={cn(
-												"py-1.5 text-xs",
+												"p-2 text-sm",
 												isCurrent && "font-bold text-primary",
 											)}
 										>
 											{branch.name}
 										</TableCell>
-										<TableCell className="py-1.5 text-xs text-muted-foreground">
+										<TableCell className="p-2 text-sm text-muted-foreground">
 											{branch.upstream ?? "—"}
 										</TableCell>
-										<TableCell className="py-1.5 text-right text-xs tabular-nums">
+										<TableCell className="p-2 text-right text-sm tabular-nums">
 											{branch.aheadBehind !== null &&
 											branch.aheadBehind.ahead > 0 ? (
 												<span className="text-green-400">
@@ -85,7 +87,7 @@ export function BranchesTab({ branches }: BranchesTabProps) {
 												"—"
 											)}
 										</TableCell>
-										<TableCell className="py-1.5 text-right text-xs tabular-nums">
+										<TableCell className="p-2 text-right text-sm tabular-nums">
 											{branch.aheadBehind !== null &&
 											branch.aheadBehind.behind > 0 ? (
 												<span className="text-red-400">
@@ -95,14 +97,14 @@ export function BranchesTab({ branches }: BranchesTabProps) {
 												"—"
 											)}
 										</TableCell>
-										<TableCell className="py-1.5 text-center text-xs">
+										<TableCell className="p-2 text-center text-sm">
 											{branch.isMerged === true ? (
 												<span className="text-green-400">✓</span>
 											) : (
 												""
 											)}
 										</TableCell>
-										<TableCell className="py-1.5 text-right text-xs text-muted-foreground">
+										<TableCell className="p-2 text-right text-sm text-muted-foreground">
 											{relativeDate(branch.lastCommitDate)}
 										</TableCell>
 									</TableRow>
@@ -122,13 +124,13 @@ export function BranchesTab({ branches }: BranchesTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 text-xs">Name</TableHead>
+								<TableHead className="h-10 text-sm">Name</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
 							{branches.remote.map((name) => (
 								<TableRow key={name}>
-									<TableCell className="py-1 text-xs text-muted-foreground">
+									<TableCell className="p-2 text-sm text-muted-foreground">
 										{name}
 									</TableCell>
 								</TableRow>

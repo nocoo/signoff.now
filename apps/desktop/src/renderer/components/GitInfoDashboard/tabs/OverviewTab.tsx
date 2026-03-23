@@ -94,7 +94,7 @@ export function OverviewTab({
 		<div className="flex flex-col gap-6">
 			{/* Repo header */}
 			<div>
-				<h3 className="text-xl font-semibold">{meta.repoName}</h3>
+				<h3 className="text-lg font-semibold">{meta.repoName}</h3>
 				<div className="mt-2 flex flex-wrap items-center gap-2">
 					{meta.currentBranch !== null && (
 						<span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -178,7 +178,7 @@ export function OverviewTab({
 				{logs.lastCommit !== null && (
 					<div className="flex flex-col gap-0.5">
 						<span className="text-xs text-muted-foreground">Last commit</span>
-						<span className="text-lg font-semibold tabular-nums">
+						<span className="text-sm font-semibold font-mono tabular-nums">
 							{relativeDate(logs.lastCommit.date)}
 						</span>
 						<span className="truncate text-xs text-muted-foreground">
@@ -254,7 +254,7 @@ export function OverviewTab({
 
 				{config.hooks.length > 0 && (
 					<div className="mb-3">
-						<h4 className="mb-1 text-xs font-medium text-muted-foreground">
+						<h4 className="mb-1 text-sm font-medium text-muted-foreground">
 							Hooks
 						</h4>
 						<div className="flex flex-wrap gap-1">
@@ -272,23 +272,23 @@ export function OverviewTab({
 
 				{filteredConfig.length > 0 && (
 					<div>
-						<h4 className="mb-1 text-xs font-medium text-muted-foreground">
+						<h4 className="mb-1 text-sm font-medium text-muted-foreground">
 							Key config
 						</h4>
 						<Table>
 							<TableHeader>
 								<TableRow>
-									<TableHead className="h-8 text-xs">Key</TableHead>
-									<TableHead className="h-8 text-xs">Value</TableHead>
+									<TableHead className="h-10 text-sm">Key</TableHead>
+									<TableHead className="h-10 text-sm">Value</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
 								{filteredConfig.map(({ key, value }) => (
 									<TableRow key={key}>
-										<TableCell className="py-1 font-mono text-xs text-muted-foreground">
+										<TableCell className="p-2 font-mono text-sm text-muted-foreground">
 											{key}
 										</TableCell>
-										<TableCell className="py-1 text-xs">{value}</TableCell>
+										<TableCell className="p-2 text-sm">{value}</TableCell>
 									</TableRow>
 								))}
 							</TableBody>

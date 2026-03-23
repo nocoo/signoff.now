@@ -65,18 +65,18 @@ export function ContributorsTab({ contributors }: ContributorsTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 w-10 text-xs">#</TableHead>
-								<TableHead className="h-8 text-xs">Name</TableHead>
-								<TableHead className="h-8 text-xs">Email</TableHead>
-								<TableHead className="h-8 text-right text-xs">
+								<TableHead className="h-10 w-10 text-sm">#</TableHead>
+								<TableHead className="h-10 text-sm">Name</TableHead>
+								<TableHead className="h-10 text-sm">Email</TableHead>
+								<TableHead className="h-10 text-right text-sm">
 									Commits
 								</TableHead>
 								{hasLoc ? (
 									<>
-										<TableHead className="h-8 text-right text-xs">
+										<TableHead className="h-10 text-right text-sm">
 											+Lines
 										</TableHead>
-										<TableHead className="h-8 text-right text-xs">
+										<TableHead className="h-10 text-right text-sm">
 											-Lines
 										</TableHead>
 									</>
@@ -87,27 +87,27 @@ export function ContributorsTab({ contributors }: ContributorsTabProps) {
 							{contributors.authors.map((author, i) => {
 								const stats = statsMap.get(author.email);
 								return (
-									<TableRow key={author.email}>
-										<TableCell className="py-1.5 text-xs text-muted-foreground">
+									<TableRow key={`${author.email}-${i}`}>
+										<TableCell className="p-2 text-sm text-muted-foreground">
 											{i + 1}
 										</TableCell>
-										<TableCell className="py-1.5 text-xs">
+										<TableCell className="p-2 text-sm">
 											{author.name || "—"}
 										</TableCell>
-										<TableCell className="py-1.5 font-mono text-xs text-muted-foreground">
+										<TableCell className="p-2 font-mono text-sm text-muted-foreground">
 											{author.email}
 										</TableCell>
-										<TableCell className="py-1.5 text-right text-xs tabular-nums">
+										<TableCell className="p-2 text-right text-sm tabular-nums">
 											{author.commits.toLocaleString()}
 										</TableCell>
 										{hasLoc ? (
 											<>
-												<TableCell className="py-1.5 text-right text-xs tabular-nums text-green-400">
+												<TableCell className="p-2 text-right text-sm tabular-nums text-green-400">
 													{stats
 														? `+${stats.linesAdded.toLocaleString()}`
 														: "—"}
 												</TableCell>
-												<TableCell className="py-1.5 text-right text-xs tabular-nums text-red-400">
+												<TableCell className="p-2 text-right text-sm tabular-nums text-red-400">
 													{stats
 														? `-${stats.linesDeleted.toLocaleString()}`
 														: "—"}

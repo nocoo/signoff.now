@@ -20,9 +20,9 @@ export function DashboardCard({
 }: DashboardCardProps) {
 	return (
 		<div
-			className={cn("rounded-lg border border-border bg-card p-4", className)}
+			className={cn("rounded-lg border border-border bg-card p-3", className)}
 		>
-			<div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+			<div className="mb-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
 				{icon}
 				{title}
 			</div>

@@ -74,7 +74,7 @@ export function BarChart({
 										minHeight: item.value > 0 ? "4px" : "1px",
 									}}
 								/>
-								<span className="text-[9px] text-muted-foreground leading-none">
+								<span className="text-[10px] text-muted-foreground leading-none">
 									{item.label}
 								</span>
 							</div>
@@ -92,12 +92,12 @@ export function BarChart({
 		<div className={cn("flex flex-col gap-1.5", className)}>
 			{visible.map((item, i) => (
 				<div key={`${item.label}-${i}`} className="flex items-center gap-2">
-					<span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
+					<span className="w-24 shrink-0 truncate text-sm text-muted-foreground">
 						{item.label}
 					</span>
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<div className="relative h-4 flex-1 rounded bg-muted/50">
+							<div className="relative h-5 flex-1 rounded bg-muted/50">
 								<div
 									className={cn(
 										"h-full rounded",
@@ -114,7 +114,7 @@ export function BarChart({
 							{item.label}: {item.value}
 						</TooltipContent>
 					</Tooltip>
-					<span className="w-8 shrink-0 text-right text-xs tabular-nums">
+					<span className="w-10 shrink-0 text-right text-sm tabular-nums">
 						{item.value}
 					</span>
 				</div>

@@ -68,17 +68,17 @@ export function FilesTab({ files }: FilesTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 text-xs">Path</TableHead>
-								<TableHead className="h-8 text-right text-xs">Size</TableHead>
+								<TableHead className="h-10 text-sm">Path</TableHead>
+								<TableHead className="h-10 text-right text-sm">Size</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
 							{files.largestTracked.map((f) => (
 								<TableRow key={f.path}>
-									<TableCell className="py-1.5 font-mono text-xs text-muted-foreground">
+									<TableCell className="p-2 font-mono text-sm text-muted-foreground">
 										{f.path}
 									</TableCell>
-									<TableCell className="py-1.5 text-right text-xs tabular-nums">
+									<TableCell className="p-2 text-right text-sm tabular-nums">
 										{formatBytes(f.sizeBytes)}
 									</TableCell>
 								</TableRow>
@@ -104,8 +104,8 @@ export function FilesTab({ files }: FilesTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 text-xs">Path</TableHead>
-								<TableHead className="h-8 text-right text-xs">
+								<TableHead className="h-10 text-sm">Path</TableHead>
+								<TableHead className="h-10 text-right text-sm">
 									Changes
 								</TableHead>
 							</TableRow>
@@ -113,10 +113,10 @@ export function FilesTab({ files }: FilesTabProps) {
 						<TableBody>
 							{(files.mostChanged ?? []).slice(0, 20).map((f) => (
 								<TableRow key={f.path}>
-									<TableCell className="py-1.5 font-mono text-xs text-muted-foreground">
+									<TableCell className="p-2 font-mono text-sm text-muted-foreground">
 										{f.path}
 									</TableCell>
-									<TableCell className="py-1.5 text-right text-xs tabular-nums">
+									<TableCell className="p-2 text-right text-sm tabular-nums">
 										{f.count.toLocaleString()}
 									</TableCell>
 								</TableRow>
@@ -135,15 +135,15 @@ export function FilesTab({ files }: FilesTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 text-xs">Path</TableHead>
-								<TableHead className="h-8 text-xs">SHA</TableHead>
-								<TableHead className="h-8 text-right text-xs">Size</TableHead>
+								<TableHead className="h-10 text-sm">Path</TableHead>
+								<TableHead className="h-10 text-sm">SHA</TableHead>
+								<TableHead className="h-10 text-right text-sm">Size</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
 							{files.largestBlobs.map((b) => (
 								<TableRow key={b.sha}>
-									<TableCell className="py-1.5 font-mono text-xs text-muted-foreground">
+									<TableCell className="p-2 font-mono text-sm text-muted-foreground">
 										{b.path}
 									</TableCell>
 									<TableCell
@@ -152,7 +152,7 @@ export function FilesTab({ files }: FilesTabProps) {
 									>
 										{b.sha.slice(0, 7)}
 									</TableCell>
-									<TableCell className="py-1.5 text-right text-xs tabular-nums">
+									<TableCell className="p-2 text-right text-sm tabular-nums">
 										{formatBytes(b.sizeBytes)}
 									</TableCell>
 								</TableRow>
@@ -171,13 +171,13 @@ export function FilesTab({ files }: FilesTabProps) {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="h-8 text-xs">Path</TableHead>
+								<TableHead className="h-10 text-sm">Path</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
 							{files.binaryFiles.map((f) => (
 								<TableRow key={f}>
-									<TableCell className="py-1 font-mono text-xs text-muted-foreground">
+									<TableCell className="p-2 font-mono text-sm text-muted-foreground">
 										{f}
 									</TableCell>
 								</TableRow>

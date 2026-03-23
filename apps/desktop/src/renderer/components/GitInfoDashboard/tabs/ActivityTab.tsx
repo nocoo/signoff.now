@@ -71,7 +71,7 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 				{logs.lastCommit !== null && (
 					<div className="flex flex-col gap-0.5">
 						<span className="text-xs text-muted-foreground">Last commit</span>
-						<span className="text-lg font-semibold tabular-nums">
+						<span className="text-sm font-semibold font-mono tabular-nums">
 							{relativeDate(logs.lastCommit.date)}
 						</span>
 						<span className="truncate text-xs text-muted-foreground">
@@ -89,7 +89,7 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 				>
 					<div className="grid grid-cols-2 gap-4">
 						<div>
-							<h4 className="mb-2 text-xs font-medium text-muted-foreground">
+							<h4 className="mb-2 text-sm font-medium text-muted-foreground">
 								By day of week
 							</h4>
 							<BarChart
@@ -100,7 +100,7 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 							/>
 						</div>
 						<div>
-							<h4 className="mb-2 text-xs font-medium text-muted-foreground">
+							<h4 className="mb-2 text-sm font-medium text-muted-foreground">
 								By hour
 							</h4>
 							<BarChart
@@ -112,7 +112,7 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 						</div>
 						{monthItems.length > 0 && (
 							<div className="col-span-2">
-								<h4 className="mb-2 text-xs font-medium text-muted-foreground">
+								<h4 className="mb-2 text-sm font-medium text-muted-foreground">
 									By month (last 12)
 								</h4>
 								<BarChart
@@ -146,14 +146,14 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 					<div className="flex flex-col gap-4">
 						{/* Day of week table */}
 						<div>
-							<h4 className="mb-1 text-xs font-medium text-muted-foreground">
+							<h4 className="mb-1 text-sm font-medium text-muted-foreground">
 								By day of week
 							</h4>
 							<Table>
 								<TableHeader>
 									<TableRow>
-										<TableHead className="h-8 text-xs">Day</TableHead>
-										<TableHead className="h-8 text-right text-xs">
+										<TableHead className="h-10 text-sm">Day</TableHead>
+										<TableHead className="h-10 text-right text-sm">
 											Commits
 										</TableHead>
 									</TableRow>
@@ -161,10 +161,10 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 								<TableBody>
 									{dayItems.map((item) => (
 										<TableRow key={item.label}>
-											<TableCell className="py-1 text-xs">
+											<TableCell className="p-2 text-sm">
 												{item.label}
 											</TableCell>
-											<TableCell className="py-1 text-right text-xs tabular-nums">
+											<TableCell className="p-2 text-right text-sm tabular-nums">
 												{item.value.toLocaleString()}
 											</TableCell>
 										</TableRow>
@@ -175,14 +175,14 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 
 						{/* Hour table */}
 						<div>
-							<h4 className="mb-1 text-xs font-medium text-muted-foreground">
+							<h4 className="mb-1 text-sm font-medium text-muted-foreground">
 								By hour
 							</h4>
 							<Table>
 								<TableHeader>
 									<TableRow>
-										<TableHead className="h-8 text-xs">Hour</TableHead>
-										<TableHead className="h-8 text-right text-xs">
+										<TableHead className="h-10 text-sm">Hour</TableHead>
+										<TableHead className="h-10 text-right text-sm">
 											Commits
 										</TableHead>
 									</TableRow>
@@ -190,10 +190,10 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 								<TableBody>
 									{hourItems.map((item) => (
 										<TableRow key={item.label}>
-											<TableCell className="py-1 text-xs">
+											<TableCell className="p-2 text-sm">
 												{item.label}:00
 											</TableCell>
-											<TableCell className="py-1 text-right text-xs tabular-nums">
+											<TableCell className="p-2 text-right text-sm tabular-nums">
 												{item.value.toLocaleString()}
 											</TableCell>
 										</TableRow>
@@ -205,14 +205,14 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 						{/* Month table */}
 						{monthItems.length > 0 && (
 							<div>
-								<h4 className="mb-1 text-xs font-medium text-muted-foreground">
+								<h4 className="mb-1 text-sm font-medium text-muted-foreground">
 									By month
 								</h4>
 								<Table>
 									<TableHeader>
 										<TableRow>
-											<TableHead className="h-8 text-xs">Month</TableHead>
-											<TableHead className="h-8 text-right text-xs">
+											<TableHead className="h-10 text-sm">Month</TableHead>
+											<TableHead className="h-10 text-right text-sm">
 												Commits
 											</TableHead>
 										</TableRow>
@@ -220,10 +220,10 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 									<TableBody>
 										{monthItems.map((item) => (
 											<TableRow key={item.label}>
-												<TableCell className="py-1 text-xs">
+												<TableCell className="p-2 text-sm">
 													{item.label}
 												</TableCell>
-												<TableCell className="py-1 text-right text-xs tabular-nums">
+												<TableCell className="p-2 text-right text-sm tabular-nums">
 													{item.value.toLocaleString()}
 												</TableCell>
 											</TableRow>
@@ -236,14 +236,14 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 						{/* Conventional types table */}
 						{typeItems.length > 0 && (
 							<div>
-								<h4 className="mb-1 text-xs font-medium text-muted-foreground">
+								<h4 className="mb-1 text-sm font-medium text-muted-foreground">
 									Conventional types
 								</h4>
 								<Table>
 									<TableHeader>
 										<TableRow>
-											<TableHead className="h-8 text-xs">Type</TableHead>
-											<TableHead className="h-8 text-right text-xs">
+											<TableHead className="h-10 text-sm">Type</TableHead>
+											<TableHead className="h-10 text-right text-sm">
 												Count
 											</TableHead>
 										</TableRow>
@@ -251,10 +251,10 @@ export function ActivityTab({ logs }: ActivityTabProps) {
 									<TableBody>
 										{typeItems.map((item) => (
 											<TableRow key={item.label}>
-												<TableCell className="py-1 text-xs">
+												<TableCell className="p-2 text-sm">
 													{item.label}
 												</TableCell>
-												<TableCell className="py-1 text-right text-xs tabular-nums">
+												<TableCell className="p-2 text-right text-sm tabular-nums">
 													{item.value.toLocaleString()}
 												</TableCell>
 											</TableRow>
