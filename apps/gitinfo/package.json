@@ -10,6 +10,23 @@
 		".": {
 			"types": "./src/commands/types.ts",
 			"default": "./src/commands/types.ts"
+		},
+		"./executor": {
+			"types": "./src/executor/types.ts",
+			"default": "./src/executor/types.ts"
+		},
+		"./collectors": {
+			"types": "./src/commands/collectors/types.ts",
+			"default": "./src/commands/collectors/types.ts"
+		},
+		"./collectors/run": {
+			"default": "./src/commands/collectors/run-collectors.ts"
+		},
+		"./collectors/all": {
+			"default": "./src/commands/collectors/all.ts"
+		},
+		"./defaults": {
+			"default": "./src/commands/defaults.ts"
 		}
 	},
 	"scripts": {
