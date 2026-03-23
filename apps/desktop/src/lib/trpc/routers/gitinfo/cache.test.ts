@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { CollectorTier } from "@signoff/gitinfo";
 import { clearAll, getCached, invalidate, setCached } from "./cache";
 
 // Use a minimal mock report — only needs to satisfy the type
 const mockReport = {
 	generatedAt: "2026-01-01T00:00:00.000Z",
-	tiers: ["instant", "moderate", "slow"],
+	tiers: ["instant", "moderate", "slow"] as CollectorTier[],
 	durationMs: 100,
 	meta: {} as never,
 	status: {} as never,
