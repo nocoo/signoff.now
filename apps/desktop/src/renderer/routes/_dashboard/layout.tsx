@@ -1,14 +1,13 @@
 /**
  * Dashboard layout — the main app shell.
  *
- * Top bar + two-column layout (matching superset):
+ * Top bar + two-column layout:
  * 0. TopBar — drag handle, sidebar toggle, window controls
- * 1. Workspace sidebar (left) — project/workspace list, collapsible to 52px
+ * 1. Project sidebar (left) — project list with dashboard pages, collapsible to 52px
  * 2. Outlet (right) — workspace page (mosaic + right sidebar)
  */
 
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { NewWorkspaceModal } from "../../components/NewWorkspaceModal";
 import { ResizablePanel } from "../../components/ResizablePanel";
 import { WorkspaceSidebar } from "../../components/Sidebar/WorkspaceSidebar";
 import { TopBar } from "../../components/TopBar";
@@ -56,7 +55,6 @@ function DashboardLayout() {
 				)}
 				<Outlet />
 			</div>
-			<NewWorkspaceModal />
 		</div>
 	);
 }
