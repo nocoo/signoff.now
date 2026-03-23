@@ -179,7 +179,7 @@ function CollapsedProjectList() {
 
 	if (!projectList?.length) {
 		return (
-			<div className="flex flex-col items-center gap-2 pt-2 px-2">
+			<div className="flex flex-col items-center gap-2 pt-3 px-2">
 				<div className="rounded p-2 text-muted-foreground hover:bg-accent">
 					<FolderGit2 className="h-5 w-5" />
 				</div>
@@ -188,7 +188,7 @@ function CollapsedProjectList() {
 	}
 
 	return (
-		<div className="flex flex-col items-center gap-1 pt-2 px-2">
+		<div className="flex flex-col items-center gap-2 pt-3 px-2">
 			{projectList.map(
 				(project: { id: string; name: string; color: string }) => (
 					<Tooltip key={project.id}>
@@ -196,9 +196,9 @@ function CollapsedProjectList() {
 							<button
 								type="button"
 								className={cn(
-									"flex h-8 w-8 items-center justify-center rounded text-xs font-bold text-white",
+									"flex h-9 w-9 items-center justify-center rounded-md text-sm font-semibold text-white transition-colors hover:opacity-90",
 									activeProjectId === project.id &&
-										"ring-2 ring-primary ring-offset-1 ring-offset-background",
+										"ring-2 ring-primary ring-offset-2 ring-offset-background",
 								)}
 								style={{ backgroundColor: project.color }}
 								onClick={() => setActiveProjectId(project.id)}
