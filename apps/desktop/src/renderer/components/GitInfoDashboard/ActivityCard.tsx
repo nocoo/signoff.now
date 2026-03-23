@@ -46,11 +46,7 @@ export function ActivityCard({ logs }: ActivityCardProps) {
 		: [];
 
 	return (
-		<DashboardCard
-			title="Activity"
-			icon={<Activity className="h-4 w-4" />}
-			className="col-span-2"
-		>
+		<DashboardCard title="Activity" icon={<Activity className="h-4 w-4" />}>
 			<div className="mb-3 flex gap-4">
 				<StatNumber
 					label="Total commits"
@@ -66,7 +62,12 @@ export function ActivityCard({ logs }: ActivityCardProps) {
 						<h4 className="mb-2 text-xs font-medium text-muted-foreground">
 							By day of week
 						</h4>
-						<BarChart items={dayItems} direction="vertical" className="h-24" />
+						<BarChart
+							items={dayItems}
+							direction="vertical"
+							className="h-24"
+							colorful
+						/>
 					</div>
 
 					{/* By hour */}
@@ -74,7 +75,12 @@ export function ActivityCard({ logs }: ActivityCardProps) {
 						<h4 className="mb-2 text-xs font-medium text-muted-foreground">
 							By hour
 						</h4>
-						<BarChart items={hourItems} direction="vertical" className="h-24" />
+						<BarChart
+							items={hourItems}
+							direction="vertical"
+							className="h-24"
+							barColor="bg-cyan-500/60"
+						/>
 					</div>
 
 					{/* By month */}
@@ -87,6 +93,7 @@ export function ActivityCard({ logs }: ActivityCardProps) {
 								items={monthItems}
 								direction="vertical"
 								className="h-20"
+								barColor="bg-emerald-500/60"
 							/>
 						</div>
 					)}
@@ -99,7 +106,12 @@ export function ActivityCard({ logs }: ActivityCardProps) {
 					<h4 className="mb-2 text-xs font-medium text-muted-foreground">
 						Conventional commit types
 					</h4>
-					<BarChart items={typeItems} direction="horizontal" maxItems={8} />
+					<BarChart
+						items={typeItems}
+						direction="horizontal"
+						maxItems={8}
+						colorful
+					/>
 				</div>
 			)}
 		</DashboardCard>

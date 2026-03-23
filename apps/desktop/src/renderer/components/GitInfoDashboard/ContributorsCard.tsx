@@ -32,7 +32,7 @@ export function ContributorsCard({ contributors }: ContributorsCardProps) {
 
 			{authorItems.length > 0 && (
 				<div className="mb-3">
-					<BarChart items={authorItems} direction="horizontal" />
+					<BarChart items={authorItems} direction="horizontal" colorful />
 				</div>
 			)}
 

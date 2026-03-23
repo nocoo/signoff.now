@@ -42,7 +42,7 @@ export function FilesCard({ files }: FilesCardProps) {
 					<h4 className="mb-2 text-xs font-medium text-muted-foreground">
 						File types
 					</h4>
-					<BarChart items={typeItems} direction="horizontal" />
+					<BarChart items={typeItems} direction="horizontal" colorful />
 				</div>
 			)}
 
@@ -75,7 +75,11 @@ export function FilesCard({ files }: FilesCardProps) {
 					<h4 className="mb-2 text-xs font-medium text-muted-foreground">
 						Most changed files
 					</h4>
-					<BarChart items={churnItems} direction="horizontal" />
+					<BarChart
+						items={churnItems}
+						direction="horizontal"
+						barColor="bg-amber-500/60"
+					/>
 				</div>
 			)}
 

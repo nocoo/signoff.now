@@ -49,20 +49,37 @@ export function GitInfoDashboard({ projectId }: GitInfoDashboardProps) {
 
 	return (
 		<div className="h-full overflow-y-auto p-6">
-			<div className="mx-auto grid max-w-6xl grid-cols-2 gap-4">
-				<OverviewCard
-					meta={report.meta}
-					logs={report.logs}
-					status={report.status}
-					config={report.config}
-				/>
-				<BranchesCard branches={report.branches} />
-				<ActivityCard logs={report.logs} />
-				<ContributorsCard contributors={report.contributors} />
-				<FilesCard files={report.files} />
-				<TagsCard tags={report.tags} />
-				<StatusCard status={report.status} />
-				<ConfigCard config={report.config} />
+			{/* CSS columns masonry: cards fill naturally based on their content height */}
+			<div className="mx-auto max-w-6xl columns-1 gap-4 md:columns-2 lg:columns-3">
+				<div className="mb-4 break-inside-avoid">
+					<OverviewCard
+						meta={report.meta}
+						logs={report.logs}
+						status={report.status}
+						config={report.config}
+					/>
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<StatusCard status={report.status} />
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<BranchesCard branches={report.branches} />
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<ContributorsCard contributors={report.contributors} />
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<ActivityCard logs={report.logs} />
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<FilesCard files={report.files} />
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<TagsCard tags={report.tags} />
+				</div>
+				<div className="mb-4 break-inside-avoid">
+					<ConfigCard config={report.config} />
+				</div>
 			</div>
 		</div>
 	);
