@@ -819,26 +819,26 @@ if (layout === null) {
 
 ## 12. Implementation Order
 
-| Step | Task | Files |
-|------|------|-------|
-| 1 | Update `@signoff/gitinfo` exports — expose collector functions, executor/fs interfaces | `apps/gitinfo/package.json`, new barrel exports |
-| 2 | Add `@signoff/gitinfo` to desktop dependencies | `apps/desktop/package.json` |
-| 3 | Create Node executor + fs-reader | `main/gitinfo/executor.ts`, `main/gitinfo/fs-reader.ts` |
-| 4 | Create `collectAll()` orchestrator | `main/gitinfo/collect.ts` |
-| 5 | Create gitinfo tRPC router with cache | `routers/gitinfo/index.ts`, `routers/gitinfo/cache.ts` |
-| 6 | Register router in root | `routers/index.ts` |
-| 7 | Add `activeProjectId` + lift `expandedProjectId` to store | `stores/active-workspace.ts` |
-| 8 | Update WorkspaceSidebar — both collapsed/expanded project click, add refresh button | `Sidebar/WorkspaceSidebar.tsx` |
-| 9 | Create DashboardCard shell + StatNumber + BarChart utilities | `GitInfoDashboard/DashboardCard.tsx`, `StatNumber.tsx`, `BarChart.tsx` |
-| 10 | Create OverviewCard | `GitInfoDashboard/OverviewCard.tsx` |
-| 11 | Create BranchesCard | `GitInfoDashboard/BranchesCard.tsx` |
-| 12 | Create ActivityCard (charts) | `GitInfoDashboard/ActivityCard.tsx` |
-| 13 | Create ContributorsCard | `GitInfoDashboard/ContributorsCard.tsx` |
-| 14 | Create FilesCard | `GitInfoDashboard/FilesCard.tsx` |
-| 15 | Create TagsCard | `GitInfoDashboard/TagsCard.tsx` |
-| 16 | Create StatusCard | `GitInfoDashboard/StatusCard.tsx` |
-| 17 | Create ConfigCard | `GitInfoDashboard/ConfigCard.tsx` |
-| 18 | Create DashboardSkeleton | `GitInfoDashboard/DashboardSkeleton.tsx` |
-| 19 | Create main GitInfoDashboard index | `GitInfoDashboard/index.tsx` |
-| 20 | Integrate into MosaicLayout fallback | `MosaicLayout/index.tsx` |
-| 21 | Verify lint + typecheck + tests | — |
+| Step | Task | Files | Status |
+|------|------|-------|--------|
+| 1 | Update `@signoff/gitinfo` exports — expose collector functions, executor/fs interfaces | `apps/gitinfo/package.json`, new barrel exports | ✅ |
+| 2 | Add `@signoff/gitinfo` to desktop dependencies | `apps/desktop/package.json` | ✅ |
+| 3 | Create Node executor + fs-reader | `main/gitinfo/executor.ts`, `main/gitinfo/fs-reader.ts` | ✅ |
+| 4 | Create `collectAll()` orchestrator | `main/gitinfo/collect.ts` | ✅ |
+| 5 | Create gitinfo tRPC router with cache | `routers/gitinfo/index.ts`, `routers/gitinfo/cache.ts` | ✅ |
+| 6 | Register router in root | `routers/index.ts` | ✅ |
+| 7 | Add `activeProjectId` + lift `expandedProjectId` to store | `stores/active-workspace.ts` | ✅ |
+| 8 | Update WorkspaceSidebar — both collapsed/expanded project click, add refresh button | `Sidebar/WorkspaceSidebar.tsx` | ✅ |
+| 9 | Create DashboardCard shell + StatNumber + BarChart utilities | `GitInfoDashboard/DashboardCard.tsx`, `StatNumber.tsx`, `BarChart.tsx` | ✅ |
+| 10 | Create OverviewCard | `GitInfoDashboard/OverviewCard.tsx` | ✅ |
+| 11 | Create BranchesCard | `GitInfoDashboard/BranchesCard.tsx` | ✅ |
+| 12 | Create ActivityCard (charts) | `GitInfoDashboard/ActivityCard.tsx` | ✅ |
+| 13 | Create ContributorsCard | `GitInfoDashboard/ContributorsCard.tsx` | ✅ |
+| 14 | Create FilesCard | `GitInfoDashboard/FilesCard.tsx` | ✅ |
+| 15 | Create TagsCard | `GitInfoDashboard/TagsCard.tsx` | ✅ |
+| 16 | Create StatusCard | `GitInfoDashboard/StatusCard.tsx` | ✅ |
+| 17 | Create ConfigCard | `GitInfoDashboard/ConfigCard.tsx` | ✅ |
+| 18 | Create DashboardSkeleton | `GitInfoDashboard/DashboardSkeleton.tsx` | ✅ |
+| 19 | Create main GitInfoDashboard index | `GitInfoDashboard/index.tsx` | ✅ |
+| 20 | Integrate into MosaicLayout fallback | `MosaicLayout/index.tsx` | ✅ |
+| 21 | Verify lint + typecheck + tests | — | ✅ (lint+tests pass; typecheck has pre-existing TS5097 from gitinfo .ts imports) |
