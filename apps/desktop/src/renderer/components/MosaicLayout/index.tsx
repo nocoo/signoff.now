@@ -9,8 +9,10 @@
 
 import type { MosaicBranch } from "react-mosaic-component";
 import { Mosaic, MosaicWindow } from "react-mosaic-component";
+import { useActiveWorkspaceStore } from "../../stores/active-workspace";
 import { useTabsStore } from "../../stores/tabs";
 import type { PaneId } from "../../stores/tabs/types";
+import { GitInfoDashboard } from "../GitInfoDashboard";
 import { PaneContent } from "./PaneContent";
 import { TabBar } from "./TabBar";
 
@@ -43,11 +45,16 @@ function PaneTile({ paneId }: { paneId: PaneId }) {
 export function MosaicLayout() {
 	const layout = useTabsStore((s) => s.layout);
 	const setLayout = useTabsStore((s) => s.setLayout);
+	const activeProjectId = useActiveWorkspaceStore((s) => s.activeProjectId);
 
 	if (layout === null) {
+		// Show GitInfo dashboard if a project is selected, otherwise empty state
+		if (activeProjectId) {
+			return <GitInfoDashboard projectId={activeProjectId} />;
+		}
 		return (
 			<div className="flex h-full items-center justify-center text-muted-foreground">
-				<p className="text-sm">No open panes</p>
+				<p className="text-sm">Select a project to view repository info</p>
 			</div>
 		);
 	}
