@@ -16,7 +16,7 @@ export default defineConfig({
 				"*": path.resolve(__dirname, "src"),
 			},
 		},
-		plugins: [tsconfigPaths(), copyResourcesPlugin()],
+		plugins: [tsconfigPaths({ root: __dirname }), copyResourcesPlugin()],
 		build: {
 			outDir: "dist/main",
 			lib: {
@@ -63,7 +63,7 @@ export default defineConfig({
 		root: path.resolve(__dirname, "src/renderer"),
 		publicDir: path.resolve(__dirname, "src/resources/public"),
 		plugins: [
-			tsconfigPaths(),
+			tsconfigPaths({ root: __dirname }),
 			TanStackRouterVite({
 				routeFilePrefix: "",
 				routeFileIgnorePrefix: "-",
