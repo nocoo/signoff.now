@@ -4,22 +4,9 @@
 
 import type { GitConfig } from "@signoff/gitinfo";
 import { Settings } from "lucide-react";
+import { INTERESTING_CONFIG_KEYS } from "./constants";
 import { DashboardCard } from "./DashboardCard";
 import { formatSize, StatNumber } from "./StatNumber";
-
-/** Config keys to display (filtered from localConfig). */
-const INTERESTING_KEYS = [
-	"user.name",
-	"user.email",
-	"core.autocrlf",
-	"core.editor",
-	"merge.tool",
-	"diff.tool",
-	"pull.rebase",
-	"push.default",
-	"init.defaultBranch",
-	"fetch.prune",
-];
 
 interface ConfigCardProps {
 	config: GitConfig;
@@ -27,7 +14,7 @@ interface ConfigCardProps {
 
 export function ConfigCard({ config }: ConfigCardProps) {
 	const obj = config.objectStats;
-	const filteredConfig = INTERESTING_KEYS.flatMap((key) => {
+	const filteredConfig = INTERESTING_CONFIG_KEYS.flatMap((key) => {
 		const values = config.localConfig[key];
 		if (!values || values.length === 0) return [];
 		return [{ key, value: values.join(", ") }];

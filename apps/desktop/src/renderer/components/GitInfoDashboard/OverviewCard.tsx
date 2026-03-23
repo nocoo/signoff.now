@@ -8,6 +8,7 @@ import { cn } from "@signoff/ui/utils";
 import { Copy, GitBranch, Globe, Info } from "lucide-react";
 import { useCallback } from "react";
 import { trpc } from "../../lib/trpc";
+import { REPO_STATE_LABELS } from "./constants";
 import { DashboardCard } from "./DashboardCard";
 import {
 	formatNumber,
@@ -15,22 +16,6 @@ import {
 	relativeDate,
 	StatNumber,
 } from "./StatNumber";
-
-const REPO_STATE_LABELS: Record<string, { label: string; color: string }> = {
-	clean: { label: "Clean", color: "bg-green-500/15 text-green-400" },
-	merge: { label: "Merging", color: "bg-yellow-500/15 text-yellow-400" },
-	"rebase-interactive": {
-		label: "Interactive Rebase",
-		color: "bg-yellow-500/15 text-yellow-400",
-	},
-	rebase: { label: "Rebasing", color: "bg-yellow-500/15 text-yellow-400" },
-	"cherry-pick": {
-		label: "Cherry-picking",
-		color: "bg-yellow-500/15 text-yellow-400",
-	},
-	bisect: { label: "Bisecting", color: "bg-yellow-500/15 text-yellow-400" },
-	revert: { label: "Reverting", color: "bg-yellow-500/15 text-yellow-400" },
-};
 
 interface OverviewCardProps {
 	meta: GitMeta;

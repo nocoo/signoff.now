@@ -6,24 +6,9 @@ import type { GitStatus } from "@signoff/gitinfo";
 import { cn } from "@signoff/ui/utils";
 import { AlertCircle } from "lucide-react";
 import { useState } from "react";
+import { REPO_STATE_LABELS } from "./constants";
 import { DashboardCard } from "./DashboardCard";
 import { StatNumber } from "./StatNumber";
-
-const REPO_STATE_LABELS: Record<string, { label: string; color: string }> = {
-	clean: { label: "Clean", color: "bg-green-500/15 text-green-400" },
-	merge: { label: "Merging", color: "bg-yellow-500/15 text-yellow-400" },
-	"rebase-interactive": {
-		label: "Interactive Rebase",
-		color: "bg-yellow-500/15 text-yellow-400",
-	},
-	rebase: { label: "Rebasing", color: "bg-yellow-500/15 text-yellow-400" },
-	"cherry-pick": {
-		label: "Cherry-picking",
-		color: "bg-yellow-500/15 text-yellow-400",
-	},
-	bisect: { label: "Bisecting", color: "bg-yellow-500/15 text-yellow-400" },
-	revert: { label: "Reverting", color: "bg-yellow-500/15 text-yellow-400" },
-};
 
 interface StatusCardProps {
 	status: GitStatus;
