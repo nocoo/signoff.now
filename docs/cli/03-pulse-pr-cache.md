@@ -339,17 +339,22 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 ```
 User clicks "Scan PRs":
 1. ViewModel: mutate fetchPrs(projectId, state, cursor=null)
-2. Router: DELETE FROM pull_requests WHERE project_id = ? AND state = ?
-   → Purge all cached rows for this state to avoid stale residuals
-     (e.g., a PR that was "open" last scan but has since been closed
-     would linger forever without this step)
-3. Router: call collectProjectPrs() → GitHub API (no author param)
-4. Router: INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
-5. Router: UPSERT INTO pull_request_scans (...) with cursor=null (reset pagination)
-6. Router: invalidate getCachedPrs + getScanMeta queries
-7. View: re-renders with fresh data from DB
+2. Router: call collectProjectPrs() → GitHub API (no author param)
+   → Network round-trip happens OUTSIDE any DB transaction
+3. Router: BEGIN TRANSACTION (short, no I/O inside)
+   a. DELETE FROM pull_requests WHERE project_id = ? AND state = ?
+      → Purge all cached rows for this state to avoid stale residuals
+        (e.g., a PR that was "open" last scan but has since been closed
+        would linger forever without this step)
+   b. INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
+   c. UPSERT INTO pull_request_scans (...) with cursor=null (reset pagination)
+   COMMIT
+4. Router: invalidate getCachedPrs + getScanMeta queries
+5. View: re-renders with fresh data from DB
 
-Steps 2-5 run in a single transaction to avoid flash of empty list.
+The DB transaction (step 3) is short — it only contains DELETE + INSERT +
+UPDATE with no network I/O. The query is not invalidated until after the
+transaction commits, so the View never sees an empty intermediate state.
 The DELETE only targets rows matching the scanned state — other state
 caches (e.g., "closed" cache while scanning "open") are untouched.
 ```
@@ -453,7 +458,10 @@ export function usePrViewModel(projectId: string) {
   const detailMutation = trpc.pulse.fetchPrDetail.useMutation({
     onSuccess: (_data, variables) => {
       utils.pulse.getCachedPrDetail.invalidate({ projectId, number: variables.number });
-      utils.pulse.getCachedPrs.invalidate({ projectId, state: stateFilter }); // list fields also refreshed
+      // Invalidate all state keys for this project's list — the detail fetch
+      // also refreshes the PR's list-level fields, and stateFilter may have
+      // changed while the request was in flight.
+      utils.pulse.getCachedPrs.invalidate();
     },
   });
 
@@ -464,12 +472,15 @@ export function usePrViewModel(projectId: string) {
     }
   }, [projectId, selectedPrNumber]);
 
+  // Derive loading states from unfiltered cache to avoid authorFilter affecting them
+  const hasCachedData = (cachedPrsQuery.data?.length ?? 0) > 0;
+
   return {
     // List
     prs: filteredPrs,
-    // First load: query has settled (empty or not) but we have no data yet and mutation is running
-    isLoading: cachedPrsQuery.isLoading || (filteredPrs.length === 0 && scanMutation.isPending),
-    isRefreshing: filteredPrs.length > 0 && scanMutation.isPending,
+    // First load: query has settled (empty or not) but DB has no data yet and mutation is running
+    isLoading: cachedPrsQuery.isLoading || (!hasCachedData && scanMutation.isPending),
+    isRefreshing: hasCachedData && scanMutation.isPending,
     scanError: scanMutation.error?.message ?? null,
     hasNextPage: scanMetaQuery.data?.hasNextPage ?? false,
     stateFilter,
@@ -499,8 +510,8 @@ export function usePrViewModel(projectId: string) {
 
 | State | Condition | UI Treatment |
 |-------|-----------|--------------|
-| `isLoading` | Query still loading, OR query returned empty + mutation in flight (first scan, no cache) | Skeleton placeholders in list panel |
-| `isRefreshing` | Have cached data showing + mutation in flight (background refresh) | Subtle spinner on scan button |
+| `isLoading` | Query still loading, OR DB has no cached data (unfiltered) + mutation in flight | Skeleton placeholders in list panel |
+| `isRefreshing` | DB has cached data (unfiltered) + mutation in flight | Subtle spinner on scan button |
 | `isDetailLoading` | PR selected + (query loading OR query returned null + mutation in flight) | Skeleton in detail panel |
 | `isDetailRefreshing` | Cached detail shown + mutation in flight (background re-fetch) | Subtle spinner on detail panel |
 
