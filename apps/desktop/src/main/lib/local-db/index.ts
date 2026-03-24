@@ -82,9 +82,14 @@ export function initLocalDb(): ReturnType<typeof drizzle> {
 				try {
 					_sqlite.exec(statement);
 				} catch (error) {
-					// Ignore "table already exists" / "index already exists" errors
+					// Idempotent migration: ignore errors from re-running statements
+					// that have already been applied (CREATE TABLE, CREATE INDEX,
+					// ALTER TABLE ADD COLUMN).
 					const msg = error instanceof Error ? error.message : String(error);
-					if (!msg.includes("already exists")) {
+					if (
+						!msg.includes("already exists") &&
+						!msg.includes("duplicate column name")
+					) {
 						throw error;
 					}
 				}
