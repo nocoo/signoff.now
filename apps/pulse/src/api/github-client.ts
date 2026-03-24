@@ -8,17 +8,18 @@ import type {
 } from "./types.ts";
 
 const GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
-const PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 100;
 
 /** Transient HTTP status codes that warrant a retry. */
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
 const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 1000;
 
-const PR_QUERY = `
+function buildPrQuery(first: number): string {
+	return `
 query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: String) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(states: $states, first: ${PAGE_SIZE}, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
+    pullRequests(states: $states, first: ${first}, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title state isDraft
@@ -35,6 +36,7 @@ query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: St
   }
 }
 `;
+}
 
 export interface GitHubClientOptions {
 	/** Base delay in ms for exponential backoff (default: 1000). */
@@ -60,11 +62,17 @@ export class GitHubClient implements GitHubApiClient {
 		let hasNextPage = true;
 
 		while (hasNextPage) {
+			// Request only as many as we still need (or MAX_PAGE_SIZE if unlimited)
+			const remaining =
+				opts.limit > 0 ? opts.limit - allPrs.length : MAX_PAGE_SIZE;
+			const pageSize = Math.min(remaining, MAX_PAGE_SIZE);
+
 			const response = await this.queryGraphQL(
 				owner,
 				repo,
 				opts.states,
 				cursor,
+				pageSize,
 			);
 
 			if (response.errors?.length) {
@@ -106,9 +114,10 @@ export class GitHubClient implements GitHubApiClient {
 		repo: string,
 		states: readonly string[],
 		cursor: string | null,
+		pageSize: number,
 	): Promise<GraphQLPrsResponse> {
 		const body = JSON.stringify({
-			query: PR_QUERY,
+			query: buildPrQuery(pageSize),
 			variables: { owner, repo, states, cursor },
 		});
 

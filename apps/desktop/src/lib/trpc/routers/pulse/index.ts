@@ -82,7 +82,7 @@ export function createPulseTrpcRouter(getDb: GetDb) {
 				z.object({
 					projectId: z.string(),
 					state: z.enum(["open", "closed", "all"]).optional().default("open"),
-					limit: z.number().int().min(0).optional().default(0),
+					limit: z.number().int().min(0).optional().default(20),
 					author: z.string().nullable().optional().default(null),
 				}),
 			)
