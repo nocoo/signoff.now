@@ -339,7 +339,9 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 ```
 User clicks "Scan PRs":
 1. ViewModel: mutate fetchPrs(projectId, state, cursor=null)
-2. Router: call collectProjectPrs() → GitHub API (no author param)
+2. Router: call collectProjectPrs({ ..., limit: PAGE_SIZE, cursor: null })
+   → PAGE_SIZE = 20 (hardcoded in router, not exposed to UI)
+   → Fetches exactly one page from GitHub API, not all pages
    → Network round-trip happens OUTSIDE any DB transaction
 3. Router: BEGIN TRANSACTION (short, no I/O inside)
    a. DELETE FROM pull_requests WHERE project_id = ?
@@ -372,7 +374,7 @@ and in query/mutation parameters, where it means "no state filter".
 ```
 User clicks "Load more":
 1. ViewModel: mutate fetchPrs(projectId, state, cursor=endCursor)
-2. Router: call collectProjectPrs() with cursor
+2. Router: call collectProjectPrs({ ..., limit: PAGE_SIZE, cursor: endCursor })
 3. Router: INSERT INTO pull_requests (...) ON CONFLICT DO UPDATE (append, no delete)
 4. Router: UPDATE pull_request_scans SET end_cursor=?, has_next_page=?
 5. Router: invalidate getCachedPrs + getScanMeta queries
@@ -392,7 +394,7 @@ User clicks "Load more":
 | `getCachedPrs` | query | `{ projectId, state }` | SELECT from `pull_requests` WHERE project_id; if state is `"open"` or `"closed"`, add `AND state = ?`; if state is `"all"`, omit the state condition. ORDER BY created_at DESC |
 | `getCachedPrDetail` | query | `{ projectId, number }` | JOIN `pull_requests` + `pull_request_details`, return combined `PrDetail` or null |
 | `getScanMeta` | query | `{ projectId, state }` | SELECT from `pull_request_scans` WHERE project_id + state |
-| `fetchPrs` | mutation | `{ projectId, state, cursor? }` | GitHub API → upsert DB → invalidate queries → void |
+| `fetchPrs` | mutation | `{ projectId, state, cursor? }` | GitHub API (limit=PAGE_SIZE internally) → upsert DB → invalidate queries → void |
 | `fetchPrDetail` | mutation | `{ projectId, number }` | GitHub API → upsert both tables → invalidate queries → void |
 | `clearCache` | mutation | `{ projectId }` | DELETE from all 3 tables WHERE project_id |
 
@@ -400,7 +402,7 @@ User clicks "Load more":
 - `getCachedReport` — replaced by `getCachedPrs` + `getScanMeta`
 
 **Changed signatures:**
-- `fetchPrs` — no longer accepts `author` or `limit` at the tRPC layer (canonical list; limit handled by GitHub page size). The underlying `collectProjectPrs()` bridge and `@signoff/pulse` `fetchPrs()` retain these parameters for CLI and future use — only the tRPC procedure removes them from its Zod input schema.
+- `fetchPrs` — no longer accepts `author` or `limit` at the tRPC layer. The router internally calls `collectProjectPrs({ ..., limit: PAGE_SIZE, cursor })` with a fixed page size (20). This is critical: the underlying collector treats `limit <= 0` as "fetch all pages until exhausted", which would defeat the Load More pagination design. The tRPC layer hides `limit` from the UI but always passes a bounded value to the collector. The underlying `collectProjectPrs()` bridge and `@signoff/pulse` `fetchPrs()` retain the `limit` and `author` parameters for CLI and future use.
 - `fetchPrs` — no longer returns `PrsReport` (writes DB, returns void)
 - `fetchPrDetail` — no longer returns `PrDetailReport` (writes DB, returns void)
 
