@@ -31,6 +31,7 @@ import {
 	FileText,
 	FolderGit2,
 	GitBranch,
+	GitPullRequest,
 	LayoutDashboard,
 	Plus,
 	RefreshCw,
@@ -66,6 +67,7 @@ const DASHBOARD_PAGES: {
 	{ id: "branches", label: "Branches", icon: GitBranch },
 	{ id: "files", label: "Files", icon: FileText },
 	{ id: "tags", label: "Tags", icon: Tag },
+	{ id: "pull-requests", label: "Pull Requests", icon: GitPullRequest },
 ];
 
 interface WorkspaceSidebarProps {

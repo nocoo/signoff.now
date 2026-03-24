@@ -14,6 +14,7 @@ import { BranchesTab } from "./tabs/BranchesTab";
 import { ContributorsTab } from "./tabs/ContributorsTab";
 import { FilesTab } from "./tabs/FilesTab";
 import { OverviewTab } from "./tabs/OverviewTab";
+import { PullRequestsTab } from "./tabs/PullRequestsTab";
 import { TagsTab } from "./tabs/TagsTab";
 
 interface GitInfoDashboardProps {
@@ -23,14 +24,30 @@ interface GitInfoDashboardProps {
 export function GitInfoDashboard({ projectId }: GitInfoDashboardProps) {
 	const activePageId = useActiveWorkspaceStore((s) => s.activePageId);
 
+	// Always call hooks unconditionally (React rules of hooks)
 	const {
 		data: report,
 		isLoading,
 		error,
 	} = trpc.gitinfo.getReport.useQuery(
 		{ projectId },
-		{ enabled: Boolean(projectId), staleTime: Number.POSITIVE_INFINITY },
+		{
+			// Skip fetching gitinfo when viewing pull-requests tab
+			enabled: Boolean(projectId) && activePageId !== "pull-requests",
+			staleTime: Number.POSITIVE_INFINITY,
+		},
 	);
+
+	// Pull Requests tab uses its own data source (pulse), not gitinfo
+	if (activePageId === "pull-requests") {
+		return (
+			<div className="h-full overflow-y-auto p-6">
+				<div className="mx-auto max-w-5xl">
+					<PullRequestsTab projectId={projectId} />
+				</div>
+			</div>
+		);
+	}
 
 	if (isLoading) return <DashboardSkeleton />;
 

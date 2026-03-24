@@ -21,7 +21,8 @@ export type DashboardPage =
 	| "activity"
 	| "branches"
 	| "files"
-	| "tags";
+	| "tags"
+	| "pull-requests";
 
 export interface ActiveWorkspace {
 	/** Workspace ID (from DB). */
