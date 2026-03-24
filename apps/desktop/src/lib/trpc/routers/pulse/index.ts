@@ -68,7 +68,7 @@ export function createPulseRouter(getDb: GetDb) {
 
 		getCachedPrs(input: {
 			projectId: string;
-			state?: "open" | "closed" | "all";
+			state: "open" | "closed" | "all";
 		}) {
 			const db = getDb();
 			return getCachedPrs(db, input.projectId, input.state);
@@ -104,16 +104,18 @@ export function createPulseRouter(getDb: GetDb) {
 				cursor: input.cursor ?? null,
 			});
 
-			// Write to DB (short transaction for writes only)
+			// Atomic write: list upsert + scan meta must be consistent
 			const db = getDb();
-			upsertPrs(db, input.projectId, report.prs);
-			upsertScanMeta(db, input.projectId, {
-				endCursor: report.endCursor,
-				hasNextPage: report.hasNextPage,
-				resolvedUser: report.identity.resolvedUser,
-				resolvedVia: report.identity.resolvedVia,
-				repoOwner: report.repository.owner,
-				repoName: report.repository.repo,
+			db.transaction(() => {
+				upsertPrs(db, input.projectId, report.prs);
+				upsertScanMeta(db, input.projectId, {
+					endCursor: report.endCursor,
+					hasNextPage: report.hasNextPage,
+					resolvedUser: report.identity.resolvedUser,
+					resolvedVia: report.identity.resolvedVia,
+					repoOwner: report.repository.owner,
+					repoName: report.repository.repo,
+				});
 			});
 		},
 
@@ -130,9 +132,11 @@ export function createPulseRouter(getDb: GetDb) {
 				number: input.number,
 			});
 
-			// Write to DB
+			// Atomic write: list row + detail row must be consistent
 			const db = getDb();
-			upsertPrDetail(db, input.projectId, report.pr);
+			db.transaction(() => {
+				upsertPrDetail(db, input.projectId, report.pr);
+			});
 		},
 
 		clearCache(input: { projectId: string }): void {
@@ -154,7 +158,7 @@ export function createPulseTrpcRouter(getDb: GetDb) {
 			.input(
 				z.object({
 					projectId: z.string(),
-					state: z.enum(["open", "closed", "all"]).optional().default("open"),
+					state: z.enum(["open", "closed", "all"]),
 				}),
 			)
 			.query(({ input }) => api.getCachedPrs(input)),
