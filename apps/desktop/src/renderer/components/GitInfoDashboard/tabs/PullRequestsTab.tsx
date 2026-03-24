@@ -1,12 +1,12 @@
 /**
  * PullRequestsTab — two-panel email-style layout for PR browsing.
  *
- * Left panel: PR list with scan button and filters.
- * Right panel: selected PR detail view.
- *
- * Fetches data via pulse tRPC router (separate from gitinfo).
+ * Owns all pulse data: scan mutation + cached report.
+ * Passes the unified report and scan controls down to child panels
+ * so both panels always see the same data.
  */
 
+import type { PrsReport } from "@signoff/pulse";
 import { useState } from "react";
 import { trpc } from "../../../lib/trpc";
 import { PrDetailPanel } from "./pr/PrDetailPanel";
@@ -19,20 +19,45 @@ interface PullRequestsTabProps {
 export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 	const [selectedPrNumber, setSelectedPrNumber] = useState<number | null>(null);
 
-	// Resolve the selected PR from cached report
-	const { data: cachedReport } = trpc.pulse.getCachedReport.useQuery({
-		projectId,
+	// Single source of truth for PR data
+	const { data: cachedReport, refetch: refetchCached } =
+		trpc.pulse.getCachedReport.useQuery({ projectId });
+
+	const scanMutation = trpc.pulse.fetchPrs.useMutation({
+		onSuccess: () => {
+			refetchCached();
+		},
 	});
 
+	// Merge: mutation result takes priority over stale cache
+	const report: PrsReport | null = scanMutation.data ?? cachedReport ?? null;
+	const isScanning = scanMutation.isPending;
+	const scanError = scanMutation.error;
+
+	// Resolve selected PR from the unified report
 	const selectedPr =
-		cachedReport?.prs.find((pr) => pr.number === selectedPrNumber) ?? null;
+		report?.prs.find((pr) => pr.number === selectedPrNumber) ?? null;
+
+	const handleScan = (opts: {
+		state: "open" | "closed" | "all";
+		author: string | null;
+	}) => {
+		scanMutation.mutate({
+			projectId,
+			state: opts.state,
+			author: opts.author,
+		});
+	};
 
 	return (
 		<div className="flex h-full overflow-hidden">
 			{/* Left panel: PR list (40% width) */}
 			<div className="w-2/5 min-w-[280px] max-w-[420px]">
 				<PrListPanel
-					projectId={projectId}
+					report={report}
+					isScanning={isScanning}
+					scanError={scanError?.message ?? null}
+					onScan={handleScan}
 					selectedPr={selectedPrNumber}
 					onSelectPr={setSelectedPrNumber}
 				/>

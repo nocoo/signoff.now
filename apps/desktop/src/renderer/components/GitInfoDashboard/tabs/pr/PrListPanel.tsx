@@ -1,12 +1,8 @@
 /**
  * PrListPanel — left panel showing the PR list in an email-thread style.
  *
- * Follows the dashboard's visual conventions:
- * - text-xs / text-sm sizing (no text-[11px] or text-[9px])
- * - Semantic badges: rounded bg-{color}-500/15 text-{color}-400
- * - Neutral badges: rounded bg-muted px-1.5 py-0.5 text-[10px]
- * - font-mono tabular-nums for numbers
- * - text-muted-foreground for secondary content
+ * Pure presentational: receives report data and scan controls from parent.
+ * Manages only local filter UI state (state dropdown, author input).
  */
 
 import type { PrsReport, PullRequestInfo } from "@signoff/pulse";
@@ -22,21 +18,29 @@ import {
 } from "@signoff/ui/select";
 import { Skeleton } from "@signoff/ui/skeleton";
 import { cn } from "@signoff/ui/utils";
-import { RefreshCw, Search } from "lucide-react";
+import { AlertCircle, RefreshCw, Search } from "lucide-react";
 import { useState } from "react";
-import { trpc } from "../../../../lib/trpc";
 import { relativeDate } from "../../StatNumber";
 import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 
 interface PrListPanelProps {
-	projectId: string;
+	report: PrsReport | null;
+	isScanning: boolean;
+	scanError: string | null;
+	onScan: (opts: {
+		state: "open" | "closed" | "all";
+		author: string | null;
+	}) => void;
 	selectedPr: number | null;
 	onSelectPr: (prNumber: number) => void;
 }
 
 export function PrListPanel({
-	projectId,
+	report,
+	isScanning,
+	scanError,
+	onScan,
 	selectedPr,
 	onSelectPr,
 }: PrListPanelProps) {
@@ -45,29 +49,14 @@ export function PrListPanel({
 	);
 	const [authorFilter, setAuthorFilter] = useState("");
 
-	// Fetch cached report on mount
-	const { data: cachedReport, refetch: refetchCached } =
-		trpc.pulse.getCachedReport.useQuery({ projectId });
-
-	// Scan mutation
-	const scanMutation = trpc.pulse.fetchPrs.useMutation({
-		onSuccess: () => {
-			refetchCached();
-		},
-	});
-
 	const handleScan = () => {
-		scanMutation.mutate({
-			projectId,
+		onScan({
 			state: stateFilter,
 			author: authorFilter.trim() || null,
 		});
 	};
 
-	const report: PrsReport | null = scanMutation.data ?? cachedReport ?? null;
-	const isScanning = scanMutation.isPending;
-
-	// Client-side author filter for cached results
+	// Client-side author filter on existing results
 	const filteredPrs =
 		report?.prs.filter((pr) => {
 			if (
@@ -96,7 +85,7 @@ export function PrListPanel({
 						{isScanning ? "Scanning…" : "Scan PRs"}
 					</Button>
 					{report !== null && (
-						<span className="text-xs text-muted-foreground font-mono tabular-nums">
+						<span className="font-mono text-xs tabular-nums text-muted-foreground">
 							{report.totalCount} total
 						</span>
 					)}
@@ -127,6 +116,14 @@ export function PrListPanel({
 						/>
 					</div>
 				</div>
+
+				{/* Scan error */}
+				{scanError !== null && (
+					<div className="flex items-start gap-1.5 rounded bg-red-500/15 px-2 py-1.5 text-xs text-red-400">
+						<AlertCircle className="mt-0.5 size-3 shrink-0" />
+						<span>{scanError}</span>
+					</div>
+				)}
 			</div>
 
 			{/* PR list */}
