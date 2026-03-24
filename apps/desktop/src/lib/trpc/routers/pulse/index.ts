@@ -4,12 +4,15 @@
  * Two-layer architecture following existing pattern:
  * - Layer 1: `createPulseRouter(getDb)` — testable business logic
  * - Layer 2: `createPulseTrpcRouter(getDb)` — tRPC procedure wrappers
+ *
+ * Uses dynamic import for main/pulse/collect to avoid pulling pulse's entire
+ * source graph into the coverage measurement at module load time. The pulse
+ * package has its own coverage gate (95%); desktop tests should not re-measure it.
  */
 
 import { projects } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
 import { publicProcedure, router } from "lib/trpc";
-import { collectProjectPrs } from "main/pulse/collect";
 import { z } from "zod";
 import { clearAll, getCached, invalidate, setCached } from "./cache";
 
@@ -41,6 +44,9 @@ export function createPulseRouter(getDb: GetDb) {
 			if (!project) {
 				throw new Error(`Project not found: ${input.projectId}`);
 			}
+
+			// Dynamic import to avoid pulling pulse source into coverage graph
+			const { collectProjectPrs } = await import("main/pulse/collect");
 
 			// Collect and cache
 			const report = await collectProjectPrs({
