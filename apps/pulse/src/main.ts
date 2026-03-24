@@ -3,6 +3,7 @@
 import { GitHubClient } from "./api/github-client.ts";
 import { ArgParseError, getHelpText, parseArgs } from "./cli/args.ts";
 import { formatOutput } from "./cli/output.ts";
+import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
 import { createBunExecutor } from "./executor/bun-executor.ts";
 import { createFsCacheStore } from "./identity/fs-cache-store.ts";
@@ -83,15 +84,34 @@ async function main(): Promise<void> {
 	}
 
 	// Step 4: Dispatch to subcommand
+	const client = new GitHubClient(identity.token);
+
 	switch (args.command) {
 		case "prs": {
-			const client = new GitHubClient(identity.token);
 			const report = await fetchPrs(client, {
 				owner: remote.owner,
 				repo: remote.repo,
 				state: args.state,
 				limit: args.limit,
 				author: args.author,
+				resolvedUser: identity.login,
+				resolvedVia: identity.resolvedVia,
+			});
+
+			console.log(formatOutput(report, args.pretty));
+			break;
+		}
+
+		case "pr-detail": {
+			if (args.pr === null) {
+				console.error("error: --pr <number> is required for pr-detail command");
+				process.exit(1);
+			}
+
+			const report = await fetchPrDetail(client, {
+				owner: remote.owner,
+				repo: remote.repo,
+				number: args.pr,
 				resolvedUser: identity.login,
 				resolvedVia: identity.resolvedVia,
 			});

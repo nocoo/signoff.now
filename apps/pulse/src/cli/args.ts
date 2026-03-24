@@ -1,4 +1,4 @@
-const VALID_COMMANDS = ["prs"] as const;
+const VALID_COMMANDS = ["prs", "pr-detail"] as const;
 
 export type Command = (typeof VALID_COMMANDS)[number];
 
@@ -15,6 +15,8 @@ export interface ParsedArgs {
 	limit: number;
 	author: string | null;
 	noCache: boolean;
+	// pr-detail-specific flags
+	pr: number | null;
 }
 
 export class ArgParseError extends Error {
@@ -72,6 +74,21 @@ function parseAuthorFlag(argv: readonly string[], i: number): [string, number] {
 	return [value, i + 2];
 }
 
+function parsePrFlag(argv: readonly string[], i: number): [number, number] {
+	const next = argv[i + 1];
+	if (!next) {
+		throw new ArgParseError("--pr requires a PR number");
+	}
+	if (!/^\d+$/.test(next)) {
+		throw new ArgParseError("--pr must be a positive integer");
+	}
+	const num = Number.parseInt(next, 10);
+	if (num <= 0) {
+		throw new ArgParseError("--pr must be a positive integer");
+	}
+	return [num, i + 2];
+}
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
 	const result: ParsedArgs = {
 		command: null,
@@ -83,6 +100,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 		limit: 0,
 		author: null,
 		noCache: false,
+		pr: null,
 	};
 
 	let i = 0;
@@ -119,6 +137,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 				continue;
 			case "--author":
 				[result.author, i] = parseAuthorFlag(argv, i);
+				continue;
+			case "--pr":
+				[result.pr, i] = parsePrFlag(argv, i);
 				continue;
 		}
 
@@ -158,6 +179,7 @@ export function getHelpText(): string {
 
 Commands:
   prs             List pull requests for the current repository
+  pr-detail       Show detailed info for a single pull request
 
 Global Flags:
   --cwd <path>    Target directory (default: cwd)
@@ -169,5 +191,8 @@ Global Flags:
 prs Flags:
   --state <s>     Filter: open, closed, all (default: open)
   --limit <n>     Max PRs to return (default: 0 = unlimited)
-  --author <u>    Filter by author login`;
+  --author <u>    Filter by author login
+
+pr-detail Flags:
+  --pr <n>        PR number (required)`;
 }

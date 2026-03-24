@@ -148,6 +148,44 @@ describe("parseArgs", () => {
 		expect(result.pretty).toBe(true);
 		expect(result.command).toBe("prs");
 	});
+
+	describe("pr-detail command", () => {
+		test("parses pr-detail command", () => {
+			expect(parseArgs(["pr-detail"]).command).toBe("pr-detail");
+		});
+
+		test("parses --pr flag", () => {
+			const result = parseArgs(["pr-detail", "--pr", "42"]);
+			expect(result.command).toBe("pr-detail");
+			expect(result.pr).toBe(42);
+		});
+
+		test("defaults pr to null", () => {
+			expect(parseArgs([]).pr).toBeNull();
+		});
+
+		test("throws on --pr without number", () => {
+			expect(() => parseArgs(["pr-detail", "--pr"])).toThrow(ArgParseError);
+		});
+
+		test("throws on --pr with non-number", () => {
+			expect(() => parseArgs(["pr-detail", "--pr", "abc"])).toThrow(
+				ArgParseError,
+			);
+		});
+
+		test("throws on --pr with decimal", () => {
+			expect(() => parseArgs(["pr-detail", "--pr", "1.5"])).toThrow(
+				ArgParseError,
+			);
+		});
+
+		test("throws on --pr with zero", () => {
+			expect(() => parseArgs(["pr-detail", "--pr", "0"])).toThrow(
+				ArgParseError,
+			);
+		});
+	});
 });
 
 describe("getHelpText", () => {
@@ -155,6 +193,8 @@ describe("getHelpText", () => {
 		const text = getHelpText();
 		expect(text).toContain("pulse");
 		expect(text).toContain("prs");
+		expect(text).toContain("pr-detail");
 		expect(text).toContain("--state");
+		expect(text).toContain("--pr");
 	});
 });

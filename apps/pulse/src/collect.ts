@@ -8,8 +8,9 @@
 
 import { GitHubClient } from "./api/github-client.ts";
 import type { GitHubApiClient } from "./api/types.ts";
+import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
-import type { PrsReport } from "./commands/types.ts";
+import type { PrDetailReport, PrsReport } from "./commands/types.ts";
 import type { CommandExecutor } from "./executor/types.ts";
 import { parseRemoteUrl } from "./identity/resolve-remote.ts";
 import type { CacheStore } from "./identity/resolve-user.ts";
@@ -22,11 +23,21 @@ export class CollectError extends Error {
 	}
 }
 
-export interface CollectPrsOptions {
+/** Shared options for all collect functions. */
+interface CollectBaseOptions {
 	/** Command executor (Bun or Node). */
 	exec: CommandExecutor;
 	/** Absolute path to the project's git repository. */
 	cwd: string;
+	/** Skip identity cache. */
+	noCache?: boolean;
+	/** Custom cache store (omit to disable caching). */
+	cacheStore?: CacheStore;
+	/** Optional API client override (for testing). */
+	apiClient?: GitHubApiClient;
+}
+
+export interface CollectPrsOptions extends CollectBaseOptions {
 	/** PR state filter. */
 	state: "open" | "closed" | "all";
 	/** Max results (0 = unlimited). */
@@ -35,25 +46,19 @@ export interface CollectPrsOptions {
 	author: string | null;
 	/** Cursor for pagination (null = first page). */
 	cursor?: string | null;
-	/** Skip identity cache. */
-	noCache?: boolean;
-	/** Custom cache store (omit to disable caching). */
-	cacheStore?: CacheStore;
-	/**
-	 * Optional API client override (for testing).
-	 * If omitted, a real GitHubClient is created from the resolved token.
-	 */
-	apiClient?: GitHubApiClient;
+}
+
+export interface CollectPrDetailOptions extends CollectBaseOptions {
+	/** PR number to fetch detail for. */
+	number: number;
 }
 
 /**
- * Collect PR data for a project.
- *
- * Resolves the git remote, authenticates via gh CLI, and fetches PRs
- * from the GitHub GraphQL API. Suitable for both CLI and desktop contexts.
+ * Resolve git remote and GitHub identity for a project directory.
+ * Shared bootstrap logic used by both collectPrs and collectPrDetail.
  */
-export async function collectPrs(opts: CollectPrsOptions): Promise<PrsReport> {
-	const { exec, cwd, state, limit, author, noCache, cacheStore } = opts;
+async function resolveProject(opts: CollectBaseOptions) {
+	const { exec, cwd, noCache, cacheStore } = opts;
 
 	// Step 1: Get the remote URL
 	const remoteResult = await exec("git", ["remote", "get-url", "origin"], {
@@ -90,18 +95,42 @@ export async function collectPrs(opts: CollectPrsOptions): Promise<PrsReport> {
 		);
 	}
 
-	// Step 4: Fetch PRs
 	const client = opts.apiClient ?? new GitHubClient(identity.token);
-	const report = await fetchPrs(client, {
+
+	return { remote, identity, client };
+}
+
+/**
+ * Collect PR data for a project.
+ */
+export async function collectPrs(opts: CollectPrsOptions): Promise<PrsReport> {
+	const { remote, identity, client } = await resolveProject(opts);
+
+	return fetchPrs(client, {
 		owner: remote.owner,
 		repo: remote.repo,
-		state,
-		limit,
-		author,
+		state: opts.state,
+		limit: opts.limit,
+		author: opts.author,
 		cursor: opts.cursor ?? null,
 		resolvedUser: identity.login,
 		resolvedVia: identity.resolvedVia,
 	});
+}
 
-	return report;
+/**
+ * Collect detailed information for a single PR.
+ */
+export async function collectPrDetail(
+	opts: CollectPrDetailOptions,
+): Promise<PrDetailReport> {
+	const { remote, identity, client } = await resolveProject(opts);
+
+	return fetchPrDetail(client, {
+		owner: remote.owner,
+		repo: remote.repo,
+		number: opts.number,
+		resolvedUser: identity.login,
+		resolvedVia: identity.resolvedVia,
+	});
 }

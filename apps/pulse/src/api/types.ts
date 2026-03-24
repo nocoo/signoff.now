@@ -1,4 +1,4 @@
-import type { PullRequestInfo } from "../commands/types.ts";
+import type { PrDetail, PullRequestInfo } from "../commands/types.ts";
 
 /**
  * Abstraction over GitHub API calls.
@@ -18,6 +18,20 @@ export interface GitHubApiClient {
 		repo: string,
 		opts: FetchPrsOptions,
 	): Promise<FetchPrsResult>;
+
+	/**
+	 * Fetch detailed information for a single pull request.
+	 *
+	 * @param owner  - Repository owner (user or org)
+	 * @param repo   - Repository name
+	 * @param number - PR number
+	 * @returns Comprehensive PR detail
+	 */
+	fetchPullRequestDetail(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<FetchPrDetailResult>;
 }
 
 export interface FetchPrsOptions {
@@ -74,4 +88,85 @@ export interface GraphQLPrsResponse {
 		};
 	};
 	errors?: Array<{ message: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// PR Detail types
+// ---------------------------------------------------------------------------
+
+export interface FetchPrDetailResult {
+	pr: PrDetail;
+}
+
+/** Raw GraphQL response shape for a single PR detail query. */
+export interface GraphQLPrDetailResponse {
+	data: {
+		repository: {
+			pullRequest: GraphQLPrDetailNode;
+		};
+	};
+	errors?: Array<{ message: string }>;
+}
+
+/** Extended GraphQL PR node with detail fields. */
+export interface GraphQLPrDetailNode extends GraphQLPrNode {
+	body: string;
+	mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+	mergeStateStatus:
+		| "BEHIND"
+		| "BLOCKED"
+		| "CLEAN"
+		| "DIRTY"
+		| "DRAFT"
+		| "HAS_HOOKS"
+		| "UNKNOWN"
+		| "UNSTABLE";
+	mergedBy: { login: string } | null;
+	totalCommentsCount: number | null;
+	headRefOid: string;
+	baseRefOid: string;
+	isCrossRepository: boolean;
+	participants: { nodes: Array<{ login: string }> };
+	assignees: { nodes: Array<{ login: string }> };
+	reviewRequests: {
+		nodes: Array<{
+			requestedReviewer: { login?: string; slug?: string } | null;
+		}>;
+	};
+	milestone: { title: string } | null;
+	reviews: {
+		nodes: Array<{
+			author: { login: string } | null;
+			state: string;
+			body: string;
+			submittedAt: string | null;
+		}>;
+	};
+	comments: {
+		nodes: Array<{
+			author: { login: string } | null;
+			body: string;
+			createdAt: string;
+			updatedAt: string;
+		}>;
+	};
+	commits: {
+		nodes: Array<{
+			commit: {
+				abbreviatedOid: string;
+				message: string;
+				author: { user: { login: string } | null; name: string } | null;
+				authoredDate: string;
+				statusCheckRollup: { state: string } | null;
+			};
+		}>;
+	};
+	files: {
+		nodes: Array<{
+			path: string;
+			additions: number;
+			deletions: number;
+			changeType: string;
+		}>;
+	} | null;
 }

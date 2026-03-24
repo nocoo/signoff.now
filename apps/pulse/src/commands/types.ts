@@ -49,3 +49,120 @@ export interface PullRequestInfo {
 	deletions: number;
 	changedFiles: number;
 }
+
+// ---------------------------------------------------------------------------
+// PR Detail types
+// ---------------------------------------------------------------------------
+
+/**
+ * Report output from the `pr-detail` subcommand.
+ */
+export interface PrDetailReport {
+	generatedAt: string; // ISO 8601
+	durationMs: number;
+	repository: {
+		owner: string;
+		repo: string;
+		url: string;
+	};
+	pr: PrDetail;
+}
+
+/**
+ * Comprehensive detail for a single pull request.
+ * Extends PullRequestInfo with body, reviews, comments, commits, files, etc.
+ */
+export interface PrDetail extends PullRequestInfo {
+	/** PR description body in Markdown. */
+	body: string;
+	/** Whether the PR is mergeable. */
+	mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+	/** Detailed merge state. */
+	mergeStateStatus:
+		| "BEHIND"
+		| "BLOCKED"
+		| "CLEAN"
+		| "DIRTY"
+		| "DRAFT"
+		| "HAS_HOOKS"
+		| "UNKNOWN"
+		| "UNSTABLE";
+	/** Who merged the PR (login), null if not merged. */
+	mergedBy: string | null;
+	/** Total comment count (all types). */
+	totalCommentsCount: number;
+	/** Participants (logins). */
+	participants: string[];
+	/** Requested reviewers (logins or team slugs). */
+	requestedReviewers: string[];
+	/** Assignees (logins). */
+	assignees: string[];
+	/** Milestone name, if any. */
+	milestone: string | null;
+	/** Head commit OID. */
+	headRefOid: string;
+	/** Base commit OID. */
+	baseRefOid: string;
+	/** Whether this is a cross-repository PR (fork). */
+	isCrossRepository: boolean;
+
+	/** Reviews on this PR. */
+	reviews: PrReview[];
+	/** Issue comments (non-review discussion). */
+	comments: PrComment[];
+	/** Commits in this PR. */
+	commits: PrCommit[];
+	/** Changed files in this PR. */
+	files: PrFile[];
+}
+
+/** A single review on a PR. */
+export interface PrReview {
+	author: string;
+	state:
+		| "APPROVED"
+		| "CHANGES_REQUESTED"
+		| "COMMENTED"
+		| "DISMISSED"
+		| "PENDING";
+	body: string;
+	submittedAt: string | null; // ISO 8601
+}
+
+/** An issue comment (non-review). */
+export interface PrComment {
+	author: string;
+	body: string;
+	createdAt: string; // ISO 8601
+	updatedAt: string; // ISO 8601
+}
+
+/** A commit in the PR. */
+export interface PrCommit {
+	oid: string; // abbreviated
+	message: string;
+	author: string;
+	authoredDate: string; // ISO 8601
+	/** Combined status check state for this commit (null if no checks). */
+	statusCheckRollup:
+		| "SUCCESS"
+		| "FAILURE"
+		| "PENDING"
+		| "ERROR"
+		| "EXPECTED"
+		| null;
+}
+
+/** A changed file in the PR. */
+export interface PrFile {
+	path: string;
+	additions: number;
+	deletions: number;
+	changeType:
+		| "ADDED"
+		| "MODIFIED"
+		| "DELETED"
+		| "RENAMED"
+		| "COPIED"
+		| "CHANGED";
+}
