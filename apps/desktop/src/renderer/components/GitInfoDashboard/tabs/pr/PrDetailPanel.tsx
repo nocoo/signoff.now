@@ -22,8 +22,10 @@ import {
 	FileText,
 	GitBranch,
 	GitCommit,
+	GitFork,
 	Globe,
 	MessageSquare,
+	Milestone,
 	RefreshCw,
 	Shield,
 	Tag,
@@ -32,8 +34,10 @@ import {
 import { trpc } from "../../../../lib/trpc";
 import { DashboardCard } from "../../DashboardCard";
 import { relativeDate, StatNumber } from "../../StatNumber";
+import { CommitRow } from "./CommitRow";
 import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
+import { ReviewCard } from "./ReviewCard";
 
 interface PrDetailPanelProps {
 	/** Full PR detail (list + detail fields). null = no cache yet. */
@@ -164,6 +168,12 @@ export function PrDetailPanel({
 							{stateLabel}
 						</span>
 						<PrReviewBadge reviewDecision={pr.reviewDecision} />
+						{pr.isCrossRepository ? (
+							<span className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+								<GitFork className="size-3" />
+								Fork
+							</span>
+						) : null}
 					</div>
 
 					{/* Remote link */}
@@ -190,6 +200,9 @@ export function PrDetailPanel({
 						<StatNumber label="Closed" value={relativeDate(pr.closedAt)} />
 					)}
 					<StatNumber label="Changed files" value={pr.changedFiles} />
+					{pr.totalCommentsCount > 0 && (
+						<StatNumber label="Comments" value={pr.totalCommentsCount} />
+					)}
 				</div>
 
 				{/* Merge status */}
@@ -226,7 +239,7 @@ export function PrDetailPanel({
 					title="Branch & Changes"
 					icon={<GitBranch className="h-4 w-4" />}
 				>
-					<div className="mb-3 flex min-w-0 items-center gap-2 text-sm">
+					<div className="mb-1 flex min-w-0 items-center gap-2 text-sm">
 						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
 							{pr.headBranch}
 						</span>
@@ -234,6 +247,11 @@ export function PrDetailPanel({
 						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
 							{pr.baseBranch}
 						</span>
+					</div>
+					<div className="mb-3 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+						<span title={pr.headRefOid}>{pr.headRefOid.slice(0, 7)}</span>
+						<ArrowRight className="size-2.5 shrink-0" />
+						<span title={pr.baseRefOid}>{pr.baseRefOid.slice(0, 7)}</span>
 					</div>
 					<div className="grid grid-cols-3 gap-3">
 						<StatNumber
@@ -309,42 +327,10 @@ export function PrDetailPanel({
 					>
 						<div className="flex flex-col gap-2">
 							{pr.reviews.map((review, i) => (
-								<div
+								<ReviewCard
 									key={`${review.author}-${review.submittedAt ?? i}`}
-									className="flex flex-col gap-0.5 rounded bg-muted/50 p-2"
-								>
-									<div className="flex items-center gap-2">
-										<span className="text-xs font-medium">{review.author}</span>
-										<span
-											className={cn(
-												"rounded px-1.5 py-0.5 text-[10px] font-medium",
-												review.state === "APPROVED" &&
-													"bg-green-500/15 text-green-400",
-												review.state === "CHANGES_REQUESTED" &&
-													"bg-red-500/15 text-red-400",
-												review.state === "COMMENTED" &&
-													"bg-blue-500/15 text-blue-400",
-												review.state === "DISMISSED" &&
-													"bg-yellow-500/15 text-yellow-400",
-												review.state === "PENDING" &&
-													"bg-muted text-muted-foreground",
-											)}
-										>
-											{review.state}
-										</span>
-										{review.submittedAt ? (
-											<span className="text-[10px] text-muted-foreground">
-												{relativeDate(review.submittedAt)}
-											</span>
-										) : null}
-									</div>
-									{review.body ? (
-										<p className="text-xs text-muted-foreground">
-											{review.body.slice(0, 200)}
-											{review.body.length > 200 ? "…" : null}
-										</p>
-									) : null}
-								</div>
+									review={review}
+								/>
 							))}
 						</div>
 					</DashboardCard>
@@ -390,32 +376,7 @@ export function PrDetailPanel({
 					>
 						<div className="flex flex-col gap-1.5">
 							{pr.commits.map((commit) => (
-								<div
-									key={commit.oid}
-									className="flex items-start gap-2 text-xs"
-								>
-									<span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
-										{commit.oid}
-									</span>
-									<span className="flex-1 text-muted-foreground">
-										{commit.message.split("\n")[0]}
-									</span>
-									{commit.statusCheckRollup ? (
-										<span
-											className={cn(
-												"shrink-0 text-[10px]",
-												commit.statusCheckRollup === "SUCCESS" &&
-													"text-green-400",
-												commit.statusCheckRollup === "FAILURE" &&
-													"text-red-400",
-												commit.statusCheckRollup === "PENDING" &&
-													"text-yellow-400",
-											)}
-										>
-											{commit.statusCheckRollup}
-										</span>
-									) : null}
-								</div>
+								<CommitRow key={commit.oid} commit={commit} />
 							))}
 						</div>
 					</DashboardCard>
@@ -480,6 +441,16 @@ export function PrDetailPanel({
 						</div>
 					</DashboardCard>
 				)}
+
+				{/* Milestone */}
+				{pr.milestone ? (
+					<DashboardCard
+						title="Milestone"
+						icon={<Milestone className="h-4 w-4" />}
+					>
+						<span className="text-xs">{pr.milestone}</span>
+					</DashboardCard>
+				) : null}
 			</div>
 		</ScrollArea>
 	);
