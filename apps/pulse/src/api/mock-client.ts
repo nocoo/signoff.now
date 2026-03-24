@@ -18,8 +18,15 @@ export class MockGitHubClient implements GitHubApiClient {
 	readonly calls: MockCall[] = [];
 	private response: FetchPrsResult;
 
-	constructor(response: FetchPrsResult) {
-		this.response = response;
+	constructor(
+		response: Omit<FetchPrsResult, "hasNextPage" | "endCursor"> &
+			Partial<Pick<FetchPrsResult, "hasNextPage" | "endCursor">>,
+	) {
+		this.response = {
+			hasNextPage: false,
+			endCursor: null,
+			...response,
+		};
 	}
 
 	async fetchPullRequests(

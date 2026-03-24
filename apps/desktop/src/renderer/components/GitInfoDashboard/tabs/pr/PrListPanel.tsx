@@ -32,6 +32,7 @@ interface PrListPanelProps {
 		state: "open" | "closed" | "all";
 		author: string | null;
 	}) => void;
+	onLoadMore: () => void;
 	selectedPr: number | null;
 	onSelectPr: (prNumber: number) => void;
 }
@@ -41,6 +42,7 @@ export function PrListPanel({
 	isScanning,
 	scanError,
 	onScan,
+	onLoadMore,
 	selectedPr,
 	onSelectPr,
 }: PrListPanelProps) {
@@ -154,6 +156,19 @@ export function PrListPanel({
 								onSelect={() => onSelectPr(pr.number)}
 							/>
 						))}
+						{report?.hasNextPage === true && (
+							<div className="p-3">
+								<Button
+									variant="outline"
+									size="sm"
+									className="w-full"
+									onClick={onLoadMore}
+									disabled={isScanning}
+								>
+									{isScanning ? "Loading…" : "Load more"}
+								</Button>
+							</div>
+						)}
 					</div>
 				)}
 			</ScrollArea>

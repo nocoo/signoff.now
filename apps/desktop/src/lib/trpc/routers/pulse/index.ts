@@ -11,6 +11,7 @@
  */
 
 import { projects } from "@signoff/local-db";
+import type { PrsReport } from "@signoff/pulse";
 import { eq } from "drizzle-orm";
 import { publicProcedure, router } from "lib/trpc";
 import { z } from "zod";
@@ -29,10 +30,8 @@ export function createPulseRouter(getDb: GetDb) {
 			state?: "open" | "closed" | "all";
 			limit?: number;
 			author?: string | null;
+			cursor?: string | null;
 		}) {
-			// Invalidate existing cache before fresh scan
-			invalidate(input.projectId);
-
 			// Resolve project path from DB
 			const db = getDb();
 			const project = db
@@ -48,13 +47,30 @@ export function createPulseRouter(getDb: GetDb) {
 			// Dynamic import to avoid pulling pulse source into coverage graph
 			const { collectProjectPrs } = await import("main/pulse/collect");
 
-			// Collect and cache
 			const report = await collectProjectPrs({
 				projectPath: project.mainRepoPath,
 				state: input.state,
 				limit: input.limit,
 				author: input.author,
+				cursor: input.cursor,
 			});
+
+			// Append to existing cache when paginating, replace when fresh scan
+			if (input.cursor) {
+				const existing = getCached(input.projectId);
+				if (existing) {
+					const merged: PrsReport = {
+						...report,
+						prs: [...existing.prs, ...report.prs],
+						totalCount: existing.prs.length + report.prs.length,
+					};
+					setCached(input.projectId, merged);
+					return merged;
+				}
+			} else {
+				invalidate(input.projectId);
+			}
+
 			setCached(input.projectId, report);
 			return report;
 		},
@@ -84,6 +100,7 @@ export function createPulseTrpcRouter(getDb: GetDb) {
 					state: z.enum(["open", "closed", "all"]).optional().default("open"),
 					limit: z.number().int().min(0).optional().default(20),
 					author: z.string().nullable().optional().default(null),
+					cursor: z.string().nullable().optional().default(null),
 				}),
 			)
 			.mutation(({ input }) => api.fetchPrs(input)),

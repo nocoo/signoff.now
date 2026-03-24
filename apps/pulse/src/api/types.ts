@@ -27,6 +27,8 @@ export interface FetchPrsOptions {
 	limit: number;
 	/** Filter by author login (client-side) */
 	author: string | null;
+	/** Cursor for pagination (null = first page). */
+	cursor?: string | null;
 }
 
 export type PullRequestState = "OPEN" | "CLOSED" | "MERGED";
@@ -34,6 +36,10 @@ export type PullRequestState = "OPEN" | "CLOSED" | "MERGED";
 export interface FetchPrsResult {
 	pullRequests: PullRequestInfo[];
 	totalCount: number;
+	/** Whether more pages are available via cursor pagination. */
+	hasNextPage: boolean;
+	/** Cursor to pass for the next page (null if no more pages). */
+	endCursor: string | null;
 }
 
 /** Raw GraphQL response shape from GitHub */

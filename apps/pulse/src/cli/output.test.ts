@@ -21,6 +21,8 @@ function makeReport(): PrsReport {
 			limit: 0,
 		},
 		totalCount: 1,
+		hasNextPage: false,
+		endCursor: null,
 		prs: [
 			{
 				number: 7,

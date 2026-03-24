@@ -58,7 +58,7 @@ export class GitHubClient implements GitHubApiClient {
 		opts: FetchPrsOptions,
 	): Promise<FetchPrsResult> {
 		const allPrs: PullRequestInfo[] = [];
-		let cursor: string | null = null;
+		let cursor: string | null = opts.cursor ?? null;
 		let hasNextPage = true;
 
 		while (hasNextPage) {
@@ -98,6 +98,9 @@ export class GitHubClient implements GitHubApiClient {
 					return {
 						pullRequests: allPrs.slice(0, opts.limit),
 						totalCount: allPrs.length,
+						hasNextPage:
+							pageInfo.hasNextPage || nodes.indexOf(node) < nodes.length - 1,
+						endCursor: pageInfo.endCursor,
 					};
 				}
 			}
@@ -106,7 +109,12 @@ export class GitHubClient implements GitHubApiClient {
 			cursor = pageInfo.endCursor;
 		}
 
-		return { pullRequests: allPrs, totalCount: allPrs.length };
+		return {
+			pullRequests: allPrs,
+			totalCount: allPrs.length,
+			hasNextPage: false,
+			endCursor: null,
+		};
 	}
 
 	private async queryGraphQL(

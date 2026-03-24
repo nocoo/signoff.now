@@ -19,6 +19,10 @@ export interface PrsReport {
 		limit: number;
 	};
 	totalCount: number;
+	/** Whether more PRs are available via cursor pagination. */
+	hasNextPage: boolean;
+	/** Cursor to pass for the next page (null if no more pages). */
+	endCursor: string | null;
 	prs: PullRequestInfo[];
 }
 

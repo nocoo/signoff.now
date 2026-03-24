@@ -115,7 +115,11 @@ describe("MockGitHubClient", () => {
 			author: null,
 		});
 
-		expect(result).toEqual(response);
+		expect(result).toEqual({
+			...response,
+			hasNextPage: false,
+			endCursor: null,
+		});
 	});
 
 	test("records calls", async () => {

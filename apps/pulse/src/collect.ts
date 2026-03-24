@@ -33,6 +33,8 @@ export interface CollectPrsOptions {
 	limit: number;
 	/** Filter by author login. */
 	author: string | null;
+	/** Cursor for pagination (null = first page). */
+	cursor?: string | null;
 	/** Skip identity cache. */
 	noCache?: boolean;
 	/** Custom cache store (omit to disable caching). */
@@ -96,6 +98,7 @@ export async function collectPrs(opts: CollectPrsOptions): Promise<PrsReport> {
 		state,
 		limit,
 		author,
+		cursor: opts.cursor ?? null,
 		resolvedUser: identity.login,
 		resolvedVia: identity.resolvedVia,
 	});

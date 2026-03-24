@@ -20,6 +20,8 @@ export interface CollectProjectPrsOptions {
 	limit?: number;
 	/** Filter by author login. */
 	author?: string | null;
+	/** Cursor for pagination (null = first page). */
+	cursor?: string | null;
 }
 
 /**
@@ -37,5 +39,6 @@ export async function collectProjectPrs(opts: CollectProjectPrsOptions) {
 		state: opts.state ?? "open",
 		limit: opts.limit ?? 0,
 		author: opts.author ?? null,
+		cursor: opts.cursor ?? null,
 	});
 }

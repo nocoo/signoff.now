@@ -45,6 +45,8 @@ function makeReport(overrides?: Partial<PrsReport>): PrsReport {
 			limit: 0,
 		},
 		totalCount: 1,
+		hasNextPage: false,
+		endCursor: null,
 		prs: [makePr()],
 		...overrides,
 	};

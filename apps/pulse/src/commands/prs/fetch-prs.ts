@@ -9,6 +9,8 @@ export interface FetchPrsInput {
 	author: string | null;
 	resolvedUser: string;
 	resolvedVia: "direct" | "org" | "fallback";
+	/** Cursor for pagination (null = first page). */
+	cursor?: string | null;
 }
 
 /**
@@ -41,6 +43,7 @@ export async function fetchPrs(
 		states,
 		limit: input.limit,
 		author: input.author,
+		cursor: input.cursor ?? null,
 	});
 
 	const durationMs = Date.now() - startTime;
@@ -63,6 +66,8 @@ export async function fetchPrs(
 			limit: input.limit,
 		},
 		totalCount: result.totalCount,
+		hasNextPage: result.hasNextPage,
+		endCursor: result.endCursor,
 		prs: result.pullRequests,
 	};
 }

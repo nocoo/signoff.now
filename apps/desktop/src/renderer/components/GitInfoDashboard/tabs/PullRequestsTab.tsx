@@ -46,6 +46,17 @@ export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 			projectId,
 			state: opts.state,
 			author: opts.author,
+			cursor: null,
+		});
+	};
+
+	const handleLoadMore = () => {
+		if (!report?.hasNextPage || !report.endCursor) return;
+		scanMutation.mutate({
+			projectId,
+			state: report.filters.state,
+			author: report.filters.author,
+			cursor: report.endCursor,
 		});
 	};
 
@@ -58,6 +69,7 @@ export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 					isScanning={isScanning}
 					scanError={scanError?.message ?? null}
 					onScan={handleScan}
+					onLoadMore={handleLoadMore}
 					selectedPr={selectedPrNumber}
 					onSelectPr={setSelectedPrNumber}
 				/>
