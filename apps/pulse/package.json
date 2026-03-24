@@ -11,6 +11,14 @@
 			"types": "./src/commands/types.ts",
 			"default": "./src/commands/types.ts"
 		},
+		"./collect": {
+			"types": "./src/collect.ts",
+			"default": "./src/collect.ts"
+		},
+		"./executor": {
+			"types": "./src/executor/types.ts",
+			"default": "./src/executor/types.ts"
+		},
 		"./identity": {
 			"types": "./src/identity/types.ts",
 			"default": "./src/identity/types.ts"
