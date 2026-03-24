@@ -45,19 +45,22 @@ PR data splits naturally into two tiers with different access patterns:
 
 | Layer | Source | When cached | Volume | Access pattern |
 |-------|--------|-------------|--------|----------------|
-| **List** (`PullRequestInfo`) | `pulse.fetchPrs` | On scan / load more | ~20 per page, ~800 total | Batch upsert, query by project+state |
+| **List** (`PullRequestInfo`) | `pulse.fetchPrs` | On scan / load more | ~20 per page, ~800 total | Batch upsert, query by project (state filter in SQL WHERE) |
 | **Detail** (`PrDetail`) | `pulse.fetchPrDetail` | On user click | 1 at a time | Single row upsert, query by project+number |
 
 The detail layer extends the list layer — a detail fetch also updates the corresponding list row's scalar fields (e.g., updated labels, review decision). The heavy sub-data (reviews, comments, commits, files) lives in the detail row as JSON columns, since they are read-only display data that never needs SQL-level querying.
 
-### Canonical List vs Client-Side Filtering
+### Canonical List — Single Scan Scope
 
-The server always fetches and persists the **canonical list** (no author filter). Author filtering is purely client-side in the ViewModel:
+The server always fetches with `state: "all"` from GitHub — one unified scan per project, one pagination chain. The `state` UI filter (open/closed/all) is purely client-side, applied in the `getCachedPrs` query via `WHERE pull_requests.state = ?` (or no condition for "all").
 
-- `fetchPrs` mutation never accepts an `author` parameter — always fetches all PRs for a given state
-- The ViewModel applies `authorFilter` via `Array.filter()` before passing to the View
-- This avoids duplicating scan rows per author and simplifies cache invalidation
-- Switching author filters is instant (no re-fetch needed)
+**Why not per-state scans?** The `pull_requests` table uses `(project_id, number)` as UNIQUE key with the PR's actual `state` as a column. If we maintained separate scan chains for "open", "closed", and "all", they would share the same rows but have independent pagination cursors. A scan of "all" would delete-and-replace rows that the "open" cursor was pointing at, corrupting that scan chain. A single canonical scan avoids this entirely.
+
+**Author filtering** is also client-side in the ViewModel:
+
+- `fetchPrs` mutation never accepts `author` or `state` filter parameters
+- The ViewModel applies `stateFilter` and `authorFilter` via `Array.filter()` before passing to the View
+- Switching filters is instant (no re-fetch needed)
 
 ### Data Shape Reference
 
@@ -178,9 +181,7 @@ export const pullRequestDetails = sqliteTable(
 
 ### Table 3: `pull_request_scans` — Pagination & scan metadata
 
-Tracks scan state per project per state filter. One row per `(project_id, state)`.
-
-No `author` column — the server always fetches the canonical (unfiltered) list.
+Tracks scan state per project. One row per project (single canonical scan chain).
 
 ```typescript
 export const pullRequestScans = sqliteTable(
@@ -191,10 +192,7 @@ export const pullRequestScans = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
 
-    // Scan parameter — only state, no author (canonical list)
-    state: text("state").notNull(),           // "open" | "closed" | "all"
-
-    // Pagination state
+    // Pagination state (from latest GitHub response)
     endCursor: text("end_cursor"),            // GitHub GraphQL cursor
     hasNextPage: integer("has_next_page", { mode: "boolean" }).notNull(),
 
@@ -210,12 +208,12 @@ export const pullRequestScans = sqliteTable(
     scannedAt: integer("scanned_at").notNull().$defaultFn(() => Date.now()),
   },
   (table) => [
-    uniqueIndex("pr_scans_project_state_uniq").on(table.projectId, table.state),
+    uniqueIndex("pr_scans_project_uniq").on(table.projectId),
   ],
 );
 ```
 
-**UNIQUE constraint:** `(project_id, state)` — one scan record per project per state filter.
+**UNIQUE constraint:** `(project_id)` — one scan record per project. No `state` column because all scans use `state: "all"` from GitHub.
 
 ### Relations
 
@@ -287,12 +285,13 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 ┌────────────────────▼─────────────────────────────────────┐
 │  Model (tRPC Router + SQLite)                             │
 │  Queries (read from DB):                                  │
-│  - getCachedPrs(projectId, state) → PullRequestInfo[]     │
+│  - getCachedPrs(projectId, state?) → PullRequestInfo[]    │
+│    state filter applied in SQL WHERE; omit for all        │
 │  - getCachedPrDetail(projectId, number) → PrDetail | null │
-│  - getScanMeta(projectId, state) → scan metadata          │
+│  - getScanMeta(projectId) → scan metadata                 │
 │  Mutations (write DB + invalidate):                       │
-│  - fetchPrs(projectId, state, cursor?) → void             │
-│    GitHub API → upsert pull_requests + scan meta          │
+│  - fetchPrs(projectId, cursor?) → void                    │
+│    GitHub API (state:"all") → upsert pull_requests + scan │
 │  - fetchPrDetail(projectId, number) → void                │
 │    GitHub API → upsert pull_requests + pull_request_details│
 │  - clearCache(projectId) → void                           │
@@ -306,13 +305,14 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 
 ```
 1. Tab mounts
-2. ViewModel: query getCachedPrs(projectId, "open")
-   → SQLite returns cached PRs (instant, may be stale)
+2. ViewModel: query getCachedPrs(projectId, stateFilter)
+   → SQLite returns cached PRs filtered by state (instant, may be stale)
    → ViewModel applies client-side authorFilter
    → View renders immediately with cached data
-3. ViewModel: query getScanMeta(projectId, "open")
+3. ViewModel: query getScanMeta(projectId)
    → Get endCursor, hasNextPage from last scan
-4. ViewModel: auto-trigger fetchPrs(projectId, "open")
+4. ViewModel: auto-trigger fetchPrs(projectId)
+   → GitHub API fetches state:"all" — one canonical scan
    → UI shows subtle "Refreshing..." indicator (not skeleton)
    → On success: upsert PRs into DB, invalidate getCachedPrs query
    → tRPC auto-refetches getCachedPrs → View updates reactively
@@ -338,17 +338,15 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 
 ```
 User clicks "Scan PRs":
-1. ViewModel: mutate fetchPrs(projectId, state, cursor=null)
-2. Router: call collectProjectPrs({ ..., limit: PAGE_SIZE, cursor: null })
+1. ViewModel: mutate fetchPrs(projectId, cursor=null)
+2. Router: call collectProjectPrs({ ..., state: "all", limit: PAGE_SIZE, cursor: null })
    → PAGE_SIZE = 20 (hardcoded in router, not exposed to UI)
+   → Always fetches state:"all" — single canonical scan scope
    → Fetches exactly one page from GitHub API, not all pages
    → Network round-trip happens OUTSIDE any DB transaction
 3. Router: BEGIN TRANSACTION (short, no I/O inside)
    a. DELETE FROM pull_requests WHERE project_id = ?
-      [AND state = ? — only when scanning "open" or "closed";
-       omit the state condition when scanning "all" to purge
-       all cached rows for this project]
-      → Purge cached rows for this scan scope to avoid stale residuals
+      → Purge all cached rows for this project to avoid stale residuals
         (e.g., a PR that was "open" last scan but has since been closed
         would linger forever without this step)
    b. INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
@@ -364,21 +362,18 @@ User clicks "Scan PRs":
 The DB transaction (step 3) is short — it only contains DELETE + INSERT +
 UPDATE with no network I/O. The query is not invalidated until after the
 transaction commits, so the View never sees an empty intermediate state.
-When scanning "open" or "closed", the DELETE only targets rows matching
-that state — other state caches are untouched. When scanning "all", the
-DELETE removes all rows for the project (full refresh).
 
 Note: `pull_requests.state` stores the PR's actual state ("open" or
-"closed"), never "all". The "all" value only appears in `pull_request_scans`
-and in query/mutation parameters, where it means "no state filter".
+"closed"), never "all". The UI's stateFilter is applied at query time
+via `getCachedPrs(projectId, stateFilter)`.
 ```
 
 ### Load More Flow
 
 ```
 User clicks "Load more":
-1. ViewModel: mutate fetchPrs(projectId, state, cursor=endCursor)
-2. Router: call collectProjectPrs({ ..., limit: PAGE_SIZE, cursor: endCursor })
+1. ViewModel: mutate fetchPrs(projectId, cursor=endCursor)
+2. Router: call collectProjectPrs({ ..., state: "all", limit: PAGE_SIZE, cursor: endCursor })
 3. Router: INSERT INTO pull_requests (...) ON CONFLICT DO UPDATE (append, no delete)
 4. Router: UPDATE pull_request_scans SET end_cursor=?, has_next_page=?
 5. Router: invalidate getCachedPrs + getScanMeta queries
@@ -395,10 +390,10 @@ User clicks "Load more":
 
 | Procedure | Type | Input | Behavior |
 |-----------|------|-------|----------|
-| `getCachedPrs` | query | `{ projectId, state }` | SELECT from `pull_requests` WHERE project_id; if state is `"open"` or `"closed"`, add `AND state = ?`; if state is `"all"`, omit the state condition. ORDER BY created_at DESC |
+| `getCachedPrs` | query | `{ projectId, state? }` | SELECT from `pull_requests` WHERE project_id; if state is `"open"` or `"closed"`, add `AND state = ?`; if state is `"all"` or omitted, return all. ORDER BY created_at DESC |
 | `getCachedPrDetail` | query | `{ projectId, number }` | JOIN `pull_requests` + `pull_request_details`, return combined `PrDetail` or null |
-| `getScanMeta` | query | `{ projectId, state }` | SELECT from `pull_request_scans` WHERE project_id + state |
-| `fetchPrs` | mutation | `{ projectId, state, cursor? }` | GitHub API (limit=PAGE_SIZE internally) → upsert DB → invalidate queries → void |
+| `getScanMeta` | query | `{ projectId }` | SELECT from `pull_request_scans` WHERE project_id |
+| `fetchPrs` | mutation | `{ projectId, cursor? }` | GitHub API (state:"all", limit=PAGE_SIZE internally) → upsert DB → invalidate queries → void |
 | `fetchPrDetail` | mutation | `{ projectId, number }` | GitHub API → upsert both tables → invalidate queries → void |
 | `clearCache` | mutation | `{ projectId }` | DELETE from all 3 tables WHERE project_id |
 
@@ -406,7 +401,7 @@ User clicks "Load more":
 - `getCachedReport` — replaced by `getCachedPrs` + `getScanMeta`
 
 **Changed signatures:**
-- `fetchPrs` — no longer accepts `author` or `limit` at the tRPC layer. The router internally calls `collectProjectPrs({ ..., limit: PAGE_SIZE, cursor })` with a fixed page size (20). This is critical: the underlying collector treats `limit <= 0` as "fetch all pages until exhausted", which would defeat the Load More pagination design. The tRPC layer hides `limit` from the UI but always passes a bounded value to the collector. The underlying `collectProjectPrs()` bridge and `@signoff/pulse` `fetchPrs()` retain the `limit` and `author` parameters for CLI and future use.
+- `fetchPrs` — no longer accepts `state`, `author`, or `limit` at the tRPC layer. The router internally calls `collectProjectPrs({ ..., state: "all", limit: PAGE_SIZE, cursor })` with a fixed page size (20) and always `state: "all"`. This is critical: the underlying collector treats `limit <= 0` as "fetch all pages until exhausted", which would defeat the Load More pagination design. The state filter is purely client-side (applied in `getCachedPrs` query). The underlying `collectProjectPrs()` bridge and `@signoff/pulse` `fetchPrs()` retain the `state`, `limit`, and `author` parameters for CLI and future use.
 - `fetchPrs` — no longer returns `PrsReport` (writes DB, returns void)
 - `fetchPrDetail` — no longer returns `PrDetailReport` (writes DB, returns void)
 
@@ -429,28 +424,31 @@ export function usePrViewModel(projectId: string) {
 
   // ── List Layer (queries are the single source of truth) ──
 
-  // Cached list from DB (instant on mount)
+  // Cached list from DB (instant on mount), filtered by state in SQL
   const cachedPrsQuery = trpc.pulse.getCachedPrs.useQuery(
     { projectId, state: stateFilter },
   );
 
-  // Scan metadata (pagination cursor)
+  // Scan metadata — one record per project (no state dimension)
   const scanMetaQuery = trpc.pulse.getScanMeta.useQuery(
-    { projectId, state: stateFilter },
+    { projectId },
   );
 
-  // List fetch mutation — writes DB, invalidates queries, returns nothing
+  // List fetch mutation — always fetches state:"all" from GitHub,
+  // writes DB, invalidates queries, returns nothing.
+  // State filter is applied at query time, not fetch time.
   const scanMutation = trpc.pulse.fetchPrs.useMutation({
-    onSuccess: (_data, variables) => {
-      utils.pulse.getCachedPrs.invalidate({ projectId, state: variables.state });
-      utils.pulse.getScanMeta.invalidate({ projectId, state: variables.state });
+    onSuccess: () => {
+      // Invalidate all state variants of getCachedPrs for this project
+      utils.pulse.getCachedPrs.invalidate();
+      utils.pulse.getScanMeta.invalidate({ projectId });
     },
   });
 
-  // Auto-refresh on mount / state filter change
+  // Auto-refresh on mount (not on stateFilter change — filter is client-side)
   useEffect(() => {
-    scanMutation.mutate({ projectId, state: stateFilter });
-  }, [projectId, stateFilter]);
+    scanMutation.mutate({ projectId });
+  }, [projectId]);
 
   // Client-side author filter — instant, no re-fetch
   const filteredPrs = useMemo(() => {
@@ -473,10 +471,8 @@ export function usePrViewModel(projectId: string) {
     onSuccess: (_data, variables) => {
       utils.pulse.getCachedPrDetail.invalidate({ projectId, number: variables.number });
       // Invalidate all getCachedPrs queries (all projects, all states).
-      // The detail fetch refreshes list-level fields, and stateFilter may
-      // have changed while the request was in flight. Broad invalidation
-      // is cheap (just marks queries stale for next access) and avoids
-      // stale list data after a detail refresh.
+      // The detail fetch refreshes list-level fields, and broad invalidation
+      // is cheap (just marks queries stale for next access).
       utils.pulse.getCachedPrs.invalidate();
     },
   });
@@ -500,12 +496,12 @@ export function usePrViewModel(projectId: string) {
     scanError: scanMutation.error?.message ?? null,
     hasNextPage: scanMetaQuery.data?.hasNextPage ?? false,
     stateFilter,
-    setStateFilter,
+    setStateFilter,      // Instant — just changes the SQL WHERE, no re-fetch
     authorFilter,
-    setAuthorFilter,
-    scan: () => scanMutation.mutate({ projectId, state: stateFilter, cursor: null }),
+    setAuthorFilter,     // Instant — client-side Array.filter()
+    scan: () => scanMutation.mutate({ projectId, cursor: null }),
     loadMore: () => scanMutation.mutate({
-      projectId, state: stateFilter,
+      projectId,
       cursor: scanMetaQuery.data?.endCursor ?? null,
     }),
 
@@ -610,12 +606,12 @@ The detail panel gains these additional sections beyond the existing list-level 
 
 | Layer | What | Where |
 |-------|------|-------|
-| L1 UT | DB helpers: upsert PRs, upsert detail, query by state, delete by project, pagination cursor update | `pulse/db.test.ts` |
+| L1 UT | DB helpers: upsert PRs, upsert detail, query with state filter, query without state filter (all), delete by project, pagination cursor update | `pulse/db.test.ts` |
 | L1 UT | DB helpers: ON CONFLICT upsert — duplicate (project_id, number) updates rather than inserts | `pulse/db.test.ts` |
-| L1 UT | DB helpers: fresh scan DELETE + INSERT transaction — stale rows for scanned state are purged | `pulse/db.test.ts` |
+| L1 UT | DB helpers: fresh scan DELETE + INSERT transaction — all project rows purged before insert | `pulse/db.test.ts` |
 | L1 UT | ViewModel: loading states, query-as-source (no mutation result in view), auto-refresh on mount | `usePrViewModel.test.ts` |
 | L1 UT | ViewModel: client-side author filter — empty filter returns all, partial match filters, case insensitive | `usePrViewModel.test.ts` |
-| L1 UT | ViewModel: state filter change triggers new scan + query invalidation | `usePrViewModel.test.ts` |
+| L1 UT | ViewModel: state filter change is instant (no new mutation), only changes query key | `usePrViewModel.test.ts` |
 | L1 UT | ViewModel: detail select → query + mutation, cache hit shows instant | `usePrViewModel.test.ts` |
 | L2 Lint | Biome check passes | Pre-commit hook |
 | L3 E2E | tRPC smoke: fetchPrs → getCachedPrs, fetchPrDetail → getCachedPrDetail | `e2e-smoke.test.ts` |
