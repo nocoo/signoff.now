@@ -352,7 +352,11 @@ User clicks "Scan PRs":
         (e.g., a PR that was "open" last scan but has since been closed
         would linger forever without this step)
    b. INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
-   c. UPSERT INTO pull_request_scans (...) with cursor=null (reset pagination)
+   c. UPSERT INTO pull_request_scans SET end_cursor = response.endCursor,
+      has_next_page = response.hasNextPage, scanned_at = now()
+      → Saves the pagination state returned by GitHub, NOT the input cursor.
+        After a fresh scan of 20 PRs, end_cursor points to page 2 and
+        has_next_page = true, enabling Load More to continue from here.
    COMMIT
 4. Router: invalidate getCachedPrs + getScanMeta queries
 5. View: re-renders with fresh data from DB
