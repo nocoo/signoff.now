@@ -70,7 +70,7 @@ async function main(): Promise<void> {
 
 	// Step 3: Resolve identity
 	const cacheStore = args.noCache ? undefined : createFsCacheStore();
-	const identity = await resolveIdentity(exec, remote.owner, {
+	const identity = await resolveIdentity(exec, remote.host, remote.owner, {
 		noCache: args.noCache,
 		cacheStore,
 	});

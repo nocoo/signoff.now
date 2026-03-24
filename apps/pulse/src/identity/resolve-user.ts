@@ -7,6 +7,15 @@ import type {
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+/**
+ * Composite key for the identity map: "host\0owner".
+ * Prevents cross-host collisions when the same owner/org name
+ * exists on both github.com and a GHES instance.
+ */
+function mapKey(host: string, owner: string): string {
+	return `${host}\0${owner}`;
+}
+
 export interface CacheStore {
 	read(): Promise<IdentityMapCache | null>;
 	write(cache: IdentityMapCache): Promise<void>;
@@ -58,14 +67,17 @@ export async function getTokenForUser(
 
 /**
  * Query org memberships for a user using their token.
+ * Uses --paginate to fetch all orgs (default page size is 30).
  */
 export async function getOrgsForUser(
 	exec: CommandExecutor,
 	token: string,
 ): Promise<string[]> {
-	const result = await exec("gh", ["api", "/user/orgs", "--jq", ".[].login"], {
-		env: { GH_TOKEN: token },
-	});
+	const result = await exec(
+		"gh",
+		["api", "/user/orgs", "--paginate", "--jq", ".[].login"],
+		{ env: { GH_TOKEN: token } },
+	);
 	if (result.exitCode !== 0) {
 		return [];
 	}
@@ -76,7 +88,8 @@ export async function getOrgsForUser(
 }
 
 /**
- * Build the complete owner→user identity map.
+ * Build the complete (host, owner) → user identity map.
+ * Each entry is scoped to the host the user is authenticated on.
  */
 export async function buildIdentityMap(
 	exec: CommandExecutor,
@@ -85,17 +98,18 @@ export async function buildIdentityMap(
 	const users = await listGhUsers(exec);
 
 	for (const user of users) {
-		// Each user maps to themselves
-		map.set(user.login, user.login);
+		// Each user maps to themselves on their host
+		map.set(mapKey(user.host, user.login), user.login);
 
 		// Query their orgs
 		const token = await getTokenForUser(exec, user.login);
 		if (token) {
 			const orgs = await getOrgsForUser(exec, token);
 			for (const org of orgs) {
+				const key = mapKey(user.host, org);
 				// First user to claim an org wins (deterministic by iteration order)
-				if (!map.has(org)) {
-					map.set(org, user.login);
+				if (!map.has(key)) {
+					map.set(key, user.login);
 				}
 			}
 		}
@@ -118,7 +132,7 @@ export function parseCachedMap(
 
 	const map = new Map<string, string>();
 	for (const entry of cache.entries) {
-		map.set(entry.owner, entry.ghUser);
+		map.set(mapKey(entry.host, entry.owner), entry.ghUser);
 	}
 	return map;
 }
@@ -128,17 +142,23 @@ export function parseCachedMap(
  */
 export function serializeMap(map: Map<string, string>): IdentityMapCache {
 	return {
-		entries: [...map.entries()].map(([owner, ghUser]) => ({ owner, ghUser })),
+		entries: [...map.entries()].map(([compositeKey, ghUser]) => {
+			const separatorIdx = compositeKey.indexOf("\0");
+			const host = compositeKey.slice(0, separatorIdx);
+			const owner = compositeKey.slice(separatorIdx + 1);
+			return { host, owner, ghUser };
+		}),
 		createdAt: new Date().toISOString(),
 	};
 }
 
 /**
- * Resolve the correct GitHub identity for a given owner.
+ * Resolve the correct GitHub identity for a given host + owner.
  * Uses cache when available, builds fresh map otherwise.
  */
 export async function resolveIdentity(
 	exec: CommandExecutor,
+	host: string,
 	owner: string,
 	options?: { noCache?: boolean; cacheStore?: CacheStore },
 ): Promise<ResolvedIdentity | null> {
@@ -157,8 +177,8 @@ export async function resolveIdentity(
 		}
 	}
 
-	// Try direct match (owner is a user login)
-	const directUser = identityMap.get(owner);
+	// Try direct match scoped to host
+	const directUser = identityMap.get(mapKey(host, owner));
 	if (directUser) {
 		const token = await getTokenForUser(exec, directUser);
 		if (token) {
@@ -167,13 +187,15 @@ export async function resolveIdentity(
 		}
 	}
 
-	// Fallback: use the active user
+	// Fallback: use the active user on this host
 	const users = await listGhUsers(exec);
-	const activeUser = users.find((u) => u.active);
-	if (activeUser) {
-		const token = await getTokenForUser(exec, activeUser.login);
+	const activeUser = users.find((u) => u.active && u.host === host);
+	// If no active user on this specific host, fall back to any active user
+	const fallbackUser = activeUser ?? users.find((u) => u.active);
+	if (fallbackUser) {
+		const token = await getTokenForUser(exec, fallbackUser.login);
 		if (token) {
-			return { login: activeUser.login, token, resolvedVia: "fallback" };
+			return { login: fallbackUser.login, token, resolvedVia: "fallback" };
 		}
 	}
 

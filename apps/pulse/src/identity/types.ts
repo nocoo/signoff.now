@@ -2,6 +2,7 @@ export type Platform = "github" | "azure-devops" | "unknown";
 
 export interface RemoteInfo {
 	platform: Platform;
+	host: string;
 	owner: string;
 	repo: string;
 }
@@ -19,6 +20,7 @@ export interface GhAuthEntry {
 }
 
 export interface IdentityMapEntry {
+	host: string;
 	owner: string;
 	ghUser: string;
 }
