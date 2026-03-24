@@ -17,6 +17,7 @@ import { createGitInfoTrpcRouter } from "./gitinfo";
 import { createHotkeysTrpcRouter } from "./hotkeys";
 import { createMenuRouter } from "./menu";
 import { createProjectsTrpcRouter } from "./projects";
+import { createPulseTrpcRouter } from "./pulse";
 import { createSettingsTrpcRouter } from "./settings";
 import { createTerminalRouter } from "./terminal";
 import { createWindowRouter } from "./window";
@@ -68,6 +69,7 @@ export function createAppRouter(deps: AppRouterDeps) {
 		changes: createChangesTrpcRouter(deps.getGit),
 		filesystem: createFilesystemTrpcRouter(deps.fsOps),
 		gitinfo: createGitInfoTrpcRouter(deps.getDb),
+		pulse: createPulseTrpcRouter(deps.getDb),
 		settings: createSettingsTrpcRouter(deps.settingsDb),
 		hotkeys: createHotkeysTrpcRouter(deps.hotkeyStore),
 		terminal: createTerminalRouter(deps.terminalManager),

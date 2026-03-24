@@ -121,7 +121,8 @@ describe("lib/trpc/routers", () => {
 		expect(subRouterNames).toContain("external");
 		expect(subRouterNames).toContain("autoUpdate");
 		expect(subRouterNames).toContain("gitinfo");
-		expect(subRouterNames).toHaveLength(13);
+		expect(subRouterNames).toContain("pulse");
+		expect(subRouterNames).toHaveLength(14);
 	});
 
 	test("factory routers have real procedures", async () => {
