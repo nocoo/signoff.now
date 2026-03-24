@@ -308,7 +308,7 @@ function PageList({ projectId }: { projectId: string }) {
 						className={cn(
 							"flex items-center gap-2.5 rounded-md py-1.5 pl-3 pr-2 text-left text-[13px]",
 							isActive
-								? "bg-accent font-medium text-foreground"
+								? "bg-accent text-foreground"
 								: "text-muted-foreground hover:bg-accent hover:text-foreground",
 						)}
 						data-testid={`page-item-${page.id}`}

@@ -69,7 +69,7 @@ export function PrListPanel({
 		}) ?? [];
 
 	return (
-		<div className="flex h-full flex-col border-r border-border">
+		<div className="flex h-full min-h-0 flex-col border-r border-border">
 			{/* Header: Scan + filter bar */}
 			<div className="flex flex-col gap-2 border-b border-border p-3">
 				<div className="flex items-center gap-2">
@@ -188,14 +188,7 @@ function PrRow({
 					merged={pr.merged}
 					className="mt-0.5"
 				/>
-				<span
-					className={cn(
-						"flex-1 text-sm leading-snug",
-						isSelected && "font-medium",
-					)}
-				>
-					{pr.title}
-				</span>
+				<span className="flex-1 text-sm leading-snug">{pr.title}</span>
 				<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
 					#{pr.number}
 				</span>
