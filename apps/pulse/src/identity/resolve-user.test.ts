@@ -387,6 +387,18 @@ describe("resolveIdentity", () => {
 		});
 		expect(result).toBeNull();
 	});
+
+	test("does NOT fall back across hosts", async () => {
+		// Only github.com users authenticated, querying github.acme.com
+		const result = await resolveIdentity(
+			makeExec(),
+			"github.acme.com",
+			"unknown-owner",
+			{ noCache: true },
+		);
+		// Must be null — never cross host boundaries
+		expect(result).toBeNull();
+	});
 });
 
 describe("parseCachedMap", () => {

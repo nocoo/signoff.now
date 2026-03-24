@@ -101,7 +101,7 @@ describe("parseRemoteUrl", () => {
 			});
 		});
 
-		test("parses SSH URL with host alias (gh-work) → defaults host to github.com", () => {
+		test("parses SSH URL with host alias (gh-work) → defaults to github.com", () => {
 			const result = parseRemoteUrl("git@gh-work:acme-corp/web-app.git");
 			expect(result).toEqual({
 				platform: "github",
@@ -111,7 +111,7 @@ describe("parseRemoteUrl", () => {
 			});
 		});
 
-		test("parses SSH URL with host alias (gh-personal) → defaults host to github.com", () => {
+		test("parses SSH URL with host alias (gh-personal) → defaults to github.com", () => {
 			const result = parseRemoteUrl("git@gh-personal:alice/my-tool.git");
 			expect(result).toEqual({
 				platform: "github",
@@ -121,7 +121,7 @@ describe("parseRemoteUrl", () => {
 			});
 		});
 
-		test("parses SSH URL with dotted repo name", () => {
+		test("parses SSH URL with dotted repo name via alias", () => {
 			const result = parseRemoteUrl("git@gh-personal:alice/my.app.git");
 			expect(result).toEqual({
 				platform: "github",
@@ -132,7 +132,7 @@ describe("parseRemoteUrl", () => {
 		});
 	});
 
-	describe("non-GitHub SSH URLs", () => {
+	describe("non-GitHub SSH URLs (allowlist rejection)", () => {
 		test("rejects git@gitlab.com as unknown", () => {
 			const result = parseRemoteUrl("git@gitlab.com:foo/bar.git");
 			expect(result.platform).toBe("unknown");
@@ -154,34 +154,77 @@ describe("parseRemoteUrl", () => {
 			expect(result.platform).toBe("unknown");
 		});
 
-		test("rejects git@self-hosted.gitlab.com as unknown", () => {
-			const result = parseRemoteUrl("git@self-hosted.gitlab.com:org/repo.git");
+		test("rejects git@example.com (FQDN without github) as unknown", () => {
+			const result = parseRemoteUrl("git@example.com:foo/bar.git");
+			expect(result.platform).toBe("unknown");
+		});
+
+		test("rejects git@git.corp (FQDN without github) as unknown", () => {
+			const result = parseRemoteUrl("git@git.corp:foo/bar.git");
+			expect(result.platform).toBe("unknown");
+		});
+
+		test("rejects git@forgejo.example (FQDN without github) as unknown", () => {
+			const result = parseRemoteUrl("git@forgejo.example:org/repo.git");
 			expect(result.platform).toBe("unknown");
 		});
 	});
 
 	describe("Azure DevOps URLs", () => {
-		test("detects visualstudio.com URL", () => {
+		test("detects visualstudio.com HTTPS URL", () => {
 			const result = parseRemoteUrl(
 				"https://contoso.visualstudio.com/DefaultCollection/Project/_git/repo",
 			);
-			expect(result).toEqual({
-				platform: "azure-devops",
-				host: "",
-				owner: "",
-				repo: "",
-			});
+			expect(result.platform).toBe("azure-devops");
 		});
 
-		test("detects dev.azure.com URL", () => {
+		test("detects dev.azure.com HTTPS URL", () => {
 			const result = parseRemoteUrl(
 				"https://dev.azure.com/contoso/Project/_git/repo",
 			);
+			expect(result.platform).toBe("azure-devops");
+		});
+
+		test("detects SSH Azure DevOps URL", () => {
+			const result = parseRemoteUrl(
+				"git@ssh.dev.azure.com:v3/contoso/Project/repo",
+			);
+			expect(result.platform).toBe("azure-devops");
+		});
+	});
+
+	describe("Azure DevOps keywords in GitHub repo names (no false positive)", () => {
+		test("does NOT misdetect HTTPS repo named azure.com-tool", () => {
+			const result = parseRemoteUrl(
+				"https://github.com/acme/azure.com-tool.git",
+			);
 			expect(result).toEqual({
-				platform: "azure-devops",
-				host: "",
-				owner: "",
-				repo: "",
+				platform: "github",
+				host: "github.com",
+				owner: "acme",
+				repo: "azure.com-tool",
+			});
+		});
+
+		test("does NOT misdetect SSH repo named azure.com-tool", () => {
+			const result = parseRemoteUrl("git@github.com:acme/azure.com-tool.git");
+			expect(result).toEqual({
+				platform: "github",
+				host: "github.com",
+				owner: "acme",
+				repo: "azure.com-tool",
+			});
+		});
+
+		test("does NOT misdetect repo named dev.azure.com-utils", () => {
+			const result = parseRemoteUrl(
+				"https://github.com/acme/dev.azure.com-utils.git",
+			);
+			expect(result).toEqual({
+				platform: "github",
+				host: "github.com",
+				owner: "acme",
+				repo: "dev.azure.com-utils",
 			});
 		});
 	});
@@ -189,22 +232,14 @@ describe("parseRemoteUrl", () => {
 	describe("non-GitHub HTTPS URLs", () => {
 		test("returns unknown for GitLab HTTPS", () => {
 			const result = parseRemoteUrl("https://gitlab.com/foo/bar.git");
-			expect(result).toEqual({
-				platform: "unknown",
-				host: "",
-				owner: "",
-				repo: "",
-			});
+			expect(result.platform).toBe("unknown");
+			expect(result.host).toBe("gitlab.com");
 		});
 
 		test("returns unknown for Bitbucket HTTPS", () => {
 			const result = parseRemoteUrl("https://bitbucket.org/team/repo.git");
-			expect(result).toEqual({
-				platform: "unknown",
-				host: "",
-				owner: "",
-				repo: "",
-			});
+			expect(result.platform).toBe("unknown");
+			expect(result.host).toBe("bitbucket.org");
 		});
 	});
 

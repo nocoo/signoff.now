@@ -187,15 +187,15 @@ export async function resolveIdentity(
 		}
 	}
 
-	// Fallback: use the active user on this host
+	// Fallback: use the active user on this host only.
+	// Never cross host boundaries — a github.com token must not be sent
+	// to a GHES instance and vice versa.
 	const users = await listGhUsers(exec);
 	const activeUser = users.find((u) => u.active && u.host === host);
-	// If no active user on this specific host, fall back to any active user
-	const fallbackUser = activeUser ?? users.find((u) => u.active);
-	if (fallbackUser) {
-		const token = await getTokenForUser(exec, fallbackUser.login);
+	if (activeUser) {
+		const token = await getTokenForUser(exec, activeUser.login);
 		if (token) {
-			return { login: fallbackUser.login, token, resolvedVia: "fallback" };
+			return { login: activeUser.login, token, resolvedVia: "fallback" };
 		}
 	}
 
