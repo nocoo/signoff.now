@@ -47,15 +47,15 @@ PR data splits naturally into two tiers with different access patterns:
 
 The detail layer extends the list layer — a detail row also updates the corresponding list row's scalar fields (e.g., updated labels, review decision). The heavy sub-data (reviews, comments, commits, files) lives in the detail row as JSON columns, since they are read-only display data that never needs SQL-level querying.
 
-### Data Shape Reference (from studio project research)
+### Data Shape Reference
 
-Typical PR in `infinity-microsoft/studio` (~776 open PRs):
+Typical PR in a large org monorepo (~800 open PRs):
 
 ```
 List fields:  20 scalar/array fields (title, state, author, labels[], etc.)
 Detail adds:  body (0-2KB), mergeable, mergeStateStatus, mergedBy, etc.
   reviews:    2-6 items (author, state, body, submittedAt)
-  comments:   3-5 items (mostly bots: claude-code-mai, mai-studio-pr-management)
+  comments:   3-5 items (human + bot comments from CI/review automation)
   commits:    1-4 items (oid, message, author, statusCheckRollup)
   files:      4-10 items (path, additions, deletions, changeType)
 ```
