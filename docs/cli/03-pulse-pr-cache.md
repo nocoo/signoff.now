@@ -4,7 +4,7 @@
 
 Replace the current in-memory `Map<projectId, PrsReport>` cache with **SQLite tables** in `@signoff/local-db`. This enables instant display of previously fetched PRs on app launch, with background refresh updating the view reactively.
 
-> **Status:** Not started.
+> **Status:** Complete. All 5 atomic commits landed.
 >
 > **Breaking change:** This replaces the existing `getCachedReport` query + `fetchPrs` mutation + in-memory cache with a new set of DB-backed queries and mutations. All existing tRPC procedure signatures change.
 
