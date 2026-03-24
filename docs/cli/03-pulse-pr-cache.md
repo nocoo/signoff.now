@@ -342,8 +342,11 @@ User clicks "Scan PRs":
 2. Router: call collectProjectPrs() → GitHub API (no author param)
    → Network round-trip happens OUTSIDE any DB transaction
 3. Router: BEGIN TRANSACTION (short, no I/O inside)
-   a. DELETE FROM pull_requests WHERE project_id = ? AND state = ?
-      → Purge all cached rows for this state to avoid stale residuals
+   a. DELETE FROM pull_requests WHERE project_id = ?
+      [AND state = ? — only when scanning "open" or "closed";
+       omit the state condition when scanning "all" to purge
+       all cached rows for this project]
+      → Purge cached rows for this scan scope to avoid stale residuals
         (e.g., a PR that was "open" last scan but has since been closed
         would linger forever without this step)
    b. INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
@@ -355,8 +358,13 @@ User clicks "Scan PRs":
 The DB transaction (step 3) is short — it only contains DELETE + INSERT +
 UPDATE with no network I/O. The query is not invalidated until after the
 transaction commits, so the View never sees an empty intermediate state.
-The DELETE only targets rows matching the scanned state — other state
-caches (e.g., "closed" cache while scanning "open") are untouched.
+When scanning "open" or "closed", the DELETE only targets rows matching
+that state — other state caches are untouched. When scanning "all", the
+DELETE removes all rows for the project (full refresh).
+
+Note: `pull_requests.state` stores the PR's actual state ("open" or
+"closed"), never "all". The "all" value only appears in `pull_request_scans`
+and in query/mutation parameters, where it means "no state filter".
 ```
 
 ### Load More Flow
@@ -381,7 +389,7 @@ User clicks "Load more":
 
 | Procedure | Type | Input | Behavior |
 |-----------|------|-------|----------|
-| `getCachedPrs` | query | `{ projectId, state }` | SELECT from `pull_requests` WHERE project_id + state, ORDER BY created_at DESC |
+| `getCachedPrs` | query | `{ projectId, state }` | SELECT from `pull_requests` WHERE project_id; if state is `"open"` or `"closed"`, add `AND state = ?`; if state is `"all"`, omit the state condition. ORDER BY created_at DESC |
 | `getCachedPrDetail` | query | `{ projectId, number }` | JOIN `pull_requests` + `pull_request_details`, return combined `PrDetail` or null |
 | `getScanMeta` | query | `{ projectId, state }` | SELECT from `pull_request_scans` WHERE project_id + state |
 | `fetchPrs` | mutation | `{ projectId, state, cursor? }` | GitHub API → upsert DB → invalidate queries → void |
@@ -458,9 +466,11 @@ export function usePrViewModel(projectId: string) {
   const detailMutation = trpc.pulse.fetchPrDetail.useMutation({
     onSuccess: (_data, variables) => {
       utils.pulse.getCachedPrDetail.invalidate({ projectId, number: variables.number });
-      // Invalidate all state keys for this project's list — the detail fetch
-      // also refreshes the PR's list-level fields, and stateFilter may have
-      // changed while the request was in flight.
+      // Invalidate all getCachedPrs queries (all projects, all states).
+      // The detail fetch refreshes list-level fields, and stateFilter may
+      // have changed while the request was in flight. Broad invalidation
+      // is cheap (just marks queries stale for next access) and avoids
+      // stale list data after a detail refresh.
       utils.pulse.getCachedPrs.invalidate();
     },
   });
