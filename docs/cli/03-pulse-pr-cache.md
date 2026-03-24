@@ -339,16 +339,19 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 ```
 User clicks "Scan PRs":
 1. ViewModel: mutate fetchPrs(projectId, state, cursor=null)
-2. Router: call collectProjectPrs() → GitHub API (no author param)
-3. Router: INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
-4. Router: UPSERT INTO pull_request_scans (...)
-5. Router: invalidate getCachedPrs + getScanMeta queries
-6. View: re-renders with fresh data from DB
+2. Router: DELETE FROM pull_requests WHERE project_id = ? AND state = ?
+   → Purge all cached rows for this state to avoid stale residuals
+     (e.g., a PR that was "open" last scan but has since been closed
+     would linger forever without this step)
+3. Router: call collectProjectPrs() → GitHub API (no author param)
+4. Router: INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
+5. Router: UPSERT INTO pull_request_scans (...) with cursor=null (reset pagination)
+6. Router: invalidate getCachedPrs + getScanMeta queries
+7. View: re-renders with fresh data from DB
 
-Note: No DELETE step — upsert handles both new and existing PRs.
-Stale PRs (closed since last scan) get updated when they appear
-in a subsequent scan. PRs not in the scan result remain in cache
-with their last-known state (acceptable for display purposes).
+Steps 2-5 run in a single transaction to avoid flash of empty list.
+The DELETE only targets rows matching the scanned state — other state
+caches (e.g., "closed" cache while scanning "open") are untouched.
 ```
 
 ### Load More Flow
@@ -384,7 +387,7 @@ User clicks "Load more":
 - `getCachedReport` — replaced by `getCachedPrs` + `getScanMeta`
 
 **Changed signatures:**
-- `fetchPrs` — no longer accepts `author` or `limit` (canonical list; limit handled by GitHub page size)
+- `fetchPrs` — no longer accepts `author` or `limit` at the tRPC layer (canonical list; limit handled by GitHub page size). The underlying `collectProjectPrs()` bridge and `@signoff/pulse` `fetchPrs()` retain these parameters for CLI and future use — only the tRPC procedure removes them from its Zod input schema.
 - `fetchPrs` — no longer returns `PrsReport` (writes DB, returns void)
 - `fetchPrDetail` — no longer returns `PrDetailReport` (writes DB, returns void)
 
@@ -419,9 +422,9 @@ export function usePrViewModel(projectId: string) {
 
   // List fetch mutation — writes DB, invalidates queries, returns nothing
   const scanMutation = trpc.pulse.fetchPrs.useMutation({
-    onSuccess: () => {
-      utils.pulse.getCachedPrs.invalidate({ projectId });
-      utils.pulse.getScanMeta.invalidate({ projectId });
+    onSuccess: (_data, variables) => {
+      utils.pulse.getCachedPrs.invalidate({ projectId, state: variables.state });
+      utils.pulse.getScanMeta.invalidate({ projectId, state: variables.state });
     },
   });
 
@@ -448,9 +451,9 @@ export function usePrViewModel(projectId: string) {
 
   // Detail fetch mutation — writes DB, invalidates queries
   const detailMutation = trpc.pulse.fetchPrDetail.useMutation({
-    onSuccess: () => {
-      utils.pulse.getCachedPrDetail.invalidate({ projectId });
-      utils.pulse.getCachedPrs.invalidate({ projectId }); // list fields also refreshed
+    onSuccess: (_data, variables) => {
+      utils.pulse.getCachedPrDetail.invalidate({ projectId, number: variables.number });
+      utils.pulse.getCachedPrs.invalidate({ projectId, state: stateFilter }); // list fields also refreshed
     },
   });
 
@@ -464,8 +467,9 @@ export function usePrViewModel(projectId: string) {
   return {
     // List
     prs: filteredPrs,
-    isLoading: cachedPrsQuery.isLoading,
-    isRefreshing: scanMutation.isPending,
+    // First load: query has settled (empty or not) but we have no data yet and mutation is running
+    isLoading: cachedPrsQuery.isLoading || (filteredPrs.length === 0 && scanMutation.isPending),
+    isRefreshing: filteredPrs.length > 0 && scanMutation.isPending,
     scanError: scanMutation.error?.message ?? null,
     hasNextPage: scanMetaQuery.data?.hasNextPage ?? false,
     stateFilter,
@@ -482,7 +486,9 @@ export function usePrViewModel(projectId: string) {
     selectedPrNumber,
     selectPr: setSelectedPrNumber,
     selectedPrDetail: cachedDetailQuery.data ?? null,
-    isDetailLoading: selectedPrNumber !== null && cachedDetailQuery.isLoading,
+    // First load: query settled with null + mutation running = still loading
+    isDetailLoading: selectedPrNumber !== null
+      && (cachedDetailQuery.isLoading || (!cachedDetailQuery.data && detailMutation.isPending)),
     isDetailRefreshing: !!cachedDetailQuery.data && detailMutation.isPending,
     detailError: detailMutation.error?.message ?? null,
   };
@@ -493,10 +499,10 @@ export function usePrViewModel(projectId: string) {
 
 | State | Condition | UI Treatment |
 |-------|-----------|--------------|
-| `isLoading` | Query loading (first fetch from DB) | Skeleton placeholders in list panel |
-| `isRefreshing` | Mutation in flight (background GitHub fetch) | Subtle spinner on scan button |
-| `isDetailLoading` | Detail query loading (first DB read for selected PR) | Skeleton in detail panel |
-| `isDetailRefreshing` | Cached detail shown, background re-fetch active | Subtle spinner on detail panel |
+| `isLoading` | Query still loading, OR query returned empty + mutation in flight (first scan, no cache) | Skeleton placeholders in list panel |
+| `isRefreshing` | Have cached data showing + mutation in flight (background refresh) | Subtle spinner on scan button |
+| `isDetailLoading` | PR selected + (query loading OR query returned null + mutation in flight) | Skeleton in detail panel |
+| `isDetailRefreshing` | Cached detail shown + mutation in flight (background re-fetch) | Subtle spinner on detail panel |
 
 ---
 
@@ -539,7 +545,7 @@ The detail panel gains these additional sections beyond the existing list-level 
 | **Commits** | `detail.commits[]` | List: abbreviated OID + message + author + statusCheckRollup icon |
 | **Files** | `detail.files[]` | List: path + changeType badge + additions/deletions stat |
 
-**Fallback behavior:** When `detail` is a `PullRequestInfo` (no detail cache yet), display only list-level fields (current behavior) with a skeleton for the detail sections while `isLoading` is true.
+**Loading behavior:** When `detail` is null and `isLoading` is true, show skeleton for the entire panel. When `detail` is non-null and `isRefreshing` is true, show current data with a subtle spinner. The `getCachedPrDetail` query JOINs `pull_requests` + `pull_request_details` and returns a complete `PrDetail` or null — there is no intermediate "list-only" shape reaching this component.
 
 ---
 
@@ -579,6 +585,7 @@ The detail panel gains these additional sections beyond the existing list-level 
 |-------|------|-------|
 | L1 UT | DB helpers: upsert PRs, upsert detail, query by state, delete by project, pagination cursor update | `pulse/db.test.ts` |
 | L1 UT | DB helpers: ON CONFLICT upsert — duplicate (project_id, number) updates rather than inserts | `pulse/db.test.ts` |
+| L1 UT | DB helpers: fresh scan DELETE + INSERT transaction — stale rows for scanned state are purged | `pulse/db.test.ts` |
 | L1 UT | ViewModel: loading states, query-as-source (no mutation result in view), auto-refresh on mount | `usePrViewModel.test.ts` |
 | L1 UT | ViewModel: client-side author filter — empty filter returns all, partial match filters, case insensitive | `usePrViewModel.test.ts` |
 | L1 UT | ViewModel: state filter change triggers new scan + query invalidation | `usePrViewModel.test.ts` |
