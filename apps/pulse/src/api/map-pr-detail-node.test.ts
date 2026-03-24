@@ -156,6 +156,7 @@ describe("mapPrDetailNode", () => {
 			state: "APPROVED",
 			body: "LGTM",
 			submittedAt: "2025-01-16T10:00:00Z",
+			comments: [],
 		});
 	});
 
@@ -175,6 +176,7 @@ describe("mapPrDetailNode", () => {
 			author: "alice",
 			authoredDate: "2025-01-15T10:00:00Z",
 			statusCheckRollup: "SUCCESS",
+			checkRuns: [],
 		});
 	});
 

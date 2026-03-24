@@ -127,6 +127,24 @@ export interface PrReview {
 		| "PENDING";
 	body: string;
 	submittedAt: string | null; // ISO 8601
+	/** Line-level review comments attached to this review. */
+	comments: PrReviewComment[];
+}
+
+/** A line-level comment on a pull request review. */
+export interface PrReviewComment {
+	author: string;
+	/** File path the comment targets. */
+	path: string;
+	/** Line number in the new (right-side) diff. */
+	line: number | null;
+	/** Line number in the old (left-side) diff. */
+	originalLine: number | null;
+	/** Diff hunk context surrounding the comment. */
+	diffHunk: string;
+	body: string;
+	createdAt: string; // ISO 8601
+	updatedAt: string; // ISO 8601
 }
 
 /** An issue comment (non-review). */
@@ -151,6 +169,35 @@ export interface PrCommit {
 		| "ERROR"
 		| "EXPECTED"
 		| null;
+	/** Individual CI check runs for this commit. */
+	checkRuns: CheckRun[];
+}
+
+/** An individual CI check run on a commit. */
+export interface CheckRun {
+	/** Check name (e.g. "build", "test", "lint"). */
+	name: string;
+	/** Current execution status. */
+	status:
+		| "QUEUED"
+		| "IN_PROGRESS"
+		| "COMPLETED"
+		| "WAITING"
+		| "PENDING"
+		| "REQUESTED";
+	/** Final result (null if not yet completed). */
+	conclusion:
+		| "SUCCESS"
+		| "FAILURE"
+		| "NEUTRAL"
+		| "CANCELLED"
+		| "TIMED_OUT"
+		| "ACTION_REQUIRED"
+		| "SKIPPED"
+		| "STALE"
+		| null;
+	/** URL to the CI run details page. */
+	detailsUrl: string | null;
 }
 
 /** A changed file in the PR. */

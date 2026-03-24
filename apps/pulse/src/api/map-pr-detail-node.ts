@@ -30,6 +30,7 @@ export function mapPrDetailNode(node: GraphQLPrDetailNode): PrDetail {
 			state: r.state as PrDetail["reviews"][number]["state"],
 			body: r.body,
 			submittedAt: r.submittedAt,
+			comments: [],
 		})),
 
 		comments: node.comments.nodes.map((c) => ({
@@ -48,6 +49,7 @@ export function mapPrDetailNode(node: GraphQLPrDetailNode): PrDetail {
 			statusCheckRollup:
 				(c.commit.statusCheckRollup
 					?.state as PrDetail["commits"][number]["statusCheckRollup"]) ?? null,
+			checkRuns: [],
 		})),
 
 		files: (node.files?.nodes ?? []).map((f) => ({

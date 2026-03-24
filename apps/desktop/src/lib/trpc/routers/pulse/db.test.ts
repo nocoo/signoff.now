@@ -86,6 +86,7 @@ function makePrDetail(overrides: Partial<PrDetail> = {}): PrDetail {
 				state: "APPROVED",
 				body: "LGTM",
 				submittedAt: "2025-01-15T14:00:00Z",
+				comments: [],
 			},
 		],
 		comments: [
@@ -103,6 +104,7 @@ function makePrDetail(overrides: Partial<PrDetail> = {}): PrDetail {
 				author: "alice",
 				authoredDate: "2025-01-15T10:00:00Z",
 				statusCheckRollup: "SUCCESS",
+				checkRuns: [],
 			},
 		],
 		files: [
