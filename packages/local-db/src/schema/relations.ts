@@ -1,10 +1,21 @@
 import { relations } from "drizzle-orm";
-import { projects, workspaceSections, workspaces, worktrees } from "./schema";
+import {
+	projects,
+	pullRequestDetails,
+	pullRequestScans,
+	pullRequests,
+	workspaceSections,
+	workspaces,
+	worktrees,
+} from "./schema";
 
 export const projectsRelations = relations(projects, ({ many }) => ({
 	worktrees: many(worktrees),
 	workspaces: many(workspaces),
 	workspaceSections: many(workspaceSections),
+	pullRequests: many(pullRequests),
+	pullRequestDetails: many(pullRequestDetails),
+	pullRequestScans: many(pullRequestScans),
 }));
 
 export const worktreesRelations = relations(worktrees, ({ one, many }) => ({
@@ -38,5 +49,32 @@ export const workspaceSectionsRelations = relations(
 			references: [projects.id],
 		}),
 		workspaces: many(workspaces),
+	}),
+);
+
+export const pullRequestsRelations = relations(pullRequests, ({ one }) => ({
+	project: one(projects, {
+		fields: [pullRequests.projectId],
+		references: [projects.id],
+	}),
+}));
+
+export const pullRequestDetailsRelations = relations(
+	pullRequestDetails,
+	({ one }) => ({
+		project: one(projects, {
+			fields: [pullRequestDetails.projectId],
+			references: [projects.id],
+		}),
+	}),
+);
+
+export const pullRequestScansRelations = relations(
+	pullRequestScans,
+	({ one }) => ({
+		project: one(projects, {
+			fields: [pullRequestScans.projectId],
+			references: [projects.id],
+		}),
 	}),
 );

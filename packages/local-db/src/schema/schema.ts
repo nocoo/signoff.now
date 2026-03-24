@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+	index,
+	integer,
+	sqliteTable,
+	text,
+	uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { v4 as uuidv4 } from "uuid";
 
 import type {
@@ -208,3 +214,224 @@ export const settings = sqliteTable("settings", {
 
 export type InsertSettings = typeof settings.$inferInsert;
 export type SelectSettings = typeof settings.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Pull request cache tables
+// ---------------------------------------------------------------------------
+
+/**
+ * JSON column types for pull_request_details sub-entity arrays.
+ * Defined locally to keep local-db free of @signoff/pulse dependency.
+ * These mirror the types in @signoff/pulse/commands/types.ts.
+ */
+
+/** A single review on a PR. */
+interface PrReviewJson {
+	author: string;
+	state:
+		| "APPROVED"
+		| "CHANGES_REQUESTED"
+		| "COMMENTED"
+		| "DISMISSED"
+		| "PENDING";
+	body: string;
+	submittedAt: string | null;
+}
+
+/** An issue comment (non-review). */
+interface PrCommentJson {
+	author: string;
+	body: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/** A commit in the PR. */
+interface PrCommitJson {
+	oid: string;
+	message: string;
+	author: string;
+	authoredDate: string;
+	statusCheckRollup:
+		| "SUCCESS"
+		| "FAILURE"
+		| "PENDING"
+		| "ERROR"
+		| "EXPECTED"
+		| null;
+}
+
+/** A changed file in the PR. */
+interface PrFileJson {
+	path: string;
+	additions: number;
+	deletions: number;
+	changeType:
+		| "ADDED"
+		| "MODIFIED"
+		| "DELETED"
+		| "RENAMED"
+		| "COPIED"
+		| "CHANGED";
+}
+
+/**
+ * Pull requests table — list-level cache.
+ *
+ * Stores every PR seen during list scans. Upserted in batches of 20 per page.
+ * UNIQUE on (project_id, number) enables ON CONFLICT DO UPDATE.
+ */
+export const pullRequests = sqliteTable(
+	"pull_requests",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => uuidv4()),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		number: integer("number").notNull(),
+
+		// PR metadata — field names align with PullRequestInfo from @signoff/pulse
+		title: text("title").notNull(),
+		state: text("state").notNull(), // "open" | "closed"
+		draft: integer("draft", { mode: "boolean" }).notNull(),
+		merged: integer("merged", { mode: "boolean" }).notNull(),
+		mergedAt: text("merged_at"), // ISO 8601 | null
+		author: text("author").notNull(),
+		createdAt: text("created_at").notNull(), // ISO 8601 (PR creation)
+		updatedAt: text("updated_at").notNull(), // ISO 8601 (PR update)
+		closedAt: text("closed_at"), // ISO 8601 | null
+		headBranch: text("head_branch").notNull(),
+		baseBranch: text("base_branch").notNull(),
+		url: text("url").notNull(),
+		labels: text("labels", { mode: "json" }).$type<string[]>().notNull(),
+		reviewDecision: text("review_decision"), // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
+		additions: integer("additions").notNull(),
+		deletions: integer("deletions").notNull(),
+		changedFiles: integer("changed_files").notNull(),
+
+		// Cache bookkeeping
+		fetchedAt: integer("fetched_at")
+			.notNull()
+			.$defaultFn(() => Date.now()),
+	},
+	(table) => [
+		uniqueIndex("pull_requests_project_number_uniq").on(
+			table.projectId,
+			table.number,
+		),
+		index("pull_requests_project_state_idx").on(table.projectId, table.state),
+	],
+);
+
+export type InsertPullRequest = typeof pullRequests.$inferInsert;
+export type SelectPullRequest = typeof pullRequests.$inferSelect;
+
+/**
+ * Pull request details table — detail-level cache.
+ *
+ * Stores the heavy payload fetched on demand when user clicks a PR.
+ * One row per PR. Sub-entity arrays stored as JSON columns.
+ * UNIQUE on (project_id, number) enables ON CONFLICT DO UPDATE.
+ */
+export const pullRequestDetails = sqliteTable(
+	"pull_request_details",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => uuidv4()),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		number: integer("number").notNull(),
+
+		// Detail-only scalar fields — names align with PrDetail from @signoff/pulse
+		body: text("body").notNull(), // PR description markdown
+		mergeable: text("mergeable").notNull(), // MERGEABLE | CONFLICTING | UNKNOWN
+		mergeStateStatus: text("merge_state_status").notNull(),
+		mergedBy: text("merged_by"), // login | null
+		totalCommentsCount: integer("total_comments_count").notNull(),
+		headRefOid: text("head_ref_oid").notNull(),
+		baseRefOid: text("base_ref_oid").notNull(),
+		isCrossRepository: integer("is_cross_repository", {
+			mode: "boolean",
+		}).notNull(),
+
+		// Array fields as JSON
+		participants: text("participants", { mode: "json" })
+			.$type<string[]>()
+			.notNull(),
+		requestedReviewers: text("requested_reviewers", { mode: "json" })
+			.$type<string[]>()
+			.notNull(),
+		assignees: text("assignees", { mode: "json" }).$type<string[]>().notNull(),
+		milestone: text("milestone"), // title string | null
+
+		// Sub-entity arrays as JSON (read-only display, no SQL querying needed)
+		reviews: text("reviews", { mode: "json" })
+			.$type<PrReviewJson[]>()
+			.notNull(),
+		comments: text("comments", { mode: "json" })
+			.$type<PrCommentJson[]>()
+			.notNull(),
+		commits: text("commits", { mode: "json" })
+			.$type<PrCommitJson[]>()
+			.notNull(),
+		files: text("files", { mode: "json" }).$type<PrFileJson[]>().notNull(),
+
+		// Cache bookkeeping
+		fetchedAt: integer("fetched_at")
+			.notNull()
+			.$defaultFn(() => Date.now()),
+	},
+	(table) => [
+		uniqueIndex("pr_details_project_number_uniq").on(
+			table.projectId,
+			table.number,
+		),
+	],
+);
+
+export type InsertPullRequestDetail = typeof pullRequestDetails.$inferInsert;
+export type SelectPullRequestDetail = typeof pullRequestDetails.$inferSelect;
+
+/**
+ * Pull request scans table — pagination & scan metadata.
+ *
+ * Tracks scan state per project. One row per project (single canonical
+ * scan chain — always state:"all" from GitHub).
+ * UNIQUE on (project_id) ensures one scan record per project.
+ */
+export const pullRequestScans = sqliteTable(
+	"pull_request_scans",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => uuidv4()),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+
+		// Pagination state (from latest GitHub response)
+		endCursor: text("end_cursor"), // GitHub GraphQL cursor
+		hasNextPage: integer("has_next_page", { mode: "boolean" }).notNull(),
+
+		// Identity info (for display)
+		resolvedUser: text("resolved_user"),
+		resolvedVia: text("resolved_via"), // "direct" | "org" | "fallback"
+
+		// Repository info
+		repoOwner: text("repo_owner"),
+		repoName: text("repo_name"),
+
+		// Timestamps
+		scannedAt: integer("scanned_at")
+			.notNull()
+			.$defaultFn(() => Date.now()),
+	},
+	(table) => [uniqueIndex("pr_scans_project_uniq").on(table.projectId)],
+);
+
+export type InsertPullRequestScan = typeof pullRequestScans.$inferInsert;
+export type SelectPullRequestScan = typeof pullRequestScans.$inferSelect;

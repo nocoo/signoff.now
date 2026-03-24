@@ -12,6 +12,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	projects,
+	pullRequestDetails,
+	pullRequestScans,
+	pullRequests,
 	settings,
 	workspaceSections,
 	workspaces,
@@ -102,6 +105,9 @@ describe("schema-migration consistency", () => {
 		workspaces,
 		workspaceSections,
 		settings,
+		pullRequests,
+		pullRequestDetails,
+		pullRequestScans,
 	];
 
 	test("migration creates exactly the expected tables", () => {

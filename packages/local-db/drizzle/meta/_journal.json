@@ -15,6 +15,13 @@
       "when": 1774140282959,
       "tag": "0001_remarkable_mesmero",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1774335125527,
+      "tag": "0002_kind_runaways",
+      "breakpoints": true
     }
   ]
 }
