@@ -28,7 +28,7 @@ export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 		cachedReport?.prs.find((pr) => pr.number === selectedPrNumber) ?? null;
 
 	return (
-		<div className="flex h-[calc(100vh-8rem)] overflow-hidden rounded-lg border border-border bg-card">
+		<div className="flex h-full overflow-hidden">
 			{/* Left panel: PR list (40% width) */}
 			<div className="w-2/5 min-w-[280px] max-w-[420px]">
 				<PrListPanel

@@ -38,15 +38,11 @@ export function GitInfoDashboard({ projectId }: GitInfoDashboardProps) {
 		},
 	);
 
-	// Pull Requests tab uses its own data source (pulse), not gitinfo
+	// Pull Requests tab uses its own data source (pulse), not gitinfo.
+	// Renders edge-to-edge (no padding/max-width) — the two-panel layout
+	// manages its own spacing internally.
 	if (activePageId === "pull-requests") {
-		return (
-			<div className="h-full overflow-y-auto p-6">
-				<div className="mx-auto max-w-5xl">
-					<PullRequestsTab projectId={projectId} />
-				</div>
-			</div>
-		);
+		return <PullRequestsTab projectId={projectId} />;
 	}
 
 	if (isLoading) return <DashboardSkeleton />;
