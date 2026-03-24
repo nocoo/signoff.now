@@ -78,8 +78,8 @@ export function PrDetailPanel({
 		);
 	}
 
-	// Loading skeleton
-	if (isLoading) {
+	// Loading skeleton (or waiting for detail to arrive — detail=null, no error yet)
+	if (isLoading || !detail) {
 		return (
 			<div className="flex flex-col gap-6 p-6">
 				<Skeleton className="h-8 w-3/4 rounded" />
@@ -95,8 +95,8 @@ export function PrDetailPanel({
 		);
 	}
 
-	// detail is guaranteed non-null here
-	const pr = detail as PrDetail;
+	// detail is guaranteed non-null here (guarded by early returns above)
+	const pr = detail;
 
 	const stateLabel = pr.merged
 		? "Merged"
