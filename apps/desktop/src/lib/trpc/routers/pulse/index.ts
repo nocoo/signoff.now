@@ -8,100 +8,136 @@
  * Uses dynamic import for main/pulse/collect to avoid pulling pulse's entire
  * source graph into the coverage measurement at module load time. The pulse
  * package has its own coverage gate (95%); desktop tests should not re-measure it.
+ *
+ * API breaking change (v2): Replaces in-memory cache with SQLite persistence.
+ * Mutations write DB and return void; views read from tRPC queries only.
  */
 
 import { projects } from "@signoff/local-db";
-import type { PrsReport } from "@signoff/pulse";
 import { eq } from "drizzle-orm";
 import { publicProcedure, router } from "lib/trpc";
 import { z } from "zod";
-import { clearAll, getCached, invalidate, setCached } from "./cache";
+import {
+	clearCache,
+	getCachedPrDetail,
+	getCachedPrs,
+	getScanMeta,
+	type ScanMeta,
+	upsertPrDetail,
+	upsertPrs,
+	upsertScanMeta,
+} from "./db";
 
 // biome-ignore lint/suspicious/noExplicitAny: DB driver polymorphism
 type GetDb = () => any;
 
 /**
+ * Fixed page size for GitHub API fetches.
+ *
+ * The underlying collectProjectPrs treats limit<=0 as "fetch all pages",
+ * which would defeat Load More pagination. Always request exactly one page.
+ */
+const PAGE_SIZE = 20;
+
+/**
  * Creates a testable pulse API object.
  */
 export function createPulseRouter(getDb: GetDb) {
+	/**
+	 * Resolve project mainRepoPath from DB. Throws if not found.
+	 */
+	function resolveProjectPath(projectId: string): string {
+		const db = getDb();
+		const project = db
+			.select({ mainRepoPath: projects.mainRepoPath })
+			.from(projects)
+			.where(eq(projects.id, projectId))
+			.get();
+
+		if (!project) {
+			throw new Error(`Project not found: ${projectId}`);
+		}
+
+		return project.mainRepoPath;
+	}
+
 	return {
-		async fetchPrs(input: {
+		// ---------------------------------------------------------------
+		// Queries (read from DB)
+		// ---------------------------------------------------------------
+
+		getCachedPrs(input: {
 			projectId: string;
 			state?: "open" | "closed" | "all";
-			limit?: number;
-			author?: string | null;
-			cursor?: string | null;
 		}) {
-			// Resolve project path from DB
 			const db = getDb();
-			const project = db
-				.select({ mainRepoPath: projects.mainRepoPath })
-				.from(projects)
-				.where(eq(projects.id, input.projectId))
-				.get();
+			return getCachedPrs(db, input.projectId, input.state);
+		},
 
-			if (!project) {
-				throw new Error(`Project not found: ${input.projectId}`);
-			}
+		getCachedPrDetail(input: { projectId: string; number: number }) {
+			const db = getDb();
+			return getCachedPrDetail(db, input.projectId, input.number);
+		},
+
+		getScanMeta(input: { projectId: string }): ScanMeta | null {
+			const db = getDb();
+			return getScanMeta(db, input.projectId);
+		},
+
+		// ---------------------------------------------------------------
+		// Mutations (write DB, return void)
+		// ---------------------------------------------------------------
+
+		async fetchPrs(input: {
+			projectId: string;
+			cursor?: string | null;
+		}): Promise<void> {
+			const projectPath = resolveProjectPath(input.projectId);
 
 			// Dynamic import to avoid pulling pulse source into coverage graph
 			const { collectProjectPrs } = await import("main/pulse/collect");
 
 			const report = await collectProjectPrs({
-				projectPath: project.mainRepoPath,
-				state: input.state,
-				limit: input.limit,
-				author: input.author,
-				cursor: input.cursor,
+				projectPath,
+				state: "all", // Always fetch all states — single canonical scan
+				limit: PAGE_SIZE,
+				cursor: input.cursor ?? null,
 			});
 
-			// Append to existing cache when paginating, replace when fresh scan
-			if (input.cursor) {
-				const existing = getCached(input.projectId);
-				if (existing) {
-					const merged: PrsReport = {
-						...report,
-						prs: [...existing.prs, ...report.prs],
-						totalCount: existing.prs.length + report.prs.length,
-					};
-					setCached(input.projectId, merged);
-					return merged;
-				}
-			} else {
-				invalidate(input.projectId);
-			}
-
-			setCached(input.projectId, report);
-			return report;
+			// Write to DB (short transaction for writes only)
+			const db = getDb();
+			upsertPrs(db, input.projectId, report.prs);
+			upsertScanMeta(db, input.projectId, {
+				endCursor: report.endCursor,
+				hasNextPage: report.hasNextPage,
+				resolvedUser: report.identity.resolvedUser,
+				resolvedVia: report.identity.resolvedVia,
+				repoOwner: report.repository.owner,
+				repoName: report.repository.repo,
+			});
 		},
 
-		async fetchPrDetail(input: { projectId: string; number: number }) {
-			const db = getDb();
-			const project = db
-				.select({ mainRepoPath: projects.mainRepoPath })
-				.from(projects)
-				.where(eq(projects.id, input.projectId))
-				.get();
-
-			if (!project) {
-				throw new Error(`Project not found: ${input.projectId}`);
-			}
+		async fetchPrDetail(input: {
+			projectId: string;
+			number: number;
+		}): Promise<void> {
+			const projectPath = resolveProjectPath(input.projectId);
 
 			const { collectProjectPrDetail } = await import("main/pulse/collect");
 
-			return collectProjectPrDetail({
-				projectPath: project.mainRepoPath,
+			const report = await collectProjectPrDetail({
+				projectPath,
 				number: input.number,
 			});
+
+			// Write to DB
+			const db = getDb();
+			upsertPrDetail(db, input.projectId, report.pr);
 		},
 
-		getCachedReport(input: { projectId: string }) {
-			return getCached(input.projectId);
-		},
-
-		/** Test-only: clear all cached reports */
-		clearCache() {
-			clearAll();
+		clearCache(input: { projectId: string }): void {
+			const db = getDb();
+			clearCache(db, input.projectId);
 		},
 	};
 }
@@ -113,13 +149,34 @@ export function createPulseTrpcRouter(getDb: GetDb) {
 	const api = createPulseRouter(getDb);
 
 	return router({
-		fetchPrs: publicProcedure
+		// Queries — read from DB
+		getCachedPrs: publicProcedure
 			.input(
 				z.object({
 					projectId: z.string(),
 					state: z.enum(["open", "closed", "all"]).optional().default("open"),
-					limit: z.number().int().min(0).optional().default(20),
-					author: z.string().nullable().optional().default(null),
+				}),
+			)
+			.query(({ input }) => api.getCachedPrs(input)),
+
+		getCachedPrDetail: publicProcedure
+			.input(
+				z.object({
+					projectId: z.string(),
+					number: z.number().int().positive(),
+				}),
+			)
+			.query(({ input }) => api.getCachedPrDetail(input)),
+
+		getScanMeta: publicProcedure
+			.input(z.object({ projectId: z.string() }))
+			.query(({ input }) => api.getScanMeta(input)),
+
+		// Mutations — write DB, return void
+		fetchPrs: publicProcedure
+			.input(
+				z.object({
+					projectId: z.string(),
 					cursor: z.string().nullable().optional().default(null),
 				}),
 			)
@@ -134,8 +191,8 @@ export function createPulseTrpcRouter(getDb: GetDb) {
 			)
 			.mutation(({ input }) => api.fetchPrDetail(input)),
 
-		getCachedReport: publicProcedure
+		clearCache: publicProcedure
 			.input(z.object({ projectId: z.string() }))
-			.query(({ input }) => api.getCachedReport(input)),
+			.mutation(({ input }) => api.clearCache(input)),
 	});
 }

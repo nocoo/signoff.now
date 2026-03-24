@@ -1,12 +1,10 @@
 /**
  * PullRequestsTab — two-panel email-style layout for PR browsing.
  *
- * Owns all pulse data: scan mutation + cached report.
- * Passes the unified report and scan controls down to child panels
- * so both panels always see the same data.
+ * TODO: Will be refactored in next commit to use usePrViewModel hook.
+ * Currently uses the new DB-backed tRPC procedures directly.
  */
 
-import type { PrsReport } from "@signoff/pulse";
 import { useState } from "react";
 import { trpc } from "../../../lib/trpc";
 import { PrDetailPanel } from "./pr/PrDetailPanel";
@@ -18,47 +16,78 @@ interface PullRequestsTabProps {
 
 export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 	const [selectedPrNumber, setSelectedPrNumber] = useState<number | null>(null);
+	const [stateFilter, setStateFilter] = useState<"open" | "closed" | "all">(
+		"open",
+	);
 
-	// Single source of truth for PR data
-	const { data: cachedReport, refetch: refetchCached } =
-		trpc.pulse.getCachedReport.useQuery({ projectId });
+	// Read from DB (single source of truth)
+	const cachedPrsQuery = trpc.pulse.getCachedPrs.useQuery({
+		projectId,
+		state: stateFilter,
+	});
+
+	const scanMetaQuery = trpc.pulse.getScanMeta.useQuery({ projectId });
 
 	const scanMutation = trpc.pulse.fetchPrs.useMutation({
 		onSuccess: () => {
-			refetchCached();
+			cachedPrsQuery.refetch();
+			scanMetaQuery.refetch();
 		},
 	});
 
-	// Merge: mutation result takes priority over stale cache
-	const report: PrsReport | null = scanMutation.data ?? cachedReport ?? null;
+	const prs = cachedPrsQuery.data ?? [];
 	const isScanning = scanMutation.isPending;
 	const scanError = scanMutation.error;
 
-	// Resolve selected PR from the unified report
-	const selectedPr =
-		report?.prs.find((pr) => pr.number === selectedPrNumber) ?? null;
+	// Resolve selected PR from the list
+	const selectedPr = prs.find((pr) => pr.number === selectedPrNumber) ?? null;
 
 	const handleScan = (opts: {
 		state: "open" | "closed" | "all";
 		author: string | null;
 	}) => {
-		scanMutation.mutate({
-			projectId,
-			state: opts.state,
-			author: opts.author,
-			cursor: null,
-		});
+		setStateFilter(opts.state);
+		scanMutation.mutate({ projectId, cursor: null });
 	};
 
 	const handleLoadMore = () => {
-		if (!report?.hasNextPage || !report.endCursor) return;
+		if (!scanMetaQuery.data?.hasNextPage || !scanMetaQuery.data.endCursor)
+			return;
 		scanMutation.mutate({
 			projectId,
-			state: report.filters.state,
-			author: report.filters.author,
-			cursor: report.endCursor,
+			cursor: scanMetaQuery.data.endCursor,
 		});
 	};
+
+	// Build a minimal report-like shape for PrListPanel compatibility
+	const report =
+		prs.length > 0
+			? {
+					prs,
+					totalCount: prs.length,
+					hasNextPage: scanMetaQuery.data?.hasNextPage ?? false,
+					endCursor: scanMetaQuery.data?.endCursor ?? null,
+					generatedAt: "",
+					durationMs: 0,
+					repository: {
+						owner: scanMetaQuery.data?.repoOwner ?? "",
+						repo: scanMetaQuery.data?.repoName ?? "",
+						url: "",
+					},
+					identity: {
+						resolvedUser: scanMetaQuery.data?.resolvedUser ?? "",
+						resolvedVia: (scanMetaQuery.data?.resolvedVia ?? "direct") as
+							| "direct"
+							| "org"
+							| "fallback",
+					},
+					filters: {
+						state: stateFilter,
+						author: null as string | null,
+						limit: 20,
+					},
+				}
+			: null;
 
 	return (
 		<div className="flex h-full overflow-hidden">
