@@ -33,6 +33,7 @@
 		"@headless-tree/react": "^1.6.3",
 		"@signoff/gitinfo": "workspace:*",
 		"@signoff/local-db": "workspace:*",
+		"@signoff/pulse": "workspace:*",
 		"@signoff/shared": "workspace:*",
 		"@signoff/ui": "workspace:*",
 		"@signoff/workspace-fs": "workspace:*",
