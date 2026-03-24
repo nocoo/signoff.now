@@ -133,15 +133,17 @@ export function PrDetailPanel({
 				) : null}
 
 				{/* Header: title + badges + remote link */}
-				<div>
-					<div className="flex items-start gap-2">
+				<div className="min-w-0">
+					<div className="flex min-w-0 items-start gap-2">
 						<PrStateIcon
 							state={pr.state}
 							draft={pr.draft}
 							merged={pr.merged}
-							className="mt-1 size-5"
+							className="mt-1 size-5 shrink-0"
 						/>
-						<h3 className="text-lg font-semibold leading-snug">{pr.title}</h3>
+						<h3 className="min-w-0 text-lg font-semibold leading-snug">
+							{pr.title}
+						</h3>
 					</div>
 					<div className="mt-2 flex flex-wrap items-center gap-2">
 						<span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
@@ -224,12 +226,12 @@ export function PrDetailPanel({
 					title="Branch & Changes"
 					icon={<GitBranch className="h-4 w-4" />}
 				>
-					<div className="mb-3 flex items-center gap-2 text-sm">
-						<span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+					<div className="mb-3 flex min-w-0 items-center gap-2 text-sm">
+						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
 							{pr.headBranch}
 						</span>
-						<ArrowRight className="size-3.5 text-muted-foreground" />
-						<span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+						<ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
 							{pr.baseBranch}
 						</span>
 					</div>

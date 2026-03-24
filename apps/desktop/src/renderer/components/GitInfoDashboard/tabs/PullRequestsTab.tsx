@@ -39,7 +39,7 @@ export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 			</div>
 
 			{/* Right panel: PR detail (60% width) */}
-			<div className="flex-1">
+			<div className="min-w-0 flex-1 overflow-hidden">
 				<PrDetailPanel
 					detail={vm.selectedPrDetail}
 					hasSelection={vm.selectedPrNumber !== null}
