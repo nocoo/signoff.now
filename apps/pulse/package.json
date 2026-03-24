@@ -29,7 +29,6 @@
 		}
 	},
 	"scripts": {
-		"dev": "bun run src/main.ts",
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
 		"test": "bun test --pass-with-no-tests",
 		"test:ci": "bun run ../../scripts/check-coverage.ts --threshold 95",
