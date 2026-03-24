@@ -114,8 +114,9 @@ export function PrListPanel({
 				)}
 			</div>
 
-			{/* PR list */}
-			<ScrollArea className="min-w-0 flex-1 [&>[data-slot=scroll-area-viewport]]:!overflow-x-hidden">
+			{/* PR list — override Radix ScrollArea's inner `display:table` wrapper
+			    which prevents content from respecting the container width */}
+			<ScrollArea className="min-w-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!min-w-0">
 				{isLoading ? (
 					<div className="flex flex-col gap-2 p-3">
 						<Skeleton className="h-16 w-full rounded-md" />
