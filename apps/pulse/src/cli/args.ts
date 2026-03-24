@@ -59,10 +59,11 @@ function parseLimitFlag(argv: readonly string[], i: number): [number, number] {
 	if (!next) {
 		throw new ArgParseError("--limit requires a number");
 	}
-	const num = Number.parseInt(next, 10);
-	if (Number.isNaN(num) || num < 0) {
+	// Strict integer check: reject "1foo", "1.5", etc.
+	if (!/^\d+$/.test(next)) {
 		throw new ArgParseError("--limit must be a non-negative integer");
 	}
+	const num = Number.parseInt(next, 10);
 	return [num, i + 2];
 }
 

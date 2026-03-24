@@ -98,6 +98,16 @@ describe("parseArgs", () => {
 			expect(() => parseArgs(["prs", "--limit", "abc"])).toThrow(ArgParseError);
 		});
 
+		test("throws on --limit with trailing garbage", () => {
+			expect(() => parseArgs(["prs", "--limit", "1foo"])).toThrow(
+				ArgParseError,
+			);
+		});
+
+		test("throws on --limit with decimal", () => {
+			expect(() => parseArgs(["prs", "--limit", "1.5"])).toThrow(ArgParseError);
+		});
+
 		test("parses --author", () => {
 			expect(parseArgs(["prs", "--author", "alice"]).author).toBe("alice");
 		});
