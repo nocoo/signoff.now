@@ -1,11 +1,11 @@
 /**
  * PrListPanel — left panel showing the PR list in an email-thread style.
  *
- * Pure presentational: receives report data and scan controls from parent.
- * Manages only local filter UI state (state dropdown, author input).
+ * Pure presentational: receives all data and callbacks from the ViewModel.
+ * No local data state — filter values are lifted to the parent.
  */
 
-import type { PrsReport, PullRequestInfo } from "@signoff/pulse";
+import type { PullRequestInfo } from "@signoff/pulse";
 import { Button } from "@signoff/ui/button";
 import { Input } from "@signoff/ui/input";
 import { ScrollArea } from "@signoff/ui/scroll-area";
@@ -19,56 +19,42 @@ import {
 import { Skeleton } from "@signoff/ui/skeleton";
 import { cn } from "@signoff/ui/utils";
 import { AlertCircle, RefreshCw, Search } from "lucide-react";
-import { useState } from "react";
 import { relativeDate } from "../../StatNumber";
 import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 
 interface PrListPanelProps {
-	report: PrsReport | null;
-	isScanning: boolean;
+	prs: PullRequestInfo[];
+	isLoading: boolean;
+	isRefreshing: boolean;
 	scanError: string | null;
-	onScan: (opts: {
-		state: "open" | "closed" | "all";
-		author: string | null;
-	}) => void;
+	hasNextPage: boolean;
+	stateFilter: "open" | "closed" | "all";
+	onStateFilterChange: (filter: "open" | "closed" | "all") => void;
+	authorFilter: string;
+	onAuthorFilterChange: (filter: string) => void;
+	onScan: () => void;
 	onLoadMore: () => void;
 	selectedPr: number | null;
 	onSelectPr: (prNumber: number) => void;
 }
 
 export function PrListPanel({
-	report,
-	isScanning,
+	prs,
+	isLoading,
+	isRefreshing,
 	scanError,
+	hasNextPage,
+	stateFilter,
+	onStateFilterChange,
+	authorFilter,
+	onAuthorFilterChange,
 	onScan,
 	onLoadMore,
 	selectedPr,
 	onSelectPr,
 }: PrListPanelProps) {
-	const [stateFilter, setStateFilter] = useState<"open" | "closed" | "all">(
-		"open",
-	);
-	const [authorFilter, setAuthorFilter] = useState("");
-
-	const handleScan = () => {
-		onScan({
-			state: stateFilter,
-			author: authorFilter.trim() || null,
-		});
-	};
-
-	// Client-side author filter on existing results
-	const filteredPrs =
-		report?.prs.filter((pr) => {
-			if (
-				authorFilter.trim() &&
-				!pr.author.toLowerCase().includes(authorFilter.toLowerCase())
-			) {
-				return false;
-			}
-			return true;
-		}) ?? [];
+	const isScanning = isLoading || isRefreshing;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col border-r border-border">
@@ -77,7 +63,7 @@ export function PrListPanel({
 				<div className="flex items-center gap-2">
 					<Button
 						size="sm"
-						onClick={handleScan}
+						onClick={onScan}
 						disabled={isScanning}
 						className="gap-1.5"
 					>
@@ -86,9 +72,9 @@ export function PrListPanel({
 						/>
 						{isScanning ? "Scanning…" : "Scan PRs"}
 					</Button>
-					{report !== null && (
+					{prs.length > 0 && (
 						<span className="font-mono text-xs tabular-nums text-muted-foreground">
-							{report.totalCount} total
+							{prs.length} shown
 						</span>
 					)}
 				</div>
@@ -96,7 +82,7 @@ export function PrListPanel({
 					<Select
 						value={stateFilter}
 						onValueChange={(v) =>
-							setStateFilter(v as "open" | "closed" | "all")
+							onStateFilterChange(v as "open" | "closed" | "all")
 						}
 					>
 						<SelectTrigger size="sm" className="w-24">
@@ -112,7 +98,7 @@ export function PrListPanel({
 						<Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 						<Input
 							value={authorFilter}
-							onChange={(e) => setAuthorFilter(e.target.value)}
+							onChange={(e) => onAuthorFilterChange(e.target.value)}
 							placeholder="Filter by author…"
 							className="h-8 pl-7 text-xs"
 						/>
@@ -130,7 +116,7 @@ export function PrListPanel({
 
 			{/* PR list */}
 			<ScrollArea className="flex-1">
-				{isScanning && !report ? (
+				{isLoading ? (
 					<div className="flex flex-col gap-2 p-3">
 						<Skeleton className="h-16 w-full rounded-md" />
 						<Skeleton className="h-16 w-full rounded-md" />
@@ -138,17 +124,17 @@ export function PrListPanel({
 						<Skeleton className="h-16 w-full rounded-md" />
 						<Skeleton className="h-16 w-full rounded-md" />
 					</div>
-				) : filteredPrs.length === 0 ? (
+				) : prs.length === 0 ? (
 					<div className="flex flex-col items-center justify-center gap-2 p-6 text-center">
 						<p className="text-sm text-muted-foreground">
-							{report
-								? "No pull requests match the current filters"
+							{isRefreshing
+								? "Scanning for pull requests…"
 								: "Click Scan PRs to fetch pull requests"}
 						</p>
 					</div>
 				) : (
 					<div className="flex flex-col">
-						{filteredPrs.map((pr) => (
+						{prs.map((pr) => (
 							<PrRow
 								key={pr.number}
 								pr={pr}
@@ -156,7 +142,7 @@ export function PrListPanel({
 								onSelect={() => onSelectPr(pr.number)}
 							/>
 						))}
-						{report?.hasNextPage === true && (
+						{hasNextPage ? (
 							<div className="p-3">
 								<Button
 									variant="outline"
@@ -168,7 +154,7 @@ export function PrListPanel({
 									{isScanning ? "Loading…" : "Load more"}
 								</Button>
 							</div>
-						)}
+						) : null}
 					</div>
 				)}
 			</ScrollArea>
