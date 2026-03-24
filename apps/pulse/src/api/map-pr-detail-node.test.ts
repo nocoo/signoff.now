@@ -256,4 +256,155 @@ describe("mapPrDetailNode", () => {
 		);
 		expect(detail.reviews[0]?.author).toBe("ghost");
 	});
+
+	test("maps review comments", () => {
+		const detail = mapPrDetailNode(
+			makeDetailNode({
+				reviews: {
+					nodes: [
+						{
+							author: { login: "bob" },
+							state: "CHANGES_REQUESTED",
+							body: "Needs fixes",
+							submittedAt: "2025-01-16T10:00:00Z",
+							comments: {
+								nodes: [
+									{
+										author: { login: "bob" },
+										path: "src/index.ts",
+										line: 42,
+										originalLine: 40,
+										diffHunk: "@@ -38,6 +38,8 @@",
+										body: "This needs a null check",
+										createdAt: "2025-01-16T10:01:00Z",
+										updatedAt: "2025-01-16T10:01:00Z",
+									},
+								],
+							},
+						},
+					],
+				},
+			}),
+		);
+		expect(detail.reviews[0]?.comments).toHaveLength(1);
+		expect(detail.reviews[0]?.comments[0]).toEqual({
+			author: "bob",
+			path: "src/index.ts",
+			line: 42,
+			originalLine: 40,
+			diffHunk: "@@ -38,6 +38,8 @@",
+			body: "This needs a null check",
+			createdAt: "2025-01-16T10:01:00Z",
+			updatedAt: "2025-01-16T10:01:00Z",
+		});
+	});
+
+	test("handles ghost author in review comments", () => {
+		const detail = mapPrDetailNode(
+			makeDetailNode({
+				reviews: {
+					nodes: [
+						{
+							author: { login: "bob" },
+							state: "COMMENTED",
+							body: "",
+							submittedAt: null,
+							comments: {
+								nodes: [
+									{
+										author: null,
+										path: "README.md",
+										line: null,
+										originalLine: null,
+										diffHunk: "",
+										body: "automated comment",
+										createdAt: "2025-01-16T10:00:00Z",
+										updatedAt: "2025-01-16T10:00:00Z",
+									},
+								],
+							},
+						},
+					],
+				},
+			}),
+		);
+		expect(detail.reviews[0]?.comments[0]?.author).toBe("ghost");
+	});
+
+	test("maps check runs from commit contexts", () => {
+		const detail = mapPrDetailNode(
+			makeDetailNode({
+				commits: {
+					nodes: [
+						{
+							commit: {
+								abbreviatedOid: "abc1234",
+								message: "feat: add feature X",
+								author: { user: { login: "alice" }, name: "Alice" },
+								authoredDate: "2025-01-15T10:00:00Z",
+								statusCheckRollup: {
+									state: "FAILURE",
+									contexts: {
+										nodes: [
+											{
+												__typename: "CheckRun",
+												name: "build",
+												status: "COMPLETED",
+												conclusion: "SUCCESS",
+												detailsUrl: "https://ci.example.com/build/1",
+											},
+											{
+												__typename: "CheckRun",
+												name: "test",
+												status: "COMPLETED",
+												conclusion: "FAILURE",
+												detailsUrl: "https://ci.example.com/test/1",
+											},
+											{
+												__typename: "StatusContext",
+											},
+										],
+									},
+								},
+							},
+						},
+					],
+				},
+			}),
+		);
+		expect(detail.commits[0]?.checkRuns).toHaveLength(2);
+		expect(detail.commits[0]?.checkRuns[0]).toEqual({
+			name: "build",
+			status: "COMPLETED",
+			conclusion: "SUCCESS",
+			detailsUrl: "https://ci.example.com/build/1",
+		});
+		expect(detail.commits[0]?.checkRuns[1]).toEqual({
+			name: "test",
+			status: "COMPLETED",
+			conclusion: "FAILURE",
+			detailsUrl: "https://ci.example.com/test/1",
+		});
+	});
+
+	test("returns empty check runs when no statusCheckRollup", () => {
+		const detail = mapPrDetailNode(
+			makeDetailNode({
+				commits: {
+					nodes: [
+						{
+							commit: {
+								abbreviatedOid: "xyz",
+								message: "wip",
+								author: { user: null, name: "Ghost" },
+								authoredDate: "2025-01-15T10:00:00Z",
+								statusCheckRollup: null,
+							},
+						},
+					],
+				},
+			}),
+		);
+		expect(detail.commits[0]?.checkRuns).toEqual([]);
+	});
 });

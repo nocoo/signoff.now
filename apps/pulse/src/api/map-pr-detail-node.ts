@@ -30,7 +30,16 @@ export function mapPrDetailNode(node: GraphQLPrDetailNode): PrDetail {
 			state: r.state as PrDetail["reviews"][number]["state"],
 			body: r.body,
 			submittedAt: r.submittedAt,
-			comments: [],
+			comments: r.comments.nodes.map((rc) => ({
+				author: rc.author?.login ?? "ghost",
+				path: rc.path,
+				line: rc.line,
+				originalLine: rc.originalLine,
+				diffHunk: rc.diffHunk,
+				body: rc.body,
+				createdAt: rc.createdAt,
+				updatedAt: rc.updatedAt,
+			})),
 		})),
 
 		comments: node.comments.nodes.map((c) => ({
@@ -49,7 +58,22 @@ export function mapPrDetailNode(node: GraphQLPrDetailNode): PrDetail {
 			statusCheckRollup:
 				(c.commit.statusCheckRollup
 					?.state as PrDetail["commits"][number]["statusCheckRollup"]) ?? null,
-			checkRuns: [],
+			checkRuns: (c.commit.statusCheckRollup?.contexts.nodes ?? [])
+				.filter(
+					(ctx) =>
+						ctx.__typename === "CheckRun" &&
+						ctx.name !== null &&
+						ctx.name !== undefined,
+				)
+				.map((cr) => ({
+					name: cr.name ?? "",
+					status:
+						cr.status as PrDetail["commits"][number]["checkRuns"][number]["status"],
+					conclusion:
+						(cr.conclusion as PrDetail["commits"][number]["checkRuns"][number]["conclusion"]) ??
+						null,
+					detailsUrl: cr.detailsUrl ?? null,
+				})),
 		})),
 
 		files: (node.files?.nodes ?? []).map((f) => ({
