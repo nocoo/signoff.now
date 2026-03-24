@@ -18,9 +18,9 @@ export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 	const vm = usePrViewModel(projectId);
 
 	return (
-		<div className="flex h-full overflow-hidden">
+		<div className="flex h-full min-w-0 overflow-hidden">
 			{/* Left panel: PR list (40% width) */}
-			<div className="w-2/5 min-w-[280px] max-w-[420px]">
+			<div className="w-2/5 min-w-[280px] max-w-[420px] overflow-hidden">
 				<PrListPanel
 					prs={vm.prs}
 					isLoading={vm.isLoading}

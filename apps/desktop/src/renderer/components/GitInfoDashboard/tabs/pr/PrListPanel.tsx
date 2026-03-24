@@ -57,7 +57,7 @@ export function PrListPanel({
 	const isScanning = isLoading || isRefreshing;
 
 	return (
-		<div className="flex h-full min-h-0 flex-col border-r border-border">
+		<div className="flex h-full min-w-0 min-h-0 flex-col border-r border-border">
 			{/* Header: Scan + filter bar */}
 			<div className="flex flex-col gap-2 border-b border-border p-3">
 				<div className="flex items-center gap-2">
@@ -177,29 +177,31 @@ function PrRow({
 			type="button"
 			onClick={onSelect}
 			className={cn(
-				"flex w-full flex-col gap-1 border-b border-border px-3 py-2.5 text-left transition-colors",
+				"flex w-full min-w-0 flex-col gap-1 border-b border-border px-3 py-2.5 text-left transition-colors",
 				isSelected ? "bg-accent" : "hover:bg-accent/50",
 			)}
 		>
 			{/* Row 1: state icon + title + PR number */}
-			<div className="flex items-start gap-2">
+			<div className="flex min-w-0 items-start gap-2">
 				<PrStateIcon
 					state={pr.state}
 					draft={pr.draft}
 					merged={pr.merged}
-					className="mt-0.5"
+					className="mt-0.5 shrink-0"
 				/>
-				<span className="flex-1 text-sm leading-snug">{pr.title}</span>
+				<span className="min-w-0 flex-1 truncate text-sm leading-snug">
+					{pr.title}
+				</span>
 				<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
 					#{pr.number}
 				</span>
 			</div>
 
 			{/* Row 2: author · date · labels */}
-			<div className="flex items-center gap-2 pl-6 text-xs text-muted-foreground">
-				<span className="font-medium">{pr.author}</span>
+			<div className="flex min-w-0 items-center gap-2 overflow-hidden pl-6 text-xs text-muted-foreground">
+				<span className="shrink-0 font-medium">{pr.author}</span>
 				<span>·</span>
-				<span>{relativeDate(pr.createdAt)}</span>
+				<span className="shrink-0">{relativeDate(pr.createdAt)}</span>
 				{pr.labels.length > 0 && (
 					<>
 						<span>·</span>
