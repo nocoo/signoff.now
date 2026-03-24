@@ -185,6 +185,7 @@
 			"includes": [
 				"apps/desktop/src/main/**",
 				"apps/gitinfo/**",
+				"apps/pulse/**",
 				"scripts/**",
 				"packages/workspace-fs/**",
 				"packages/local-db/**"

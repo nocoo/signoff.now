@@ -104,6 +104,18 @@
         "typescript": "^5.9.3",
       },
     },
+    "apps/pulse": {
+      "name": "@signoff/pulse",
+      "version": "0.1.0",
+      "bin": {
+        "pulse": "./src/main.ts",
+      },
+      "devDependencies": {
+        "@signoff/typescript": "workspace:*",
+        "bun-types": "^1.3.1",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/local-db": {
       "name": "@signoff/local-db",
       "version": "0.0.1",
@@ -664,6 +676,8 @@
     "@signoff/gitinfo": ["@signoff/gitinfo@workspace:apps/gitinfo"],
 
     "@signoff/local-db": ["@signoff/local-db@workspace:packages/local-db"],
+
+    "@signoff/pulse": ["@signoff/pulse@workspace:apps/pulse"],
 
     "@signoff/shared": ["@signoff/shared@workspace:packages/shared"],
 
