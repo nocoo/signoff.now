@@ -2,9 +2,11 @@
 
 ## Overview
 
-`pulse` is a CLI tool that fetches remote collaboration data (pull requests, reviews, CI checks) for a local git repository from its GitHub remote. It automatically resolves the correct GitHub identity from the repository's origin URL — supporting multi-account setups without polluting global `gh` auth state.
+`pulse` is a **planned** CLI tool that will fetch remote collaboration data (pull requests, reviews, CI checks) for a local git repository from its GitHub remote. It will automatically resolve the correct GitHub identity from the repository's origin URL — supporting multi-account setups without polluting global `gh` auth state.
 
-**Key design goals:**
+> **Status:** This document is a design specification. The `apps/pulse/` package does not exist yet. See [Roadmap](#roadmap) for implementation phases.
+
+**Design goals:**
 
 - **JSON-first** — Default output is compact JSON (pipeable to `jq`/`gron`), `--pretty` for human-readable terminal output
 - **Identity-safe** — Resolves the correct GitHub user per-repository via `GH_TOKEN` env injection; never calls `gh auth switch`
@@ -18,7 +20,7 @@
 ### Prerequisites
 
 - `git` — local repository metadata
-- `gh` CLI — token retrieval only (`gh auth token --user <name>` and `gh auth status --json hosts`); `gh` is **not** used for API calls themselves
+- `gh` CLI — used for two purposes: (1) token retrieval (`gh auth token --user <name>`, `gh auth status --json hosts`) from the system keyring, and (2) one-time org membership queries (`gh api /user/orgs`) during identity map construction. All subsequent GitHub data-fetching API calls (e.g., PR list) use direct HTTPS requests with `fetch()`, not `gh api`
 - At least one authenticated GitHub account via `gh auth login`
 
 ### Scope
@@ -29,7 +31,7 @@
 
 ---
 
-## Usage
+## Planned Usage
 
 ```
 pulse <command> [flags]
@@ -60,13 +62,13 @@ pulse prs --pretty
 pulse prs --cwd /path/to/repo
 
 # Pipe to jq
-pulse prs | jq '.[].title'
+pulse prs | jq '.prs[].title'
 pulse prs | jq '.prs | sort_by(-.number) | .[0:5]'
 ```
 
 ---
 
-## Architecture
+## Planned Architecture
 
 ### Three-Layer Design
 
@@ -101,7 +103,7 @@ pulse prs | jq '.prs | sort_by(-.number) | .[0:5]'
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Directory Structure
+### Planned Directory Structure
 
 ```
 apps/pulse/
@@ -263,27 +265,13 @@ interface PullRequestInfo {
 
 ### GitHub API
 
-**Endpoint:** `GET /repos/{owner}/{repo}/pulls`
+v1 uses **GitHub GraphQL API** exclusively. GraphQL is chosen over REST because:
 
-**Query parameters:**
+1. `reviewDecision` is only available via GraphQL (REST requires N+1 per-PR calls)
+2. Cursor-based pagination is more reliable than REST's `Link` header page-number scheme
+3. A single query returns all needed fields — no response joining
 
-| Param | Default | Description |
-|-------|---------|-------------|
-| `state` | `open` | `open`, `closed`, `all` |
-| `per_page` | `100` | Results per page (max 100) |
-| `page` | `1` | Page number |
-| `sort` | `created` | `created`, `updated`, `popularity`, `long-running` |
-| `direction` | `desc` | `asc`, `desc` |
-
-**Pagination:** Follow GitHub's `Link` header (`rel="next"`) to fetch all pages. Default behavior fetches all matching PRs. A `--limit <n>` flag can cap the total number of results.
-
-**Merged status:** The REST API returns `state: "closed"` for both closed and merged PRs. To distinguish, check `merged_at !== null` → set `merged: true`.
-
-**Review decision:** Not available in the REST list endpoint. Requires either:
-- A per-PR call to `GET /repos/{owner}/{repo}/pulls/{number}/reviews` (N+1 problem), or
-- GraphQL batch query
-
-For v1, use **GraphQL** to batch-fetch review decisions alongside PR list data:
+**Query:**
 
 ```graphql
 query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: String) {
@@ -306,7 +294,11 @@ query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: St
 }
 ```
 
-This avoids the N+1 problem and gives `reviewDecision` in a single request.
+**Pagination:** Follow `pageInfo.hasNextPage` + `endCursor` to fetch all pages. A `--limit <n>` flag can cap the total number of results by stopping pagination early.
+
+**Endpoint:** `POST https://api.github.com/graphql` with `Authorization: bearer <token>`.
+
+**Merged status:** GraphQL provides a dedicated `merged: Boolean` field, unlike REST where merged PRs appear as `state: "closed"` and require checking `merged_at`.
 
 ### CLI Flags (`prs` subcommand)
 
