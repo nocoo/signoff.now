@@ -230,4 +230,113 @@ describe("formatPrDetailReport", () => {
 		);
 		expect(output).not.toContain("─── Files");
 	});
+
+	test("displays review comments under reviews", () => {
+		const output = formatPrDetailReport(
+			makeReport({
+				pr: makePrDetail({
+					reviews: [
+						{
+							author: "bob",
+							state: "CHANGES_REQUESTED",
+							body: "Needs fixes",
+							submittedAt: "2025-01-16T10:00:00Z",
+							comments: [
+								{
+									author: "bob",
+									path: "src/index.ts",
+									line: 42,
+									originalLine: 40,
+									diffHunk: "@@ -38,6 +38,8 @@",
+									body: "This needs a null check",
+									createdAt: "2025-01-16T10:01:00Z",
+									updatedAt: "2025-01-16T10:01:00Z",
+								},
+							],
+						},
+					],
+				}),
+			}),
+		);
+		expect(output).toContain("src/index.ts:42 — This needs a null check");
+	});
+
+	test("displays review comment path without line when null", () => {
+		const output = formatPrDetailReport(
+			makeReport({
+				pr: makePrDetail({
+					reviews: [
+						{
+							author: "bob",
+							state: "COMMENTED",
+							body: "",
+							submittedAt: null,
+							comments: [
+								{
+									author: "bob",
+									path: "README.md",
+									line: null,
+									originalLine: null,
+									diffHunk: "",
+									body: "Typo here",
+									createdAt: "2025-01-16T10:00:00Z",
+									updatedAt: "2025-01-16T10:00:00Z",
+								},
+							],
+						},
+					],
+				}),
+			}),
+		);
+		expect(output).toContain("README.md — Typo here");
+		expect(output).not.toContain("README.md:");
+	});
+
+	test("displays check runs under commits", () => {
+		const output = formatPrDetailReport(
+			makeReport({
+				pr: makePrDetail({
+					commits: [
+						{
+							oid: "abc1234",
+							message: "feat: add feature X",
+							author: "alice",
+							authoredDate: "2025-01-15T10:00:00Z",
+							statusCheckRollup: "FAILURE",
+							checkRuns: [
+								{
+									name: "build",
+									status: "COMPLETED",
+									conclusion: "SUCCESS",
+									detailsUrl: null,
+								},
+								{
+									name: "test",
+									status: "COMPLETED",
+									conclusion: "FAILURE",
+									detailsUrl: null,
+								},
+								{
+									name: "lint",
+									status: "IN_PROGRESS",
+									conclusion: null,
+									detailsUrl: null,
+								},
+							],
+						},
+					],
+				}),
+			}),
+		);
+		expect(output).toContain("✓ build [success]");
+		expect(output).toContain("✗ test [failure]");
+		expect(output).toContain("⏳ lint [in_progress]");
+	});
+
+	test("skips check runs display when empty", () => {
+		const output = formatPrDetailReport(makeReport());
+		// Default fixture has checkRuns: [] — should not have check run icons
+		expect(output).not.toContain("✓ ");
+		expect(output).not.toContain("✗ ");
+	});
 });

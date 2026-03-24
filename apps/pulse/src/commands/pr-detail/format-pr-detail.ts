@@ -1,4 +1,4 @@
-import type { PrDetailReport } from "../types.ts";
+import type { PrDetail, PrDetailReport } from "../types.ts";
 
 /**
  * Format a PrDetailReport as human-readable terminal output.
@@ -15,6 +15,27 @@ export function formatPrDetailReport(report: PrDetailReport): string {
 	lines.push("");
 
 	// Metadata
+	formatMetadata(lines, pr);
+
+	// Body
+	if (pr.body.trim()) {
+		lines.push("─── Description ───");
+		lines.push(pr.body.trim());
+		lines.push("");
+	}
+
+	// Sections
+	formatReviews(lines, pr);
+	formatComments(lines, pr);
+	formatCommits(lines, pr);
+	formatFiles(lines, pr);
+
+	lines.push(`Completed in ${report.durationMs}ms`);
+
+	return lines.join("\n");
+}
+
+function formatMetadata(lines: string[], pr: PrDetail): void {
 	lines.push(`  Author:    @${pr.author}`);
 	lines.push(
 		`  State:     ${pr.state}${pr.draft ? " (draft)" : ""}${pr.merged ? " (merged)" : ""}`,
@@ -44,67 +65,70 @@ export function formatPrDetailReport(report: PrDetailReport): string {
 	lines.push(`  Updated:   ${pr.updatedAt}`);
 	lines.push(`  URL:       ${pr.url}`);
 	lines.push("");
+}
 
-	// Body
-	if (pr.body.trim()) {
-		lines.push("─── Description ───");
-		lines.push(pr.body.trim());
-		lines.push("");
-	}
+function formatReviews(lines: string[], pr: PrDetail): void {
+	if (pr.reviews.length === 0) return;
 
-	// Reviews
-	if (pr.reviews.length > 0) {
-		lines.push(`─── Reviews (${pr.reviews.length}) ───`);
-		for (const review of pr.reviews) {
-			const state = review.state.toLowerCase().replace(/_/g, " ");
-			lines.push(
-				`  @${review.author} — ${state}${review.submittedAt ? ` at ${review.submittedAt}` : ""}`,
-			);
-			if (review.body.trim()) {
-				lines.push(`    ${review.body.trim().split("\n").join("\n    ")}`);
-			}
+	lines.push(`─── Reviews (${pr.reviews.length}) ───`);
+	for (const review of pr.reviews) {
+		const state = review.state.toLowerCase().replace(/_/g, " ");
+		lines.push(
+			`  @${review.author} — ${state}${review.submittedAt ? ` at ${review.submittedAt}` : ""}`,
+		);
+		if (review.body.trim()) {
+			lines.push(`    ${review.body.trim().split("\n").join("\n    ")}`);
 		}
-		lines.push("");
-	}
-
-	// Comments
-	if (pr.comments.length > 0) {
-		lines.push(`─── Comments (${pr.comments.length}) ───`);
-		for (const comment of pr.comments) {
-			lines.push(`  @${comment.author} at ${comment.createdAt}`);
-			lines.push(`    ${comment.body.trim().split("\n").join("\n    ")}`);
+		for (const rc of review.comments) {
+			const loc = rc.line ? `${rc.path}:${rc.line}` : rc.path;
+			const firstLine = rc.body.trim().split("\n")[0];
+			lines.push(`    ${loc} — ${firstLine}`);
 		}
-		lines.push("");
 	}
+	lines.push("");
+}
 
-	// Commits
-	if (pr.commits.length > 0) {
-		lines.push(`─── Commits (${pr.commits.length}) ───`);
-		for (const commit of pr.commits) {
-			const status = commit.statusCheckRollup
-				? ` [${commit.statusCheckRollup.toLowerCase()}]`
-				: "";
-			const firstLine = commit.message.split("\n")[0];
-			lines.push(`  ${commit.oid} ${firstLine}${status}  @${commit.author}`);
+function formatComments(lines: string[], pr: PrDetail): void {
+	if (pr.comments.length === 0) return;
+
+	lines.push(`─── Comments (${pr.comments.length}) ───`);
+	for (const comment of pr.comments) {
+		lines.push(`  @${comment.author} at ${comment.createdAt}`);
+		lines.push(`    ${comment.body.trim().split("\n").join("\n    ")}`);
+	}
+	lines.push("");
+}
+
+function formatCommits(lines: string[], pr: PrDetail): void {
+	if (pr.commits.length === 0) return;
+
+	lines.push(`─── Commits (${pr.commits.length}) ───`);
+	for (const commit of pr.commits) {
+		const status = commit.statusCheckRollup
+			? ` [${commit.statusCheckRollup.toLowerCase()}]`
+			: "";
+		const firstLine = commit.message.split("\n")[0];
+		lines.push(`  ${commit.oid} ${firstLine}${status}  @${commit.author}`);
+		for (const cr of commit.checkRuns) {
+			const icon = getCheckRunIcon(cr.conclusion);
+			const conclusion = cr.conclusion
+				? cr.conclusion.toLowerCase()
+				: cr.status.toLowerCase();
+			lines.push(`    ${icon} ${cr.name} [${conclusion}]`);
 		}
-		lines.push("");
 	}
+	lines.push("");
+}
 
-	// Files
-	if (pr.files.length > 0) {
-		lines.push(`─── Files (${pr.files.length}) ───`);
-		for (const file of pr.files) {
-			const type = file.changeType.charAt(0);
-			lines.push(
-				`  ${type} ${file.path}  +${file.additions} -${file.deletions}`,
-			);
-		}
-		lines.push("");
+function formatFiles(lines: string[], pr: PrDetail): void {
+	if (pr.files.length === 0) return;
+
+	lines.push(`─── Files (${pr.files.length}) ───`);
+	for (const file of pr.files) {
+		const type = file.changeType.charAt(0);
+		lines.push(`  ${type} ${file.path}  +${file.additions} -${file.deletions}`);
 	}
-
-	lines.push(`Completed in ${report.durationMs}ms`);
-
-	return lines.join("\n");
+	lines.push("");
 }
 
 function getDetailStateIcon(pr: {
@@ -116,4 +140,20 @@ function getDetailStateIcon(pr: {
 	if (pr.draft) return "◌";
 	if (pr.state === "open") return "●";
 	return "○";
+}
+
+function getCheckRunIcon(conclusion: string | null): string {
+	switch (conclusion) {
+		case "SUCCESS":
+			return "✓";
+		case "FAILURE":
+		case "TIMED_OUT":
+			return "✗";
+		case "CANCELLED":
+		case "SKIPPED":
+		case "NEUTRAL":
+			return "○";
+		default:
+			return "⏳";
+	}
 }
