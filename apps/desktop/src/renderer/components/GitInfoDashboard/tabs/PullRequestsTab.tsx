@@ -42,6 +42,7 @@ export function PullRequestsTab({ projectId }: PullRequestsTabProps) {
 			<div className="flex-1">
 				<PrDetailPanel
 					detail={vm.selectedPrDetail}
+					hasSelection={vm.selectedPrNumber !== null}
 					isLoading={vm.isDetailLoading}
 					isRefreshing={vm.isDetailRefreshing}
 					error={vm.detailError}

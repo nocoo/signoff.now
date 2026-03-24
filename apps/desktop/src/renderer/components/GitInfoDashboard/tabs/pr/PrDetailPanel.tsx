@@ -36,8 +36,10 @@ import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 
 interface PrDetailPanelProps {
-	/** Full PR detail (list + detail fields). null = no selection. */
+	/** Full PR detail (list + detail fields). null = no cache yet. */
 	detail: PrDetail | null;
+	/** True when a PR is selected (distinguishes "no selection" from "load failed"). */
+	hasSelection: boolean;
 	/** True when loading detail for a PR with no cache. */
 	isLoading: boolean;
 	/** True when refreshing an already-cached detail. */
@@ -48,17 +50,30 @@ interface PrDetailPanelProps {
 
 export function PrDetailPanel({
 	detail,
+	hasSelection,
 	isLoading,
 	isRefreshing,
 	error,
 }: PrDetailPanelProps) {
 	const openUrlMutation = trpc.external.openUrl.useMutation();
 
-	// No PR selected
-	if (!detail && !isLoading) {
+	// No PR selected — only when nothing is selected at all
+	if (!hasSelection) {
 		return (
 			<div className="flex h-full items-center justify-center text-muted-foreground">
 				<p className="text-sm">Select a pull request to view details</p>
+			</div>
+		);
+	}
+
+	// Error with no cached detail — show centered error message
+	if (!detail && !isLoading && error) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-2 p-6">
+				<div className="flex items-start gap-1.5 rounded bg-red-500/15 px-3 py-2 text-sm text-red-400">
+					<AlertCircle className="mt-0.5 size-4 shrink-0" />
+					<span>{error}</span>
+				</div>
 			</div>
 		);
 	}
@@ -325,6 +340,38 @@ export function PrDetailPanel({
 										<p className="text-xs text-muted-foreground">
 											{review.body.slice(0, 200)}
 											{review.body.length > 200 ? "…" : null}
+										</p>
+									) : null}
+								</div>
+							))}
+						</div>
+					</DashboardCard>
+				)}
+
+				{/* Comments */}
+				{pr.comments.length > 0 && (
+					<DashboardCard
+						title={`Comments (${pr.comments.length})`}
+						icon={<MessageSquare className="h-4 w-4" />}
+					>
+						<div className="flex flex-col gap-2">
+							{pr.comments.map((comment, i) => (
+								<div
+									key={`${comment.author}-${comment.createdAt}-${i}`}
+									className="flex flex-col gap-0.5 rounded bg-muted/50 p-2"
+								>
+									<div className="flex items-center gap-2">
+										<span className="text-xs font-medium">
+											{comment.author}
+										</span>
+										<span className="text-[10px] text-muted-foreground">
+											{relativeDate(comment.createdAt)}
+										</span>
+									</div>
+									{comment.body ? (
+										<p className="text-xs text-muted-foreground">
+											{comment.body.slice(0, 300)}
+											{comment.body.length > 300 ? "…" : null}
 										</p>
 									) : null}
 								</div>
