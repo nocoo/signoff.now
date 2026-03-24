@@ -106,9 +106,9 @@ export function createPulseRouter(getDb: GetDb) {
 
 			// Atomic write: list upsert + scan meta must be consistent
 			const db = getDb();
-			db.transaction(() => {
-				upsertPrs(db, input.projectId, report.prs);
-				upsertScanMeta(db, input.projectId, {
+			db.transaction((tx: typeof db) => {
+				upsertPrs(tx, input.projectId, report.prs);
+				upsertScanMeta(tx, input.projectId, {
 					endCursor: report.endCursor,
 					hasNextPage: report.hasNextPage,
 					resolvedUser: report.identity.resolvedUser,
@@ -134,8 +134,8 @@ export function createPulseRouter(getDb: GetDb) {
 
 			// Atomic write: list row + detail row must be consistent
 			const db = getDb();
-			db.transaction(() => {
-				upsertPrDetail(db, input.projectId, report.pr);
+			db.transaction((tx: typeof db) => {
+				upsertPrDetail(tx, input.projectId, report.pr);
 			});
 		},
 
