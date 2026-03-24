@@ -59,7 +59,7 @@ export function PrListPanel({
 	return (
 		<div className="flex h-full min-w-0 min-h-0 flex-col border-r border-border">
 			{/* Header: Scan + filter bar */}
-			<div className="flex flex-col gap-2 border-b border-border p-3">
+			<div className="flex min-w-0 flex-col gap-2 border-b border-border p-3">
 				<div className="flex items-center gap-2">
 					<Button
 						size="sm"
@@ -115,7 +115,7 @@ export function PrListPanel({
 			</div>
 
 			{/* PR list */}
-			<ScrollArea className="flex-1">
+			<ScrollArea className="min-w-0 flex-1 [&>[data-slot=scroll-area-viewport]]:!overflow-x-hidden">
 				{isLoading ? (
 					<div className="flex flex-col gap-2 p-3">
 						<Skeleton className="h-16 w-full rounded-md" />
@@ -133,7 +133,7 @@ export function PrListPanel({
 						</p>
 					</div>
 				) : (
-					<div className="flex flex-col">
+					<div className="flex min-w-0 flex-col">
 						{prs.map((pr) => (
 							<PrRow
 								key={pr.number}
@@ -223,7 +223,7 @@ function PrRow({
 			</div>
 
 			{/* Row 3: review badge + diff stats */}
-			<div className="flex items-center gap-2 pl-6">
+			<div className="flex min-w-0 items-center gap-2 overflow-hidden pl-6">
 				<PrReviewBadge reviewDecision={pr.reviewDecision} />
 				<span className="font-mono text-xs tabular-nums text-muted-foreground">
 					<span className="text-green-400">+{pr.additions}</span>
