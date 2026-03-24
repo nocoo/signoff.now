@@ -56,11 +56,12 @@ The server always fetches with `state: "all"` from GitHub — one unified scan p
 
 **Why not per-state scans?** The `pull_requests` table uses `(project_id, number)` as UNIQUE key with the PR's actual `state` as a column. If we maintained separate scan chains for "open", "closed", and "all", they would share the same rows but have independent pagination cursors. A scan of "all" would delete-and-replace rows that the "open" cursor was pointing at, corrupting that scan chain. A single canonical scan avoids this entirely.
 
-**Author filtering** is also client-side in the ViewModel:
+**Author filtering** is client-side in the ViewModel:
 
 - `fetchPrs` mutation never accepts `author` or `state` filter parameters
-- The ViewModel applies `stateFilter` and `authorFilter` via `Array.filter()` before passing to the View
-- Switching filters is instant (no re-fetch needed)
+- The `getCachedPrs` query applies `stateFilter` in SQL (`WHERE state = ?`, or no condition for "all")
+- The ViewModel applies `authorFilter` via `Array.filter()` in a `useMemo`
+- Switching either filter is instant (no GitHub re-fetch needed)
 
 ### Data Shape Reference
 
@@ -280,6 +281,7 @@ New migration file: `0002_*.sql` via `bun run db:generate:desktop`.
 │  - Single source: tRPC queries (DB-backed)                 │
 │  - Mutations only write DB + invalidate queries            │
 │  - Client-side author filter via Array.filter()            │
+│  - State filter via SQL WHERE in getCachedPrs query        │
 └────────────────────┬─────────────────────────────────────┘
                      │ reads/writes
 ┌────────────────────▼─────────────────────────────────────┐
@@ -343,25 +345,27 @@ User clicks "Scan PRs":
    → PAGE_SIZE = 20 (hardcoded in router, not exposed to UI)
    → Always fetches state:"all" — single canonical scan scope
    → Fetches exactly one page from GitHub API, not all pages
-   → Network round-trip happens OUTSIDE any DB transaction
-3. Router: BEGIN TRANSACTION (short, no I/O inside)
-   a. DELETE FROM pull_requests WHERE project_id = ?
-      → Purge all cached rows for this project to avoid stale residuals
-        (e.g., a PR that was "open" last scan but has since been closed
-        would linger forever without this step)
-   b. INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
-   c. UPSERT INTO pull_request_scans SET end_cursor = response.endCursor,
-      has_next_page = response.hasNextPage, scanned_at = now()
-      → Saves the pagination state returned by GitHub, NOT the input cursor.
-        After a fresh scan of 20 PRs, end_cursor points to page 2 and
-        has_next_page = true, enabling Load More to continue from here.
-   COMMIT
-4. Router: invalidate getCachedPrs + getScanMeta queries
-5. View: re-renders with fresh data from DB
+3. Router: INSERT INTO pull_requests (...) ON CONFLICT(project_id, number) DO UPDATE
+   → Pure upsert — no DELETE. PRs in the response get their fields
+     updated (including state, which may have changed from open→closed).
+     PRs NOT in the response remain untouched with their last-known data.
+4. Router: UPSERT INTO pull_request_scans SET end_cursor = response.endCursor,
+   has_next_page = response.hasNextPage, scanned_at = now()
+   → Resets pagination: endCursor points to page 2,
+     has_next_page = true, enabling Load More to continue.
+5. Router: invalidate getCachedPrs + getScanMeta queries
+6. View: re-renders with fresh data from DB
 
-The DB transaction (step 3) is short — it only contains DELETE + INSERT +
-UPDATE with no network I/O. The query is not invalidated until after the
-transaction commits, so the View never sees an empty intermediate state.
+No DELETE step — this is intentional:
+- pull_request_details depends on pull_requests via JOIN. A DELETE
+  would orphan detail rows for PRs not in the current page, making
+  previously cached detail data unreachable.
+- Upsert naturally updates PRs whose state has changed (e.g., a PR
+  that went from open→closed will get its state column updated when
+  it appears in a subsequent scan page).
+- PRs that are never re-scanned (e.g., very old closed PRs) remain
+  in cache with stale data. This is acceptable — they are still
+  valid display data. Use clearCache() for a full reset.
 
 Note: `pull_requests.state` stores the PR's actual state ("open" or
 "closed"), never "all". The UI's stateFilter is applied at query time
@@ -439,7 +443,8 @@ export function usePrViewModel(projectId: string) {
   // State filter is applied at query time, not fetch time.
   const scanMutation = trpc.pulse.fetchPrs.useMutation({
     onSuccess: () => {
-      // Invalidate all state variants of getCachedPrs for this project
+      // Invalidate all getCachedPrs queries (all projects, all state variants).
+      // Broad invalidation is cheap — just marks queries stale for next access.
       utils.pulse.getCachedPrs.invalidate();
       utils.pulse.getScanMeta.invalidate({ projectId });
     },
@@ -608,7 +613,8 @@ The detail panel gains these additional sections beyond the existing list-level 
 |-------|------|-------|
 | L1 UT | DB helpers: upsert PRs, upsert detail, query with state filter, query without state filter (all), delete by project, pagination cursor update | `pulse/db.test.ts` |
 | L1 UT | DB helpers: ON CONFLICT upsert — duplicate (project_id, number) updates rather than inserts | `pulse/db.test.ts` |
-| L1 UT | DB helpers: fresh scan DELETE + INSERT transaction — all project rows purged before insert | `pulse/db.test.ts` |
+| L1 UT | DB helpers: fresh scan upsert preserves rows not in current page (no orphaned details) | `pulse/db.test.ts` |
+| L1 UT | DB helpers: clearCache deletes from all 3 tables for a project | `pulse/db.test.ts` |
 | L1 UT | ViewModel: loading states, query-as-source (no mutation result in view), auto-refresh on mount | `usePrViewModel.test.ts` |
 | L1 UT | ViewModel: client-side author filter — empty filter returns all, partial match filters, case insensitive | `usePrViewModel.test.ts` |
 | L1 UT | ViewModel: state filter change is instant (no new mutation), only changes query key | `usePrViewModel.test.ts` |
