@@ -56,11 +56,11 @@ The server always fetches with `state: "all"` from GitHub — one unified scan p
 
 **Why not per-state scans?** The `pull_requests` table uses `(project_id, number)` as UNIQUE key with the PR's actual `state` as a column. If we maintained separate scan chains for "open", "closed", and "all", they would share the same rows but have independent pagination cursors. A scan of "all" would delete-and-replace rows that the "open" cursor was pointing at, corrupting that scan chain. A single canonical scan avoids this entirely.
 
-**Author filtering** is client-side in the ViewModel:
+**Filtering** — neither `state` nor `author` is sent to GitHub at scan time:
 
-- `fetchPrs` mutation never accepts `author` or `state` filter parameters
-- The `getCachedPrs` query applies `stateFilter` in SQL (`WHERE state = ?`, or no condition for "all")
-- The ViewModel applies `authorFilter` via `Array.filter()` in a `useMemo`
+- `fetchPrs` mutation accepts only `{ projectId, cursor? }` — no filter parameters
+- `stateFilter` is applied in SQL by `getCachedPrs` (`WHERE state = ?`, or no condition for "all")
+- `authorFilter` is applied in the ViewModel via `Array.filter()` in a `useMemo`
 - Switching either filter is instant (no GitHub re-fetch needed)
 
 ### Data Shape Reference
