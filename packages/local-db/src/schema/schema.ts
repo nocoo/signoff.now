@@ -236,6 +236,20 @@ interface PrReviewJson {
 		| "PENDING";
 	body: string;
 	submittedAt: string | null;
+	/** Line-level review comments. Optional for backward compat with older cache. */
+	comments?: PrReviewCommentJson[];
+}
+
+/** A line-level comment on a pull request review. */
+interface PrReviewCommentJson {
+	author: string;
+	path: string;
+	line: number | null;
+	originalLine: number | null;
+	diffHunk: string;
+	body: string;
+	createdAt: string;
+	updatedAt: string;
 }
 
 /** An issue comment (non-review). */
@@ -259,6 +273,16 @@ interface PrCommitJson {
 		| "ERROR"
 		| "EXPECTED"
 		| null;
+	/** Individual CI check runs. Optional for backward compat with older cache. */
+	checkRuns?: CheckRunJson[];
+}
+
+/** An individual CI check run on a commit. */
+interface CheckRunJson {
+	name: string;
+	status: string;
+	conclusion: string | null;
+	detailsUrl: string | null;
 }
 
 /** A changed file in the PR. */
