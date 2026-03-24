@@ -1,15 +1,15 @@
 /**
  * PrListPanel — left panel showing the PR list in an email-thread style.
  *
- * Features:
- * - Scan button to trigger PR fetching
- * - Filter bar: state dropdown, author text input
- * - Scrollable PR list with state icon, title, metadata
- * - Selected PR highlighting
+ * Follows the dashboard's visual conventions:
+ * - text-xs / text-sm sizing (no text-[11px] or text-[9px])
+ * - Semantic badges: rounded bg-{color}-500/15 text-{color}-400
+ * - Neutral badges: rounded bg-muted px-1.5 py-0.5 text-[10px]
+ * - font-mono tabular-nums for numbers
+ * - text-muted-foreground for secondary content
  */
 
 import type { PrsReport, PullRequestInfo } from "@signoff/pulse";
-import { Badge } from "@signoff/ui/badge";
 import { Button } from "@signoff/ui/button";
 import { Input } from "@signoff/ui/input";
 import { ScrollArea } from "@signoff/ui/scroll-area";
@@ -96,7 +96,7 @@ export function PrListPanel({
 						{isScanning ? "Scanning…" : "Scan PRs"}
 					</Button>
 					{report !== null && (
-						<span className="text-xs text-muted-foreground">
+						<span className="text-xs text-muted-foreground font-mono tabular-nums">
 							{report.totalCount} total
 						</span>
 					)}
@@ -194,19 +194,19 @@ function PrRow({
 				<span
 					className={cn(
 						"flex-1 text-sm leading-snug",
-						isSelected ? "font-medium" : "text-foreground",
+						isSelected && "font-medium",
 					)}
 				>
 					{pr.title}
 				</span>
-				<span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+				<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
 					#{pr.number}
 				</span>
 			</div>
 
-			{/* Row 2: metadata */}
-			<div className="flex items-center gap-2 pl-6 text-[11px] text-muted-foreground">
-				<span className="font-medium text-foreground/70">{pr.author}</span>
+			{/* Row 2: author · date · labels */}
+			<div className="flex items-center gap-2 pl-6 text-xs text-muted-foreground">
+				<span className="font-medium">{pr.author}</span>
 				<span>·</span>
 				<span>{relativeDate(pr.createdAt)}</span>
 				{pr.labels.length > 0 && (
@@ -214,26 +214,25 @@ function PrRow({
 						<span>·</span>
 						<div className="flex items-center gap-1">
 							{pr.labels.slice(0, 3).map((label) => (
-								<Badge
+								<span
 									key={label}
-									variant="secondary"
-									className="h-4 px-1 text-[9px]"
+									className="rounded bg-muted px-1.5 py-0.5 text-[10px]"
 								>
 									{label}
-								</Badge>
+								</span>
 							))}
 							{pr.labels.length > 3 && (
-								<span className="text-[9px]">+{pr.labels.length - 3}</span>
+								<span className="text-[10px]">+{pr.labels.length - 3}</span>
 							)}
 						</div>
 					</>
 				)}
 			</div>
 
-			{/* Row 3: review + stats */}
+			{/* Row 3: review badge + diff stats */}
 			<div className="flex items-center gap-2 pl-6">
 				<PrReviewBadge reviewDecision={pr.reviewDecision} />
-				<span className="text-[11px] tabular-nums text-muted-foreground">
+				<span className="font-mono text-xs tabular-nums text-muted-foreground">
 					<span className="text-green-400">+{pr.additions}</span>
 					{" / "}
 					<span className="text-red-400">-{pr.deletions}</span>

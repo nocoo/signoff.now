@@ -1,44 +1,29 @@
 /**
  * PrReviewBadge — review decision badge for a pull request.
  *
- * Displays the review state as a colored badge:
- * - APPROVED: green
- * - CHANGES_REQUESTED: red
- * - REVIEW_REQUIRED: yellow/muted
- * - null: not shown
+ * Uses the project's standard semantic badge pattern:
+ * `rounded bg-{color}-500/15 px-2 py-0.5 text-xs font-medium text-{color}-400`
  */
 
-import { Badge } from "@signoff/ui/badge";
 import { cn } from "@signoff/ui/utils";
-import { Check, MessageSquareWarning, ShieldAlert } from "lucide-react";
 
 interface PrReviewBadgeProps {
 	reviewDecision: string | null;
 	className?: string;
 }
 
-const REVIEW_CONFIG: Record<
-	string,
-	{
-		label: string;
-		icon: React.ComponentType<{ className?: string }>;
-		className: string;
-	}
-> = {
+const REVIEW_CONFIG: Record<string, { label: string; className: string }> = {
 	APPROVED: {
 		label: "Approved",
-		icon: Check,
-		className: "border-green-500/30 bg-green-500/10 text-green-400",
+		className: "bg-green-500/15 text-green-400",
 	},
 	CHANGES_REQUESTED: {
-		label: "Changes",
-		icon: ShieldAlert,
-		className: "border-red-500/30 bg-red-500/10 text-red-400",
+		label: "Changes Requested",
+		className: "bg-red-500/15 text-red-400",
 	},
 	REVIEW_REQUIRED: {
-		label: "Review",
-		icon: MessageSquareWarning,
-		className: "border-yellow-500/30 bg-yellow-500/10 text-yellow-400",
+		label: "Review Required",
+		className: "bg-yellow-500/15 text-yellow-400",
 	},
 };
 
@@ -51,19 +36,15 @@ export function PrReviewBadge({
 	const config = REVIEW_CONFIG[reviewDecision];
 	if (!config) return null;
 
-	const Icon = config.icon;
-
 	return (
-		<Badge
-			variant="outline"
+		<span
 			className={cn(
-				"gap-1 text-[10px] font-normal",
+				"rounded px-2 py-0.5 text-xs font-medium",
 				config.className,
 				className,
 			)}
 		>
-			<Icon className="size-3" />
 			{config.label}
-		</Badge>
+		</span>
 	);
 }

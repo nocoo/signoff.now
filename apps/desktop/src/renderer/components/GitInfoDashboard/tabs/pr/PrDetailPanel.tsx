@@ -1,32 +1,20 @@
 /**
  * PrDetailPanel — right panel showing selected PR details.
  *
- * Displays:
- * - PR title + number as header
- * - Metadata grid: author, branch, dates
- * - Labels as badges
- * - Review decision
- * - Code stats (additions/deletions/changed files)
- * - Link to open in browser
+ * Follows the dashboard's visual conventions:
+ * - StatNumber for label/value pairs
+ * - DashboardCard for grouped sections
+ * - Semantic badge colors: bg-{color}-500/15 text-{color}-400
+ * - Standard spacing: gap-6 between sections, p-3 card padding
  */
 
 import type { PullRequestInfo } from "@signoff/pulse";
-import { Badge } from "@signoff/ui/badge";
-import { Button } from "@signoff/ui/button";
 import { ScrollArea } from "@signoff/ui/scroll-area";
-import { Separator } from "@signoff/ui/separator";
 import { cn } from "@signoff/ui/utils";
-import {
-	ArrowRight,
-	Calendar,
-	ExternalLink,
-	FileCode2,
-	GitBranch,
-	User,
-} from "lucide-react";
+import { ArrowRight, ExternalLink, GitBranch, Globe, Tag } from "lucide-react";
 import { trpc } from "../../../../lib/trpc";
 import { DashboardCard } from "../../DashboardCard";
-import { relativeDate } from "../../StatNumber";
+import { relativeDate, StatNumber } from "../../StatNumber";
 import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 
@@ -55,9 +43,9 @@ export function PrDetailPanel({ pr }: PrDetailPanelProps) {
 
 	return (
 		<ScrollArea className="h-full">
-			<div className="flex flex-col gap-4 p-4">
-				{/* Header */}
-				<div className="flex flex-col gap-2">
+			<div className="flex flex-col gap-6 p-6">
+				{/* Header: title + badges + remote link */}
+				<div>
 					<div className="flex items-start gap-2">
 						<PrStateIcon
 							state={pr.state}
@@ -65,149 +53,103 @@ export function PrDetailPanel({ pr }: PrDetailPanelProps) {
 							merged={pr.merged}
 							className="mt-1 size-5"
 						/>
-						<div className="flex-1">
-							<h2 className="text-lg font-semibold leading-snug">{pr.title}</h2>
-							<div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-								<span className="font-mono text-xs">#{pr.number}</span>
-								<Badge
-									variant="outline"
-									className={cn(
-										"text-[10px]",
-										pr.merged && "border-purple-500/30 text-purple-400",
-										!pr.merged &&
-											pr.state === "open" &&
-											"border-green-500/30 text-green-400",
-										!pr.merged &&
-											pr.state === "closed" &&
-											"border-red-500/30 text-red-400",
-									)}
-								>
-									{stateLabel}
-								</Badge>
-								<PrReviewBadge reviewDecision={pr.reviewDecision} />
-							</div>
-						</div>
+						<h3 className="text-lg font-semibold leading-snug">{pr.title}</h3>
+					</div>
+					<div className="mt-2 flex flex-wrap items-center gap-2">
+						<span className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
+							#{pr.number}
+						</span>
+						<span
+							className={cn(
+								"rounded px-2 py-0.5 text-xs font-medium",
+								pr.merged && "bg-purple-500/15 text-purple-400",
+								!pr.merged &&
+									pr.state === "open" &&
+									"bg-green-500/15 text-green-400",
+								!pr.merged &&
+									pr.state === "closed" &&
+									"bg-red-500/15 text-red-400",
+							)}
+						>
+							{stateLabel}
+						</span>
+						<PrReviewBadge reviewDecision={pr.reviewDecision} />
 					</div>
 
-					<Button
-						variant="outline"
-						size="sm"
-						className="w-fit gap-1.5"
+					{/* Remote link — matches OverviewTab's remote URL style */}
+					<button
+						type="button"
 						onClick={() => openUrlMutation.mutate({ url: pr.url })}
+						className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
 					>
-						<ExternalLink className="size-3.5" />
-						Open on GitHub
-					</Button>
+						<Globe className="h-3 w-3 shrink-0" />
+						<span className="truncate">Open on GitHub</span>
+						<ExternalLink className="h-3 w-3 shrink-0" />
+					</button>
 				</div>
 
-				<Separator />
+				{/* Summary stat grid — matches OverviewTab's grid layout */}
+				<div className="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-6">
+					<StatNumber label="Author" value={pr.author} />
+					<StatNumber label="Created" value={relativeDate(pr.createdAt)} />
+					<StatNumber label="Updated" value={relativeDate(pr.updatedAt)} />
+					{pr.mergedAt !== null && (
+						<StatNumber label="Merged" value={relativeDate(pr.mergedAt)} />
+					)}
+					{pr.closedAt !== null && !pr.merged && (
+						<StatNumber label="Closed" value={relativeDate(pr.closedAt)} />
+					)}
+					<StatNumber label="Changed files" value={pr.changedFiles} />
+				</div>
 
-				{/* Metadata */}
-				<DashboardCard title="Details" icon={<FileCode2 className="size-4" />}>
-					<div className="grid grid-cols-2 gap-3 text-sm">
-						<MetaItem
-							icon={<User className="size-3.5" />}
-							label="Author"
-							value={pr.author}
-						/>
-						<MetaItem
-							icon={<Calendar className="size-3.5" />}
-							label="Created"
-							value={relativeDate(pr.createdAt)}
-						/>
-						<MetaItem
-							icon={<Calendar className="size-3.5" />}
-							label="Updated"
-							value={relativeDate(pr.updatedAt)}
-						/>
-						{pr.mergedAt !== null && (
-							<MetaItem
-								icon={<Calendar className="size-3.5" />}
-								label="Merged"
-								value={relativeDate(pr.mergedAt)}
-							/>
-						)}
-						{pr.closedAt !== null && !pr.merged && (
-							<MetaItem
-								icon={<Calendar className="size-3.5" />}
-								label="Closed"
-								value={relativeDate(pr.closedAt)}
-							/>
-						)}
-					</div>
-				</DashboardCard>
-
-				{/* Branch info */}
-				<DashboardCard title="Branch" icon={<GitBranch className="size-4" />}>
-					<div className="flex items-center gap-2 text-sm">
-						<code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
+				{/* Branch + Changes card */}
+				<DashboardCard
+					title="Branch & Changes"
+					icon={<GitBranch className="h-4 w-4" />}
+				>
+					{/* Branch flow */}
+					<div className="mb-3 flex items-center gap-2 text-sm">
+						<span className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
 							{pr.headBranch}
-						</code>
+						</span>
 						<ArrowRight className="size-3.5 text-muted-foreground" />
-						<code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
+						<span className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
 							{pr.baseBranch}
-						</code>
+						</span>
+					</div>
+
+					{/* Code stats — matches diff stat pattern: green +N / red -N */}
+					<div className="grid grid-cols-3 gap-3">
+						<StatNumber
+							label="Additions"
+							value={`+${pr.additions}`}
+							className="[&>span:last-child]:text-green-400"
+						/>
+						<StatNumber
+							label="Deletions"
+							value={`-${pr.deletions}`}
+							className="[&>span:last-child]:text-red-400"
+						/>
+						<StatNumber label="Files" value={pr.changedFiles} />
 					</div>
 				</DashboardCard>
 
-				{/* Code stats */}
-				<DashboardCard title="Changes" icon={<FileCode2 className="size-4" />}>
-					<div className="flex items-center gap-4 text-sm">
-						<span className="tabular-nums">
-							<span className="font-medium text-green-400">
-								+{pr.additions}
-							</span>
-						</span>
-						<span className="tabular-nums">
-							<span className="font-medium text-red-400">-{pr.deletions}</span>
-						</span>
-						<span className="text-muted-foreground">
-							{pr.changedFiles} file{pr.changedFiles !== 1 ? "s" : ""} changed
-						</span>
-					</div>
-				</DashboardCard>
-
-				{/* Labels */}
+				{/* Labels — uses neutral badge style from OverviewTab hooks */}
 				{pr.labels.length > 0 && (
-					<DashboardCard
-						title="Labels"
-						icon={
-							<Badge variant="outline" className="size-4 p-0 text-[8px]">
-								#
-							</Badge>
-						}
-					>
-						<div className="flex flex-wrap gap-1.5">
+					<DashboardCard title="Labels" icon={<Tag className="h-4 w-4" />}>
+						<div className="flex flex-wrap gap-1">
 							{pr.labels.map((label) => (
-								<Badge key={label} variant="secondary">
+								<span
+									key={label}
+									className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+								>
 									{label}
-								</Badge>
+								</span>
 							))}
 						</div>
 					</DashboardCard>
 				)}
 			</div>
 		</ScrollArea>
-	);
-}
-
-/** Single metadata row with icon + label + value. */
-function MetaItem({
-	icon,
-	label,
-	value,
-}: {
-	icon: React.ReactNode;
-	label: string;
-	value: string;
-}) {
-	return (
-		<div className="flex flex-col gap-0.5">
-			<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-				{icon}
-				{label}
-			</span>
-			<span className="text-sm font-medium">{value}</span>
-		</div>
 	);
 }
