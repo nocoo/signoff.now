@@ -4,7 +4,7 @@
 
 `pulse` is a **planned** CLI tool that will fetch remote collaboration data (pull requests, reviews, CI checks) for a local git repository from its GitHub remote. It will automatically resolve the correct GitHub identity from the repository's origin URL — supporting multi-account setups without polluting global `gh` auth state.
 
-> **Status:** This document is a design specification. The `apps/pulse/` package does not exist yet. See [Roadmap](#roadmap) for implementation phases.
+> **Status:** Phase 1 (Identity Resolution) and Phase 2 (`prs` Subcommand) are implemented. 105 tests, 98.78% line coverage. Snapshot tests and integration test remain as follow-up items.
 
 **Design goals:**
 
@@ -353,29 +353,29 @@ Lock down JSON output format with snapshot tests:
 
 > Automatically infer correct GitHub identity from any local repository.
 
-- [ ] Parse `git remote get-url origin` → `{platform, owner, repo}`
+- [x] Parse `git remote get-url origin` → `{platform, owner, repo}`
   - HTTPS format: `https://github.com/{owner}/{repo}.git`
   - SSH format: `git@{host}:{owner}/{repo}.git` (standard + host alias)
   - Azure DevOps detection → graceful exit
-- [ ] Query `gh auth status --json hosts` → enumerate all logged-in users
-- [ ] Per-user org resolution: `GH_TOKEN=<token> gh api /user/orgs`
-- [ ] Build `owner → ghUser` mapping table
-- [ ] Lookup: given an `owner`, resolve to the correct token
-- [ ] Cache mapping to `~/.cache/pulse/identity-map.json` (24h TTL)
-- [ ] Unit tests: all URL formats, mapping logic, cache hit/miss/expiry
+- [x] Query `gh auth status --json hosts` → enumerate all logged-in users
+- [x] Per-user org resolution: `GH_TOKEN=<token> gh api /user/orgs`
+- [x] Build `owner → ghUser` mapping table
+- [x] Lookup: given an `owner`, resolve to the correct token
+- [x] Cache mapping to `~/.cache/pulse/identity-map.json` (24h TTL)
+- [x] Unit tests: all URL formats, mapping logic, cache hit/miss/expiry
 
 ### Phase 2: `prs` Subcommand (first feature)
 
 > Fetch complete PR list with full metadata via GraphQL.
 
-- [ ] GraphQL query: fetch PRs with pagination (`pageInfo.hasNextPage` + cursor)
-- [ ] Parse response → `PullRequestInfo[]`
-- [ ] `--state` filter (open / closed / all)
-- [ ] `--limit` cap
-- [ ] `--author` filter
-- [ ] `--pretty` output formatter
+- [x] GraphQL query: fetch PRs with pagination (`pageInfo.hasNextPage` + cursor)
+- [x] Parse response → `PullRequestInfo[]`
+- [x] `--state` filter (open / closed / all)
+- [x] `--limit` cap
+- [x] `--author` filter
+- [x] `--pretty` output formatter
 - [ ] JSON output format locked by snapshot tests
-- [ ] Unit tests: response parsing, pagination, filter logic
+- [x] Unit tests: response parsing, pagination, filter logic
 - [ ] Integration test: real API call to a public repo
 
 ### Future Phases (not in v1)
