@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import * as schema from "@signoff/local-db/schema";
 import Database from "better-sqlite3";
@@ -58,28 +58,35 @@ export function initLocalDb(): ReturnType<typeof drizzle> {
 	// Enable foreign keys
 	_sqlite.pragma("foreign_keys = ON");
 
-	// Run migrations from the SQL file
-	const migrationPath = path.resolve(
+	// Run all migration files from drizzle/ directory, sorted by name.
+	// Each file uses "--> statement-breakpoint" as a delimiter.
+	// "already exists" errors are silently ignored (idempotent migration).
+	const migrationsDir = path.resolve(
 		__dirname,
-		"../../../../packages/local-db/drizzle/0000_plain_kabuki.sql",
+		"../../../../packages/local-db/drizzle",
 	);
 
-	if (existsSync(migrationPath)) {
-		const sql = readFileSync(migrationPath, "utf-8");
-		// Split by statement-breakpoint and execute each statement
-		const statements = sql
-			.split("--> statement-breakpoint")
-			.map((s) => s.trim())
-			.filter(Boolean);
+	if (existsSync(migrationsDir)) {
+		const migrationFiles = readdirSync(migrationsDir)
+			.filter((f) => f.endsWith(".sql"))
+			.sort();
 
-		for (const statement of statements) {
-			try {
-				_sqlite.exec(statement);
-			} catch (error) {
-				// Ignore "table already exists" errors during migration
-				const msg = error instanceof Error ? error.message : String(error);
-				if (!msg.includes("already exists")) {
-					throw error;
+		for (const file of migrationFiles) {
+			const sql = readFileSync(path.join(migrationsDir, file), "utf-8");
+			const statements = sql
+				.split("--> statement-breakpoint")
+				.map((s) => s.trim())
+				.filter(Boolean);
+
+			for (const statement of statements) {
+				try {
+					_sqlite.exec(statement);
+				} catch (error) {
+					// Ignore "table already exists" / "index already exists" errors
+					const msg = error instanceof Error ? error.message : String(error);
+					if (!msg.includes("already exists")) {
+						throw error;
+					}
 				}
 			}
 		}
