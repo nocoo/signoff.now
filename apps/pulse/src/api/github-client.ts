@@ -10,6 +10,11 @@ import type {
 const GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
 const PAGE_SIZE = 100;
 
+/** Transient HTTP status codes that warrant a retry. */
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1000;
+
 const PR_QUERY = `
 query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: String) {
   repository(owner: $owner, name: $repo) {
@@ -31,11 +36,18 @@ query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: St
 }
 `;
 
+export interface GitHubClientOptions {
+	/** Base delay in ms for exponential backoff (default: 1000). */
+	retryDelayMs?: number;
+}
+
 export class GitHubClient implements GitHubApiClient {
 	private token: string;
+	private retryDelayMs: number;
 
-	constructor(token: string) {
+	constructor(token: string, options?: GitHubClientOptions) {
 		this.token = token;
+		this.retryDelayMs = options?.retryDelayMs ?? INITIAL_DELAY_MS;
 	}
 
 	async fetchPullRequests(
@@ -100,22 +112,38 @@ export class GitHubClient implements GitHubApiClient {
 			variables: { owner, repo, states, cursor },
 		});
 
-		const response = await fetch(GRAPHQL_ENDPOINT, {
-			method: "POST",
-			headers: {
-				Authorization: `bearer ${this.token}`,
-				"Content-Type": "application/json",
-				"User-Agent": "pulse-cli",
-			},
-			body,
-		});
+		let lastError: Error | null = null;
 
-		if (!response.ok) {
-			throw new Error(
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			if (attempt > 0) {
+				const delay = this.retryDelayMs * 2 ** (attempt - 1);
+				await new Promise((r) => setTimeout(r, delay));
+			}
+
+			const response = await fetch(GRAPHQL_ENDPOINT, {
+				method: "POST",
+				headers: {
+					Authorization: `bearer ${this.token}`,
+					"Content-Type": "application/json",
+					"User-Agent": "pulse-cli",
+				},
+				body,
+			});
+
+			if (response.ok) {
+				return (await response.json()) as GraphQLPrsResponse;
+			}
+
+			lastError = new Error(
 				`GitHub API error: ${response.status} ${response.statusText}`,
 			);
+
+			// Only retry on transient errors
+			if (!RETRYABLE_STATUSES.has(response.status)) {
+				throw lastError;
+			}
 		}
 
-		return (await response.json()) as GraphQLPrsResponse;
+		throw lastError;
 	}
 }
