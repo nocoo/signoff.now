@@ -74,6 +74,13 @@ query($owner: String!, $repo: String!, $number: Int!) {
         nodes {
           author { login }
           state body submittedAt
+          comments(first: 100) {
+            nodes {
+              author { login }
+              path line originalLine diffHunk
+              body createdAt updatedAt
+            }
+          }
         }
       }
 
@@ -90,7 +97,15 @@ query($owner: String!, $repo: String!, $number: Int!) {
             abbreviatedOid message
             author { user { login } name }
             authoredDate
-            statusCheckRollup { state }
+            statusCheckRollup {
+              state
+              contexts(first: 100) {
+                nodes {
+                  __typename
+                  ... on CheckRun { name status conclusion detailsUrl }
+                }
+              }
+            }
           }
         }
       }

@@ -140,6 +140,18 @@ export interface GraphQLPrDetailNode extends GraphQLPrNode {
 			state: string;
 			body: string;
 			submittedAt: string | null;
+			comments: {
+				nodes: Array<{
+					author: { login: string } | null;
+					path: string;
+					line: number | null;
+					originalLine: number | null;
+					diffHunk: string;
+					body: string;
+					createdAt: string;
+					updatedAt: string;
+				}>;
+			};
 		}>;
 	};
 	comments: {
@@ -157,7 +169,18 @@ export interface GraphQLPrDetailNode extends GraphQLPrNode {
 				message: string;
 				author: { user: { login: string } | null; name: string } | null;
 				authoredDate: string;
-				statusCheckRollup: { state: string } | null;
+				statusCheckRollup: {
+					state: string;
+					contexts: {
+						nodes: Array<{
+							__typename: string;
+							name?: string;
+							status?: string;
+							conclusion?: string | null;
+							detailsUrl?: string | null;
+						}>;
+					};
+				} | null;
 			};
 		}>;
 	};
