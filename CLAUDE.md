@@ -67,3 +67,21 @@ Symptoms of stale build: `ERR_DLOPEN_FAILED` with `NODE_MODULE_VERSION` mismatch
 - Husky pre-commit runs `turbo test:ci` (per-workspace, with preload)
 
 ## Retrospective
+
+### 2024-03-24: PR Cache SQLite Migration
+
+**Migration runner 只执行了第一个文件**
+- `initLocalDb()` 硬编码了 `0000_plain_kabuki.sql`，后续 migration（0001、0002）从未执行，导致运行时 `no such table: pull_requests`。
+- 修复：改为 `readdirSync` 扫描整个 `drizzle/` 目录，按文件名排序执行所有 `.sql`。
+
+**幂等 migration catch 不全**
+- `ALTER TABLE ADD COLUMN` 重复执行时 SQLite 报 `"duplicate column name"`，但 catch 只过滤了 `"already exists"`，导致 app 启动崩溃。
+- 教训：SQLite 的幂等错误模式不止一种，`CREATE` 系列报 `already exists`，`ALTER ADD COLUMN` 报 `duplicate column name`。两者都要 catch。
+
+**Drizzle better-sqlite3 `db.transaction()` 用法**
+- 回调必须接收 `tx` 参数，内部操作用 `tx` 而非外层 `db`，否则写操作在事务外执行且回调行为异常。
+- `db.transaction((tx) => { upsertPrs(tx, ...); })` 才是正确写法。
+
+**PrDetailPanel null detail 状态遗漏**
+- `hasSelection=true` + `detail=null` + `isLoading=false` + `error=null`（mutation 在飞但还没 settle）这个状态没被任何 early return 捕获，导致 `detail as PrDetail` 解引用 null crash。
+- 教训：穷举所有状态组合，不要用 `as` 强转绕过 null check。
