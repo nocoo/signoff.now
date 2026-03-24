@@ -24,7 +24,7 @@ export function WorkspaceLayout() {
 	const setIsResizing = useSidebarStore((s) => s.setIsResizing);
 
 	return (
-		<div className="flex flex-1 h-full overflow-hidden">
+		<div className="flex min-w-0 flex-1 h-full overflow-hidden">
 			{/* Main content area */}
 			<div className="flex-1 min-w-0 overflow-hidden">
 				<MosaicLayout />
