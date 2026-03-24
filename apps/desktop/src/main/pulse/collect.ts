@@ -6,7 +6,11 @@
  * call collectProjectPrs() to fetch PRs for any project.
  */
 
-import { CollectError, collectPrs } from "@signoff/pulse/collect";
+import {
+	CollectError,
+	collectPrDetail,
+	collectPrs,
+} from "@signoff/pulse/collect";
 import { createNodeExecutor } from "../gitinfo/executor";
 
 export { CollectError };
@@ -24,11 +28,15 @@ export interface CollectProjectPrsOptions {
 	cursor?: string | null;
 }
 
+export interface CollectProjectPrDetailOptions {
+	/** Absolute path to the project's git repository. */
+	projectPath: string;
+	/** PR number to fetch detail for. */
+	number: number;
+}
+
 /**
  * Collect PR data for a project using the Node.js executor.
- *
- * Delegates to pulse's collectPrs() with a Node-compatible executor,
- * so it works in packaged Electron without requiring Bun at runtime.
  */
 export async function collectProjectPrs(opts: CollectProjectPrsOptions) {
 	const exec = createNodeExecutor();
@@ -40,5 +48,20 @@ export async function collectProjectPrs(opts: CollectProjectPrsOptions) {
 		limit: opts.limit ?? 0,
 		author: opts.author ?? null,
 		cursor: opts.cursor ?? null,
+	});
+}
+
+/**
+ * Collect detailed information for a single PR using the Node.js executor.
+ */
+export async function collectProjectPrDetail(
+	opts: CollectProjectPrDetailOptions,
+) {
+	const exec = createNodeExecutor();
+
+	return collectPrDetail({
+		exec,
+		cwd: opts.projectPath,
+		number: opts.number,
 	});
 }

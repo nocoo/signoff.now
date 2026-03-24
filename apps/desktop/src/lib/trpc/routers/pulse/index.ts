@@ -75,6 +75,26 @@ export function createPulseRouter(getDb: GetDb) {
 			return report;
 		},
 
+		async fetchPrDetail(input: { projectId: string; number: number }) {
+			const db = getDb();
+			const project = db
+				.select({ mainRepoPath: projects.mainRepoPath })
+				.from(projects)
+				.where(eq(projects.id, input.projectId))
+				.get();
+
+			if (!project) {
+				throw new Error(`Project not found: ${input.projectId}`);
+			}
+
+			const { collectProjectPrDetail } = await import("main/pulse/collect");
+
+			return collectProjectPrDetail({
+				projectPath: project.mainRepoPath,
+				number: input.number,
+			});
+		},
+
 		getCachedReport(input: { projectId: string }) {
 			return getCached(input.projectId);
 		},
@@ -104,6 +124,15 @@ export function createPulseTrpcRouter(getDb: GetDb) {
 				}),
 			)
 			.mutation(({ input }) => api.fetchPrs(input)),
+
+		fetchPrDetail: publicProcedure
+			.input(
+				z.object({
+					projectId: z.string(),
+					number: z.number().int().positive(),
+				}),
+			)
+			.mutation(({ input }) => api.fetchPrDetail(input)),
 
 		getCachedReport: publicProcedure
 			.input(z.object({ projectId: z.string() }))
