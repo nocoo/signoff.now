@@ -4,7 +4,7 @@ import type { PullRequestStateFilter } from "../commands/types.ts";
 const SIMPLE_COMMANDS = ["prs"] as const;
 
 /** Two-token sub-actions under the `pr` prefix. */
-const PR_ACTIONS = ["show"] as const;
+const PR_ACTIONS = ["show", "diff"] as const;
 
 type SimpleCommand = (typeof SIMPLE_COMMANDS)[number];
 type PrAction = (typeof PR_ACTIONS)[number];
@@ -213,6 +213,7 @@ export function getHelpText(): string {
 Commands:
   prs             List pull requests for the current repository
   pr show         Show detailed info for a single pull request
+  pr diff         Show diff and changed files for a single PR
 
 Global Flags:
   --cwd <path>    Target directory (default: cwd)
@@ -227,5 +228,8 @@ prs Flags:
   --author <u>    Filter by author login
 
 pr show Flags:
+  --number <n>    PR number (required)
+
+pr diff Flags:
   --number <n>    PR number (required)`;
 }

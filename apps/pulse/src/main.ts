@@ -4,6 +4,7 @@ import { GitHubClient } from "./api/github-client.ts";
 import { ArgParseError, getHelpText, parseArgs } from "./cli/args.ts";
 import { formatOutput } from "./cli/output.ts";
 import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
+import { fetchPrDiff } from "./commands/pr-diff/fetch-pr-diff.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
 import { createBunExecutor } from "./executor/bun-executor.ts";
 import { createFsCacheStore } from "./identity/fs-cache-store.ts";
@@ -109,6 +110,24 @@ async function main(): Promise<void> {
 			}
 
 			const report = await fetchPrDetail(client, {
+				owner: remote.owner,
+				repo: remote.repo,
+				number: args.number,
+				resolvedUser: identity.login,
+				resolvedVia: identity.resolvedVia,
+			});
+
+			console.log(formatOutput(report, args.pretty));
+			break;
+		}
+
+		case "pr diff": {
+			if (args.number === null) {
+				console.error("error: --number <n> is required for pr diff command");
+				process.exit(1);
+			}
+
+			const report = await fetchPrDiff(client, {
 				owner: remote.owner,
 				repo: remote.repo,
 				number: args.number,
