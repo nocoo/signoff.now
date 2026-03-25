@@ -18,8 +18,12 @@ import {
 } from "@signoff/ui/select";
 import { Skeleton } from "@signoff/ui/skeleton";
 import { cn } from "@signoff/ui/utils";
-import { AlertCircle, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, ArrowRight, RefreshCw, Search } from "lucide-react";
+import { useMemo } from "react";
 import { relativeDate } from "../../StatNumber";
+import { GhLink } from "./GhLink";
+import { GitHubUrlProvider } from "./GitHubUrlProvider";
+import { parseGitHubPrUrl } from "./github-urls";
 import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 
@@ -173,12 +177,30 @@ function PrRow({
 	isSelected: boolean;
 	onSelect: () => void;
 }) {
-	return (
-		<button
-			type="button"
+	// Parse GitHub URL context for GhLink (author, #number)
+	const ghCtx = useMemo(() => {
+		const parsed = parseGitHubPrUrl(pr.url);
+		if (!parsed) return null;
+		return { ...parsed };
+	}, [pr.url]);
+
+	// Show updatedAt when it differs from createdAt by >1 hour
+	const showUpdatedAt =
+		Math.abs(
+			new Date(pr.updatedAt).getTime() - new Date(pr.createdAt).getTime(),
+		) > 3_600_000;
+
+	const row = (
+		// biome-ignore lint/a11y/useSemanticElements: <div role="button"> needed to allow nested GhLink <button> children (button-in-button is invalid HTML)
+		<div
+			role="button"
+			tabIndex={0}
 			onClick={onSelect}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") onSelect();
+			}}
 			className={cn(
-				"flex w-full min-w-0 flex-col gap-1 border-b border-border px-3 py-2.5 text-left transition-colors",
+				"flex w-full min-w-0 cursor-pointer flex-col gap-1 border-b border-border px-3 py-2.5 text-left transition-colors",
 				isSelected ? "bg-accent" : "hover:bg-accent/50",
 			)}
 		>
@@ -193,16 +215,30 @@ function PrRow({
 				<span className="min-w-0 flex-1 truncate text-sm leading-snug">
 					{pr.title}
 				</span>
-				<span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+				<GhLink
+					target={{ type: "pr", number: pr.number }}
+					className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
+				>
 					#{pr.number}
-				</span>
+				</GhLink>
 			</div>
 
-			{/* Row 2: author · date · labels */}
+			{/* Row 2: author · date · branches · labels · (updatedAt) */}
 			<div className="flex min-w-0 items-center gap-2 overflow-hidden pl-6 text-xs text-muted-foreground">
-				<span className="shrink-0 font-medium">{pr.author}</span>
+				<GhLink
+					target={{ type: "user", login: pr.author }}
+					className="shrink-0 font-medium"
+				>
+					{pr.author}
+				</GhLink>
 				<span>·</span>
 				<span className="shrink-0">{relativeDate(pr.createdAt)}</span>
+				<span>·</span>
+				<span className="flex shrink-0 items-center gap-1 font-mono text-[10px]">
+					<span className="rounded bg-muted px-1 py-0.5">{pr.headRefName}</span>
+					<ArrowRight className="size-2.5" />
+					<span className="rounded bg-muted px-1 py-0.5">{pr.baseRefName}</span>
+				</span>
 				{pr.labels.length > 0 && (
 					<>
 						<span>·</span>
@@ -221,17 +257,32 @@ function PrRow({
 						</div>
 					</>
 				)}
+				{showUpdatedAt && (
+					<>
+						<span>·</span>
+						<span className="shrink-0">
+							updated {relativeDate(pr.updatedAt)}
+						</span>
+					</>
+				)}
 			</div>
 
-			{/* Row 3: review badge + diff stats */}
+			{/* Row 3: review badge + diff stats + file count */}
 			<div className="flex min-w-0 items-center gap-2 overflow-hidden pl-6">
 				<PrReviewBadge reviewDecision={pr.reviewDecision} />
 				<span className="font-mono text-xs tabular-nums text-muted-foreground">
 					<span className="text-green-400">+{pr.additions}</span>
 					{" / "}
 					<span className="text-red-400">-{pr.deletions}</span>
+					{" · "}
+					<span>{pr.changedFiles} files</span>
 				</span>
 			</div>
-		</button>
+		</div>
 	);
+
+	if (ghCtx) {
+		return <GitHubUrlProvider value={ghCtx}>{row}</GitHubUrlProvider>;
+	}
+	return row;
 }
