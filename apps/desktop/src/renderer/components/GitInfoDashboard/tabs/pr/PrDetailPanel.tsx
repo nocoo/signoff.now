@@ -492,9 +492,19 @@ export function PrDetailPanel({
 									>
 										{file.changeType}
 									</span>
-									<span className="flex-1 truncate font-mono text-muted-foreground">
+									<GhLink
+										target={{
+											type: "file",
+											path: file.path,
+											ref:
+												file.changeType === "DELETED"
+													? pr.baseRefOid
+													: undefined,
+										}}
+										className="flex-1 truncate font-mono text-muted-foreground"
+									>
 										{file.path}
-									</span>
+									</GhLink>
 									<span className="shrink-0 font-mono tabular-nums text-muted-foreground">
 										<span className="text-green-400">+{file.additions}</span>
 										{" / "}
@@ -511,12 +521,13 @@ export function PrDetailPanel({
 					<DashboardCard title="Labels" icon={<Tag className="h-4 w-4" />}>
 						<div className="flex flex-wrap gap-1">
 							{pr.labels.map((label) => (
-								<span
+								<GhLink
 									key={label}
+									target={{ type: "label", name: label }}
 									className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
 								>
 									{label}
-								</span>
+								</GhLink>
 							))}
 						</div>
 					</DashboardCard>
@@ -528,7 +539,9 @@ export function PrDetailPanel({
 						title="Milestone"
 						icon={<Milestone className="h-4 w-4" />}
 					>
-						<span className="text-xs">{pr.milestone}</span>
+						<GhLink target={{ type: "milestones" }} className="text-xs">
+							{pr.milestone}
+						</GhLink>
 					</DashboardCard>
 				) : null}
 			</div>
