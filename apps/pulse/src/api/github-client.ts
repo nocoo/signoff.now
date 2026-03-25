@@ -490,7 +490,7 @@ export class GitHubClient implements GitHubApiClient {
 				isPrivate: node.isPrivate,
 				primaryLanguage: node.primaryLanguage,
 				languages: node.languages.nodes,
-				defaultBranchRef: node.defaultBranchRef?.name ?? "main",
+				defaultBranchRef: node.defaultBranchRef?.name ?? null,
 				licenseInfo: node.licenseInfo?.spdxId ?? null,
 				topics: node.repositoryTopics.nodes.map((n) => n.topic.name),
 				pushedAt: node.pushedAt,

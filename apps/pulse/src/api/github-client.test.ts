@@ -692,7 +692,7 @@ describe("GitHubClient.fetchRepository", () => {
 		expect(result.repository.description).toBeNull();
 		expect(result.repository.homepageUrl).toBeNull();
 		expect(result.repository.primaryLanguage).toBeNull();
-		expect(result.repository.defaultBranchRef).toBe("main");
+		expect(result.repository.defaultBranchRef).toBeNull();
 		expect(result.repository.licenseInfo).toBeNull();
 		expect(result.repository.topics).toEqual([]);
 	});

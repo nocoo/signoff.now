@@ -333,7 +333,7 @@ export interface RepositoryInfo {
 	isPrivate: boolean;
 	primaryLanguage: { name: string; color: string } | null;
 	languages: Array<{ name: string; color: string }>;
-	defaultBranchRef: string;
+	defaultBranchRef: string | null;
 	licenseInfo: string | null;
 	topics: string[];
 	pushedAt: string;

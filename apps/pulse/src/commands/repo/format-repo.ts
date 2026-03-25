@@ -32,7 +32,9 @@ export function formatRepoReport(report: RepositoryReport): string {
 	if (repo.licenseInfo) {
 		lines.push(`License: ${repo.licenseInfo}`);
 	}
-	lines.push(`Default branch: ${repo.defaultBranchRef}`);
+	if (repo.defaultBranchRef) {
+		lines.push(`Default branch: ${repo.defaultBranchRef}`);
+	}
 	lines.push(`Stars: ${repo.stargazerCount}  Forks: ${repo.forkCount}`);
 
 	if (repo.homepageUrl) {

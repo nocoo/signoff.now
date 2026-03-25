@@ -89,6 +89,11 @@ describe("formatRepoReport", () => {
 		expect(output).not.toContain("Homepage:");
 	});
 
+	test("omits default branch when null", () => {
+		const output = formatRepoReport(makeReport({ defaultBranchRef: null }));
+		expect(output).not.toContain("Default branch:");
+	});
+
 	test("includes topics", () => {
 		const output = formatRepoReport(makeReport());
 		expect(output).toContain("Topics: cli, typescript");

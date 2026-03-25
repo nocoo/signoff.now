@@ -390,7 +390,7 @@ interface RepositoryInfo {
   isPrivate: boolean;
   primaryLanguage: { name: string; color: string } | null;
   languages: Array<{ name: string; color: string }>;
-  defaultBranchRef: string;               // match GraphQL; was `defaultBranch`
+  defaultBranchRef: string | null;               // match GraphQL; null for empty repos
   licenseInfo: string | null;             // unwrapped from { spdxId }; match GraphQL field name
   topics: string[];                       // unwrapped from repositoryTopics
   pushedAt: string;

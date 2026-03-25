@@ -82,6 +82,7 @@ describe("fetchRepo", () => {
 			licenseInfo: null,
 			description: null,
 			homepageUrl: null,
+			defaultBranchRef: null,
 		});
 		const client = new MockGitHubClient(
 			{ pullRequests: [], totalCount: 0 },
@@ -105,5 +106,6 @@ describe("fetchRepo", () => {
 		expect(report.repository.licenseInfo).toBeNull();
 		expect(report.repository.description).toBeNull();
 		expect(report.repository.homepageUrl).toBeNull();
+		expect(report.repository.defaultBranchRef).toBeNull();
 	});
 });
