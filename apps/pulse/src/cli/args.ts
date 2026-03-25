@@ -198,8 +198,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 			continue;
 		}
 
+		const allCommands = [
+			...SIMPLE_COMMANDS,
+			...PR_ACTIONS.map((a) => `pr ${a}`),
+		].join(", ");
 		throw new ArgParseError(
-			`Unknown command: ${arg}. Valid commands: prs, pr show`,
+			`Unknown command: ${arg}. Valid commands: ${allCommands}`,
 		);
 	}
 

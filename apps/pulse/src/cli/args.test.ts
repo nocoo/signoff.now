@@ -49,6 +49,9 @@ describe("parseArgs", () => {
 
 	test("throws on unknown command", () => {
 		expect(() => parseArgs(["unknown"])).toThrow(ArgParseError);
+		expect(() => parseArgs(["unknown"])).toThrow(/pr diff/);
+		expect(() => parseArgs(["unknown"])).toThrow(/pr search/);
+		expect(() => parseArgs(["unknown"])).toThrow(/repo/);
 	});
 
 	test("throws on duplicate commands", () => {
