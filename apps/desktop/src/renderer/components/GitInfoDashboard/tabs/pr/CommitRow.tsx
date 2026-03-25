@@ -6,6 +6,8 @@ import type { PullRequestDetail } from "@signoff/pulse";
 import { cn } from "@signoff/ui/utils";
 import { ExternalLink } from "lucide-react";
 import { trpc } from "../../../../lib/trpc";
+import { relativeDate } from "../../StatNumber";
+import { GhLink } from "./GhLink";
 
 type PrCommit = PullRequestDetail["commits"][number];
 type CheckRun = NonNullable<PrCommit["statusCheckRollup"]>["checkRuns"][number];
@@ -21,12 +23,28 @@ export function CommitRow({ commit }: CommitRowProps) {
 		<div className="flex flex-col gap-1">
 			{/* Commit line */}
 			<div className="flex items-start gap-2 text-xs">
-				<span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
+				<GhLink
+					target={{ type: "commit", sha: commit.abbreviatedOid }}
+					className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px]"
+				>
 					{commit.abbreviatedOid}
-				</span>
+				</GhLink>
 				<span className="flex-1 text-muted-foreground">
 					{commit.message.split("\n")[0]}
 				</span>
+				{commit.author ? (
+					<GhLink
+						target={{ type: "user", login: commit.author }}
+						className="shrink-0 text-[10px] text-muted-foreground"
+					>
+						{commit.author}
+					</GhLink>
+				) : null}
+				{commit.authoredDate ? (
+					<span className="shrink-0 text-[10px] text-muted-foreground">
+						{relativeDate(commit.authoredDate)}
+					</span>
+				) : null}
 				{commit.statusCheckRollup ? (
 					<span
 						className={cn(
