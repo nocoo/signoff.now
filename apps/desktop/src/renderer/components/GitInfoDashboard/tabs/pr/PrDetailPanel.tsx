@@ -32,6 +32,8 @@ import {
 	Users,
 } from "lucide-react";
 import { useMemo } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { trpc } from "../../../../lib/trpc";
 import { DashboardCard } from "../../DashboardCard";
 import { relativeDate, StatNumber } from "../../StatNumber";
@@ -333,9 +335,9 @@ export function PrDetailPanel({
 						title="Description"
 						icon={<FileText className="h-4 w-4" />}
 					>
-						<pre className="whitespace-pre-wrap text-xs text-muted-foreground">
-							{pr.body}
-						</pre>
+						<div className="prose prose-sm prose-invert max-w-none text-muted-foreground">
+							<Markdown remarkPlugins={[remarkGfm]}>{pr.body}</Markdown>
+						</div>
 					</DashboardCard>
 				) : null}
 
