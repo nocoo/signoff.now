@@ -315,3 +315,35 @@ export interface PullRequestSearchReport {
 	endCursor: string | null;
 	pullRequests: PullRequestInfo[];
 }
+
+// ---------------------------------------------------------------------------
+// Repository types
+// ---------------------------------------------------------------------------
+
+/** Full repository metadata from GitHub GraphQL API. */
+export interface RepositoryInfo {
+	owner: string;
+	name: string;
+	url: string;
+	description: string | null;
+	homepageUrl: string | null;
+	stargazerCount: number;
+	forkCount: number;
+	isArchived: boolean;
+	isPrivate: boolean;
+	primaryLanguage: { name: string; color: string } | null;
+	languages: Array<{ name: string; color: string }>;
+	defaultBranchRef: string;
+	licenseInfo: string | null;
+	topics: string[];
+	pushedAt: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/** Report output of `repo` command. */
+export interface RepositoryReport {
+	generatedAt: string; // ISO 8601
+	durationMs: number;
+	repository: RepositoryInfo;
+}

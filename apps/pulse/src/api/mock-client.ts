@@ -3,6 +3,7 @@ import type {
 	FetchPrsResult,
 	FetchPullRequestDetailResult,
 	FetchPullRequestFilesResult,
+	FetchRepositoryResult,
 	GitHubApiClient,
 	SearchPullRequestsOptions,
 	SearchPullRequestsResult,
@@ -36,11 +37,13 @@ export class MockGitHubClient implements GitHubApiClient {
 	readonly filesCalls: MockDetailCall[] = [];
 	readonly diffCalls: MockDetailCall[] = [];
 	readonly searchCalls: MockSearchCall[] = [];
+	readonly repoCalls: Array<{ owner: string; repo: string }> = [];
 	private response: FetchPrsResult;
 	private detailResponse: FetchPullRequestDetailResult | null;
 	private filesResponse: FetchPullRequestFilesResult | null;
 	private diffResponse: string | null;
 	private searchResponse: SearchPullRequestsResult | null;
+	private repoResponse: FetchRepositoryResult | null;
 
 	constructor(
 		response: Omit<FetchPrsResult, "hasNextPage" | "endCursor"> &
@@ -49,6 +52,7 @@ export class MockGitHubClient implements GitHubApiClient {
 		filesResponse?: FetchPullRequestFilesResult,
 		diffResponse?: string,
 		searchResponse?: SearchPullRequestsResult,
+		repoResponse?: FetchRepositoryResult,
 	) {
 		this.response = {
 			hasNextPage: false,
@@ -59,6 +63,7 @@ export class MockGitHubClient implements GitHubApiClient {
 		this.filesResponse = filesResponse ?? null;
 		this.diffResponse = diffResponse ?? null;
 		this.searchResponse = searchResponse ?? null;
+		this.repoResponse = repoResponse ?? null;
 	}
 
 	async fetchPullRequests(
@@ -116,5 +121,16 @@ export class MockGitHubClient implements GitHubApiClient {
 			throw new Error("No mock search response configured");
 		}
 		return this.searchResponse;
+	}
+
+	async fetchRepository(
+		owner: string,
+		repo: string,
+	): Promise<FetchRepositoryResult> {
+		this.repoCalls.push({ owner, repo });
+		if (!this.repoResponse) {
+			throw new Error("No mock repository response configured");
+		}
+		return this.repoResponse;
 	}
 }

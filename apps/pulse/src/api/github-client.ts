@@ -9,12 +9,14 @@ import type {
 	FetchPrsResult,
 	FetchPullRequestDetailResult,
 	FetchPullRequestFilesResult,
+	FetchRepositoryResult,
 	GitHubApiClient,
 	GraphQLNestedConnectionResponse,
 	GraphQLPageInfo,
 	GraphQLPrsResponse,
 	GraphQLPullRequestDetailNode,
 	GraphQLPullRequestDetailResponse,
+	GraphQLRepositoryResponse,
 	GraphQLSearchResponse,
 	SearchPullRequestsOptions,
 	SearchPullRequestsResult,
@@ -167,6 +169,22 @@ query($query: String!, $cursor: String) {
 }
 `;
 }
+
+const REPO_QUERY = `
+query($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    name url description homepageUrl
+    stargazerCount forkCount
+    isArchived isPrivate
+    primaryLanguage { name color }
+    languages(first: 20) { nodes { name color } }
+    defaultBranchRef { name }
+    licenseInfo { spdxId }
+    repositoryTopics(first: 20) { nodes { topic { name } } }
+    pushedAt createdAt updatedAt
+  }
+}
+`;
 
 /**
  * Nested connection configurations for follow-up pagination.
@@ -436,6 +454,49 @@ export class GitHubClient implements GitHubApiClient {
 			totalCount,
 			hasNextPage: false,
 			endCursor: null,
+		};
+	}
+
+	async fetchRepository(
+		owner: string,
+		repo: string,
+	): Promise<FetchRepositoryResult> {
+		const response = await this.postGraphQL<GraphQLRepositoryResponse>(
+			REPO_QUERY,
+			{ owner, repo },
+		);
+
+		if (response.errors?.length) {
+			throw new Error(
+				`GitHub GraphQL error: ${response.errors.map((e) => e.message).join(", ")}`,
+			);
+		}
+
+		const node = response.data.repository;
+		if (!node) {
+			throw new Error(`Repository not found: ${owner}/${repo}`);
+		}
+
+		return {
+			repository: {
+				owner,
+				name: node.name,
+				url: node.url,
+				description: node.description,
+				homepageUrl: node.homepageUrl,
+				stargazerCount: node.stargazerCount,
+				forkCount: node.forkCount,
+				isArchived: node.isArchived,
+				isPrivate: node.isPrivate,
+				primaryLanguage: node.primaryLanguage,
+				languages: node.languages.nodes,
+				defaultBranchRef: node.defaultBranchRef?.name ?? "main",
+				licenseInfo: node.licenseInfo?.spdxId ?? null,
+				topics: node.repositoryTopics.nodes.map((n) => n.topic.name),
+				pushedAt: node.pushedAt,
+				createdAt: node.createdAt,
+				updatedAt: node.updatedAt,
+			},
 		};
 	}
 

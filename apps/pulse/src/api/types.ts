@@ -2,6 +2,7 @@ import type {
 	PullRequestChangedFileWithPatch,
 	PullRequestDetail,
 	PullRequestInfo,
+	RepositoryInfo,
 } from "../commands/types.ts";
 
 /**
@@ -78,6 +79,15 @@ export interface GitHubApiClient {
 		repo: string,
 		opts: SearchPullRequestsOptions,
 	): Promise<SearchPullRequestsResult>;
+
+	/**
+	 * Fetch repository metadata.
+	 *
+	 * @param owner - Repository owner
+	 * @param repo  - Repository name
+	 * @returns Repository metadata
+	 */
+	fetchRepository(owner: string, repo: string): Promise<FetchRepositoryResult>;
 }
 
 export interface FetchPrsOptions {
@@ -308,4 +318,43 @@ export interface GraphQLNestedConnectionResponse<T> {
 		};
 	};
 	errors?: Array<{ message: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Repository types
+// ---------------------------------------------------------------------------
+
+export interface FetchRepositoryResult {
+	repository: RepositoryInfo;
+}
+
+/** Raw GraphQL response shape for repository metadata. */
+export interface GraphQLRepositoryResponse {
+	data: {
+		repository: GraphQLRepositoryNode;
+	};
+	errors?: Array<{ message: string }>;
+}
+
+export interface GraphQLRepositoryNode {
+	name: string;
+	url: string;
+	description: string | null;
+	homepageUrl: string | null;
+	stargazerCount: number;
+	forkCount: number;
+	isArchived: boolean;
+	isPrivate: boolean;
+	primaryLanguage: { name: string; color: string } | null;
+	languages: {
+		nodes: Array<{ name: string; color: string }>;
+	};
+	defaultBranchRef: { name: string } | null;
+	licenseInfo: { spdxId: string } | null;
+	repositoryTopics: {
+		nodes: Array<{ topic: { name: string } }>;
+	};
+	pushedAt: string;
+	createdAt: string;
+	updatedAt: string;
 }

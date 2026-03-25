@@ -611,3 +611,105 @@ describe("GitHubClient.searchPullRequests", () => {
 		).rejects.toThrow("GitHub GraphQL error: Bad query");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// GraphQL: fetchRepository
+// ---------------------------------------------------------------------------
+
+function repoResponse(node: Record<string, unknown>) {
+	return {
+		data: {
+			repository: node,
+		},
+	};
+}
+
+function makeRepoNode(overrides?: Record<string, unknown>) {
+	return {
+		name: "repo",
+		url: "https://github.com/o/repo",
+		description: "A test repo",
+		homepageUrl: "https://example.com",
+		stargazerCount: 42,
+		forkCount: 5,
+		isArchived: false,
+		isPrivate: false,
+		primaryLanguage: { name: "TypeScript", color: "#3178c6" },
+		languages: { nodes: [{ name: "TypeScript", color: "#3178c6" }] },
+		defaultBranchRef: { name: "main" },
+		licenseInfo: { spdxId: "MIT" },
+		repositoryTopics: { nodes: [{ topic: { name: "cli" } }] },
+		pushedAt: "2025-01-10T00:00:00Z",
+		createdAt: "2024-01-01T00:00:00Z",
+		updatedAt: "2025-01-10T00:00:00Z",
+		...overrides,
+	};
+}
+
+describe("GitHubClient.fetchRepository", () => {
+	const originalFetch = globalThis.fetch;
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("maps repository node to RepositoryInfo", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(repoResponse(makeRepoNode()))),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchRepository("o", "repo");
+
+		expect(result.repository.owner).toBe("o");
+		expect(result.repository.name).toBe("repo");
+		expect(result.repository.description).toBe("A test repo");
+		expect(result.repository.stargazerCount).toBe(42);
+		expect(result.repository.defaultBranchRef).toBe("main");
+		expect(result.repository.licenseInfo).toBe("MIT");
+		expect(result.repository.topics).toEqual(["cli"]);
+		expect(result.repository.languages).toEqual([
+			{ name: "TypeScript", color: "#3178c6" },
+		]);
+	});
+
+	test("handles null optional fields", async () => {
+		const node = makeRepoNode({
+			description: null,
+			homepageUrl: null,
+			primaryLanguage: null,
+			defaultBranchRef: null,
+			licenseInfo: null,
+			repositoryTopics: { nodes: [] },
+		});
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(repoResponse(node))),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchRepository("o", "repo");
+
+		expect(result.repository.description).toBeNull();
+		expect(result.repository.homepageUrl).toBeNull();
+		expect(result.repository.primaryLanguage).toBeNull();
+		expect(result.repository.defaultBranchRef).toBe("main");
+		expect(result.repository.licenseInfo).toBeNull();
+		expect(result.repository.topics).toEqual([]);
+	});
+
+	test("throws on GraphQL error", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				jsonResponse({
+					data: { repository: null },
+					errors: [{ message: "Not Found" }],
+				}),
+			),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		await expect(client.fetchRepository("o", "nonexistent")).rejects.toThrow(
+			"GitHub GraphQL error: Not Found",
+		);
+	});
+});
