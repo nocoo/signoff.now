@@ -1,8 +1,15 @@
-const VALID_COMMANDS = ["prs", "pr-detail"] as const;
+import type { PullRequestStateFilter } from "../commands/types.ts";
 
-export type Command = (typeof VALID_COMMANDS)[number];
+/** Top-level commands recognised by the parser. */
+const SIMPLE_COMMANDS = ["prs"] as const;
 
-export type PrState = "open" | "closed" | "all";
+/** Two-token sub-actions under the `pr` prefix. */
+const PR_ACTIONS = ["show"] as const;
+
+type SimpleCommand = (typeof SIMPLE_COMMANDS)[number];
+type PrAction = (typeof PR_ACTIONS)[number];
+
+export type Command = SimpleCommand | `pr ${PrAction}`;
 
 export interface ParsedArgs {
 	command: Command | null;
@@ -11,12 +18,12 @@ export interface ParsedArgs {
 	help: boolean;
 	version: boolean;
 	// prs-specific flags
-	state: PrState;
+	state: PullRequestStateFilter;
 	limit: number;
 	author: string | null;
 	noCache: boolean;
-	// pr-detail-specific flags
-	pr: number | null;
+	// pr show-specific flags
+	number: number | null;
 }
 
 export class ArgParseError extends Error {
@@ -26,7 +33,12 @@ export class ArgParseError extends Error {
 	}
 }
 
-const VALID_STATES: readonly PrState[] = ["open", "closed", "all"];
+const VALID_STATES: readonly PullRequestStateFilter[] = [
+	"open",
+	"closed",
+	"merged",
+	"all",
+];
 
 /** Consume a required next-arg value, throwing if missing or looks like a flag. */
 function consumeValue(
@@ -46,7 +58,10 @@ function parseCwdFlag(argv: readonly string[], i: number): [string, number] {
 	return [value, i + 2];
 }
 
-function parseStateFlag(argv: readonly string[], i: number): [PrState, number] {
+function parseStateFlag(
+	argv: readonly string[],
+	i: number,
+): [PullRequestStateFilter, number] {
 	const next = argv[i + 1];
 	if (!next || !isValidState(next)) {
 		throw new ArgParseError(
@@ -74,17 +89,17 @@ function parseAuthorFlag(argv: readonly string[], i: number): [string, number] {
 	return [value, i + 2];
 }
 
-function parsePrFlag(argv: readonly string[], i: number): [number, number] {
+function parseNumberFlag(argv: readonly string[], i: number): [number, number] {
 	const next = argv[i + 1];
 	if (!next) {
-		throw new ArgParseError("--pr requires a PR number");
+		throw new ArgParseError("--number requires a PR number");
 	}
 	if (!/^\d+$/.test(next)) {
-		throw new ArgParseError("--pr must be a positive integer");
+		throw new ArgParseError("--number must be a positive integer");
 	}
 	const num = Number.parseInt(next, 10);
 	if (num <= 0) {
-		throw new ArgParseError("--pr must be a positive integer");
+		throw new ArgParseError("--number must be a positive integer");
 	}
 	return [num, i + 2];
 }
@@ -100,7 +115,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 		limit: 0,
 		author: null,
 		noCache: false,
-		pr: null,
+		number: null,
 	};
 
 	let i = 0;
@@ -138,8 +153,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 			case "--author":
 				[result.author, i] = parseAuthorFlag(argv, i);
 				continue;
-			case "--pr":
-				[result.pr, i] = parsePrFlag(argv, i);
+			case "--number":
+				[result.number, i] = parseNumberFlag(argv, i);
 				continue;
 		}
 
@@ -147,30 +162,48 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 			throw new ArgParseError(`Unknown flag: ${arg}`);
 		}
 
-		if (isValidCommand(arg)) {
-			if (result.command !== null) {
-				throw new ArgParseError(
-					`Only one command allowed, got: ${result.command}, ${arg}`,
-				);
-			}
+		// Command parsing
+		if (result.command !== null) {
+			throw new ArgParseError(
+				`Only one command allowed, got: ${result.command}, ${arg}`,
+			);
+		}
+
+		if (isSimpleCommand(arg)) {
 			result.command = arg;
 			i++;
 			continue;
 		}
 
+		// Two-token commands: "pr show"
+		if (arg === "pr") {
+			const action = argv[i + 1];
+			if (!action || !isPrAction(action)) {
+				const validActions = PR_ACTIONS.join(", ");
+				throw new ArgParseError(`pr requires a sub-action: ${validActions}`);
+			}
+			result.command = `pr ${action}`;
+			i += 2;
+			continue;
+		}
+
 		throw new ArgParseError(
-			`Unknown command: ${arg}. Valid commands: ${VALID_COMMANDS.join(", ")}`,
+			`Unknown command: ${arg}. Valid commands: prs, pr show`,
 		);
 	}
 
 	return result;
 }
 
-function isValidCommand(value: string): value is Command {
-	return (VALID_COMMANDS as readonly string[]).includes(value);
+function isSimpleCommand(value: string): value is SimpleCommand {
+	return (SIMPLE_COMMANDS as readonly string[]).includes(value);
 }
 
-function isValidState(value: string): value is PrState {
+function isPrAction(value: string): value is PrAction {
+	return (PR_ACTIONS as readonly string[]).includes(value);
+}
+
+function isValidState(value: string): value is PullRequestStateFilter {
 	return (VALID_STATES as readonly string[]).includes(value);
 }
 
@@ -179,7 +212,7 @@ export function getHelpText(): string {
 
 Commands:
   prs             List pull requests for the current repository
-  pr-detail       Show detailed info for a single pull request
+  pr show         Show detailed info for a single pull request
 
 Global Flags:
   --cwd <path>    Target directory (default: cwd)
@@ -189,10 +222,10 @@ Global Flags:
   --version, -v   Show version
 
 prs Flags:
-  --state <s>     Filter: open, closed, all (default: open)
+  --state <s>     Filter: open, closed, merged, all (default: open)
   --limit <n>     Max PRs to return (default: 0 = unlimited)
   --author <u>    Filter by author login
 
-pr-detail Flags:
-  --pr <n>        PR number (required)`;
+pr show Flags:
+  --number <n>    PR number (required)`;
 }

@@ -102,16 +102,16 @@ async function main(): Promise<void> {
 			break;
 		}
 
-		case "pr-detail": {
-			if (args.pr === null) {
-				console.error("error: --pr <number> is required for pr-detail command");
+		case "pr show": {
+			if (args.number === null) {
+				console.error("error: --number <n> is required for pr show command");
 				process.exit(1);
 			}
 
 			const report = await fetchPrDetail(client, {
 				owner: remote.owner,
 				repo: remote.repo,
-				number: args.pr,
+				number: args.number,
 				resolvedUser: identity.login,
 				resolvedVia: identity.resolvedVia,
 			});

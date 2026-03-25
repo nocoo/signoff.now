@@ -68,6 +68,10 @@ describe("parseArgs", () => {
 			expect(parseArgs(["prs", "--state", "closed"]).state).toBe("closed");
 		});
 
+		test("parses --state merged", () => {
+			expect(parseArgs(["prs", "--state", "merged"]).state).toBe("merged");
+		});
+
 		test("parses --state all", () => {
 			expect(parseArgs(["prs", "--state", "all"]).state).toBe("all");
 		});
@@ -149,41 +153,58 @@ describe("parseArgs", () => {
 		expect(result.command).toBe("prs");
 	});
 
-	describe("pr-detail command", () => {
-		test("parses pr-detail command", () => {
-			expect(parseArgs(["pr-detail"]).command).toBe("pr-detail");
+	describe("pr show command", () => {
+		test("parses pr show command", () => {
+			expect(parseArgs(["pr", "show"]).command).toBe("pr show");
 		});
 
-		test("parses --pr flag", () => {
-			const result = parseArgs(["pr-detail", "--pr", "42"]);
-			expect(result.command).toBe("pr-detail");
-			expect(result.pr).toBe(42);
+		test("parses --number flag", () => {
+			const result = parseArgs(["pr", "show", "--number", "42"]);
+			expect(result.command).toBe("pr show");
+			expect(result.number).toBe(42);
 		});
 
-		test("defaults pr to null", () => {
-			expect(parseArgs([]).pr).toBeNull();
+		test("defaults number to null", () => {
+			expect(parseArgs([]).number).toBeNull();
 		});
 
-		test("throws on --pr without number", () => {
-			expect(() => parseArgs(["pr-detail", "--pr"])).toThrow(ArgParseError);
-		});
-
-		test("throws on --pr with non-number", () => {
-			expect(() => parseArgs(["pr-detail", "--pr", "abc"])).toThrow(
+		test("throws on --number without value", () => {
+			expect(() => parseArgs(["pr", "show", "--number"])).toThrow(
 				ArgParseError,
 			);
 		});
 
-		test("throws on --pr with decimal", () => {
-			expect(() => parseArgs(["pr-detail", "--pr", "1.5"])).toThrow(
+		test("throws on --number with non-number", () => {
+			expect(() => parseArgs(["pr", "show", "--number", "abc"])).toThrow(
 				ArgParseError,
 			);
 		});
 
-		test("throws on --pr with zero", () => {
-			expect(() => parseArgs(["pr-detail", "--pr", "0"])).toThrow(
+		test("throws on --number with decimal", () => {
+			expect(() => parseArgs(["pr", "show", "--number", "1.5"])).toThrow(
 				ArgParseError,
 			);
+		});
+
+		test("throws on --number with zero", () => {
+			expect(() => parseArgs(["pr", "show", "--number", "0"])).toThrow(
+				ArgParseError,
+			);
+		});
+
+		test("throws on pr without sub-action", () => {
+			expect(() => parseArgs(["pr"])).toThrow(ArgParseError);
+		});
+
+		test("throws on pr with invalid sub-action", () => {
+			expect(() => parseArgs(["pr", "invalid"])).toThrow(ArgParseError);
+		});
+
+		test("parses flags before pr show", () => {
+			const result = parseArgs(["--pretty", "pr", "show", "--number", "7"]);
+			expect(result.pretty).toBe(true);
+			expect(result.command).toBe("pr show");
+			expect(result.number).toBe(7);
 		});
 	});
 });
@@ -193,8 +214,8 @@ describe("getHelpText", () => {
 		const text = getHelpText();
 		expect(text).toContain("pulse");
 		expect(text).toContain("prs");
-		expect(text).toContain("pr-detail");
+		expect(text).toContain("pr show");
 		expect(text).toContain("--state");
-		expect(text).toContain("--pr");
+		expect(text).toContain("--number");
 	});
 });
