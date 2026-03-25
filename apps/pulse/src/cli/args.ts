@@ -1,7 +1,7 @@
 import type { PullRequestStateFilter } from "../commands/types.ts";
 
 /** Top-level commands recognised by the parser. */
-const SIMPLE_COMMANDS = ["prs"] as const;
+const SIMPLE_COMMANDS = ["prs", "repo"] as const;
 
 /** Two-token sub-actions under the `pr` prefix. */
 const PR_ACTIONS = ["show", "diff", "search"] as const;
@@ -226,6 +226,7 @@ Commands:
   pr show         Show detailed info for a single pull request
   pr diff         Show diff and changed files for a single PR
   pr search       Search pull requests by query
+  repo            Show repository metadata
 
 Global Flags:
   --cwd <path>    Target directory (default: cwd)

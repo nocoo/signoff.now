@@ -7,6 +7,7 @@ import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrDiff } from "./commands/pr-diff/fetch-pr-diff.ts";
 import { fetchPrSearch } from "./commands/pr-search/fetch-pr-search.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
+import { fetchRepo } from "./commands/repo/fetch-repo.ts";
 import { createBunExecutor } from "./executor/bun-executor.ts";
 import { createFsCacheStore } from "./identity/fs-cache-store.ts";
 import { parseRemoteUrl } from "./identity/resolve-remote.ts";
@@ -151,6 +152,18 @@ async function main(): Promise<void> {
 				repo: remote.repo,
 				query: args.query,
 				limit: args.limit || 100,
+				resolvedUser: identity.login,
+				resolvedVia: identity.resolvedVia,
+			});
+
+			console.log(formatOutput(report, args.pretty));
+			break;
+		}
+
+		case "repo": {
+			const report = await fetchRepo(client, {
+				owner: remote.owner,
+				repo: remote.repo,
 				resolvedUser: identity.login,
 				resolvedVia: identity.resolvedVia,
 			});

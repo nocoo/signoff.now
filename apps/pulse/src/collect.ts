@@ -12,12 +12,14 @@ import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrDiff } from "./commands/pr-diff/fetch-pr-diff.ts";
 import { fetchPrSearch } from "./commands/pr-search/fetch-pr-search.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
+import { fetchRepo } from "./commands/repo/fetch-repo.ts";
 import type {
 	PullRequestDetailReport,
 	PullRequestDiffReport,
 	PullRequestSearchReport,
 	PullRequestStateFilter,
 	PullRequestsReport,
+	RepositoryReport,
 } from "./commands/types.ts";
 import type { CommandExecutor } from "./executor/types.ts";
 import { parseRemoteUrl } from "./identity/resolve-remote.ts";
@@ -190,6 +192,24 @@ export async function collectPullRequestSearch(
 		query: opts.query,
 		limit: opts.limit,
 		cursor: opts.cursor ?? null,
+		resolvedUser: identity.login,
+		resolvedVia: identity.resolvedVia,
+	});
+}
+
+export type CollectRepositoryOptions = CollectBaseOptions;
+
+/**
+ * Collect repository metadata for a project.
+ */
+export async function collectRepository(
+	opts: CollectRepositoryOptions,
+): Promise<RepositoryReport> {
+	const { remote, identity, client } = await resolveProject(opts);
+
+	return fetchRepo(client, {
+		owner: remote.owner,
+		repo: remote.repo,
 		resolvedUser: identity.login,
 		resolvedVia: identity.resolvedVia,
 	});

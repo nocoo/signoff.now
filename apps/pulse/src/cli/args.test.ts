@@ -253,6 +253,24 @@ describe("parseArgs", () => {
 			expect(result.limit).toBe(50);
 		});
 	});
+
+	describe("repo command", () => {
+		test("parses repo command", () => {
+			expect(parseArgs(["repo"]).command).toBe("repo");
+		});
+
+		test("parses repo with --pretty", () => {
+			const result = parseArgs(["repo", "--pretty"]);
+			expect(result.command).toBe("repo");
+			expect(result.pretty).toBe(true);
+		});
+
+		test("parses repo with --cwd", () => {
+			const result = parseArgs(["repo", "--cwd", "/tmp/project"]);
+			expect(result.command).toBe("repo");
+			expect(result.cwd).toBe("/tmp/project");
+		});
+	});
 });
 
 describe("getHelpText", () => {
@@ -262,6 +280,7 @@ describe("getHelpText", () => {
 		expect(text).toContain("prs");
 		expect(text).toContain("pr show");
 		expect(text).toContain("pr search");
+		expect(text).toContain("repo");
 		expect(text).toContain("--state");
 		expect(text).toContain("--number");
 		expect(text).toContain("--query");
