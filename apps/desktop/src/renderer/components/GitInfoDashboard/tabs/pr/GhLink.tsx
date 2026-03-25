@@ -37,6 +37,13 @@ export function GhLink({ target, children, className }: GhLinkProps) {
 				e.stopPropagation();
 				openUrlMutation.mutate({ url });
 			}}
+			onKeyDown={(e) => {
+				// Prevent keyboard activation from bubbling to parent
+				// role="button" containers (e.g. PrRow).
+				if (e.key === "Enter" || e.key === " ") {
+					e.stopPropagation();
+				}
+			}}
 			title={url}
 			className={cn("inline cursor-pointer hover:underline", className)}
 		>

@@ -545,7 +545,7 @@ prose styles. Requires installing both runtime and dev dependencies (see §4.3).
 | # | Commit | Files | Description |
 |:--|:-------|:------|:------------|
 | 1 | `feat(desktop): add GitHub URL builder and GhLink component` | `github-urls.ts`, `GhLink.tsx`, `GitHubUrlProvider.tsx`, tests | Origin-aware URL builder + `parseGitHubPrUrl()` + `<button>` component with `stopPropagation` + context provider |
-| 2 | `feat(desktop): add clickable GitHub links to PrDetailPanel` | `PrDetailPanel.tsx` | Wrap in provider; GhLink for author, mergedBy, branches, SHAs, #number; humanize mergeStateStatus |
+| 2 | `feat(desktop): add clickable GitHub links to PrDetailPanel` | `PrDetailPanel.tsx`, `StatNumber.tsx` | Wrap in provider; GhLink for author, mergedBy, branches, SHAs, #number, assignees, participants, comment authors; humanize mergeStateStatus; widen StatNumber.value to ReactNode |
 | 3 | `feat(desktop): add clickable links to ReviewCard` | `ReviewCard.tsx` | GhLink for author and file paths; show comment author + createdAt |
 | 4 | `feat(desktop): add clickable links to CommitRow` | `CommitRow.tsx` | GhLink for OID; show commit author + authoredDate |
 | 5 | `feat(desktop): add file and label links in detail view` | `PrDetailPanel.tsx` | GhLink for file paths, labels, milestones (list page) |

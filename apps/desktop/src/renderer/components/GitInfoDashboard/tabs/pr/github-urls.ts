@@ -56,7 +56,11 @@ export function buildGitHubUrl(
 
 		case "file": {
 			const ref = target.ref ?? ctx.headRefOid ?? "HEAD";
-			const url = `${repoBase}/blob/${ref}/${target.path}`;
+			const encodedPath = target.path
+				.split("/")
+				.map(encodeURIComponent)
+				.join("/");
+			const url = `${repoBase}/blob/${ref}/${encodedPath}`;
 			if (target.line !== null && target.line !== undefined) {
 				return `${url}#L${target.line}`;
 			}

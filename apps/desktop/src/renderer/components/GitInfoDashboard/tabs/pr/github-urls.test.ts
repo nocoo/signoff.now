@@ -100,6 +100,29 @@ describe("buildGitHubUrl", () => {
 		);
 	});
 
+	test("encodes special characters in file path segments", () => {
+		expect(
+			buildGitHubUrl(ctx, {
+				type: "file",
+				path: "src/my file.ts",
+			}),
+		).toBe(
+			"https://github.com/octocat/hello-world/blob/abc1234/src/my%20file.ts",
+		);
+	});
+
+	test("encodes each path segment independently", () => {
+		expect(
+			buildGitHubUrl(ctx, {
+				type: "file",
+				path: "dir with spaces/file (1).ts",
+				line: 10,
+			}),
+		).toBe(
+			"https://github.com/octocat/hello-world/blob/abc1234/dir%20with%20spaces/file%20(1).ts#L10",
+		);
+	});
+
 	test("builds label URL with special characters", () => {
 		expect(buildGitHubUrl(ctx, { type: "label", name: "bug fix" })).toBe(
 			"https://github.com/octocat/hello-world/labels/bug%20fix",

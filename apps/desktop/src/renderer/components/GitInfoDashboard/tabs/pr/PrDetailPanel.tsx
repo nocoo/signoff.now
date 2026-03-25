@@ -335,7 +335,7 @@ export function PrDetailPanel({
 						title="Description"
 						icon={<FileText className="h-4 w-4" />}
 					>
-						<div className="prose prose-sm prose-invert max-w-none text-muted-foreground">
+						<div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground">
 							<Markdown remarkPlugins={[remarkGfm]}>{pr.body}</Markdown>
 						</div>
 					</DashboardCard>
