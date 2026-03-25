@@ -119,7 +119,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
         pageInfo { hasNextPage endCursor }
         nodes {
           commit {
-            abbreviatedOid message
+            abbreviatedOid oid message
             author { user { login } name }
             authoredDate
             statusCheckRollup {
@@ -232,7 +232,7 @@ const NESTED_CONNECTIONS: NestedConnectionConfig[] = [
 		name: "commits",
 		pageSize: 250,
 		fragment: `commit {
-        abbreviatedOid message
+        abbreviatedOid oid message
         author { user { login } name }
         authoredDate
         statusCheckRollup {

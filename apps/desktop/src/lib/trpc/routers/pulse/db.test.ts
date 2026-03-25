@@ -102,6 +102,7 @@ function makePrDetail(
 		commits: [
 			{
 				abbreviatedOid: "abc1234",
+				oid: "abc1234567890abcdef1234567890abcdef123456",
 				message: "feat: add tests",
 				author: "alice",
 				authoredDate: "2025-01-15T10:00:00Z",

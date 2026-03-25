@@ -78,6 +78,7 @@ export function mapPullRequestDetailNode(
 
 			return {
 				abbreviatedOid: c.commit.abbreviatedOid,
+				oid: c.commit.oid,
 				message: c.commit.message,
 				author:
 					c.commit.author?.user?.login ?? c.commit.author?.name ?? "unknown",

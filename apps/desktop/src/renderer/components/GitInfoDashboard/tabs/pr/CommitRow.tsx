@@ -23,10 +23,8 @@ export function CommitRow({ commit }: CommitRowProps) {
 		<div className="flex flex-col gap-1">
 			{/* Commit line */}
 			<div className="flex items-start gap-2 text-xs">
-				{/* TODO: abbreviatedOid (7-char) works for GitHub redirects today,
-				    but a full `oid` field from pulse would be more robust. */}
 				<GhLink
-					target={{ type: "commit", sha: commit.abbreviatedOid }}
+					target={{ type: "commit", sha: commit.oid }}
 					className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px]"
 				>
 					{commit.abbreviatedOid}

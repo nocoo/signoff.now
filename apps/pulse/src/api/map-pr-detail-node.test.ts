@@ -78,6 +78,7 @@ function makeDetailNode(
 				{
 					commit: {
 						abbreviatedOid: "abc1234",
+						oid: "abc1234567890abcdef1234567890abcdef123456",
 						message: "feat: add feature X",
 						author: { user: { login: "alice" }, name: "Alice" },
 						authoredDate: "2025-01-15T10:00:00Z",
@@ -193,6 +194,7 @@ describe("mapPullRequestDetailNode", () => {
 		expect(detail.commits).toHaveLength(1);
 		expect(detail.commits[0]).toEqual({
 			abbreviatedOid: "abc1234",
+			oid: "abc1234567890abcdef1234567890abcdef123456",
 			message: "feat: add feature X",
 			author: "alice",
 			authoredDate: "2025-01-15T10:00:00Z",
@@ -209,6 +211,7 @@ describe("mapPullRequestDetailNode", () => {
 						{
 							commit: {
 								abbreviatedOid: "xyz",
+								oid: "xyz0000000000000000000000000000000000000a",
 								message: "wip",
 								author: { user: null, name: "Ghost" },
 								authoredDate: "2025-01-15T10:00:00Z",
@@ -368,6 +371,7 @@ describe("mapPullRequestDetailNode", () => {
 						{
 							commit: {
 								abbreviatedOid: "abc1234",
+								oid: "abc1234567890abcdef1234567890abcdef123456",
 								message: "feat: add feature X",
 								author: { user: { login: "alice" }, name: "Alice" },
 								authoredDate: "2025-01-15T10:00:00Z",
@@ -428,6 +432,7 @@ describe("mapPullRequestDetailNode", () => {
 						{
 							commit: {
 								abbreviatedOid: "xyz",
+								oid: "xyz0000000000000000000000000000000000000a",
 								message: "wip",
 								author: { user: null, name: "Ghost" },
 								authoredDate: "2025-01-15T10:00:00Z",

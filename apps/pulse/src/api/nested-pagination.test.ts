@@ -245,6 +245,7 @@ describe("GitHubClient nested pagination", () => {
 					{
 						commit: {
 							abbreviatedOid: "aaa",
+							oid: "aaa0000000000000000000000000000000000000a",
 							message: "commit 1",
 							author: { user: { login: "alice" }, name: "Alice" },
 							authoredDate: "2025-01-01T00:00:00Z",
@@ -289,6 +290,7 @@ describe("GitHubClient nested pagination", () => {
 								{
 									commit: {
 										abbreviatedOid: "bbb",
+										oid: "bbb0000000000000000000000000000000000000b",
 										message: "commit 2",
 										author: { user: { login: "alice" }, name: "Alice" },
 										authoredDate: "2025-01-02T00:00:00Z",

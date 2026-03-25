@@ -277,6 +277,7 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 		nodes: Array<{
 			commit: {
 				abbreviatedOid: string;
+				oid: string;
 				message: string;
 				author: { user: { login: string } | null; name: string } | null;
 				authoredDate: string;

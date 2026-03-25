@@ -242,7 +242,8 @@ export interface IssueComment {
 
 /** A commit in the PR. Matches GraphQL `PullRequestCommit` type. */
 export interface PullRequestCommit {
-	abbreviatedOid: string; // was `oid`
+	abbreviatedOid: string;
+	oid: string; // full 40-char SHA for reliable URL linking
 	message: string;
 	author: string;
 	authoredDate: string; // ISO 8601
