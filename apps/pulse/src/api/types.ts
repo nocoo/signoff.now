@@ -1,4 +1,8 @@
-import type { PullRequestDetail, PullRequestInfo } from "../commands/types.ts";
+import type {
+	PullRequestChangedFileWithPatch,
+	PullRequestDetail,
+	PullRequestInfo,
+} from "../commands/types.ts";
 
 /**
  * Abstraction over GitHub API calls.
@@ -32,6 +36,34 @@ export interface GitHubApiClient {
 		repo: string,
 		number: number,
 	): Promise<FetchPullRequestDetailResult>;
+
+	/**
+	 * Fetch changed files with patch content (REST API).
+	 *
+	 * @param owner  - Repository owner
+	 * @param repo   - Repository name
+	 * @param number - PR number
+	 * @returns Array of changed files with patch content
+	 */
+	fetchPullRequestFiles(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<FetchPullRequestFilesResult>;
+
+	/**
+	 * Fetch full unified diff (REST API).
+	 *
+	 * @param owner  - Repository owner
+	 * @param repo   - Repository name
+	 * @param number - PR number
+	 * @returns Full unified diff as string
+	 */
+	fetchPullRequestDiff(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<string>;
 }
 
 export interface FetchPrsOptions {
@@ -97,6 +129,10 @@ export interface GraphQLPrsResponse {
 
 export interface FetchPullRequestDetailResult {
 	pullRequest: PullRequestDetail; // was `pr`
+}
+
+export interface FetchPullRequestFilesResult {
+	files: PullRequestChangedFileWithPatch[];
 }
 
 /** Raw GraphQL response shape for a single PR detail query. */

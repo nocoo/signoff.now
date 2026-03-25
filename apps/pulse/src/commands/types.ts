@@ -275,3 +275,26 @@ export interface PullRequestChangedFile {
 	deletions: number;
 	changeType: PatchStatus;
 }
+
+// ---------------------------------------------------------------------------
+// PR Diff types
+// ---------------------------------------------------------------------------
+
+/** A changed file with optional patch content (REST-only field). */
+export interface PullRequestChangedFileWithPatch
+	extends PullRequestChangedFile {
+	/** Unified diff patch for this file (null for binary or too-large files). */
+	patch: string | null;
+}
+
+/** Report output of `pr diff` command. */
+export interface PullRequestDiffReport {
+	generatedAt: string; // ISO 8601
+	durationMs: number;
+	repository: RepositoryRef;
+	pullRequest: { number: number };
+	/** Full unified diff text. */
+	diff: string;
+	/** Changed files with patch content. */
+	files: PullRequestChangedFileWithPatch[];
+}

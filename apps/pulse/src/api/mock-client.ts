@@ -2,6 +2,7 @@ import type {
 	FetchPrsOptions,
 	FetchPrsResult,
 	FetchPullRequestDetailResult,
+	FetchPullRequestFilesResult,
 	GitHubApiClient,
 } from "./types.ts";
 
@@ -24,13 +25,19 @@ export interface MockDetailCall {
 export class MockGitHubClient implements GitHubApiClient {
 	readonly calls: MockCall[] = [];
 	readonly detailCalls: MockDetailCall[] = [];
+	readonly filesCalls: MockDetailCall[] = [];
+	readonly diffCalls: MockDetailCall[] = [];
 	private response: FetchPrsResult;
 	private detailResponse: FetchPullRequestDetailResult | null;
+	private filesResponse: FetchPullRequestFilesResult | null;
+	private diffResponse: string | null;
 
 	constructor(
 		response: Omit<FetchPrsResult, "hasNextPage" | "endCursor"> &
 			Partial<Pick<FetchPrsResult, "hasNextPage" | "endCursor">>,
 		detailResponse?: FetchPullRequestDetailResult,
+		filesResponse?: FetchPullRequestFilesResult,
+		diffResponse?: string,
 	) {
 		this.response = {
 			hasNextPage: false,
@@ -38,6 +45,8 @@ export class MockGitHubClient implements GitHubApiClient {
 			...response,
 		};
 		this.detailResponse = detailResponse ?? null;
+		this.filesResponse = filesResponse ?? null;
+		this.diffResponse = diffResponse ?? null;
 	}
 
 	async fetchPullRequests(
@@ -59,5 +68,29 @@ export class MockGitHubClient implements GitHubApiClient {
 			throw new Error(`No mock detail response configured for PR #${number}`);
 		}
 		return this.detailResponse;
+	}
+
+	async fetchPullRequestFiles(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<FetchPullRequestFilesResult> {
+		this.filesCalls.push({ owner, repo, number });
+		if (!this.filesResponse) {
+			throw new Error(`No mock files response configured for PR #${number}`);
+		}
+		return this.filesResponse;
+	}
+
+	async fetchPullRequestDiff(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<string> {
+		this.diffCalls.push({ owner, repo, number });
+		if (this.diffResponse === null) {
+			throw new Error(`No mock diff response configured for PR #${number}`);
+		}
+		return this.diffResponse;
 	}
 }

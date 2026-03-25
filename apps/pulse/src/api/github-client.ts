@@ -1,10 +1,14 @@
-import type { PullRequestInfo } from "../commands/types.ts";
+import type {
+	PullRequestChangedFileWithPatch,
+	PullRequestInfo,
+} from "../commands/types.ts";
 import { mapPullRequestDetailNode } from "./map-pr-detail-node.ts";
 import { mapPullRequestNode } from "./map-pr-node.ts";
 import type {
 	FetchPrsOptions,
 	FetchPrsResult,
 	FetchPullRequestDetailResult,
+	FetchPullRequestFilesResult,
 	GitHubApiClient,
 	GraphQLNestedConnectionResponse,
 	GraphQLPageInfo,
@@ -14,6 +18,7 @@ import type {
 } from "./types.ts";
 
 const GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
+const REST_BASE = "https://api.github.com";
 const MAX_PAGE_SIZE = 100;
 
 /** Transient HTTP status codes that warrant a retry. */
@@ -306,6 +311,45 @@ export class GitHubClient implements GitHubApiClient {
 		return { pullRequest: mapPullRequestDetailNode(node) };
 	}
 
+	async fetchPullRequestFiles(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<FetchPullRequestFilesResult> {
+		const allFiles: PullRequestChangedFileWithPatch[] = [];
+		let page = 1;
+		const perPage = 100;
+
+		while (true) {
+			const url = `${REST_BASE}/repos/${owner}/${repo}/pulls/${number}/files?per_page=${perPage}&page=${page}`;
+			const items = await this.getRest<RESTFileEntry[]>(url);
+
+			for (const item of items) {
+				allFiles.push({
+					path: item.filename,
+					additions: item.additions,
+					deletions: item.deletions,
+					changeType: mapRESTStatus(item.status),
+					patch: item.patch ?? null,
+				});
+			}
+
+			if (items.length < perPage) break;
+			page++;
+		}
+
+		return { files: allFiles };
+	}
+
+	async fetchPullRequestDiff(
+		owner: string,
+		repo: string,
+		number: number,
+	): Promise<string> {
+		const url = `${REST_BASE}/repos/${owner}/${repo}/pulls/${number}`;
+		return this.getRestText(url, "application/vnd.github.diff");
+	}
+
 	/**
 	 * Paginate all nested connections that have hasNextPage: true.
 	 * Mutates the node in place by appending additional pages.
@@ -426,5 +470,113 @@ export class GitHubClient implements GitHubApiClient {
 		}
 
 		throw lastError;
+	}
+
+	/**
+	 * GET a REST API endpoint and return parsed JSON with retry on transient errors.
+	 */
+	private async getRest<T>(
+		url: string,
+		accept = "application/vnd.github+json",
+	): Promise<T> {
+		let lastError: Error | null = null;
+
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			if (attempt > 0) {
+				const delay = this.retryDelayMs * 2 ** (attempt - 1);
+				await new Promise((r) => setTimeout(r, delay));
+			}
+
+			const response = await fetch(url, {
+				headers: {
+					Authorization: `bearer ${this.token}`,
+					Accept: accept,
+					"User-Agent": "pulse-cli",
+				},
+			});
+
+			if (response.ok) {
+				return (await response.json()) as T;
+			}
+
+			lastError = new Error(
+				`GitHub API error: ${response.status} ${response.statusText}`,
+			);
+
+			if (!RETRYABLE_STATUSES.has(response.status)) {
+				throw lastError;
+			}
+		}
+
+		throw lastError;
+	}
+
+	/**
+	 * GET a REST API endpoint and return raw text with retry on transient errors.
+	 */
+	private async getRestText(url: string, accept: string): Promise<string> {
+		let lastError: Error | null = null;
+
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			if (attempt > 0) {
+				const delay = this.retryDelayMs * 2 ** (attempt - 1);
+				await new Promise((r) => setTimeout(r, delay));
+			}
+
+			const response = await fetch(url, {
+				headers: {
+					Authorization: `bearer ${this.token}`,
+					Accept: accept,
+					"User-Agent": "pulse-cli",
+				},
+			});
+
+			if (response.ok) {
+				return response.text();
+			}
+
+			lastError = new Error(
+				`GitHub API error: ${response.status} ${response.statusText}`,
+			);
+
+			if (!RETRYABLE_STATUSES.has(response.status)) {
+				throw lastError;
+			}
+		}
+
+		throw lastError;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// REST API types (not exported — internal to github-client)
+// ---------------------------------------------------------------------------
+
+interface RESTFileEntry {
+	filename: string;
+	status: string;
+	additions: number;
+	deletions: number;
+	changes: number;
+	patch?: string;
+}
+
+function mapRESTStatus(
+	status: string,
+): PullRequestChangedFileWithPatch["changeType"] {
+	switch (status) {
+		case "added":
+			return "ADDED";
+		case "removed":
+			return "DELETED";
+		case "modified":
+		case "changed":
+			return "MODIFIED";
+		case "renamed":
+			return "RENAMED";
+		case "copied":
+			return "COPIED";
+		default:
+			return "CHANGED";
 	}
 }

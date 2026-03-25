@@ -152,3 +152,278 @@ describe("GitHubClient retry", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// REST: fetchPullRequestFiles
+// ---------------------------------------------------------------------------
+
+describe("GitHubClient.fetchPullRequestFiles", () => {
+	const originalFetch = globalThis.fetch;
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("maps REST file entries to PullRequestChangedFileWithPatch", async () => {
+		const restFiles = [
+			{
+				filename: "src/index.ts",
+				status: "modified",
+				additions: 5,
+				deletions: 2,
+				changes: 7,
+				patch: "@@ -1 +1 @@\n-old\n+new",
+			},
+			{
+				filename: "README.md",
+				status: "added",
+				additions: 10,
+				deletions: 0,
+				changes: 10,
+			},
+		];
+
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(restFiles)),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchPullRequestFiles("o", "r", 42);
+
+		expect(result.files).toHaveLength(2);
+		expect(result.files[0]).toEqual({
+			path: "src/index.ts",
+			additions: 5,
+			deletions: 2,
+			changeType: "MODIFIED",
+			patch: "@@ -1 +1 @@\n-old\n+new",
+		});
+		expect(result.files[1]).toEqual({
+			path: "README.md",
+			additions: 10,
+			deletions: 0,
+			changeType: "ADDED",
+			patch: null,
+		});
+	});
+
+	test("paginates when page is full (100 items)", async () => {
+		const fullPage = Array.from({ length: 100 }, (_, i) => ({
+			filename: `file-${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 0,
+			changes: 1,
+			patch: "+line",
+		}));
+		const lastPage = [
+			{
+				filename: "last.ts",
+				status: "added",
+				additions: 1,
+				deletions: 0,
+				changes: 1,
+			},
+		];
+
+		let callCount = 0;
+		globalThis.fetch = mock(() => {
+			callCount++;
+			if (callCount === 1) return Promise.resolve(jsonResponse(fullPage));
+			return Promise.resolve(jsonResponse(lastPage));
+		}) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchPullRequestFiles("o", "r", 42);
+
+		expect(result.files).toHaveLength(101);
+		expect(result.files[100]?.path).toBe("last.ts");
+	});
+
+	test("retries on 502 for REST endpoint", async () => {
+		const files = [
+			{
+				filename: "a.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 0,
+				changes: 1,
+			},
+		];
+
+		let callCount = 0;
+		globalThis.fetch = mock(() => {
+			callCount++;
+			if (callCount <= 2) return Promise.resolve(jsonResponse({}, 502));
+			return Promise.resolve(jsonResponse(files));
+		}) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchPullRequestFiles("o", "r", 42);
+
+		expect(result.files).toHaveLength(1);
+		expect(callCount).toBe(3);
+	});
+
+	test("throws on non-retryable REST error (401)", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response("Unauthorized", {
+					status: 401,
+					statusText: "Unauthorized",
+				}),
+			),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		await expect(client.fetchPullRequestFiles("o", "r", 42)).rejects.toThrow(
+			"GitHub API error: 401",
+		);
+	});
+
+	test("maps all REST status values correctly", async () => {
+		const files = [
+			{
+				filename: "a.ts",
+				status: "added",
+				additions: 1,
+				deletions: 0,
+				changes: 1,
+			},
+			{
+				filename: "b.ts",
+				status: "removed",
+				additions: 0,
+				deletions: 1,
+				changes: 1,
+			},
+			{
+				filename: "c.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+			},
+			{
+				filename: "d.ts",
+				status: "renamed",
+				additions: 0,
+				deletions: 0,
+				changes: 0,
+			},
+			{
+				filename: "e.ts",
+				status: "copied",
+				additions: 1,
+				deletions: 0,
+				changes: 1,
+			},
+			{
+				filename: "f.ts",
+				status: "changed",
+				additions: 1,
+				deletions: 0,
+				changes: 1,
+			},
+			{
+				filename: "g.ts",
+				status: "unknown_status",
+				additions: 0,
+				deletions: 0,
+				changes: 0,
+			},
+		];
+
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(files)),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchPullRequestFiles("o", "r", 42);
+
+		expect(result.files.map((f) => f.changeType)).toEqual([
+			"ADDED",
+			"DELETED",
+			"MODIFIED",
+			"RENAMED",
+			"COPIED",
+			"MODIFIED", // "changed" maps to MODIFIED
+			"CHANGED", // unknown falls through to default
+		]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// REST: fetchPullRequestDiff
+// ---------------------------------------------------------------------------
+
+describe("GitHubClient.fetchPullRequestDiff", () => {
+	const originalFetch = globalThis.fetch;
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("returns raw diff text", async () => {
+		const diffText =
+			"diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1,2 @@\n+new line";
+
+		globalThis.fetch = mock(() =>
+			Promise.resolve(new Response(diffText, { status: 200 })),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchPullRequestDiff("o", "r", 42);
+
+		expect(result).toBe(diffText);
+	});
+
+	test("sends correct Accept header for diff format", async () => {
+		let capturedHeaders: Headers | undefined;
+
+		globalThis.fetch = mock((_url: string, init?: RequestInit) => {
+			capturedHeaders = new Headers(init?.headers);
+			return Promise.resolve(new Response("diff content", { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const client = fastClient();
+		await client.fetchPullRequestDiff("o", "r", 42);
+
+		expect(capturedHeaders?.get("Accept")).toBe("application/vnd.github.diff");
+	});
+
+	test("retries on 503 for diff endpoint", async () => {
+		let callCount = 0;
+		globalThis.fetch = mock(() => {
+			callCount++;
+			if (callCount <= 1) {
+				return Promise.resolve(
+					new Response("Bad Gateway", {
+						status: 503,
+						statusText: "Service Unavailable",
+					}),
+				);
+			}
+			return Promise.resolve(new Response("diff content", { status: 200 }));
+		}) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.fetchPullRequestDiff("o", "r", 42);
+
+		expect(result).toBe("diff content");
+		expect(callCount).toBe(2);
+	});
+
+	test("throws after exhausting retries for diff endpoint", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response("Bad Gateway", { status: 502, statusText: "Bad Gateway" }),
+			),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		await expect(client.fetchPullRequestDiff("o", "r", 42)).rejects.toThrow(
+			"GitHub API error: 502",
+		);
+	});
+});
