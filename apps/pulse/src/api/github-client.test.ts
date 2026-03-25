@@ -427,3 +427,187 @@ describe("GitHubClient.fetchPullRequestDiff", () => {
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// GraphQL: searchPullRequests
+// ---------------------------------------------------------------------------
+
+function searchResponse(
+	nodes: Record<string, unknown>[],
+	pageInfo = { hasNextPage: false, endCursor: null as string | null },
+	issueCount = nodes.length,
+) {
+	return {
+		data: {
+			search: {
+				issueCount,
+				pageInfo,
+				nodes,
+			},
+		},
+	};
+}
+
+function makeSearchNode(overrides?: Record<string, unknown>) {
+	return {
+		__typename: "PullRequest",
+		number: 1,
+		title: "Test PR",
+		state: "OPEN",
+		isDraft: false,
+		merged: false,
+		mergedAt: null,
+		author: { login: "alice" },
+		createdAt: "2025-01-01T00:00:00Z",
+		updatedAt: "2025-01-02T00:00:00Z",
+		closedAt: null,
+		headRefName: "feat",
+		baseRefName: "main",
+		url: "https://github.com/o/r/pull/1",
+		labels: { nodes: [] },
+		reviewDecision: null,
+		additions: 10,
+		deletions: 2,
+		changedFiles: 1,
+		...overrides,
+	};
+}
+
+describe("GitHubClient.searchPullRequests", () => {
+	const originalFetch = globalThis.fetch;
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	test("returns mapped PR results from search", async () => {
+		const resp = searchResponse([makeSearchNode()]);
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(resp)),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.searchPullRequests("o", "r", {
+			query: "created:2025-01-01..2025-01-31",
+			limit: 100,
+		});
+
+		expect(result.pullRequests).toHaveLength(1);
+		expect(result.pullRequests[0]?.number).toBe(1);
+		expect(result.totalCount).toBe(1);
+		expect(result.hasNextPage).toBe(false);
+	});
+
+	test("includes repo scope and is:pr in search query", async () => {
+		let capturedBody = "";
+		globalThis.fetch = mock((_url: string, init?: RequestInit) => {
+			capturedBody = (init?.body as string) ?? "";
+			return Promise.resolve(jsonResponse(searchResponse([])));
+		}) as unknown as typeof fetch;
+
+		const client = fastClient();
+		await client.searchPullRequests("acme", "widget", {
+			query: "created:>2025-01-01",
+			limit: 10,
+		});
+
+		const parsed = JSON.parse(capturedBody);
+		expect(parsed.variables.query).toContain("repo:acme/widget");
+		expect(parsed.variables.query).toContain("is:pr");
+		expect(parsed.variables.query).toContain("created:>2025-01-01");
+	});
+
+	test("filters out non-PullRequest nodes", async () => {
+		const resp = searchResponse([
+			makeSearchNode({ number: 1 }),
+			{ __typename: "Issue", number: 2, title: "An Issue" },
+			makeSearchNode({ number: 3 }),
+		]);
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(resp)),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.searchPullRequests("o", "r", {
+			query: "label:bug",
+			limit: 100,
+		});
+
+		expect(result.pullRequests).toHaveLength(2);
+		expect(result.pullRequests.map((p) => p.number)).toEqual([1, 3]);
+	});
+
+	test("respects limit and stops early", async () => {
+		const resp = searchResponse(
+			[
+				makeSearchNode({ number: 1 }),
+				makeSearchNode({ number: 2 }),
+				makeSearchNode({ number: 3 }),
+			],
+			{ hasNextPage: true, endCursor: "cursor-1" },
+			50,
+		);
+		globalThis.fetch = mock(() =>
+			Promise.resolve(jsonResponse(resp)),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.searchPullRequests("o", "r", {
+			query: "is:open",
+			limit: 2,
+		});
+
+		expect(result.pullRequests).toHaveLength(2);
+		expect(result.totalCount).toBe(50);
+		expect(result.hasNextPage).toBe(true);
+	});
+
+	test("paginates across multiple pages", async () => {
+		let callCount = 0;
+		globalThis.fetch = mock(() => {
+			callCount++;
+			if (callCount === 1) {
+				return Promise.resolve(
+					jsonResponse(
+						searchResponse(
+							[makeSearchNode({ number: 1 })],
+							{ hasNextPage: true, endCursor: "cursor-1" },
+							2,
+						),
+					),
+				);
+			}
+			return Promise.resolve(
+				jsonResponse(searchResponse([makeSearchNode({ number: 2 })])),
+			);
+		}) as unknown as typeof fetch;
+
+		const client = fastClient();
+		const result = await client.searchPullRequests("o", "r", {
+			query: "is:open",
+			limit: 0,
+		});
+
+		expect(result.pullRequests).toHaveLength(2);
+		expect(callCount).toBe(2);
+	});
+
+	test("throws on GraphQL error", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				jsonResponse({
+					data: { search: null },
+					errors: [{ message: "Bad query" }],
+				}),
+			),
+		) as unknown as typeof fetch;
+
+		const client = fastClient();
+		await expect(
+			client.searchPullRequests("o", "r", {
+				query: "invalid",
+				limit: 10,
+			}),
+		).rejects.toThrow("GitHub GraphQL error: Bad query");
+	});
+});

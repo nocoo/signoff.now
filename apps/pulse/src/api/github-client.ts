@@ -15,6 +15,9 @@ import type {
 	GraphQLPrsResponse,
 	GraphQLPullRequestDetailNode,
 	GraphQLPullRequestDetailResponse,
+	GraphQLSearchResponse,
+	SearchPullRequestsOptions,
+	SearchPullRequestsResult,
 } from "./types.ts";
 
 const GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
@@ -139,6 +142,31 @@ query($owner: String!, $repo: String!, $number: Int!) {
   }
 }
 `;
+
+function buildSearchQuery(first: number): string {
+	return `
+query($query: String!, $cursor: String) {
+  search(type: ISSUE, query: $query, first: ${first}, after: $cursor) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        __typename
+        number title state isDraft
+        merged mergedAt
+        author { login }
+        createdAt updatedAt closedAt
+        headRefName baseRefName
+        url
+        labels(first: 10) { nodes { name } }
+        reviewDecision
+        additions deletions changedFiles
+      }
+    }
+  }
+}
+`;
+}
 
 /**
  * Nested connection configurations for follow-up pagination.
@@ -348,6 +376,67 @@ export class GitHubClient implements GitHubApiClient {
 	): Promise<string> {
 		const url = `${REST_BASE}/repos/${owner}/${repo}/pulls/${number}`;
 		return this.getRestText(url, "application/vnd.github.diff");
+	}
+
+	async searchPullRequests(
+		owner: string,
+		repo: string,
+		opts: SearchPullRequestsOptions,
+	): Promise<SearchPullRequestsResult> {
+		const allPrs: PullRequestInfo[] = [];
+		let cursor: string | null = opts.cursor ?? null;
+		let hasNextPage = true;
+		let totalCount = 0;
+
+		// Build scoped query: repo:owner/repo + user qualifier
+		const scopedQuery = `repo:${owner}/${repo} is:pr ${opts.query}`;
+
+		while (hasNextPage) {
+			const remaining =
+				opts.limit > 0 ? opts.limit - allPrs.length : MAX_PAGE_SIZE;
+			const pageSize = Math.min(remaining, MAX_PAGE_SIZE);
+
+			const response = await this.postGraphQL<GraphQLSearchResponse>(
+				buildSearchQuery(pageSize),
+				{ query: scopedQuery, cursor },
+			);
+
+			if (response.errors?.length) {
+				throw new Error(
+					`GitHub GraphQL error: ${response.errors.map((e) => e.message).join(", ")}`,
+				);
+			}
+
+			const { issueCount, nodes, pageInfo } = response.data.search;
+			totalCount = issueCount;
+
+			for (const node of nodes) {
+				// Search may return issues too; filter to PRs only
+				if (node.__typename !== "PullRequest") continue;
+
+				allPrs.push(mapPullRequestNode(node));
+
+				if (opts.limit > 0 && allPrs.length >= opts.limit) {
+					return {
+						pullRequests: allPrs.slice(0, opts.limit),
+						totalCount,
+						hasNextPage:
+							pageInfo.hasNextPage || nodes.indexOf(node) < nodes.length - 1,
+						endCursor: pageInfo.endCursor,
+					};
+				}
+			}
+
+			hasNextPage = pageInfo.hasNextPage;
+			cursor = pageInfo.endCursor;
+		}
+
+		return {
+			pullRequests: allPrs,
+			totalCount,
+			hasNextPage: false,
+			endCursor: null,
+		};
 	}
 
 	/**

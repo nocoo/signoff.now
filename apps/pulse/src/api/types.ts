@@ -64,6 +64,20 @@ export interface GitHubApiClient {
 		repo: string,
 		number: number,
 	): Promise<string>;
+
+	/**
+	 * Search pull requests via GitHub's search API.
+	 *
+	 * @param owner - Repository owner
+	 * @param repo  - Repository name
+	 * @param opts  - Search options
+	 * @returns Matching PRs with pagination info
+	 */
+	searchPullRequests(
+		owner: string,
+		repo: string,
+		opts: SearchPullRequestsOptions,
+	): Promise<SearchPullRequestsResult>;
 }
 
 export interface FetchPrsOptions {
@@ -129,6 +143,38 @@ export interface GraphQLPrsResponse {
 
 export interface FetchPullRequestDetailResult {
 	pullRequest: PullRequestDetail; // was `pr`
+}
+
+// ---------------------------------------------------------------------------
+// PR Search types
+// ---------------------------------------------------------------------------
+
+export interface SearchPullRequestsOptions {
+	/** GitHub search qualifier (e.g., "created:2026-03-01..2026-03-31"). */
+	query: string;
+	/** Max results to return. */
+	limit: number;
+	/** Cursor for pagination (null = first page). */
+	cursor?: string | null;
+}
+
+export interface SearchPullRequestsResult {
+	pullRequests: PullRequestInfo[];
+	totalCount: number;
+	hasNextPage: boolean;
+	endCursor: string | null;
+}
+
+/** Raw GraphQL response shape from GitHub search API. */
+export interface GraphQLSearchResponse {
+	data: {
+		search: {
+			issueCount: number;
+			pageInfo: { hasNextPage: boolean; endCursor: string | null };
+			nodes: Array<GraphQLPullRequestNode & { __typename: string }>;
+		};
+	};
+	errors?: Array<{ message: string }>;
 }
 
 export interface FetchPullRequestFilesResult {

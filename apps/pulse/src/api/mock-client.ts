@@ -4,6 +4,8 @@ import type {
 	FetchPullRequestDetailResult,
 	FetchPullRequestFilesResult,
 	GitHubApiClient,
+	SearchPullRequestsOptions,
+	SearchPullRequestsResult,
 } from "./types.ts";
 
 export interface MockCall {
@@ -18,6 +20,12 @@ export interface MockDetailCall {
 	number: number;
 }
 
+export interface MockSearchCall {
+	owner: string;
+	repo: string;
+	opts: SearchPullRequestsOptions;
+}
+
 /**
  * Deterministic mock client for unit tests.
  * Records all calls and returns pre-configured responses.
@@ -27,10 +35,12 @@ export class MockGitHubClient implements GitHubApiClient {
 	readonly detailCalls: MockDetailCall[] = [];
 	readonly filesCalls: MockDetailCall[] = [];
 	readonly diffCalls: MockDetailCall[] = [];
+	readonly searchCalls: MockSearchCall[] = [];
 	private response: FetchPrsResult;
 	private detailResponse: FetchPullRequestDetailResult | null;
 	private filesResponse: FetchPullRequestFilesResult | null;
 	private diffResponse: string | null;
+	private searchResponse: SearchPullRequestsResult | null;
 
 	constructor(
 		response: Omit<FetchPrsResult, "hasNextPage" | "endCursor"> &
@@ -38,6 +48,7 @@ export class MockGitHubClient implements GitHubApiClient {
 		detailResponse?: FetchPullRequestDetailResult,
 		filesResponse?: FetchPullRequestFilesResult,
 		diffResponse?: string,
+		searchResponse?: SearchPullRequestsResult,
 	) {
 		this.response = {
 			hasNextPage: false,
@@ -47,6 +58,7 @@ export class MockGitHubClient implements GitHubApiClient {
 		this.detailResponse = detailResponse ?? null;
 		this.filesResponse = filesResponse ?? null;
 		this.diffResponse = diffResponse ?? null;
+		this.searchResponse = searchResponse ?? null;
 	}
 
 	async fetchPullRequests(
@@ -92,5 +104,17 @@ export class MockGitHubClient implements GitHubApiClient {
 			throw new Error(`No mock diff response configured for PR #${number}`);
 		}
 		return this.diffResponse;
+	}
+
+	async searchPullRequests(
+		owner: string,
+		repo: string,
+		opts: SearchPullRequestsOptions,
+	): Promise<SearchPullRequestsResult> {
+		this.searchCalls.push({ owner, repo, opts });
+		if (!this.searchResponse) {
+			throw new Error("No mock search response configured");
+		}
+		return this.searchResponse;
 	}
 }
