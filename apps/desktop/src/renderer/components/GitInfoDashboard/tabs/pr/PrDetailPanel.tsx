@@ -31,10 +31,14 @@ import {
 	Tag,
 	Users,
 } from "lucide-react";
+import { useMemo } from "react";
 import { trpc } from "../../../../lib/trpc";
 import { DashboardCard } from "../../DashboardCard";
 import { relativeDate, StatNumber } from "../../StatNumber";
 import { CommitRow } from "./CommitRow";
+import { GhLink } from "./GhLink";
+import { GitHubUrlProvider } from "./GitHubUrlProvider";
+import { type GitHubUrlContext, parseGitHubPrUrl } from "./github-urls";
 import { PrReviewBadge } from "./PrReviewBadge";
 import { PrStateIcon } from "./PrStateIcon";
 import { ReviewCard } from "./ReviewCard";
@@ -52,6 +56,22 @@ interface PrDetailPanelProps {
 	error: string | null;
 }
 
+/** Humanize GitHub's SCREAMING_CASE mergeStateStatus to title-case. */
+const MERGE_STATE_LABELS: Record<string, string> = {
+	BEHIND: "Behind",
+	BLOCKED: "Blocked",
+	CLEAN: "Clean",
+	DIRTY: "Dirty",
+	DRAFT: "Draft",
+	HAS_HOOKS: "Has hooks",
+	UNKNOWN: "Unknown",
+	UNSTABLE: "Unstable",
+};
+
+function humanizeMergeStateStatus(raw: string): string {
+	return MERGE_STATE_LABELS[raw] ?? raw;
+}
+
 export function PrDetailPanel({
 	detail,
 	hasSelection,
@@ -60,6 +80,19 @@ export function PrDetailPanel({
 	error,
 }: PrDetailPanelProps) {
 	const openUrlMutation = trpc.external.openUrl.useMutation();
+
+	// Build GitHub URL context from the PR's url field (supports GHE).
+	// Must be called before any early return to satisfy hook ordering rules.
+	const ghCtx = useMemo((): GitHubUrlContext | null => {
+		if (!detail) return null;
+		const parsed = parseGitHubPrUrl(detail.url);
+		if (!parsed) return null;
+		return {
+			...parsed,
+			headRefOid: detail.headRefOid,
+			baseRefOid: detail.baseRefOid,
+		};
+	}, [detail]);
 
 	// No PR selected — only when nothing is selected at all
 	if (!hasSelection) {
@@ -117,7 +150,7 @@ export function PrDetailPanel({
 				? "Conflicting"
 				: "Unknown";
 
-	return (
+	const content = (
 		<ScrollArea className="h-full">
 			<div className="flex flex-col gap-6 p-6">
 				{/* Refreshing indicator */}
@@ -150,9 +183,12 @@ export function PrDetailPanel({
 						</h3>
 					</div>
 					<div className="mt-2 flex flex-wrap items-center gap-2">
-						<span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+						<GhLink
+							target={{ type: "pr", number: pr.number }}
+							className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+						>
 							#{pr.number}
-						</span>
+						</GhLink>
 						<span
 							className={cn(
 								"rounded px-2 py-0.5 text-xs font-medium",
@@ -190,7 +226,17 @@ export function PrDetailPanel({
 
 				{/* Summary stat grid */}
 				<div className="grid grid-cols-3 gap-4 sm:grid-cols-4 lg:grid-cols-6">
-					<StatNumber label="Author" value={pr.author} />
+					<StatNumber
+						label="Author"
+						value={
+							<GhLink
+								target={{ type: "user", login: pr.author }}
+								className="text-sm font-semibold"
+							>
+								{pr.author}
+							</GhLink>
+						}
+					/>
 					<StatNumber label="Created" value={relativeDate(pr.createdAt)} />
 					<StatNumber label="Updated" value={relativeDate(pr.updatedAt)} />
 					{pr.mergedAt !== null && (
@@ -224,11 +270,14 @@ export function PrDetailPanel({
 							{mergeableLabel}
 						</span>
 						<span className="text-xs text-muted-foreground">
-							{pr.mergeStateStatus}
+							{humanizeMergeStateStatus(pr.mergeStateStatus)}
 						</span>
 						{pr.mergedBy ? (
 							<span className="text-xs text-muted-foreground">
-								Merged by {pr.mergedBy}
+								Merged by{" "}
+								<GhLink target={{ type: "user", login: pr.mergedBy }}>
+									{pr.mergedBy}
+								</GhLink>
 							</span>
 						) : null}
 					</div>
@@ -240,18 +289,28 @@ export function PrDetailPanel({
 					icon={<GitBranch className="h-4 w-4" />}
 				>
 					<div className="mb-1 flex min-w-0 items-center gap-2 text-sm">
-						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+						<GhLink
+							target={{ type: "branch", name: pr.headRefName }}
+							className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+						>
 							{pr.headRefName}
-						</span>
+						</GhLink>
 						<ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+						<GhLink
+							target={{ type: "branch", name: pr.baseRefName }}
+							className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+						>
 							{pr.baseRefName}
-						</span>
+						</GhLink>
 					</div>
 					<div className="mb-3 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-						<span title={pr.headRefOid}>{pr.headRefOid.slice(0, 7)}</span>
+						<GhLink target={{ type: "commit", sha: pr.headRefOid }}>
+							<span title={pr.headRefOid}>{pr.headRefOid.slice(0, 7)}</span>
+						</GhLink>
 						<ArrowRight className="size-2.5 shrink-0" />
-						<span title={pr.baseRefOid}>{pr.baseRefOid.slice(0, 7)}</span>
+						<GhLink target={{ type: "commit", sha: pr.baseRefOid }}>
+							<span title={pr.baseRefOid}>{pr.baseRefOid.slice(0, 7)}</span>
+						</GhLink>
 					</div>
 					<div className="grid grid-cols-3 gap-3">
 						<StatNumber
@@ -294,7 +353,16 @@ export function PrDetailPanel({
 									<span className="text-xs font-medium text-muted-foreground">
 										Assignees:{" "}
 									</span>
-									<span className="text-xs">{pr.assignees.join(", ")}</span>
+									<span className="text-xs">
+										{pr.assignees.map((login, i) => (
+											<span key={login}>
+												{i > 0 && ", "}
+												<GhLink target={{ type: "user", login }}>
+													{login}
+												</GhLink>
+											</span>
+										))}
+									</span>
 								</div>
 							)}
 							{pr.reviewRequests.length > 0 && (
@@ -312,7 +380,16 @@ export function PrDetailPanel({
 									<span className="text-xs font-medium text-muted-foreground">
 										Participants:{" "}
 									</span>
-									<span className="text-xs">{pr.participants.join(", ")}</span>
+									<span className="text-xs">
+										{pr.participants.map((login, i) => (
+											<span key={login}>
+												{i > 0 && ", "}
+												<GhLink target={{ type: "user", login }}>
+													{login}
+												</GhLink>
+											</span>
+										))}
+									</span>
 								</div>
 							)}
 						</div>
@@ -349,9 +426,12 @@ export function PrDetailPanel({
 									className="flex flex-col gap-0.5 rounded bg-muted/50 p-2"
 								>
 									<div className="flex items-center gap-2">
-										<span className="text-xs font-medium">
+										<GhLink
+											target={{ type: "user", login: comment.author }}
+											className="text-xs font-medium"
+										>
 											{comment.author}
-										</span>
+										</GhLink>
 										<span className="text-[10px] text-muted-foreground">
 											{relativeDate(comment.createdAt)}
 										</span>
@@ -454,4 +534,10 @@ export function PrDetailPanel({
 			</div>
 		</ScrollArea>
 	);
+
+	// Wrap in GitHubUrlProvider when context is available
+	if (ghCtx) {
+		return <GitHubUrlProvider value={ghCtx}>{content}</GitHubUrlProvider>;
+	}
+	return content;
 }

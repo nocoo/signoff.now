@@ -6,7 +6,7 @@ import { cn } from "@signoff/ui/utils";
 
 interface StatNumberProps {
 	label: string;
-	value: number | string;
+	value: number | string | React.ReactNode;
 	unit?: string;
 	className?: string;
 }
