@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mapPullRequestDetailNode } from "./map-pr-detail-node.ts";
 import type { GraphQLPullRequestDetailNode } from "./types.ts";
 
+const NO_MORE_PAGES = { hasNextPage: false, endCursor: null };
+
 function makeDetailNode(
 	overrides?: Partial<GraphQLPullRequestDetailNode>,
 ): GraphQLPullRequestDetailNode {
@@ -33,24 +35,33 @@ function makeDetailNode(
 		headRefOid: "abc1234",
 		baseRefOid: "def5678",
 		isCrossRepository: false,
-		participants: { nodes: [{ login: "alice" }, { login: "bob" }] },
-		assignees: { nodes: [{ login: "alice" }] },
+		participants: {
+			pageInfo: NO_MORE_PAGES,
+			nodes: [{ login: "alice" }, { login: "bob" }],
+		},
+		assignees: {
+			pageInfo: NO_MORE_PAGES,
+			nodes: [{ login: "alice" }],
+		},
 		reviewRequests: {
+			pageInfo: NO_MORE_PAGES,
 			nodes: [{ requestedReviewer: { login: "charlie" } }],
 		},
 		milestone: { title: "v1.0" },
 		reviews: {
+			pageInfo: NO_MORE_PAGES,
 			nodes: [
 				{
 					author: { login: "bob" },
 					state: "APPROVED",
 					body: "LGTM",
 					submittedAt: "2025-01-16T10:00:00Z",
-					comments: { nodes: [] },
+					comments: { pageInfo: NO_MORE_PAGES, nodes: [] },
 				},
 			],
 		},
 		comments: {
+			pageInfo: NO_MORE_PAGES,
 			nodes: [
 				{
 					author: { login: "bob" },
@@ -61,6 +72,7 @@ function makeDetailNode(
 			],
 		},
 		commits: {
+			pageInfo: NO_MORE_PAGES,
 			nodes: [
 				{
 					commit: {
@@ -74,6 +86,7 @@ function makeDetailNode(
 			],
 		},
 		files: {
+			pageInfo: NO_MORE_PAGES,
 			nodes: [
 				{
 					path: "src/feature.ts",
@@ -123,6 +136,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviewRequests: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [{ requestedReviewer: { slug: "core-team" } }],
 				},
 			}),
@@ -133,7 +147,10 @@ describe("mapPullRequestDetailNode", () => {
 	test("handles null requested reviewer gracefully", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
-				reviewRequests: { nodes: [{ requestedReviewer: null }] },
+				reviewRequests: {
+					pageInfo: NO_MORE_PAGES,
+					nodes: [{ requestedReviewer: null }],
+				},
 			}),
 		);
 		expect(detail.reviewRequests).toEqual([]);
@@ -186,6 +203,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
 							commit: {
@@ -243,13 +261,14 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviews: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
 							author: null,
 							state: "COMMENTED",
 							body: "auto-review",
 							submittedAt: null,
-							comments: { nodes: [] },
+							comments: { pageInfo: NO_MORE_PAGES, nodes: [] },
 						},
 					],
 				},
@@ -262,6 +281,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviews: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
 							author: { login: "bob" },
@@ -269,6 +289,7 @@ describe("mapPullRequestDetailNode", () => {
 							body: "Needs fixes",
 							submittedAt: "2025-01-16T10:00:00Z",
 							comments: {
+								pageInfo: NO_MORE_PAGES,
 								nodes: [
 									{
 										author: { login: "bob" },
@@ -304,6 +325,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviews: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
 							author: { login: "bob" },
@@ -311,6 +333,7 @@ describe("mapPullRequestDetailNode", () => {
 							body: "",
 							submittedAt: null,
 							comments: {
+								pageInfo: NO_MORE_PAGES,
 								nodes: [
 									{
 										author: null,
@@ -336,6 +359,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
 							commit: {
@@ -395,6 +419,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
+					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
 							commit: {

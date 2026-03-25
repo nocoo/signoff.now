@@ -6,7 +6,10 @@ import type {
 	FetchPrsResult,
 	FetchPullRequestDetailResult,
 	GitHubApiClient,
+	GraphQLNestedConnectionResponse,
+	GraphQLPageInfo,
 	GraphQLPrsResponse,
+	GraphQLPullRequestDetailNode,
 	GraphQLPullRequestDetailResponse,
 } from "./types.ts";
 
@@ -63,18 +66,27 @@ query($owner: String!, $repo: String!, $number: Int!) {
       headRefOid baseRefOid
       isCrossRepository
 
-      participants(first: 100) { nodes { login } }
-      assignees(first: 20) { nodes { login } }
+      participants(first: 100) {
+        pageInfo { hasNextPage endCursor }
+        nodes { login }
+      }
+      assignees(first: 20) {
+        pageInfo { hasNextPage endCursor }
+        nodes { login }
+      }
       reviewRequests(first: 20) {
+        pageInfo { hasNextPage endCursor }
         nodes { requestedReviewer { ... on User { login } ... on Team { slug } } }
       }
       milestone { title }
 
       reviews(first: 100) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           author { login }
           state body submittedAt
           comments(first: 100) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               author { login }
               path line originalLine diffHunk
@@ -85,6 +97,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       }
 
       comments(first: 100) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           author { login }
           body createdAt updatedAt
@@ -92,6 +105,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       }
 
       commits(first: 250) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           commit {
             abbreviatedOid message
@@ -111,6 +125,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       }
 
       files(first: 100) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           path additions deletions changeType
         }
@@ -119,6 +134,71 @@ query($owner: String!, $repo: String!, $number: Int!) {
   }
 }
 `;
+
+/**
+ * Nested connection configurations for follow-up pagination.
+ * Each entry maps a connection name to its GraphQL fragment and page size.
+ */
+interface NestedConnectionConfig {
+	name: string;
+	pageSize: number;
+	fragment: string;
+}
+
+const NESTED_CONNECTIONS: NestedConnectionConfig[] = [
+	{
+		name: "reviews",
+		pageSize: 100,
+		fragment: `author { login } state body submittedAt
+      comments(first: 100) {
+        pageInfo { hasNextPage endCursor }
+        nodes { author { login } path line originalLine diffHunk body createdAt updatedAt }
+      }`,
+	},
+	{
+		name: "comments",
+		pageSize: 100,
+		fragment: "author { login } body createdAt updatedAt",
+	},
+	{
+		name: "commits",
+		pageSize: 250,
+		fragment: `commit {
+        abbreviatedOid message
+        author { user { login } name }
+        authoredDate
+        statusCheckRollup {
+          state
+          contexts(first: 100) {
+            nodes { __typename ... on CheckRun { name status conclusion detailsUrl } }
+          }
+        }
+      }`,
+	},
+	{
+		name: "files",
+		pageSize: 100,
+		fragment: "path additions deletions changeType",
+	},
+];
+
+function buildNestedPageQuery(
+	connectionName: string,
+	pageSize: number,
+	fragment: string,
+): string {
+	return `
+query($owner: String!, $repo: String!, $number: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      ${connectionName}(first: ${pageSize}, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${fragment} }
+      }
+    }
+  }
+}`;
+}
 
 export interface GitHubClientOptions {
 	/** Base delay in ms for exponential backoff (default: 1000). */
@@ -220,7 +300,73 @@ export class GitHubClient implements GitHubApiClient {
 			throw new Error(`Pull request #${number} not found in ${owner}/${repo}`);
 		}
 
+		// Follow-up pagination for nested connections
+		await this.paginateNestedConnections(owner, repo, number, node);
+
 		return { pullRequest: mapPullRequestDetailNode(node) };
+	}
+
+	/**
+	 * Paginate all nested connections that have hasNextPage: true.
+	 * Mutates the node in place by appending additional pages.
+	 */
+	private async paginateNestedConnections(
+		owner: string,
+		repo: string,
+		number: number,
+		node: GraphQLPullRequestDetailNode,
+	): Promise<void> {
+		for (const config of NESTED_CONNECTIONS) {
+			const connection = node[
+				config.name as keyof GraphQLPullRequestDetailNode
+			] as { pageInfo: GraphQLPageInfo; nodes: unknown[] } | null;
+
+			if (!connection?.pageInfo?.hasNextPage) continue;
+
+			await this.paginateConnection(owner, repo, number, config, connection);
+		}
+	}
+
+	/**
+	 * Paginate a single nested connection to exhaustion.
+	 * Appends nodes to the connection in place.
+	 */
+	private async paginateConnection(
+		owner: string,
+		repo: string,
+		number: number,
+		config: NestedConnectionConfig,
+		connection: { pageInfo: GraphQLPageInfo; nodes: unknown[] },
+	): Promise<void> {
+		let cursor = connection.pageInfo.endCursor;
+		let hasNextPage = connection.pageInfo.hasNextPage;
+
+		while (hasNextPage && cursor) {
+			const query = buildNestedPageQuery(
+				config.name,
+				config.pageSize,
+				config.fragment,
+			);
+			const resp = await this.postGraphQL<
+				GraphQLNestedConnectionResponse<unknown>
+			>(query, { owner, repo, number, cursor });
+
+			if (resp.errors?.length) {
+				throw new Error(
+					`GitHub GraphQL error: ${resp.errors.map((e) => e.message).join(", ")}`,
+				);
+			}
+
+			const page = resp.data.repository.pullRequest[config.name];
+			if (!page) break;
+
+			connection.nodes.push(...page.nodes);
+			hasNextPage = page.pageInfo.hasNextPage;
+			cursor = page.pageInfo.endCursor;
+		}
+
+		// Mark as fully paginated
+		connection.pageInfo.hasNextPage = false;
 	}
 
 	private async queryGraphQL(

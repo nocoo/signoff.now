@@ -109,6 +109,12 @@ export interface GraphQLPullRequestDetailResponse {
 	errors?: Array<{ message: string }>;
 }
 
+/** Shared page info shape for nested connections. */
+export interface GraphQLPageInfo {
+	hasNextPage: boolean;
+	endCursor: string | null;
+}
+
 /** Extended GraphQL PR node with detail fields. */
 export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 	body: string;
@@ -127,21 +133,30 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 	headRefOid: string;
 	baseRefOid: string;
 	isCrossRepository: boolean;
-	participants: { nodes: Array<{ login: string }> };
-	assignees: { nodes: Array<{ login: string }> };
+	participants: {
+		pageInfo: GraphQLPageInfo;
+		nodes: Array<{ login: string }>;
+	};
+	assignees: {
+		pageInfo: GraphQLPageInfo;
+		nodes: Array<{ login: string }>;
+	};
 	reviewRequests: {
+		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
 			requestedReviewer: { login?: string; slug?: string } | null;
 		}>;
 	};
 	milestone: { title: string } | null;
 	reviews: {
+		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
 			author: { login: string } | null;
 			state: string;
 			body: string;
 			submittedAt: string | null;
 			comments: {
+				pageInfo: GraphQLPageInfo;
 				nodes: Array<{
 					author: { login: string } | null;
 					path: string;
@@ -156,6 +171,7 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 		}>;
 	};
 	comments: {
+		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
 			author: { login: string } | null;
 			body: string;
@@ -164,6 +180,7 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 		}>;
 	};
 	commits: {
+		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
 			commit: {
 				abbreviatedOid: string;
@@ -186,6 +203,7 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 		}>;
 	};
 	files: {
+		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
 			path: string;
 			additions: number;
@@ -193,4 +211,19 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 			changeType: string;
 		}>;
 	} | null;
+}
+
+/** Response shape for nested connection follow-up queries. */
+export interface GraphQLNestedConnectionResponse<T> {
+	data: {
+		repository: {
+			pullRequest: {
+				[connection: string]: {
+					pageInfo: GraphQLPageInfo;
+					nodes: T[];
+				};
+			};
+		};
+	};
+	errors?: Array<{ message: string }>;
 }
