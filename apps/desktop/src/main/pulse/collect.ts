@@ -8,8 +8,8 @@
 
 import {
 	CollectError,
-	collectPrDetail,
-	collectPrs,
+	collectPullRequestDetail,
+	collectPullRequests,
 } from "@signoff/pulse/collect";
 import { createNodeExecutor } from "../gitinfo/executor";
 
@@ -19,7 +19,7 @@ export interface CollectProjectPrsOptions {
 	/** Absolute path to the project's git repository. */
 	projectPath: string;
 	/** PR state filter. */
-	state?: "open" | "closed" | "all";
+	state?: "open" | "closed" | "merged" | "all";
 	/** Max results (0 = unlimited). */
 	limit?: number;
 	/** Filter by author login. */
@@ -41,7 +41,7 @@ export interface CollectProjectPrDetailOptions {
 export async function collectProjectPrs(opts: CollectProjectPrsOptions) {
 	const exec = createNodeExecutor();
 
-	return collectPrs({
+	return collectPullRequests({
 		exec,
 		cwd: opts.projectPath,
 		state: opts.state ?? "open",
@@ -59,7 +59,7 @@ export async function collectProjectPrDetail(
 ) {
 	const exec = createNodeExecutor();
 
-	return collectPrDetail({
+	return collectPullRequestDetail({
 		exec,
 		cwd: opts.projectPath,
 		number: opts.number,

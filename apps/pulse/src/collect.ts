@@ -41,7 +41,7 @@ interface CollectBaseOptions {
 	apiClient?: GitHubApiClient;
 }
 
-export interface CollectPrsOptions extends CollectBaseOptions {
+export interface CollectPullRequestsOptions extends CollectBaseOptions {
 	/** PR state filter. */
 	state: PullRequestStateFilter;
 	/** Max results (0 = unlimited). */
@@ -52,14 +52,14 @@ export interface CollectPrsOptions extends CollectBaseOptions {
 	cursor?: string | null;
 }
 
-export interface CollectPrDetailOptions extends CollectBaseOptions {
+export interface CollectPullRequestDetailOptions extends CollectBaseOptions {
 	/** PR number to fetch detail for. */
 	number: number;
 }
 
 /**
  * Resolve git remote and GitHub identity for a project directory.
- * Shared bootstrap logic used by both collectPrs and collectPrDetail.
+ * Shared bootstrap logic used by both collectPullRequests and collectPullRequestDetail.
  */
 async function resolveProject(opts: CollectBaseOptions) {
 	const { exec, cwd, noCache, cacheStore } = opts;
@@ -107,8 +107,8 @@ async function resolveProject(opts: CollectBaseOptions) {
 /**
  * Collect PR data for a project.
  */
-export async function collectPrs(
-	opts: CollectPrsOptions,
+export async function collectPullRequests(
+	opts: CollectPullRequestsOptions,
 ): Promise<PullRequestsReport> {
 	const { remote, identity, client } = await resolveProject(opts);
 
@@ -127,8 +127,8 @@ export async function collectPrs(
 /**
  * Collect detailed information for a single PR.
  */
-export async function collectPrDetail(
-	opts: CollectPrDetailOptions,
+export async function collectPullRequestDetail(
+	opts: CollectPullRequestDetailOptions,
 ): Promise<PullRequestDetailReport> {
 	const { remote, identity, client } = await resolveProject(opts);
 
