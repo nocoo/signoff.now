@@ -9,9 +9,11 @@
 import { GitHubClient } from "./api/github-client.ts";
 import type { GitHubApiClient } from "./api/types.ts";
 import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
+import { fetchPrDiff } from "./commands/pr-diff/fetch-pr-diff.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
 import type {
 	PullRequestDetailReport,
+	PullRequestDiffReport,
 	PullRequestStateFilter,
 	PullRequestsReport,
 } from "./commands/types.ts";
@@ -54,6 +56,11 @@ export interface CollectPullRequestsOptions extends CollectBaseOptions {
 
 export interface CollectPullRequestDetailOptions extends CollectBaseOptions {
 	/** PR number to fetch detail for. */
+	number: number;
+}
+
+export interface CollectPullRequestDiffOptions extends CollectBaseOptions {
+	/** PR number to fetch diff for. */
 	number: number;
 }
 
@@ -133,6 +140,23 @@ export async function collectPullRequestDetail(
 	const { remote, identity, client } = await resolveProject(opts);
 
 	return fetchPrDetail(client, {
+		owner: remote.owner,
+		repo: remote.repo,
+		number: opts.number,
+		resolvedUser: identity.login,
+		resolvedVia: identity.resolvedVia,
+	});
+}
+
+/**
+ * Collect diff and changed files for a single PR.
+ */
+export async function collectPullRequestDiff(
+	opts: CollectPullRequestDiffOptions,
+): Promise<PullRequestDiffReport> {
+	const { remote, identity, client } = await resolveProject(opts);
+
+	return fetchPrDiff(client, {
 		owner: remote.owner,
 		repo: remote.repo,
 		number: opts.number,
