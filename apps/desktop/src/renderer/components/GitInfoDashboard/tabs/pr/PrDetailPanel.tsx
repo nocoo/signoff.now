@@ -436,6 +436,9 @@ export function PrDetailPanel({
 										</GhLink>
 										<span className="text-[10px] text-muted-foreground">
 											{relativeDate(comment.createdAt)}
+											{comment.updatedAt !== comment.createdAt ? (
+												<span className="ml-1 italic">(edited)</span>
+											) : null}
 										</span>
 									</div>
 									{comment.body ? (
