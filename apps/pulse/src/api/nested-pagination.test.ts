@@ -230,6 +230,7 @@ describe("GitHubClient nested pagination", () => {
 				pageInfo: { hasNextPage: true, endCursor: "rc1" },
 				nodes: [
 					{
+						id: "review-1",
 						author: { login: "reviewer1" },
 						state: "APPROVED",
 						body: "LGTM",
@@ -263,6 +264,7 @@ describe("GitHubClient nested pagination", () => {
 							pageInfo: NO_MORE_PAGES,
 							nodes: [
 								{
+									id: "review-2",
 									author: { login: "reviewer2" },
 									state: "CHANGES_REQUESTED",
 									body: "Fix this",
@@ -354,5 +356,199 @@ describe("GitHubClient nested pagination", () => {
 		expect(client.fetchPullRequestDetail("acme", "repo", 1)).rejects.toThrow(
 			"Rate limited",
 		);
+	});
+
+	test("paginates participants when hasNextPage is true", async () => {
+		const node = makeMinimalDetailNode({
+			participants: {
+				pageInfo: { hasNextPage: true, endCursor: "p-cursor" },
+				nodes: [{ login: "alice" }],
+			},
+		});
+
+		const page2 = {
+			data: {
+				repository: {
+					pullRequest: {
+						participants: {
+							pageInfo: NO_MORE_PAGES,
+							nodes: [{ login: "bob" }],
+						},
+					},
+				},
+			},
+		};
+
+		const fetchMock = mockFetchSequence([wrapDetailResponse(node), page2]);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const client = new GitHubClient("test-token");
+		const result = await client.fetchPullRequestDetail("acme", "repo", 1);
+
+		expect(result.pullRequest.participants).toEqual(["alice", "bob"]);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("paginates assignees when hasNextPage is true", async () => {
+		const node = makeMinimalDetailNode({
+			assignees: {
+				pageInfo: { hasNextPage: true, endCursor: "a-cursor" },
+				nodes: [{ login: "alice" }],
+			},
+		});
+
+		const page2 = {
+			data: {
+				repository: {
+					pullRequest: {
+						assignees: {
+							pageInfo: NO_MORE_PAGES,
+							nodes: [{ login: "charlie" }],
+						},
+					},
+				},
+			},
+		};
+
+		const fetchMock = mockFetchSequence([wrapDetailResponse(node), page2]);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const client = new GitHubClient("test-token");
+		const result = await client.fetchPullRequestDetail("acme", "repo", 1);
+
+		expect(result.pullRequest.assignees).toEqual(["alice", "charlie"]);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("paginates reviewRequests when hasNextPage is true", async () => {
+		const node = makeMinimalDetailNode({
+			reviewRequests: {
+				pageInfo: { hasNextPage: true, endCursor: "rr-cursor" },
+				nodes: [{ requestedReviewer: { login: "alice" } }],
+			},
+		});
+
+		const page2 = {
+			data: {
+				repository: {
+					pullRequest: {
+						reviewRequests: {
+							pageInfo: NO_MORE_PAGES,
+							nodes: [{ requestedReviewer: { slug: "team-a" } }],
+						},
+					},
+				},
+			},
+		};
+
+		const fetchMock = mockFetchSequence([wrapDetailResponse(node), page2]);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const client = new GitHubClient("test-token");
+		const result = await client.fetchPullRequestDetail("acme", "repo", 1);
+
+		expect(result.pullRequest.reviewRequests).toEqual(["alice", "team-a"]);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("paginates review comments via node(id:) query", async () => {
+		const node = makeMinimalDetailNode({
+			reviews: {
+				pageInfo: NO_MORE_PAGES,
+				nodes: [
+					{
+						id: "review-abc",
+						author: { login: "reviewer1" },
+						state: "COMMENTED",
+						body: "",
+						submittedAt: "2025-01-01T00:00:00Z",
+						comments: {
+							pageInfo: { hasNextPage: true, endCursor: "rc-cursor" },
+							nodes: [
+								{
+									author: { login: "reviewer1" },
+									path: "src/a.ts",
+									line: 10,
+									originalLine: 10,
+									diffHunk: "@@ -1 +1 @@",
+									body: "comment 1",
+									createdAt: "2025-01-01T00:00:00Z",
+									updatedAt: "2025-01-01T00:00:00Z",
+								},
+							],
+						},
+					},
+				],
+			},
+		});
+
+		const commentsPage2 = {
+			data: {
+				node: {
+					comments: {
+						pageInfo: NO_MORE_PAGES,
+						nodes: [
+							{
+								author: { login: "reviewer1" },
+								path: "src/b.ts",
+								line: 20,
+								originalLine: 20,
+								diffHunk: "@@ -5 +5 @@",
+								body: "comment 2",
+								createdAt: "2025-01-02T00:00:00Z",
+								updatedAt: "2025-01-02T00:00:00Z",
+							},
+						],
+					},
+				},
+			},
+		};
+
+		const fetchMock = mockFetchSequence([
+			wrapDetailResponse(node),
+			commentsPage2,
+		]);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const client = new GitHubClient("test-token");
+		const result = await client.fetchPullRequestDetail("acme", "repo", 1);
+
+		expect(result.pullRequest.reviews).toHaveLength(1);
+		const review = result.pullRequest.reviews[0];
+		expect(review?.comments).toHaveLength(2);
+		expect(review?.comments[0]?.body).toBe("comment 1");
+		expect(review?.comments[1]?.body).toBe("comment 2");
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("skips review comments pagination when review has no id", async () => {
+		const node = makeMinimalDetailNode({
+			reviews: {
+				pageInfo: NO_MORE_PAGES,
+				nodes: [
+					{
+						// no id field
+						author: { login: "reviewer1" },
+						state: "APPROVED",
+						body: "LGTM",
+						submittedAt: "2025-01-01T00:00:00Z",
+						comments: {
+							pageInfo: { hasNextPage: true, endCursor: "should-skip" },
+							nodes: [],
+						},
+					} as unknown as GraphQLPullRequestDetailNode["reviews"]["nodes"][0],
+				],
+			},
+		});
+
+		const fetchMock = mockFetchSequence([wrapDetailResponse(node)]);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+		const client = new GitHubClient("test-token");
+		const result = await client.fetchPullRequestDetail("acme", "repo", 1);
+
+		// Should only make the initial call, no follow-up for review comments
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(result.pullRequest.reviews).toHaveLength(1);
 	});
 });

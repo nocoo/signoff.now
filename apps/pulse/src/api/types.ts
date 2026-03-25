@@ -243,6 +243,7 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 	reviews: {
 		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
+			id: string;
 			author: { login: string } | null;
 			state: string;
 			body: string;

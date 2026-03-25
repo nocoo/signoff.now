@@ -52,6 +52,7 @@ function makeDetailNode(
 			pageInfo: NO_MORE_PAGES,
 			nodes: [
 				{
+					id: "review-1",
 					author: { login: "bob" },
 					state: "APPROVED",
 					body: "LGTM",
@@ -264,6 +265,7 @@ describe("mapPullRequestDetailNode", () => {
 					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
+							id: "review-ghost",
 							author: null,
 							state: "COMMENTED",
 							body: "auto-review",
@@ -284,6 +286,7 @@ describe("mapPullRequestDetailNode", () => {
 					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
+							id: "review-changes",
 							author: { login: "bob" },
 							state: "CHANGES_REQUESTED",
 							body: "Needs fixes",
@@ -328,6 +331,7 @@ describe("mapPullRequestDetailNode", () => {
 					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
+							id: "review-comment-ghost",
 							author: { login: "bob" },
 							state: "COMMENTED",
 							body: "",

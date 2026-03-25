@@ -93,6 +93,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       reviews(first: 100) {
         pageInfo { hasNextPage endCursor }
         nodes {
+          id
           author { login }
           state body submittedAt
           comments(first: 100) {
@@ -198,9 +199,25 @@ interface NestedConnectionConfig {
 
 const NESTED_CONNECTIONS: NestedConnectionConfig[] = [
 	{
+		name: "participants",
+		pageSize: 100,
+		fragment: "login",
+	},
+	{
+		name: "assignees",
+		pageSize: 20,
+		fragment: "login",
+	},
+	{
+		name: "reviewRequests",
+		pageSize: 20,
+		fragment:
+			"requestedReviewer { ... on User { login } ... on Team { slug } }",
+	},
+	{
 		name: "reviews",
 		pageSize: 100,
-		fragment: `author { login } state body submittedAt
+		fragment: `id author { login } state body submittedAt
       comments(first: 100) {
         pageInfo { hasNextPage endCursor }
         nodes { author { login } path line originalLine diffHunk body createdAt updatedAt }
@@ -249,6 +266,45 @@ query($owner: String!, $repo: String!, $number: Int!, $cursor: String!) {
     }
   }
 }`;
+}
+
+/** Query to paginate a single review's comments via the node global ID. */
+const REVIEW_COMMENTS_PAGE_QUERY = `
+query($reviewId: ID!, $cursor: String!) {
+  node(id: $reviewId) {
+    ... on PullRequestReview {
+      comments(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          author { login }
+          path line originalLine diffHunk
+          body createdAt updatedAt
+        }
+      }
+    }
+  }
+}`;
+
+/** Response shape for review comments follow-up query. */
+interface GraphQLReviewCommentsPageResponse {
+	data: {
+		node: {
+			comments: {
+				pageInfo: GraphQLPageInfo;
+				nodes: Array<{
+					author: { login: string } | null;
+					path: string;
+					line: number | null;
+					originalLine: number | null;
+					diffHunk: string;
+					body: string;
+					createdAt: string;
+					updatedAt: string;
+				}>;
+			};
+		} | null;
+	};
+	errors?: Array<{ message: string }>;
 }
 
 export interface GitHubClientOptions {
@@ -519,6 +575,10 @@ export class GitHubClient implements GitHubApiClient {
 
 			await this.paginateConnection(owner, repo, number, config, connection);
 		}
+
+		// Second pass: paginate review comments (nested inside each review node).
+		// statusCheckRollup.contexts is low-risk and intentionally not paginated.
+		await this.paginateReviewComments(node);
 	}
 
 	/**
@@ -561,6 +621,53 @@ export class GitHubClient implements GitHubApiClient {
 
 		// Mark as fully paginated
 		connection.pageInfo.hasNextPage = false;
+	}
+
+	/**
+	 * Paginate review comments for each review that has more pages.
+	 * Uses the review's global `id` to fetch additional comment pages via `node(id:)`.
+	 * Mutates review nodes in place by appending comments.
+	 */
+	private async paginateReviewComments(
+		node: GraphQLPullRequestDetailNode,
+	): Promise<void> {
+		for (const review of node.reviews.nodes) {
+			const reviewWithId = review as typeof review & { id?: string };
+			if (
+				!reviewWithId.id ||
+				!review.comments.pageInfo.hasNextPage ||
+				!review.comments.pageInfo.endCursor
+			) {
+				continue;
+			}
+
+			let cursor: string | null = review.comments.pageInfo.endCursor;
+			let hasNextPage = true;
+
+			while (hasNextPage && cursor) {
+				const resp: GraphQLReviewCommentsPageResponse =
+					await this.postGraphQL<GraphQLReviewCommentsPageResponse>(
+						REVIEW_COMMENTS_PAGE_QUERY,
+						{ reviewId: reviewWithId.id, cursor },
+					);
+
+				if (resp.errors?.length) {
+					throw new Error(
+						`GitHub GraphQL error: ${resp.errors.map((e: { message: string }) => e.message).join(", ")}`,
+					);
+				}
+
+				const reviewNode: GraphQLReviewCommentsPageResponse["data"]["node"] =
+					resp.data.node;
+				if (!reviewNode?.comments) break;
+
+				review.comments.nodes.push(...reviewNode.comments.nodes);
+				hasNextPage = reviewNode.comments.pageInfo.hasNextPage;
+				cursor = reviewNode.comments.pageInfo.endCursor;
+			}
+
+			review.comments.pageInfo.hasNextPage = false;
+		}
 	}
 
 	private async queryGraphQL(
