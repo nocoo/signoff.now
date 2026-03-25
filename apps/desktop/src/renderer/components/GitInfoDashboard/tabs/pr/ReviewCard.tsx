@@ -5,6 +5,7 @@
 import type { PullRequestDetail } from "@signoff/pulse";
 import { cn } from "@signoff/ui/utils";
 import { relativeDate } from "../../StatNumber";
+import { GhLink } from "./GhLink";
 
 type PrReview = PullRequestDetail["reviews"][number];
 
@@ -17,7 +18,12 @@ export function ReviewCard({ review }: ReviewCardProps) {
 		<div className="flex flex-col gap-0.5 rounded bg-muted/50 p-2">
 			{/* Review header */}
 			<div className="flex items-center gap-2">
-				<span className="text-xs font-medium">{review.author}</span>
+				<GhLink
+					target={{ type: "user", login: review.author }}
+					className="text-xs font-medium"
+				>
+					{review.author}
+				</GhLink>
 				<span
 					className={cn(
 						"rounded px-1.5 py-0.5 text-[10px] font-medium",
@@ -56,9 +62,27 @@ export function ReviewCard({ review }: ReviewCardProps) {
 								key={`${rc.path}-${rc.line ?? j}`}
 								className="flex flex-col gap-0.5"
 							>
-								<span className="truncate font-mono text-[10px] text-muted-foreground">
+								<GhLink
+									target={{
+										type: "file",
+										path: rc.path,
+										line: rc.line,
+									}}
+									className="truncate font-mono text-[10px] text-muted-foreground"
+								>
 									{loc}
-								</span>
+								</GhLink>
+								<div className="flex items-center gap-1.5">
+									<GhLink
+										target={{ type: "user", login: rc.author }}
+										className="text-[10px] font-medium"
+									>
+										{rc.author}
+									</GhLink>
+									<span className="text-[10px] text-muted-foreground">
+										{relativeDate(rc.createdAt)}
+									</span>
+								</div>
 								<p className="text-xs text-muted-foreground">
 									{rc.body.slice(0, 200)}
 									{rc.body.length > 200 ? "…" : null}
