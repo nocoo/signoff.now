@@ -298,3 +298,20 @@ export interface PullRequestDiffReport {
 	/** Changed files with patch content. */
 	files: PullRequestChangedFileWithPatch[];
 }
+
+// ---------------------------------------------------------------------------
+// PR Search types
+// ---------------------------------------------------------------------------
+
+/** Report output of `pr search` command. */
+export interface PullRequestSearchReport {
+	generatedAt: string; // ISO 8601
+	durationMs: number;
+	repository: RepositoryRef;
+	identity: IdentityRef;
+	query: string;
+	totalCount: number;
+	hasNextPage: boolean;
+	endCursor: string | null;
+	pullRequests: PullRequestInfo[];
+}

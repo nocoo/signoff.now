@@ -4,7 +4,7 @@ import type { PullRequestStateFilter } from "../commands/types.ts";
 const SIMPLE_COMMANDS = ["prs"] as const;
 
 /** Two-token sub-actions under the `pr` prefix. */
-const PR_ACTIONS = ["show", "diff"] as const;
+const PR_ACTIONS = ["show", "diff", "search"] as const;
 
 type SimpleCommand = (typeof SIMPLE_COMMANDS)[number];
 type PrAction = (typeof PR_ACTIONS)[number];
@@ -22,8 +22,10 @@ export interface ParsedArgs {
 	limit: number;
 	author: string | null;
 	noCache: boolean;
-	// pr show-specific flags
+	// pr show / pr diff-specific flags
 	number: number | null;
+	// pr search-specific flags
+	query: string | null;
 }
 
 export class ArgParseError extends Error {
@@ -104,6 +106,11 @@ function parseNumberFlag(argv: readonly string[], i: number): [number, number] {
 	return [num, i + 2];
 }
 
+function parseQueryFlag(argv: readonly string[], i: number): [string, number] {
+	const value = consumeValue(argv, i + 1, "--query");
+	return [value, i + 2];
+}
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
 	const result: ParsedArgs = {
 		command: null,
@@ -116,6 +123,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 		author: null,
 		noCache: false,
 		number: null,
+		query: null,
 	};
 
 	let i = 0;
@@ -155,6 +163,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 				continue;
 			case "--number":
 				[result.number, i] = parseNumberFlag(argv, i);
+				continue;
+			case "--query":
+				[result.query, i] = parseQueryFlag(argv, i);
 				continue;
 		}
 
@@ -214,6 +225,7 @@ Commands:
   prs             List pull requests for the current repository
   pr show         Show detailed info for a single pull request
   pr diff         Show diff and changed files for a single PR
+  pr search       Search pull requests by query
 
 Global Flags:
   --cwd <path>    Target directory (default: cwd)
@@ -231,5 +243,9 @@ pr show Flags:
   --number <n>    PR number (required)
 
 pr diff Flags:
-  --number <n>    PR number (required)`;
+  --number <n>    PR number (required)
+
+pr search Flags:
+  --query <q>     Search qualifier (required, e.g., "created:2026-03-01..2026-03-31")
+  --limit <n>     Max results (default: 100)`;
 }

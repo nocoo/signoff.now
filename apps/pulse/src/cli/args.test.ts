@@ -207,6 +207,52 @@ describe("parseArgs", () => {
 			expect(result.number).toBe(7);
 		});
 	});
+
+	describe("pr search command", () => {
+		test("parses pr search command", () => {
+			expect(parseArgs(["pr", "search"]).command).toBe("pr search");
+		});
+
+		test("parses --query flag", () => {
+			const result = parseArgs([
+				"pr",
+				"search",
+				"--query",
+				"created:>2025-01-01",
+			]);
+			expect(result.command).toBe("pr search");
+			expect(result.query).toBe("created:>2025-01-01");
+		});
+
+		test("defaults query to null", () => {
+			expect(parseArgs([]).query).toBeNull();
+		});
+
+		test("throws on --query without value", () => {
+			expect(() => parseArgs(["pr", "search", "--query"])).toThrow(
+				ArgParseError,
+			);
+		});
+
+		test("throws on --query with flag as value", () => {
+			expect(() => parseArgs(["pr", "search", "--query", "--pretty"])).toThrow(
+				ArgParseError,
+			);
+		});
+
+		test("parses --limit with pr search", () => {
+			const result = parseArgs([
+				"pr",
+				"search",
+				"--query",
+				"label:bug",
+				"--limit",
+				"50",
+			]);
+			expect(result.query).toBe("label:bug");
+			expect(result.limit).toBe(50);
+		});
+	});
 });
 
 describe("getHelpText", () => {
@@ -215,7 +261,9 @@ describe("getHelpText", () => {
 		expect(text).toContain("pulse");
 		expect(text).toContain("prs");
 		expect(text).toContain("pr show");
+		expect(text).toContain("pr search");
 		expect(text).toContain("--state");
 		expect(text).toContain("--number");
+		expect(text).toContain("--query");
 	});
 });

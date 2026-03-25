@@ -5,6 +5,7 @@ import { ArgParseError, getHelpText, parseArgs } from "./cli/args.ts";
 import { formatOutput } from "./cli/output.ts";
 import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrDiff } from "./commands/pr-diff/fetch-pr-diff.ts";
+import { fetchPrSearch } from "./commands/pr-search/fetch-pr-search.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
 import { createBunExecutor } from "./executor/bun-executor.ts";
 import { createFsCacheStore } from "./identity/fs-cache-store.ts";
@@ -131,6 +132,25 @@ async function main(): Promise<void> {
 				owner: remote.owner,
 				repo: remote.repo,
 				number: args.number,
+				resolvedUser: identity.login,
+				resolvedVia: identity.resolvedVia,
+			});
+
+			console.log(formatOutput(report, args.pretty));
+			break;
+		}
+
+		case "pr search": {
+			if (args.query === null) {
+				console.error("error: --query <q> is required for pr search command");
+				process.exit(1);
+			}
+
+			const report = await fetchPrSearch(client, {
+				owner: remote.owner,
+				repo: remote.repo,
+				query: args.query,
+				limit: args.limit || 100,
 				resolvedUser: identity.login,
 				resolvedVia: identity.resolvedVia,
 			});
