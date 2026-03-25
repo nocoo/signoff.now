@@ -10,10 +10,12 @@ import { GitHubClient } from "./api/github-client.ts";
 import type { GitHubApiClient } from "./api/types.ts";
 import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrDiff } from "./commands/pr-diff/fetch-pr-diff.ts";
+import { fetchPrSearch } from "./commands/pr-search/fetch-pr-search.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
 import type {
 	PullRequestDetailReport,
 	PullRequestDiffReport,
+	PullRequestSearchReport,
 	PullRequestStateFilter,
 	PullRequestsReport,
 } from "./commands/types.ts";
@@ -62,6 +64,15 @@ export interface CollectPullRequestDetailOptions extends CollectBaseOptions {
 export interface CollectPullRequestDiffOptions extends CollectBaseOptions {
 	/** PR number to fetch diff for. */
 	number: number;
+}
+
+export interface CollectPullRequestSearchOptions extends CollectBaseOptions {
+	/** Search qualifier. */
+	query: string;
+	/** Max results. */
+	limit: number;
+	/** Cursor for pagination (null = first page). */
+	cursor?: string | null;
 }
 
 /**
@@ -160,6 +171,25 @@ export async function collectPullRequestDiff(
 		owner: remote.owner,
 		repo: remote.repo,
 		number: opts.number,
+		resolvedUser: identity.login,
+		resolvedVia: identity.resolvedVia,
+	});
+}
+
+/**
+ * Search PRs for a project.
+ */
+export async function collectPullRequestSearch(
+	opts: CollectPullRequestSearchOptions,
+): Promise<PullRequestSearchReport> {
+	const { remote, identity, client } = await resolveProject(opts);
+
+	return fetchPrSearch(client, {
+		owner: remote.owner,
+		repo: remote.repo,
+		query: opts.query,
+		limit: opts.limit,
+		cursor: opts.cursor ?? null,
 		resolvedUser: identity.login,
 		resolvedVia: identity.resolvedVia,
 	});
