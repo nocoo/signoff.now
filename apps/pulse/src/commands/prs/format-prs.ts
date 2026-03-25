@@ -1,14 +1,14 @@
-import type { PrsReport, PullRequestInfo } from "../types.ts";
+import type { PullRequestInfo, PullRequestsReport } from "../types.ts";
 
 /**
- * Format a PrsReport as human-readable terminal output.
+ * Format a PullRequestsReport as human-readable terminal output.
  */
-export function formatPrsReport(report: PrsReport): string {
+export function formatPrsReport(report: PullRequestsReport): string {
 	const lines: string[] = [];
 
 	// Header
 	lines.push(
-		`${report.repository.owner}/${report.repository.repo} — ${report.totalCount} PR(s)`,
+		`${report.repository.owner}/${report.repository.name} — ${report.totalCount} PR(s)`,
 	);
 	lines.push(
 		`Identity: ${report.identity.resolvedUser} (via ${report.identity.resolvedVia})`,
@@ -24,13 +24,13 @@ export function formatPrsReport(report: PrsReport): string {
 	lines.push(`Filters: ${filterParts.join(", ")}`);
 	lines.push("");
 
-	if (report.prs.length === 0) {
+	if (report.pullRequests.length === 0) {
 		lines.push("No pull requests found.");
 		return lines.join("\n");
 	}
 
 	// PR list
-	for (const pr of report.prs) {
+	for (const pr of report.pullRequests) {
 		lines.push(formatPrLine(pr));
 	}
 
@@ -56,8 +56,8 @@ export function formatPrLine(pr: PullRequestInfo): string {
 
 function getStateIcon(pr: PullRequestInfo): string {
 	if (pr.merged) return "⬣";
-	if (pr.draft) return "◌";
-	if (pr.state === "open") return "●";
+	if (pr.isDraft) return "◌";
+	if (pr.state === "OPEN") return "●";
 	return "○";
 }
 

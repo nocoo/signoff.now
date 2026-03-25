@@ -2,9 +2,11 @@
 
 ## Overview
 
-`pulse` is a **planned** CLI tool that will fetch remote collaboration data (pull requests, reviews, CI checks) for a local git repository from its GitHub remote. It will automatically resolve the correct GitHub identity from the repository's origin URL — supporting multi-account setups without polluting global `gh` auth state.
+`pulse` is a CLI tool that fetches remote collaboration data (pull requests, reviews, CI checks) for a local git repository from its GitHub remote. It automatically resolves the correct GitHub identity from the repository's origin URL — supporting multi-account setups without polluting global `gh` auth state.
 
-> **Status:** Phase 1 (Identity Resolution) and Phase 2 (`prs` Subcommand) are implemented. 105 tests, 98.78% line coverage. Snapshot tests and integration test remain as follow-up items.
+> **Status:** Phase 1 (Identity Resolution), Phase 2 (`prs` Subcommand), and Phase 3 (`pr-detail` Subcommand) are implemented. Snapshot tests and integration test remain as follow-up items.
+>
+> **Naming note:** This document reflects the **current code** naming (`pr-detail`, `draft`, `headBranch`, `state: "open"`). The target naming spec (aligned with GitHub GraphQL: `pr show`, `isDraft`, `headRefName`, `state: "OPEN"`) is defined in [04-pulse-cli-spec.md](./04-pulse-cli-spec.md). Current names will be migrated in the Rename phase described there.
 
 **Design goals:**
 
@@ -38,10 +40,12 @@ pulse <command> [flags]
 
 Commands:
   prs             List pull requests for the current repository
+  pr-detail       Show detailed information for a single PR
 
 Global Flags:
   --cwd <path>    Target directory (default: cwd)
   --pretty        Human-readable output (default: compact JSON)
+  --no-cache      Skip identity cache
   --help, -h      Show help
   --version, -v   Show version
 ```
@@ -380,8 +384,13 @@ Lock down JSON output format with snapshot tests:
 
 ### Future Phases (not in v1)
 
-- **`reviews` subcommand** — Per-PR review details (comments, approvals, requested reviewers)
-- **`checks` subcommand** — CI/CD pipeline status (GitHub Actions, status checks)
+- **`pr-detail` subcommand** — ~~Per-PR detail with reviews, comments, commits, files, CI status~~ **Implemented (Phase 3).** Nested collections use fixed `first:N` limits; full nested pagination is a follow-up
+- **Desktop integration** — ~~In-process execution from Electron main~~ **Implemented.** See [03-pulse-pr-cache.md](./03-pulse-pr-cache.md)
+- **Nested pagination** — Follow `pageInfo.hasNextPage` on nested GraphQL connections (reviews, comments, commits, files) to fetch beyond `first:N` limits
+- **Time-window search** — `--search "created:{start}..{end}"` for incremental batch sync (legacy parity)
+- **PR diff** — File patches + full unified diff via REST fallback
+- **Repo metadata** — Repository-level info via GraphQL
 - **Azure DevOps support** — `az repos pr list` equivalent
-- **Desktop integration** — In-process execution from Electron main (same pattern as gitinfo)
 - **Identity map auto-refresh** — Watch `gh auth` changes, invalidate cache
+
+> For detailed gap analysis, target naming, and implementation plans for these phases, see [04-pulse-cli-spec.md](./04-pulse-cli-spec.md).

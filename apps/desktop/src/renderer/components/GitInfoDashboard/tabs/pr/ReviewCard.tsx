@@ -2,11 +2,11 @@
  * ReviewCard — renders a single PR review with optional inline comments.
  */
 
-import type { PrDetail } from "@signoff/pulse";
+import type { PullRequestDetail } from "@signoff/pulse";
 import { cn } from "@signoff/ui/utils";
 import { relativeDate } from "../../StatNumber";
 
-type PrReview = PrDetail["reviews"][number];
+type PrReview = PullRequestDetail["reviews"][number];
 
 interface ReviewCardProps {
 	review: PrReview;

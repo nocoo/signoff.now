@@ -2,13 +2,13 @@
  * CommitRow — renders a single commit with optional check run details.
  */
 
-import type { PrDetail } from "@signoff/pulse";
+import type { PullRequestDetail } from "@signoff/pulse";
 import { cn } from "@signoff/ui/utils";
 import { ExternalLink } from "lucide-react";
 import { trpc } from "../../../../lib/trpc";
 
-type PrCommit = PrDetail["commits"][number];
-type CheckRun = NonNullable<PrCommit["checkRuns"]>[number];
+type PrCommit = PullRequestDetail["commits"][number];
+type CheckRun = NonNullable<PrCommit["statusCheckRollup"]>["checkRuns"][number];
 
 interface CommitRowProps {
 	commit: PrCommit;
@@ -22,7 +22,7 @@ export function CommitRow({ commit }: CommitRowProps) {
 			{/* Commit line */}
 			<div className="flex items-start gap-2 text-xs">
 				<span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px]">
-					{commit.oid}
+					{commit.abbreviatedOid}
 				</span>
 				<span className="flex-1 text-muted-foreground">
 					{commit.message.split("\n")[0]}
@@ -31,20 +31,21 @@ export function CommitRow({ commit }: CommitRowProps) {
 					<span
 						className={cn(
 							"shrink-0 text-[10px]",
-							commit.statusCheckRollup === "SUCCESS" && "text-green-400",
-							commit.statusCheckRollup === "FAILURE" && "text-red-400",
-							commit.statusCheckRollup === "PENDING" && "text-yellow-400",
+							commit.statusCheckRollup.state === "SUCCESS" && "text-green-400",
+							commit.statusCheckRollup.state === "FAILURE" && "text-red-400",
+							commit.statusCheckRollup.state === "PENDING" && "text-yellow-400",
 						)}
 					>
-						{commit.statusCheckRollup}
+						{commit.statusCheckRollup.state}
 					</span>
 				) : null}
 			</div>
 
 			{/* Check runs */}
-			{commit.checkRuns?.length > 0 ? (
+			{commit.statusCheckRollup !== null &&
+			commit.statusCheckRollup.checkRuns.length > 0 ? (
 				<div className="ml-6 flex flex-col gap-0.5">
-					{commit.checkRuns.map((cr) => (
+					{commit.statusCheckRollup.checkRuns.map((cr) => (
 						<CheckRunItem
 							key={cr.name}
 							checkRun={cr}

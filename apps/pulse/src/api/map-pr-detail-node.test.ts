@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mapPrDetailNode } from "./map-pr-detail-node.ts";
-import type { GraphQLPrDetailNode } from "./types.ts";
+import { mapPullRequestDetailNode } from "./map-pr-detail-node.ts";
+import type { GraphQLPullRequestDetailNode } from "./types.ts";
 
 function makeDetailNode(
-	overrides?: Partial<GraphQLPrDetailNode>,
-): GraphQLPrDetailNode {
+	overrides?: Partial<GraphQLPullRequestDetailNode>,
+): GraphQLPullRequestDetailNode {
 	return {
 		number: 42,
 		title: "Add feature X",
@@ -87,18 +87,18 @@ function makeDetailNode(
 	};
 }
 
-describe("mapPrDetailNode", () => {
-	test("maps basic PR fields from base mapPrNode", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+describe("mapPullRequestDetailNode", () => {
+	test("maps basic PR fields from base mapPullRequestNode", () => {
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.number).toBe(42);
 		expect(detail.title).toBe("Add feature X");
-		expect(detail.state).toBe("open");
+		expect(detail.state).toBe("OPEN");
 		expect(detail.author).toBe("alice");
 		expect(detail.labels).toEqual(["enhancement"]);
 	});
 
 	test("maps body and merge info", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.body).toBe("## Summary\nAdds feature X");
 		expect(detail.mergeable).toBe("MERGEABLE");
 		expect(detail.mergeStateStatus).toBe("CLEAN");
@@ -106,51 +106,53 @@ describe("mapPrDetailNode", () => {
 	});
 
 	test("maps mergedBy when present", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({ mergedBy: { login: "deployer" } }),
 		);
 		expect(detail.mergedBy).toBe("deployer");
 	});
 
 	test("maps participants and assignees", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.participants).toEqual(["alice", "bob"]);
 		expect(detail.assignees).toEqual(["alice"]);
-		expect(detail.requestedReviewers).toEqual(["charlie"]);
+		expect(detail.reviewRequests).toEqual(["charlie"]);
 	});
 
-	test("maps team slug for requested reviewers", () => {
-		const detail = mapPrDetailNode(
+	test("maps team slug for review requests", () => {
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviewRequests: {
 					nodes: [{ requestedReviewer: { slug: "core-team" } }],
 				},
 			}),
 		);
-		expect(detail.requestedReviewers).toEqual(["core-team"]);
+		expect(detail.reviewRequests).toEqual(["core-team"]);
 	});
 
 	test("handles null requested reviewer gracefully", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviewRequests: { nodes: [{ requestedReviewer: null }] },
 			}),
 		);
-		expect(detail.requestedReviewers).toEqual([]);
+		expect(detail.reviewRequests).toEqual([]);
 	});
 
 	test("maps milestone", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.milestone).toBe("v1.0");
 	});
 
 	test("maps null milestone", () => {
-		const detail = mapPrDetailNode(makeDetailNode({ milestone: null }));
+		const detail = mapPullRequestDetailNode(
+			makeDetailNode({ milestone: null }),
+		);
 		expect(detail.milestone).toBeNull();
 	});
 
 	test("maps reviews", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.reviews).toHaveLength(1);
 		expect(detail.reviews[0]).toEqual({
 			author: "bob",
@@ -162,27 +164,26 @@ describe("mapPrDetailNode", () => {
 	});
 
 	test("maps comments", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.comments).toHaveLength(1);
 		expect(detail.comments[0]?.author).toBe("bob");
 		expect(detail.comments[0]?.body).toBe("Looks good");
 	});
 
-	test("maps commits with status check", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+	test("maps commits with status check rollup", () => {
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.commits).toHaveLength(1);
 		expect(detail.commits[0]).toEqual({
-			oid: "abc1234",
+			abbreviatedOid: "abc1234",
 			message: "feat: add feature X",
 			author: "alice",
 			authoredDate: "2025-01-15T10:00:00Z",
-			statusCheckRollup: "SUCCESS",
-			checkRuns: [],
+			statusCheckRollup: { state: "SUCCESS", checkRuns: [] },
 		});
 	});
 
 	test("maps commit without status check", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
 					nodes: [
@@ -204,7 +205,7 @@ describe("mapPrDetailNode", () => {
 	});
 
 	test("maps files", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.files).toHaveLength(1);
 		expect(detail.files[0]).toEqual({
 			path: "src/feature.ts",
@@ -215,31 +216,31 @@ describe("mapPrDetailNode", () => {
 	});
 
 	test("handles null files gracefully", () => {
-		const detail = mapPrDetailNode(makeDetailNode({ files: null }));
+		const detail = mapPullRequestDetailNode(makeDetailNode({ files: null }));
 		expect(detail.files).toEqual([]);
 	});
 
 	test("maps totalCommentsCount", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.totalCommentsCount).toBe(5);
 	});
 
 	test("handles null totalCommentsCount", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({ totalCommentsCount: null }),
 		);
 		expect(detail.totalCommentsCount).toBe(0);
 	});
 
 	test("maps ref OIDs and cross-repository flag", () => {
-		const detail = mapPrDetailNode(makeDetailNode());
+		const detail = mapPullRequestDetailNode(makeDetailNode());
 		expect(detail.headRefOid).toBe("abc1234");
 		expect(detail.baseRefOid).toBe("def5678");
 		expect(detail.isCrossRepository).toBe(false);
 	});
 
 	test("handles ghost author in reviews", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviews: {
 					nodes: [
@@ -258,7 +259,7 @@ describe("mapPrDetailNode", () => {
 	});
 
 	test("maps review comments", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviews: {
 					nodes: [
@@ -300,7 +301,7 @@ describe("mapPrDetailNode", () => {
 	});
 
 	test("handles ghost author in review comments", () => {
-		const detail = mapPrDetailNode(
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				reviews: {
 					nodes: [
@@ -331,8 +332,8 @@ describe("mapPrDetailNode", () => {
 		expect(detail.reviews[0]?.comments[0]?.author).toBe("ghost");
 	});
 
-	test("maps check runs from commit contexts", () => {
-		const detail = mapPrDetailNode(
+	test("maps check runs from commit contexts into statusCheckRollup", () => {
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
 					nodes: [
@@ -372,14 +373,17 @@ describe("mapPrDetailNode", () => {
 				},
 			}),
 		);
-		expect(detail.commits[0]?.checkRuns).toHaveLength(2);
-		expect(detail.commits[0]?.checkRuns[0]).toEqual({
+		const rollup = detail.commits[0]?.statusCheckRollup;
+		expect(rollup).not.toBeNull();
+		expect(rollup?.state).toBe("FAILURE");
+		expect(rollup?.checkRuns).toHaveLength(2);
+		expect(rollup?.checkRuns[0]).toEqual({
 			name: "build",
 			status: "COMPLETED",
 			conclusion: "SUCCESS",
 			detailsUrl: "https://ci.example.com/build/1",
 		});
-		expect(detail.commits[0]?.checkRuns[1]).toEqual({
+		expect(rollup?.checkRuns[1]).toEqual({
 			name: "test",
 			status: "COMPLETED",
 			conclusion: "FAILURE",
@@ -387,8 +391,8 @@ describe("mapPrDetailNode", () => {
 		});
 	});
 
-	test("returns empty check runs when no statusCheckRollup", () => {
-		const detail = mapPrDetailNode(
+	test("returns null statusCheckRollup when no checks configured", () => {
+		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
 					nodes: [
@@ -405,6 +409,6 @@ describe("mapPrDetailNode", () => {
 				},
 			}),
 		);
-		expect(detail.commits[0]?.checkRuns).toEqual([]);
+		expect(detail.commits[0]?.statusCheckRollup).toBeNull();
 	});
 });

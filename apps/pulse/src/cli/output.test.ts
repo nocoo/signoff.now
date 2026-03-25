@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { PrsReport } from "../commands/types.ts";
+import type { PullRequestsReport } from "../commands/types.ts";
 import { formatOutput } from "./output.ts";
 
-function makeReport(): PrsReport {
+function makeReport(): PullRequestsReport {
 	return {
 		generatedAt: "2025-01-15T10:00:00Z",
 		durationMs: 42,
 		repository: {
 			owner: "acme",
-			repo: "widget",
+			name: "widget",
 			url: "https://github.com/acme/widget",
 		},
 		identity: {
@@ -23,20 +23,20 @@ function makeReport(): PrsReport {
 		totalCount: 1,
 		hasNextPage: false,
 		endCursor: null,
-		prs: [
+		pullRequests: [
 			{
 				number: 7,
 				title: "Add tests",
-				state: "open",
-				draft: false,
+				state: "OPEN",
+				isDraft: false,
 				merged: false,
 				mergedAt: null,
 				author: "alice",
 				createdAt: "2025-01-10T08:00:00Z",
 				updatedAt: "2025-01-12T14:00:00Z",
 				closedAt: null,
-				headBranch: "add-tests",
-				baseBranch: "main",
+				headRefName: "add-tests",
+				baseRefName: "main",
 				url: "https://github.com/acme/widget/pull/7",
 				labels: ["test"],
 				reviewDecision: "APPROVED",
@@ -53,7 +53,7 @@ describe("formatOutput", () => {
 		const output = formatOutput(makeReport(), false);
 		const parsed = JSON.parse(output);
 		expect(parsed.repository.owner).toBe("acme");
-		expect(parsed.prs).toHaveLength(1);
+		expect(parsed.pullRequests).toHaveLength(1);
 		// Compact JSON: no newlines in the middle
 		expect(output).not.toContain("\n");
 	});
@@ -70,9 +70,9 @@ describe("formatOutput", () => {
 	test("JSON output can be round-tripped", () => {
 		const report = makeReport();
 		const json = formatOutput(report, false);
-		const parsed = JSON.parse(json) as PrsReport;
+		const parsed = JSON.parse(json) as PullRequestsReport;
 		expect(parsed.repository).toEqual(report.repository);
 		expect(parsed.identity).toEqual(report.identity);
-		expect(parsed.prs).toHaveLength(report.prs.length);
+		expect(parsed.pullRequests).toHaveLength(report.pullRequests.length);
 	});
 });

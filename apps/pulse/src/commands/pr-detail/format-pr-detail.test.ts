@@ -1,21 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import type { PrDetail, PrDetailReport } from "../types.ts";
+import type { PullRequestDetail, PullRequestDetailReport } from "../types.ts";
 import { formatPrDetailReport } from "./format-pr-detail.ts";
 
-function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
+function makePrDetail(
+	overrides?: Partial<PullRequestDetail>,
+): PullRequestDetail {
 	return {
 		number: 42,
 		title: "Add feature X",
-		state: "open",
-		draft: false,
+		state: "OPEN",
+		isDraft: false,
 		merged: false,
 		mergedAt: null,
 		author: "alice",
 		createdAt: "2025-01-15T10:00:00Z",
 		updatedAt: "2025-01-16T12:00:00Z",
 		closedAt: null,
-		headBranch: "feature-x",
-		baseBranch: "main",
+		headRefName: "feature-x",
+		baseRefName: "main",
 		url: "https://github.com/acme/repo/pull/42",
 		labels: ["enhancement"],
 		reviewDecision: "APPROVED",
@@ -28,7 +30,7 @@ function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
 		mergedBy: null,
 		totalCommentsCount: 5,
 		participants: ["alice", "bob"],
-		requestedReviewers: ["charlie"],
+		reviewRequests: ["charlie"],
 		assignees: ["alice"],
 		milestone: "v1.0",
 		headRefOid: "abc1234",
@@ -53,12 +55,11 @@ function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
 		],
 		commits: [
 			{
-				oid: "abc1234",
+				abbreviatedOid: "abc1234",
 				message: "feat: add feature X",
 				author: "alice",
 				authoredDate: "2025-01-15T10:00:00Z",
-				statusCheckRollup: "SUCCESS",
-				checkRuns: [],
+				statusCheckRollup: { state: "SUCCESS", checkRuns: [] },
 			},
 		],
 		files: [
@@ -73,16 +74,18 @@ function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
 	};
 }
 
-function makeReport(overrides?: Partial<PrDetailReport>): PrDetailReport {
+function makeReport(
+	overrides?: Partial<PullRequestDetailReport>,
+): PullRequestDetailReport {
 	return {
 		generatedAt: "2025-01-15T10:00:00Z",
 		durationMs: 456,
 		repository: {
 			owner: "acme",
-			repo: "repo",
+			name: "repo",
 			url: "https://github.com/acme/repo",
 		},
-		pr: makePrDetail(),
+		pullRequest: makePrDetail(),
 		...overrides,
 	};
 }
@@ -116,14 +119,14 @@ describe("formatPrDetailReport", () => {
 
 	test("includes state icon for merged PR", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ merged: true }) }),
+			makeReport({ pullRequest: makePrDetail({ merged: true }) }),
 		);
 		expect(output).toContain("⬣");
 	});
 
 	test("includes draft indication", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ draft: true }) }),
+			makeReport({ pullRequest: makePrDetail({ isDraft: true }) }),
 		);
 		expect(output).toContain("(draft)");
 	});
@@ -136,7 +139,7 @@ describe("formatPrDetailReport", () => {
 
 	test("skips description when body is empty", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ body: "" }) }),
+			makeReport({ pullRequest: makePrDetail({ body: "" }) }),
 		);
 		expect(output).not.toContain("─── Description ───");
 	});
@@ -198,35 +201,35 @@ describe("formatPrDetailReport", () => {
 
 	test("shows mergedBy when PR is merged", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ mergedBy: "deployer" }) }),
+			makeReport({ pullRequest: makePrDetail({ mergedBy: "deployer" }) }),
 		);
 		expect(output).toContain("Merged by: @deployer");
 	});
 
 	test("skips reviews section when empty", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ reviews: [] }) }),
+			makeReport({ pullRequest: makePrDetail({ reviews: [] }) }),
 		);
 		expect(output).not.toContain("─── Reviews");
 	});
 
 	test("skips comments section when empty", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ comments: [] }) }),
+			makeReport({ pullRequest: makePrDetail({ comments: [] }) }),
 		);
 		expect(output).not.toContain("─── Comments");
 	});
 
 	test("skips commits section when empty", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ commits: [] }) }),
+			makeReport({ pullRequest: makePrDetail({ commits: [] }) }),
 		);
 		expect(output).not.toContain("─── Commits");
 	});
 
 	test("skips files section when empty", () => {
 		const output = formatPrDetailReport(
-			makeReport({ pr: makePrDetail({ files: [] }) }),
+			makeReport({ pullRequest: makePrDetail({ files: [] }) }),
 		);
 		expect(output).not.toContain("─── Files");
 	});
@@ -234,7 +237,7 @@ describe("formatPrDetailReport", () => {
 	test("displays review comments under reviews", () => {
 		const output = formatPrDetailReport(
 			makeReport({
-				pr: makePrDetail({
+				pullRequest: makePrDetail({
 					reviews: [
 						{
 							author: "bob",
@@ -264,7 +267,7 @@ describe("formatPrDetailReport", () => {
 	test("displays review comment path without line when null", () => {
 		const output = formatPrDetailReport(
 			makeReport({
-				pr: makePrDetail({
+				pullRequest: makePrDetail({
 					reviews: [
 						{
 							author: "bob",
@@ -295,34 +298,36 @@ describe("formatPrDetailReport", () => {
 	test("displays check runs under commits", () => {
 		const output = formatPrDetailReport(
 			makeReport({
-				pr: makePrDetail({
+				pullRequest: makePrDetail({
 					commits: [
 						{
-							oid: "abc1234",
+							abbreviatedOid: "abc1234",
 							message: "feat: add feature X",
 							author: "alice",
 							authoredDate: "2025-01-15T10:00:00Z",
-							statusCheckRollup: "FAILURE",
-							checkRuns: [
-								{
-									name: "build",
-									status: "COMPLETED",
-									conclusion: "SUCCESS",
-									detailsUrl: null,
-								},
-								{
-									name: "test",
-									status: "COMPLETED",
-									conclusion: "FAILURE",
-									detailsUrl: null,
-								},
-								{
-									name: "lint",
-									status: "IN_PROGRESS",
-									conclusion: null,
-									detailsUrl: null,
-								},
-							],
+							statusCheckRollup: {
+								state: "FAILURE",
+								checkRuns: [
+									{
+										name: "build",
+										status: "COMPLETED",
+										conclusion: "SUCCESS",
+										detailsUrl: null,
+									},
+									{
+										name: "test",
+										status: "COMPLETED",
+										conclusion: "FAILURE",
+										detailsUrl: null,
+									},
+									{
+										name: "lint",
+										status: "IN_PROGRESS",
+										conclusion: null,
+										detailsUrl: null,
+									},
+								],
+							},
 						},
 					],
 				}),
@@ -335,7 +340,7 @@ describe("formatPrDetailReport", () => {
 
 	test("skips check runs display when empty", () => {
 		const output = formatPrDetailReport(makeReport());
-		// Default fixture has checkRuns: [] — should not have check run icons
+		// Default fixture has statusCheckRollup with empty checkRuns — should not have check run icons
 		expect(output).not.toContain("✓ ");
 		expect(output).not.toContain("✗ ");
 	});

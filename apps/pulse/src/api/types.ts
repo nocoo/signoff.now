@@ -1,4 +1,4 @@
-import type { PrDetail, PullRequestInfo } from "../commands/types.ts";
+import type { PullRequestDetail, PullRequestInfo } from "../commands/types.ts";
 
 /**
  * Abstraction over GitHub API calls.
@@ -31,12 +31,12 @@ export interface GitHubApiClient {
 		owner: string,
 		repo: string,
 		number: number,
-	): Promise<FetchPrDetailResult>;
+	): Promise<FetchPullRequestDetailResult>;
 }
 
 export interface FetchPrsOptions {
 	/** PR state filter for GraphQL query */
-	states: PullRequestState[];
+	states: GraphQLPullRequestState[];
 	/** Max results to return (0 = unlimited) */
 	limit: number;
 	/** Filter by author login (client-side) */
@@ -45,7 +45,8 @@ export interface FetchPrsOptions {
 	cursor?: string | null;
 }
 
-export type PullRequestState = "OPEN" | "CLOSED" | "MERGED";
+/** GraphQL enum values for PullRequestState (used in query variables). */
+export type GraphQLPullRequestState = "OPEN" | "CLOSED" | "MERGED";
 
 export interface FetchPrsResult {
 	pullRequests: PullRequestInfo[];
@@ -57,7 +58,7 @@ export interface FetchPrsResult {
 }
 
 /** Raw GraphQL response shape from GitHub */
-export interface GraphQLPrNode {
+export interface GraphQLPullRequestNode {
 	number: number;
 	title: string;
 	state: "OPEN" | "CLOSED" | "MERGED";
@@ -83,7 +84,7 @@ export interface GraphQLPrsResponse {
 		repository: {
 			pullRequests: {
 				pageInfo: { hasNextPage: boolean; endCursor: string | null };
-				nodes: GraphQLPrNode[];
+				nodes: GraphQLPullRequestNode[];
 			};
 		};
 	};
@@ -94,22 +95,22 @@ export interface GraphQLPrsResponse {
 // PR Detail types
 // ---------------------------------------------------------------------------
 
-export interface FetchPrDetailResult {
-	pr: PrDetail;
+export interface FetchPullRequestDetailResult {
+	pullRequest: PullRequestDetail; // was `pr`
 }
 
 /** Raw GraphQL response shape for a single PR detail query. */
-export interface GraphQLPrDetailResponse {
+export interface GraphQLPullRequestDetailResponse {
 	data: {
 		repository: {
-			pullRequest: GraphQLPrDetailNode;
+			pullRequest: GraphQLPullRequestDetailNode;
 		};
 	};
 	errors?: Array<{ message: string }>;
 }
 
 /** Extended GraphQL PR node with detail fields. */
-export interface GraphQLPrDetailNode extends GraphQLPrNode {
+export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 	body: string;
 	mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 	mergeStateStatus:

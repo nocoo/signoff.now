@@ -10,7 +10,11 @@ import { GitHubClient } from "./api/github-client.ts";
 import type { GitHubApiClient } from "./api/types.ts";
 import { fetchPrDetail } from "./commands/pr-detail/fetch-pr-detail.ts";
 import { fetchPrs } from "./commands/prs/fetch-prs.ts";
-import type { PrDetailReport, PrsReport } from "./commands/types.ts";
+import type {
+	PullRequestDetailReport,
+	PullRequestStateFilter,
+	PullRequestsReport,
+} from "./commands/types.ts";
 import type { CommandExecutor } from "./executor/types.ts";
 import { parseRemoteUrl } from "./identity/resolve-remote.ts";
 import type { CacheStore } from "./identity/resolve-user.ts";
@@ -39,7 +43,7 @@ interface CollectBaseOptions {
 
 export interface CollectPrsOptions extends CollectBaseOptions {
 	/** PR state filter. */
-	state: "open" | "closed" | "all";
+	state: PullRequestStateFilter;
 	/** Max results (0 = unlimited). */
 	limit: number;
 	/** Filter by author login. */
@@ -103,7 +107,9 @@ async function resolveProject(opts: CollectBaseOptions) {
 /**
  * Collect PR data for a project.
  */
-export async function collectPrs(opts: CollectPrsOptions): Promise<PrsReport> {
+export async function collectPrs(
+	opts: CollectPrsOptions,
+): Promise<PullRequestsReport> {
 	const { remote, identity, client } = await resolveProject(opts);
 
 	return fetchPrs(client, {
@@ -123,7 +129,7 @@ export async function collectPrs(opts: CollectPrsOptions): Promise<PrsReport> {
  */
 export async function collectPrDetail(
 	opts: CollectPrDetailOptions,
-): Promise<PrDetailReport> {
+): Promise<PullRequestDetailReport> {
 	const { remote, identity, client } = await resolveProject(opts);
 
 	return fetchPrDetail(client, {

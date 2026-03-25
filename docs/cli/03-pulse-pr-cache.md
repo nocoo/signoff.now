@@ -7,6 +7,8 @@ Replace the current in-memory `Map<projectId, PrsReport>` cache with **SQLite ta
 > **Status:** Complete. All 5 atomic commits landed.
 >
 > **Breaking change:** This replaces the existing `getCachedReport` query + `fetchPrs` mutation + in-memory cache with a new set of DB-backed queries and mutations. All existing tRPC procedure signatures change.
+>
+> **Naming note:** This document reflects the **current code** naming (e.g., `PrsReport`, `PrDetail`, `state: "open" | "closed"`). The target naming spec (aligned with GitHub GraphQL) is defined in [04-pulse-cli-spec.md](./04-pulse-cli-spec.md). Type names, field names, and DB `state` column values will be migrated in the Rename phase described there.
 
 **Design goals:**
 

@@ -11,12 +11,12 @@ import {
 	pullRequests,
 } from "@signoff/local-db";
 import type {
-	PrComment,
-	PrCommit,
-	PrDetail,
-	PrFile,
-	PrReview,
+	IssueComment,
+	PullRequestChangedFile,
+	PullRequestCommit,
+	PullRequestDetail,
 	PullRequestInfo,
+	PullRequestReview,
 } from "@signoff/pulse";
 import { and, desc, eq, sql } from "drizzle-orm";
 
@@ -50,15 +50,15 @@ export function upsertPrs(
 				number: pr.number,
 				title: pr.title,
 				state: pr.state,
-				draft: pr.draft,
+				draft: pr.isDraft,
 				merged: pr.merged,
 				mergedAt: pr.mergedAt,
 				author: pr.author,
 				createdAt: pr.createdAt,
 				updatedAt: pr.updatedAt,
 				closedAt: pr.closedAt,
-				headBranch: pr.headBranch,
-				baseBranch: pr.baseBranch,
+				headBranch: pr.headRefName,
+				baseBranch: pr.baseRefName,
 				url: pr.url,
 				labels: pr.labels,
 				reviewDecision: pr.reviewDecision,
@@ -107,7 +107,9 @@ export function getCachedPrs(
 ): PullRequestInfo[] {
 	const conditions = [eq(pullRequests.projectId, projectId)];
 	if (state && state !== "all") {
-		conditions.push(eq(pullRequests.state, state));
+		// DB stores uppercase PullRequestState values; map UI filter to DB value
+		const dbState = state === "open" ? "OPEN" : "CLOSED";
+		conditions.push(eq(pullRequests.state, dbState));
 	}
 
 	const rows = db
@@ -133,7 +135,7 @@ export function getCachedPrs(
 export function upsertPrDetail(
 	db: Db,
 	projectId: string,
-	detail: PrDetail,
+	detail: PullRequestDetail,
 ): void {
 	const now = Date.now();
 
@@ -154,7 +156,7 @@ export function upsertPrDetail(
 			baseRefOid: detail.baseRefOid,
 			isCrossRepository: detail.isCrossRepository,
 			participants: detail.participants,
-			requestedReviewers: detail.requestedReviewers,
+			requestedReviewers: detail.reviewRequests,
 			assignees: detail.assignees,
 			milestone: detail.milestone,
 			reviews: detail.reviews,
@@ -198,7 +200,7 @@ export function getCachedPrDetail(
 	db: Db,
 	projectId: string,
 	number: number,
-): PrDetail | null {
+): PullRequestDetail | null {
 	const row = db
 		.select()
 		.from(pullRequests)
@@ -227,15 +229,15 @@ export function getCachedPrDetail(
 		number: pr.number,
 		title: pr.title,
 		state: pr.state as PullRequestInfo["state"],
-		draft: pr.draft,
+		isDraft: pr.draft,
 		merged: pr.merged,
 		mergedAt: pr.mergedAt,
 		author: pr.author,
 		createdAt: pr.createdAt,
 		updatedAt: pr.updatedAt,
 		closedAt: pr.closedAt,
-		headBranch: pr.headBranch,
-		baseBranch: pr.baseBranch,
+		headRefName: pr.headBranch,
+		baseRefName: pr.baseBranch,
 		url: pr.url,
 		labels: pr.labels as string[],
 		reviewDecision: pr.reviewDecision,
@@ -245,21 +247,22 @@ export function getCachedPrDetail(
 
 		// Detail fields
 		body: det.body,
-		mergeable: det.mergeable as PrDetail["mergeable"],
-		mergeStateStatus: det.mergeStateStatus as PrDetail["mergeStateStatus"],
+		mergeable: det.mergeable as PullRequestDetail["mergeable"],
+		mergeStateStatus:
+			det.mergeStateStatus as PullRequestDetail["mergeStateStatus"],
 		mergedBy: det.mergedBy,
 		totalCommentsCount: det.totalCommentsCount,
 		headRefOid: det.headRefOid,
 		baseRefOid: det.baseRefOid,
 		isCrossRepository: det.isCrossRepository,
 		participants: det.participants as string[],
-		requestedReviewers: det.requestedReviewers as string[],
+		reviewRequests: det.requestedReviewers as string[],
 		assignees: det.assignees as string[],
 		milestone: det.milestone,
-		reviews: det.reviews as PrReview[],
-		comments: det.comments as PrComment[],
-		commits: det.commits as PrCommit[],
-		files: det.files as PrFile[],
+		reviews: det.reviews as PullRequestReview[],
+		comments: det.comments as IssueComment[],
+		commits: det.commits as PullRequestCommit[],
+		files: det.files as PullRequestChangedFile[],
 	};
 }
 
@@ -374,15 +377,15 @@ function rowToPullRequestInfo(row: any): PullRequestInfo {
 		number: row.number,
 		title: row.title,
 		state: row.state,
-		draft: row.draft,
+		isDraft: row.draft,
 		merged: row.merged,
 		mergedAt: row.mergedAt,
 		author: row.author,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		closedAt: row.closedAt,
-		headBranch: row.headBranch,
-		baseBranch: row.baseBranch,
+		headRefName: row.headBranch,
+		baseRefName: row.baseBranch,
 		url: row.url,
 		labels: row.labels as string[],
 		reviewDecision: row.reviewDecision,

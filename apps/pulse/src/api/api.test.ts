@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mapPrNode } from "./map-pr-node.ts";
+import { mapPullRequestNode } from "./map-pr-node.ts";
 import { MockGitHubClient } from "./mock-client.ts";
-import type { GraphQLPrNode } from "./types.ts";
+import type { GraphQLPullRequestNode } from "./types.ts";
 
-function makePrNode(overrides?: Partial<GraphQLPrNode>): GraphQLPrNode {
+function makePrNode(
+	overrides?: Partial<GraphQLPullRequestNode>,
+): GraphQLPullRequestNode {
 	return {
 		number: 42,
 		title: "Add feature X",
@@ -27,22 +29,22 @@ function makePrNode(overrides?: Partial<GraphQLPrNode>): GraphQLPrNode {
 	};
 }
 
-describe("mapPrNode", () => {
+describe("mapPullRequestNode", () => {
 	test("maps OPEN PR correctly", () => {
-		const result = mapPrNode(makePrNode());
+		const result = mapPullRequestNode(makePrNode());
 		expect(result).toEqual({
 			number: 42,
 			title: "Add feature X",
-			state: "open",
-			draft: false,
+			state: "OPEN",
+			isDraft: false,
 			merged: false,
 			mergedAt: null,
 			author: "alice",
 			createdAt: "2025-01-15T10:00:00Z",
 			updatedAt: "2025-01-16T12:00:00Z",
 			closedAt: null,
-			headBranch: "feature-x",
-			baseBranch: "main",
+			headRefName: "feature-x",
+			baseRefName: "main",
 			url: "https://github.com/acme/repo/pull/42",
 			labels: ["enhancement", "v2"],
 			reviewDecision: "APPROVED",
@@ -53,45 +55,45 @@ describe("mapPrNode", () => {
 	});
 
 	test("maps CLOSED PR state", () => {
-		const result = mapPrNode(makePrNode({ state: "CLOSED" }));
-		expect(result.state).toBe("closed");
+		const result = mapPullRequestNode(makePrNode({ state: "CLOSED" }));
+		expect(result.state).toBe("CLOSED");
 	});
 
-	test("maps MERGED PR state to closed with merged=true", () => {
-		const result = mapPrNode(
+	test("maps MERGED PR state preserving MERGED value", () => {
+		const result = mapPullRequestNode(
 			makePrNode({
 				state: "MERGED",
 				merged: true,
 				mergedAt: "2025-01-17T08:00:00Z",
 			}),
 		);
-		expect(result.state).toBe("closed");
+		expect(result.state).toBe("MERGED");
 		expect(result.merged).toBe(true);
 		expect(result.mergedAt).toBe("2025-01-17T08:00:00Z");
 	});
 
 	test("maps draft PR", () => {
-		const result = mapPrNode(makePrNode({ isDraft: true }));
-		expect(result.draft).toBe(true);
+		const result = mapPullRequestNode(makePrNode({ isDraft: true }));
+		expect(result.isDraft).toBe(true);
 	});
 
 	test("maps null author to 'ghost'", () => {
-		const result = mapPrNode(makePrNode({ author: null }));
+		const result = mapPullRequestNode(makePrNode({ author: null }));
 		expect(result.author).toBe("ghost");
 	});
 
 	test("maps empty labels", () => {
-		const result = mapPrNode(makePrNode({ labels: { nodes: [] } }));
+		const result = mapPullRequestNode(makePrNode({ labels: { nodes: [] } }));
 		expect(result.labels).toEqual([]);
 	});
 
 	test("maps null reviewDecision", () => {
-		const result = mapPrNode(makePrNode({ reviewDecision: null }));
+		const result = mapPullRequestNode(makePrNode({ reviewDecision: null }));
 		expect(result.reviewDecision).toBeNull();
 	});
 
 	test("maps closedAt for closed PR", () => {
-		const result = mapPrNode(
+		const result = mapPullRequestNode(
 			makePrNode({
 				state: "CLOSED",
 				closedAt: "2025-01-18T14:00:00Z",
@@ -104,7 +106,7 @@ describe("mapPrNode", () => {
 describe("MockGitHubClient", () => {
 	test("returns configured response", async () => {
 		const response = {
-			pullRequests: [mapPrNode(makePrNode())],
+			pullRequests: [mapPullRequestNode(makePrNode())],
 			totalCount: 1,
 		};
 		const client = new MockGitHubClient(response);

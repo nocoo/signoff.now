@@ -11,7 +11,7 @@
  * - Standard spacing: gap-6 between sections, p-3 card padding
  */
 
-import type { PrDetail } from "@signoff/pulse";
+import type { PullRequestDetail } from "@signoff/pulse";
 import { ScrollArea } from "@signoff/ui/scroll-area";
 import { Skeleton } from "@signoff/ui/skeleton";
 import { cn } from "@signoff/ui/utils";
@@ -41,7 +41,7 @@ import { ReviewCard } from "./ReviewCard";
 
 interface PrDetailPanelProps {
 	/** Full PR detail (list + detail fields). null = no cache yet. */
-	detail: PrDetail | null;
+	detail: PullRequestDetail | null;
 	/** True when a PR is selected (distinguishes "no selection" from "load failed"). */
 	hasSelection: boolean;
 	/** True when loading detail for a PR with no cache. */
@@ -104,9 +104,9 @@ export function PrDetailPanel({
 
 	const stateLabel = pr.merged
 		? "Merged"
-		: pr.draft
+		: pr.isDraft
 			? "Draft"
-			: pr.state === "open"
+			: pr.state === "OPEN"
 				? "Open"
 				: "Closed";
 
@@ -141,7 +141,7 @@ export function PrDetailPanel({
 					<div className="flex min-w-0 items-start gap-2">
 						<PrStateIcon
 							state={pr.state}
-							draft={pr.draft}
+							isDraft={pr.isDraft}
 							merged={pr.merged}
 							className="mt-1 size-5 shrink-0"
 						/>
@@ -158,10 +158,10 @@ export function PrDetailPanel({
 								"rounded px-2 py-0.5 text-xs font-medium",
 								pr.merged && "bg-purple-500/15 text-purple-400",
 								!pr.merged &&
-									pr.state === "open" &&
+									pr.state === "OPEN" &&
 									"bg-green-500/15 text-green-400",
 								!pr.merged &&
-									pr.state === "closed" &&
+									pr.state === "CLOSED" &&
 									"bg-red-500/15 text-red-400",
 							)}
 						>
@@ -241,11 +241,11 @@ export function PrDetailPanel({
 				>
 					<div className="mb-1 flex min-w-0 items-center gap-2 text-sm">
 						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-							{pr.headBranch}
+							{pr.headRefName}
 						</span>
 						<ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
 						<span className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-							{pr.baseBranch}
+							{pr.baseRefName}
 						</span>
 					</div>
 					<div className="mb-3 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
@@ -282,7 +282,7 @@ export function PrDetailPanel({
 
 				{/* Participants */}
 				{(pr.participants.length > 0 ||
-					pr.requestedReviewers.length > 0 ||
+					pr.reviewRequests.length > 0 ||
 					pr.assignees.length > 0) && (
 					<DashboardCard
 						title="Participants"
@@ -297,13 +297,13 @@ export function PrDetailPanel({
 									<span className="text-xs">{pr.assignees.join(", ")}</span>
 								</div>
 							)}
-							{pr.requestedReviewers.length > 0 && (
+							{pr.reviewRequests.length > 0 && (
 								<div>
 									<span className="text-xs font-medium text-muted-foreground">
 										Reviewers:{" "}
 									</span>
 									<span className="text-xs">
-										{pr.requestedReviewers.join(", ")}
+										{pr.reviewRequests.join(", ")}
 									</span>
 								</div>
 							)}
@@ -376,7 +376,7 @@ export function PrDetailPanel({
 					>
 						<div className="flex flex-col gap-1.5">
 							{pr.commits.map((commit) => (
-								<CommitRow key={commit.oid} commit={commit} />
+								<CommitRow key={commit.abbreviatedOid} commit={commit} />
 							))}
 						</div>
 					</DashboardCard>

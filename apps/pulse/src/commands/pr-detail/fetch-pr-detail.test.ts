@@ -1,22 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { MockGitHubClient } from "../../api/mock-client.ts";
-import type { PrDetail } from "../types.ts";
+import type { PullRequestDetail } from "../types.ts";
 import { fetchPrDetail } from "./fetch-pr-detail.ts";
 
-function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
+function makePrDetail(
+	overrides?: Partial<PullRequestDetail>,
+): PullRequestDetail {
 	return {
 		number: 42,
 		title: "Add feature X",
-		state: "open",
-		draft: false,
+		state: "OPEN",
+		isDraft: false,
 		merged: false,
 		mergedAt: null,
 		author: "alice",
 		createdAt: "2025-01-15T10:00:00Z",
 		updatedAt: "2025-01-16T12:00:00Z",
 		closedAt: null,
-		headBranch: "feature-x",
-		baseBranch: "main",
+		headRefName: "feature-x",
+		baseRefName: "main",
 		url: "https://github.com/acme/repo/pull/42",
 		labels: ["enhancement"],
 		reviewDecision: "APPROVED",
@@ -29,7 +31,7 @@ function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
 		mergedBy: null,
 		totalCommentsCount: 5,
 		participants: ["alice", "bob"],
-		requestedReviewers: ["charlie"],
+		reviewRequests: ["charlie"],
 		assignees: ["alice"],
 		milestone: "v1.0",
 		headRefOid: "abc1234",
@@ -54,12 +56,11 @@ function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
 		],
 		commits: [
 			{
-				oid: "abc1234",
+				abbreviatedOid: "abc1234",
 				message: "feat: add feature X",
 				author: "alice",
 				authoredDate: "2025-01-15T10:00:00Z",
-				statusCheckRollup: "SUCCESS",
-				checkRuns: [],
+				statusCheckRollup: { state: "SUCCESS", checkRuns: [] },
 			},
 		],
 		files: [
@@ -75,11 +76,11 @@ function makePrDetail(overrides?: Partial<PrDetail>): PrDetail {
 }
 
 describe("fetchPrDetail", () => {
-	test("assembles PrDetailReport from API response", async () => {
+	test("assembles PullRequestDetailReport from API response", async () => {
 		const pr = makePrDetail();
 		const client = new MockGitHubClient(
 			{ pullRequests: [], totalCount: 0 },
-			{ pr },
+			{ pullRequest: pr },
 		);
 
 		const report = await fetchPrDetail(client, {
@@ -92,15 +93,15 @@ describe("fetchPrDetail", () => {
 
 		expect(report.repository).toEqual({
 			owner: "acme",
-			repo: "repo",
+			name: "repo",
 			url: "https://github.com/acme/repo",
 		});
-		expect(report.pr.number).toBe(42);
-		expect(report.pr.title).toBe("Add feature X");
-		expect(report.pr.body).toBe("## Summary\nAdds feature X");
-		expect(report.pr.reviews).toHaveLength(1);
-		expect(report.pr.commits).toHaveLength(1);
-		expect(report.pr.files).toHaveLength(1);
+		expect(report.pullRequest.number).toBe(42);
+		expect(report.pullRequest.title).toBe("Add feature X");
+		expect(report.pullRequest.body).toBe("## Summary\nAdds feature X");
+		expect(report.pullRequest.reviews).toHaveLength(1);
+		expect(report.pullRequest.commits).toHaveLength(1);
+		expect(report.pullRequest.files).toHaveLength(1);
 		expect(report.durationMs).toBeGreaterThanOrEqual(0);
 		expect(report.generatedAt).toBeTruthy();
 	});
@@ -109,7 +110,7 @@ describe("fetchPrDetail", () => {
 		const pr = makePrDetail();
 		const client = new MockGitHubClient(
 			{ pullRequests: [], totalCount: 0 },
-			{ pr },
+			{ pullRequest: pr },
 		);
 
 		await fetchPrDetail(client, {

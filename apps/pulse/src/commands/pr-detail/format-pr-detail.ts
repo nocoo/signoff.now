@@ -1,17 +1,17 @@
-import type { PrDetail, PrDetailReport } from "../types.ts";
+import type { PullRequestDetail, PullRequestDetailReport } from "../types.ts";
 
 /**
- * Format a PrDetailReport as human-readable terminal output.
+ * Format a PullRequestDetailReport as human-readable terminal output.
  */
-export function formatPrDetailReport(report: PrDetailReport): string {
+export function formatPrDetailReport(report: PullRequestDetailReport): string {
 	const lines: string[] = [];
-	const { pr } = report;
-	const repo = `${report.repository.owner}/${report.repository.repo}`;
+	const { pullRequest: pr } = report;
+	const repo = `${report.repository.owner}/${report.repository.name}`;
 
 	// Header
 	const stateIcon = getDetailStateIcon(pr);
 	lines.push(`${stateIcon} #${pr.number} ${pr.title}`);
-	lines.push(`${repo} — ${pr.headBranch} → ${pr.baseBranch}`);
+	lines.push(`${repo} — ${pr.headRefName} → ${pr.baseRefName}`);
 	lines.push("");
 
 	// Metadata
@@ -35,10 +35,10 @@ export function formatPrDetailReport(report: PrDetailReport): string {
 	return lines.join("\n");
 }
 
-function formatMetadata(lines: string[], pr: PrDetail): void {
+function formatMetadata(lines: string[], pr: PullRequestDetail): void {
 	lines.push(`  Author:    @${pr.author}`);
 	lines.push(
-		`  State:     ${pr.state}${pr.draft ? " (draft)" : ""}${pr.merged ? " (merged)" : ""}`,
+		`  State:     ${pr.state}${pr.isDraft ? " (draft)" : ""}${pr.merged ? " (merged)" : ""}`,
 	);
 	lines.push(
 		`  Mergeable: ${pr.mergeable.toLowerCase()} (${pr.mergeStateStatus.toLowerCase()})`,
@@ -49,8 +49,8 @@ function formatMetadata(lines: string[], pr: PrDetail): void {
 	if (pr.assignees.length > 0) {
 		lines.push(`  Assignees: ${pr.assignees.map((a) => `@${a}`).join(", ")}`);
 	}
-	if (pr.requestedReviewers.length > 0) {
-		lines.push(`  Reviewers: ${pr.requestedReviewers.join(", ")}`);
+	if (pr.reviewRequests.length > 0) {
+		lines.push(`  Reviewers: ${pr.reviewRequests.join(", ")}`);
 	}
 	if (pr.milestone) {
 		lines.push(`  Milestone: ${pr.milestone}`);
@@ -67,7 +67,7 @@ function formatMetadata(lines: string[], pr: PrDetail): void {
 	lines.push("");
 }
 
-function formatReviews(lines: string[], pr: PrDetail): void {
+function formatReviews(lines: string[], pr: PullRequestDetail): void {
 	if (pr.reviews.length === 0) return;
 
 	lines.push(`─── Reviews (${pr.reviews.length}) ───`);
@@ -88,7 +88,7 @@ function formatReviews(lines: string[], pr: PrDetail): void {
 	lines.push("");
 }
 
-function formatComments(lines: string[], pr: PrDetail): void {
+function formatComments(lines: string[], pr: PullRequestDetail): void {
 	if (pr.comments.length === 0) return;
 
 	lines.push(`─── Comments (${pr.comments.length}) ───`);
@@ -99,28 +99,32 @@ function formatComments(lines: string[], pr: PrDetail): void {
 	lines.push("");
 }
 
-function formatCommits(lines: string[], pr: PrDetail): void {
+function formatCommits(lines: string[], pr: PullRequestDetail): void {
 	if (pr.commits.length === 0) return;
 
 	lines.push(`─── Commits (${pr.commits.length}) ───`);
 	for (const commit of pr.commits) {
 		const status = commit.statusCheckRollup
-			? ` [${commit.statusCheckRollup.toLowerCase()}]`
+			? ` [${commit.statusCheckRollup.state.toLowerCase()}]`
 			: "";
 		const firstLine = commit.message.split("\n")[0];
-		lines.push(`  ${commit.oid} ${firstLine}${status}  @${commit.author}`);
-		for (const cr of commit.checkRuns) {
-			const icon = getCheckRunIcon(cr.conclusion);
-			const conclusion = cr.conclusion
-				? cr.conclusion.toLowerCase()
-				: cr.status.toLowerCase();
-			lines.push(`    ${icon} ${cr.name} [${conclusion}]`);
+		lines.push(
+			`  ${commit.abbreviatedOid} ${firstLine}${status}  @${commit.author}`,
+		);
+		if (commit.statusCheckRollup) {
+			for (const cr of commit.statusCheckRollup.checkRuns) {
+				const icon = getCheckRunIcon(cr.conclusion);
+				const conclusion = cr.conclusion
+					? cr.conclusion.toLowerCase()
+					: cr.status.toLowerCase();
+				lines.push(`    ${icon} ${cr.name} [${conclusion}]`);
+			}
 		}
 	}
 	lines.push("");
 }
 
-function formatFiles(lines: string[], pr: PrDetail): void {
+function formatFiles(lines: string[], pr: PullRequestDetail): void {
 	if (pr.files.length === 0) return;
 
 	lines.push(`─── Files (${pr.files.length}) ───`);
@@ -133,12 +137,12 @@ function formatFiles(lines: string[], pr: PrDetail): void {
 
 function getDetailStateIcon(pr: {
 	merged: boolean;
-	draft: boolean;
+	isDraft: boolean;
 	state: string;
 }): string {
 	if (pr.merged) return "⬣";
-	if (pr.draft) return "◌";
-	if (pr.state === "open") return "●";
+	if (pr.isDraft) return "◌";
+	if (pr.state === "OPEN") return "●";
 	return "○";
 }
 

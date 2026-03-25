@@ -1,13 +1,13 @@
 import type { PullRequestInfo } from "../commands/types.ts";
-import { mapPrDetailNode } from "./map-pr-detail-node.ts";
-import { mapPrNode } from "./map-pr-node.ts";
+import { mapPullRequestDetailNode } from "./map-pr-detail-node.ts";
+import { mapPullRequestNode } from "./map-pr-node.ts";
 import type {
-	FetchPrDetailResult,
 	FetchPrsOptions,
 	FetchPrsResult,
+	FetchPullRequestDetailResult,
 	GitHubApiClient,
-	GraphQLPrDetailResponse,
 	GraphQLPrsResponse,
+	GraphQLPullRequestDetailResponse,
 } from "./types.ts";
 
 const GRAPHQL_ENDPOINT = "https://api.github.com/graphql";
@@ -166,7 +166,7 @@ export class GitHubClient implements GitHubApiClient {
 			const { nodes, pageInfo } = response.data.repository.pullRequests;
 
 			for (const node of nodes) {
-				const pr = mapPrNode(node);
+				const pr = mapPullRequestNode(node);
 
 				// Client-side author filter
 				if (opts.author && pr.author !== opts.author) {
@@ -203,8 +203,8 @@ export class GitHubClient implements GitHubApiClient {
 		owner: string,
 		repo: string,
 		number: number,
-	): Promise<FetchPrDetailResult> {
-		const response = await this.postGraphQL<GraphQLPrDetailResponse>(
+	): Promise<FetchPullRequestDetailResult> {
+		const response = await this.postGraphQL<GraphQLPullRequestDetailResponse>(
 			PR_DETAIL_QUERY,
 			{ owner, repo, number },
 		);
@@ -220,7 +220,7 @@ export class GitHubClient implements GitHubApiClient {
 			throw new Error(`Pull request #${number} not found in ${owner}/${repo}`);
 		}
 
-		return { pr: mapPrDetailNode(node) };
+		return { pullRequest: mapPullRequestDetailNode(node) };
 	}
 
 	private async queryGraphQL(

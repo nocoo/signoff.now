@@ -9,7 +9,7 @@
  * - Detail layer: getCachedPrDetail (JOIN pull_requests + pull_request_details)
  */
 
-import type { PrDetail, PullRequestInfo } from "@signoff/pulse";
+import type { PullRequestDetail, PullRequestInfo } from "@signoff/pulse";
 import { useEffect, useMemo, useState } from "react";
 import { trpc } from "../lib/trpc";
 
@@ -84,7 +84,7 @@ export interface UsePrViewModelReturn {
 	// Detail
 	selectedPrNumber: number | null;
 	selectPr: (number: number | null) => void;
-	selectedPrDetail: PrDetail | null;
+	selectedPrDetail: PullRequestDetail | null;
 	isDetailLoading: boolean;
 	isDetailRefreshing: boolean;
 	detailError: string | null;

@@ -8,6 +8,7 @@
  * - Closed: red circle
  */
 
+import type { PullRequestInfo } from "@signoff/pulse";
 import { cn } from "@signoff/ui/utils";
 import {
 	Circle,
@@ -17,15 +18,15 @@ import {
 } from "lucide-react";
 
 interface PrStateIconProps {
-	state: "open" | "closed";
-	draft: boolean;
+	state: PullRequestInfo["state"];
+	isDraft: boolean;
 	merged: boolean;
 	className?: string;
 }
 
 export function PrStateIcon({
 	state,
-	draft,
+	isDraft,
 	merged,
 	className,
 }: PrStateIconProps) {
@@ -35,7 +36,7 @@ export function PrStateIcon({
 		);
 	}
 
-	if (draft) {
+	if (isDraft) {
 		return (
 			<GitPullRequestDraft
 				className={cn("size-4 shrink-0 text-muted-foreground", className)}
@@ -43,7 +44,7 @@ export function PrStateIcon({
 		);
 	}
 
-	if (state === "closed") {
+	if (state === "CLOSED") {
 		return <Circle className={cn("size-4 shrink-0 text-red-400", className)} />;
 	}
 

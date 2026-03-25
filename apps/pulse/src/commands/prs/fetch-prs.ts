@@ -1,10 +1,13 @@
-import type { GitHubApiClient, PullRequestState } from "../../api/types.ts";
-import type { PrsReport } from "../types.ts";
+import type {
+	GitHubApiClient,
+	GraphQLPullRequestState,
+} from "../../api/types.ts";
+import type { PullRequestStateFilter, PullRequestsReport } from "../types.ts";
 
 export interface FetchPrsInput {
 	owner: string;
 	repo: string;
-	state: "open" | "closed" | "all";
+	state: PullRequestStateFilter;
 	limit: number;
 	author: string | null;
 	resolvedUser: string;
@@ -17,25 +20,27 @@ export interface FetchPrsInput {
  * Map CLI --state flag to GitHub GraphQL PullRequestState enum values.
  */
 export function mapStatesToGraphQL(
-	state: "open" | "closed" | "all",
-): PullRequestState[] {
+	state: PullRequestStateFilter,
+): GraphQLPullRequestState[] {
 	switch (state) {
 		case "open":
 			return ["OPEN"];
 		case "closed":
-			return ["CLOSED", "MERGED"];
+			return ["CLOSED"];
+		case "merged":
+			return ["MERGED"];
 		case "all":
 			return ["OPEN", "CLOSED", "MERGED"];
 	}
 }
 
 /**
- * Fetch PRs and assemble the full PrsReport.
+ * Fetch PRs and assemble the full PullRequestsReport.
  */
 export async function fetchPrs(
 	client: GitHubApiClient,
 	input: FetchPrsInput,
-): Promise<PrsReport> {
+): Promise<PullRequestsReport> {
 	const startTime = Date.now();
 
 	const states = mapStatesToGraphQL(input.state);
@@ -53,7 +58,7 @@ export async function fetchPrs(
 		durationMs,
 		repository: {
 			owner: input.owner,
-			repo: input.repo,
+			name: input.repo,
 			url: `https://github.com/${input.owner}/${input.repo}`,
 		},
 		identity: {
@@ -68,6 +73,6 @@ export async function fetchPrs(
 		totalCount: result.totalCount,
 		hasNextPage: result.hasNextPage,
 		endCursor: result.endCursor,
-		prs: result.pullRequests,
+		pullRequests: result.pullRequests,
 	};
 }

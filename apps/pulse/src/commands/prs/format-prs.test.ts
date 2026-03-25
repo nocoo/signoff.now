@@ -1,21 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import type { PrsReport, PullRequestInfo } from "../types.ts";
+import type { PullRequestInfo, PullRequestsReport } from "../types.ts";
 import { formatPrLine, formatPrsReport } from "./format-prs.ts";
 
 function makePr(overrides?: Partial<PullRequestInfo>): PullRequestInfo {
 	return {
 		number: 42,
 		title: "Add feature X",
-		state: "open",
-		draft: false,
+		state: "OPEN",
+		isDraft: false,
 		merged: false,
 		mergedAt: null,
 		author: "alice",
 		createdAt: "2025-01-15T10:00:00Z",
 		updatedAt: "2025-01-16T12:00:00Z",
 		closedAt: null,
-		headBranch: "feature-x",
-		baseBranch: "main",
+		headRefName: "feature-x",
+		baseRefName: "main",
 		url: "https://github.com/acme/repo/pull/42",
 		labels: [],
 		reviewDecision: null,
@@ -26,13 +26,15 @@ function makePr(overrides?: Partial<PullRequestInfo>): PullRequestInfo {
 	};
 }
 
-function makeReport(overrides?: Partial<PrsReport>): PrsReport {
+function makeReport(
+	overrides?: Partial<PullRequestsReport>,
+): PullRequestsReport {
 	return {
 		generatedAt: "2025-01-15T10:00:00Z",
 		durationMs: 123,
 		repository: {
 			owner: "acme",
-			repo: "repo",
+			name: "repo",
 			url: "https://github.com/acme/repo",
 		},
 		identity: {
@@ -47,7 +49,7 @@ function makeReport(overrides?: Partial<PrsReport>): PrsReport {
 		totalCount: 1,
 		hasNextPage: false,
 		endCursor: null,
-		prs: [makePr()],
+		pullRequests: [makePr()],
 		...overrides,
 	};
 }
@@ -63,7 +65,7 @@ describe("formatPrLine", () => {
 	});
 
 	test("formats draft PR with circle icon", () => {
-		const line = formatPrLine(makePr({ draft: true }));
+		const line = formatPrLine(makePr({ isDraft: true }));
 		expect(line).toContain("◌");
 	});
 
@@ -74,7 +76,7 @@ describe("formatPrLine", () => {
 
 	test("formats closed PR with empty circle icon", () => {
 		const line = formatPrLine(
-			makePr({ state: "closed", merged: false, draft: false }),
+			makePr({ state: "CLOSED", merged: false, isDraft: false }),
 		);
 		expect(line).toContain("○");
 	});
@@ -147,7 +149,9 @@ describe("formatPrsReport", () => {
 	});
 
 	test("shows 'No pull requests found' for empty list", () => {
-		const output = formatPrsReport(makeReport({ prs: [], totalCount: 0 }));
+		const output = formatPrsReport(
+			makeReport({ pullRequests: [], totalCount: 0 }),
+		);
 		expect(output).toContain("No pull requests found.");
 	});
 
@@ -159,7 +163,7 @@ describe("formatPrsReport", () => {
 	test("formats multiple PRs", () => {
 		const output = formatPrsReport(
 			makeReport({
-				prs: [makePr({ number: 1 }), makePr({ number: 2 })],
+				pullRequests: [makePr({ number: 1 }), makePr({ number: 2 })],
 				totalCount: 2,
 			}),
 		);

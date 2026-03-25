@@ -1,20 +1,138 @@
+// ---------------------------------------------------------------------------
+// Shared type aliases matching GitHub GraphQL enum names
+// ---------------------------------------------------------------------------
+
+/** Pull request state, matching GraphQL `PullRequestState` enum. */
+export type PullRequestState = "OPEN" | "CLOSED" | "MERGED";
+
+/** CLI-level state filter (lowercase for user-facing flags). */
+export type PullRequestStateFilter = "open" | "closed" | "merged" | "all";
+
+/** Review decision, matching GraphQL `PullRequestReviewDecision` enum. */
+export type PullRequestReviewDecision =
+	| "APPROVED"
+	| "CHANGES_REQUESTED"
+	| "REVIEW_REQUIRED";
+
+/** Review state, matching GraphQL `PullRequestReviewState` enum. */
+export type PullRequestReviewState =
+	| "APPROVED"
+	| "CHANGES_REQUESTED"
+	| "COMMENTED"
+	| "DISMISSED"
+	| "PENDING";
+
+/** Mergeable state, matching GraphQL `MergeableState` enum. */
+export type MergeableState = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+
+/** Merge state status, matching GraphQL `MergeStateStatus` enum. */
+export type MergeStateStatus =
+	| "BEHIND"
+	| "BLOCKED"
+	| "CLEAN"
+	| "DIRTY"
+	| "DRAFT"
+	| "HAS_HOOKS"
+	| "UNKNOWN"
+	| "UNSTABLE";
+
+/** Combined status state, matching GraphQL `StatusState` enum. */
+export type StatusState =
+	| "SUCCESS"
+	| "FAILURE"
+	| "PENDING"
+	| "ERROR"
+	| "EXPECTED";
+
+/** Check execution status, matching GraphQL `CheckStatusState` enum. */
+export type CheckStatusState =
+	| "QUEUED"
+	| "IN_PROGRESS"
+	| "COMPLETED"
+	| "WAITING"
+	| "PENDING"
+	| "REQUESTED";
+
+/** Check conclusion, matching GraphQL `CheckConclusionState` enum. */
+export type CheckConclusionState =
+	| "SUCCESS"
+	| "FAILURE"
+	| "NEUTRAL"
+	| "CANCELLED"
+	| "TIMED_OUT"
+	| "ACTION_REQUIRED"
+	| "SKIPPED"
+	| "STARTUP_FAILURE"
+	| "STALE";
+
+/** File change type, matching GraphQL `PatchStatus` enum. */
+export type PatchStatus =
+	| "ADDED"
+	| "MODIFIED"
+	| "DELETED"
+	| "RENAMED"
+	| "COPIED"
+	| "CHANGED";
+
+// ---------------------------------------------------------------------------
+// Shared sub-structures
+// ---------------------------------------------------------------------------
+
+/** Repository reference used in report outputs. */
+export interface RepositoryRef {
+	owner: string;
+	name: string; // was `repo`; match GraphQL `Repository.name`
+	url: string;
+}
+
+/** Identity reference used in report outputs. */
+export interface IdentityRef {
+	resolvedUser: string;
+	resolvedVia: "direct" | "org" | "fallback";
+}
+
+// ---------------------------------------------------------------------------
+// PullRequestInfo (list-level item)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalized pull request info from GitHub GraphQL API.
+ */
+export interface PullRequestInfo {
+	number: number;
+	title: string;
+	state: PullRequestState; // "OPEN" | "CLOSED" | "MERGED"
+	isDraft: boolean; // was `draft`
+	merged: boolean;
+	mergedAt: string | null; // ISO 8601
+	author: string; // unwrapped from { login }
+	createdAt: string; // ISO 8601
+	updatedAt: string; // ISO 8601
+	closedAt: string | null; // ISO 8601
+	headRefName: string; // was `headBranch`
+	baseRefName: string; // was `baseBranch`
+	url: string; // HTML URL for the PR
+	labels: string[]; // unwrapped from nodes[].name
+	reviewDecision: PullRequestReviewDecision | null;
+	additions: number;
+	deletions: number;
+	changedFiles: number;
+}
+
+// ---------------------------------------------------------------------------
+// PullRequestsReport (output of `prs` subcommand)
+// ---------------------------------------------------------------------------
+
 /**
  * Report output from the `prs` subcommand.
  */
-export interface PrsReport {
+export interface PullRequestsReport {
 	generatedAt: string; // ISO 8601
 	durationMs: number;
-	repository: {
-		owner: string;
-		repo: string;
-		url: string; // https://github.com/{owner}/{repo}
-	};
-	identity: {
-		resolvedUser: string; // which gh user was used
-		resolvedVia: "direct" | "org" | "fallback";
-	};
+	repository: RepositoryRef;
+	identity: IdentityRef;
 	filters: {
-		state: "open" | "closed" | "all";
+		state: PullRequestStateFilter;
 		author: string | null;
 		limit: number;
 	};
@@ -23,78 +141,32 @@ export interface PrsReport {
 	hasNextPage: boolean;
 	/** Cursor to pass for the next page (null if no more pages). */
 	endCursor: string | null;
-	prs: PullRequestInfo[];
-}
-
-/**
- * Normalized pull request info from GitHub GraphQL API.
- */
-export interface PullRequestInfo {
-	number: number;
-	title: string;
-	state: "open" | "closed";
-	draft: boolean;
-	merged: boolean;
-	mergedAt: string | null; // ISO 8601
-	author: string; // login
-	createdAt: string; // ISO 8601
-	updatedAt: string; // ISO 8601
-	closedAt: string | null; // ISO 8601
-	headBranch: string;
-	baseBranch: string;
-	url: string; // HTML URL for the PR
-	labels: string[];
-	reviewDecision: string | null; // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
-	additions: number;
-	deletions: number;
-	changedFiles: number;
+	pullRequests: PullRequestInfo[]; // was `prs`
 }
 
 // ---------------------------------------------------------------------------
-// PR Detail types
+// PullRequestDetail (extends PullRequestInfo)
 // ---------------------------------------------------------------------------
-
-/**
- * Report output from the `pr-detail` subcommand.
- */
-export interface PrDetailReport {
-	generatedAt: string; // ISO 8601
-	durationMs: number;
-	repository: {
-		owner: string;
-		repo: string;
-		url: string;
-	};
-	pr: PrDetail;
-}
 
 /**
  * Comprehensive detail for a single pull request.
  * Extends PullRequestInfo with body, reviews, comments, commits, files, etc.
  */
-export interface PrDetail extends PullRequestInfo {
+export interface PullRequestDetail extends PullRequestInfo {
 	/** PR description body in Markdown. */
 	body: string;
 	/** Whether the PR is mergeable. */
-	mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+	mergeable: MergeableState;
 	/** Detailed merge state. */
-	mergeStateStatus:
-		| "BEHIND"
-		| "BLOCKED"
-		| "CLEAN"
-		| "DIRTY"
-		| "DRAFT"
-		| "HAS_HOOKS"
-		| "UNKNOWN"
-		| "UNSTABLE";
+	mergeStateStatus: MergeStateStatus;
 	/** Who merged the PR (login), null if not merged. */
 	mergedBy: string | null;
 	/** Total comment count (all types). */
 	totalCommentsCount: number;
 	/** Participants (logins). */
 	participants: string[];
-	/** Requested reviewers (logins or team slugs). */
-	requestedReviewers: string[];
+	/** Requested reviewers (logins or team slugs). Was `requestedReviewers`. */
+	reviewRequests: string[];
 	/** Assignees (logins). */
 	assignees: string[];
 	/** Milestone name, if any. */
@@ -107,32 +179,45 @@ export interface PrDetail extends PullRequestInfo {
 	isCrossRepository: boolean;
 
 	/** Reviews on this PR. */
-	reviews: PrReview[];
+	reviews: PullRequestReview[];
 	/** Issue comments (non-review discussion). */
-	comments: PrComment[];
+	comments: IssueComment[]; // was `PrComment[]`
 	/** Commits in this PR. */
-	commits: PrCommit[];
+	commits: PullRequestCommit[];
 	/** Changed files in this PR. */
-	files: PrFile[];
+	files: PullRequestChangedFile[];
 }
 
-/** A single review on a PR. */
-export interface PrReview {
+// ---------------------------------------------------------------------------
+// PullRequestDetailReport (output of `pr show` subcommand)
+// ---------------------------------------------------------------------------
+
+/**
+ * Report output from the `pr show` subcommand.
+ */
+export interface PullRequestDetailReport {
+	generatedAt: string; // ISO 8601
+	durationMs: number;
+	repository: RepositoryRef;
+	pullRequest: PullRequestDetail; // was `pr`
+}
+
+// ---------------------------------------------------------------------------
+// Nested types
+// ---------------------------------------------------------------------------
+
+/** A single review on a PR. Matches GraphQL `PullRequestReview` type. */
+export interface PullRequestReview {
 	author: string;
-	state:
-		| "APPROVED"
-		| "CHANGES_REQUESTED"
-		| "COMMENTED"
-		| "DISMISSED"
-		| "PENDING";
+	state: PullRequestReviewState;
 	body: string;
 	submittedAt: string | null; // ISO 8601
 	/** Line-level review comments attached to this review. */
-	comments: PrReviewComment[];
+	comments: PullRequestReviewComment[];
 }
 
-/** A line-level comment on a pull request review. */
-export interface PrReviewComment {
+/** A line-level comment on a pull request review. Matches GraphQL `PullRequestReviewComment` type. */
+export interface PullRequestReviewComment {
 	author: string;
 	/** File path the comment targets. */
 	path: string;
@@ -147,69 +232,46 @@ export interface PrReviewComment {
 	updatedAt: string; // ISO 8601
 }
 
-/** An issue comment (non-review). */
-export interface PrComment {
+/** An issue comment (non-review). Matches GraphQL `IssueComment` type. */
+export interface IssueComment {
 	author: string;
 	body: string;
 	createdAt: string; // ISO 8601
 	updatedAt: string; // ISO 8601
 }
 
-/** A commit in the PR. */
-export interface PrCommit {
-	oid: string; // abbreviated
+/** A commit in the PR. Matches GraphQL `PullRequestCommit` type. */
+export interface PullRequestCommit {
+	abbreviatedOid: string; // was `oid`
 	message: string;
 	author: string;
 	authoredDate: string; // ISO 8601
-	/** Combined status check state for this commit (null if no checks). */
-	statusCheckRollup:
-		| "SUCCESS"
-		| "FAILURE"
-		| "PENDING"
-		| "ERROR"
-		| "EXPECTED"
-		| null;
-	/** Individual CI check runs for this commit. */
-	checkRuns: CheckRun[];
+	/** Combined status check rollup (null if no checks configured). */
+	statusCheckRollup: StatusCheckRollup | null;
 }
 
-/** An individual CI check run on a commit. */
+/** Matches GraphQL `StatusCheckRollup` type structure. */
+export interface StatusCheckRollup {
+	state: StatusState;
+	checkRuns: CheckRun[]; // filtered from contexts (CheckRun nodes only)
+}
+
+/** An individual CI check run on a commit. Matches GraphQL `CheckRun` type. */
 export interface CheckRun {
 	/** Check name (e.g. "build", "test", "lint"). */
 	name: string;
 	/** Current execution status. */
-	status:
-		| "QUEUED"
-		| "IN_PROGRESS"
-		| "COMPLETED"
-		| "WAITING"
-		| "PENDING"
-		| "REQUESTED";
+	status: CheckStatusState;
 	/** Final result (null if not yet completed). */
-	conclusion:
-		| "SUCCESS"
-		| "FAILURE"
-		| "NEUTRAL"
-		| "CANCELLED"
-		| "TIMED_OUT"
-		| "ACTION_REQUIRED"
-		| "SKIPPED"
-		| "STALE"
-		| null;
+	conclusion: CheckConclusionState | null;
 	/** URL to the CI run details page. */
 	detailsUrl: string | null;
 }
 
-/** A changed file in the PR. */
-export interface PrFile {
+/** A changed file in the PR. Matches GraphQL `PullRequestChangedFile` type. */
+export interface PullRequestChangedFile {
 	path: string;
 	additions: number;
 	deletions: number;
-	changeType:
-		| "ADDED"
-		| "MODIFIED"
-		| "DELETED"
-		| "RENAMED"
-		| "COPIED"
-		| "CHANGED";
+	changeType: PatchStatus;
 }

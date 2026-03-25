@@ -1,5 +1,5 @@
 import type { GitHubApiClient } from "../../api/types.ts";
-import type { PrDetailReport } from "../types.ts";
+import type { PullRequestDetailReport } from "../types.ts";
 
 export interface FetchPrDetailInput {
 	owner: string;
@@ -15,7 +15,7 @@ export interface FetchPrDetailInput {
 export async function fetchPrDetail(
 	client: GitHubApiClient,
 	input: FetchPrDetailInput,
-): Promise<PrDetailReport> {
+): Promise<PullRequestDetailReport> {
 	const startTime = Date.now();
 
 	const result = await client.fetchPullRequestDetail(
@@ -31,9 +31,9 @@ export async function fetchPrDetail(
 		durationMs,
 		repository: {
 			owner: input.owner,
-			repo: input.repo,
+			name: input.repo,
 			url: `https://github.com/${input.owner}/${input.repo}`,
 		},
-		pr: result.pr,
+		pullRequest: result.pullRequest,
 	};
 }

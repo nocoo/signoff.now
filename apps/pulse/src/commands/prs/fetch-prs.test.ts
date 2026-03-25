@@ -7,16 +7,16 @@ function makePr(overrides?: Partial<PullRequestInfo>): PullRequestInfo {
 	return {
 		number: 1,
 		title: "Test PR",
-		state: "open",
-		draft: false,
+		state: "OPEN",
+		isDraft: false,
 		merged: false,
 		mergedAt: null,
 		author: "alice",
 		createdAt: "2025-01-15T10:00:00Z",
 		updatedAt: "2025-01-16T12:00:00Z",
 		closedAt: null,
-		headBranch: "feature",
-		baseBranch: "main",
+		headRefName: "feature",
+		baseRefName: "main",
 		url: "https://github.com/acme/repo/pull/1",
 		labels: [],
 		reviewDecision: null,
@@ -32,8 +32,12 @@ describe("mapStatesToGraphQL", () => {
 		expect(mapStatesToGraphQL("open")).toEqual(["OPEN"]);
 	});
 
-	test("maps 'closed' to CLOSED and MERGED", () => {
-		expect(mapStatesToGraphQL("closed")).toEqual(["CLOSED", "MERGED"]);
+	test("maps 'closed' to CLOSED only", () => {
+		expect(mapStatesToGraphQL("closed")).toEqual(["CLOSED"]);
+	});
+
+	test("maps 'merged' to MERGED", () => {
+		expect(mapStatesToGraphQL("merged")).toEqual(["MERGED"]);
 	});
 
 	test("maps 'all' to OPEN, CLOSED, MERGED", () => {
@@ -42,7 +46,7 @@ describe("mapStatesToGraphQL", () => {
 });
 
 describe("fetchPrs", () => {
-	test("assembles PrsReport from API response", async () => {
+	test("assembles PullRequestsReport from API response", async () => {
 		const prs = [makePr({ number: 1 }), makePr({ number: 2 })];
 		const client = new MockGitHubClient({
 			pullRequests: prs,
@@ -61,7 +65,7 @@ describe("fetchPrs", () => {
 
 		expect(report.repository).toEqual({
 			owner: "acme",
-			repo: "repo",
+			name: "repo",
 			url: "https://github.com/acme/repo",
 		});
 		expect(report.identity).toEqual({
@@ -74,7 +78,7 @@ describe("fetchPrs", () => {
 			limit: 0,
 		});
 		expect(report.totalCount).toBe(2);
-		expect(report.prs).toHaveLength(2);
+		expect(report.pullRequests).toHaveLength(2);
 		expect(report.durationMs).toBeGreaterThanOrEqual(0);
 		expect(report.generatedAt).toBeTruthy();
 	});
@@ -96,12 +100,12 @@ describe("fetchPrs", () => {
 		});
 
 		expect(client.calls).toHaveLength(1);
-		expect(client.calls[0]?.opts.states).toEqual(["CLOSED", "MERGED"]);
+		expect(client.calls[0]?.opts.states).toEqual(["CLOSED"]);
 		expect(client.calls[0]?.opts.limit).toBe(10);
 		expect(client.calls[0]?.opts.author).toBe("bob");
 	});
 
-	test("returns empty prs array when no PRs found", async () => {
+	test("returns empty pullRequests array when no PRs found", async () => {
 		const client = new MockGitHubClient({
 			pullRequests: [],
 			totalCount: 0,
@@ -117,7 +121,7 @@ describe("fetchPrs", () => {
 			resolvedVia: "fallback",
 		});
 
-		expect(report.prs).toEqual([]);
+		expect(report.pullRequests).toEqual([]);
 		expect(report.totalCount).toBe(0);
 	});
 

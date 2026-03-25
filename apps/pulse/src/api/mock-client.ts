@@ -1,7 +1,7 @@
 import type {
-	FetchPrDetailResult,
 	FetchPrsOptions,
 	FetchPrsResult,
+	FetchPullRequestDetailResult,
 	GitHubApiClient,
 } from "./types.ts";
 
@@ -25,12 +25,12 @@ export class MockGitHubClient implements GitHubApiClient {
 	readonly calls: MockCall[] = [];
 	readonly detailCalls: MockDetailCall[] = [];
 	private response: FetchPrsResult;
-	private detailResponse: FetchPrDetailResult | null;
+	private detailResponse: FetchPullRequestDetailResult | null;
 
 	constructor(
 		response: Omit<FetchPrsResult, "hasNextPage" | "endCursor"> &
 			Partial<Pick<FetchPrsResult, "hasNextPage" | "endCursor">>,
-		detailResponse?: FetchPrDetailResult,
+		detailResponse?: FetchPullRequestDetailResult,
 	) {
 		this.response = {
 			hasNextPage: false,
@@ -53,7 +53,7 @@ export class MockGitHubClient implements GitHubApiClient {
 		owner: string,
 		repo: string,
 		number: number,
-	): Promise<FetchPrDetailResult> {
+	): Promise<FetchPullRequestDetailResult> {
 		this.detailCalls.push({ owner, repo, number });
 		if (!this.detailResponse) {
 			throw new Error(`No mock detail response configured for PR #${number}`);

@@ -107,14 +107,14 @@ export function createPulseRouter(getDb: GetDb) {
 			// Atomic write: list upsert + scan meta must be consistent
 			const db = getDb();
 			db.transaction((tx: typeof db) => {
-				upsertPrs(tx, input.projectId, report.prs);
+				upsertPrs(tx, input.projectId, report.pullRequests);
 				upsertScanMeta(tx, input.projectId, {
 					endCursor: report.endCursor,
 					hasNextPage: report.hasNextPage,
 					resolvedUser: report.identity.resolvedUser,
 					resolvedVia: report.identity.resolvedVia,
 					repoOwner: report.repository.owner,
-					repoName: report.repository.repo,
+					repoName: report.repository.name,
 				});
 			});
 		},
@@ -135,7 +135,7 @@ export function createPulseRouter(getDb: GetDb) {
 			// Atomic write: list row + detail row must be consistent
 			const db = getDb();
 			db.transaction((tx: typeof db) => {
-				upsertPrDetail(tx, input.projectId, report.pr);
+				upsertPrDetail(tx, input.projectId, report.pullRequest);
 			});
 		},
 

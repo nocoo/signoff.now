@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { projects } from "@signoff/local-db";
-import type { PrDetail, PullRequestInfo } from "@signoff/pulse";
+import type { PullRequestDetail, PullRequestInfo } from "@signoff/pulse";
 import { createTestDb, type TestDb } from "../workspaces/utils/test-db";
 import {
 	clearCache,
@@ -45,16 +45,16 @@ function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
 	return {
 		number: 1,
 		title: "feat: add tests",
-		state: "open",
-		draft: false,
+		state: "OPEN",
+		isDraft: false,
 		merged: false,
 		mergedAt: null,
 		author: "alice",
 		createdAt: "2025-01-15T10:00:00Z",
 		updatedAt: "2025-01-15T12:00:00Z",
 		closedAt: null,
-		headBranch: "feat/tests",
-		baseBranch: "main",
+		headRefName: "feat/tests",
+		baseRefName: "main",
 		url: "https://github.com/org/repo/pull/1",
 		labels: ["enhancement"],
 		reviewDecision: null,
@@ -65,7 +65,9 @@ function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
 	};
 }
 
-function makePrDetail(overrides: Partial<PrDetail> = {}): PrDetail {
+function makePrDetail(
+	overrides: Partial<PullRequestDetail> = {},
+): PullRequestDetail {
 	return {
 		...makePr(),
 		body: "## Summary\nAdds tests",
@@ -77,7 +79,7 @@ function makePrDetail(overrides: Partial<PrDetail> = {}): PrDetail {
 		baseRefOid: "def5678",
 		isCrossRepository: false,
 		participants: ["alice", "bob"],
-		requestedReviewers: ["bob"],
+		reviewRequests: ["bob"],
 		assignees: ["alice"],
 		milestone: null,
 		reviews: [
@@ -99,12 +101,11 @@ function makePrDetail(overrides: Partial<PrDetail> = {}): PrDetail {
 		],
 		commits: [
 			{
-				oid: "abc1234",
+				abbreviatedOid: "abc1234",
 				message: "feat: add tests",
 				author: "alice",
 				authoredDate: "2025-01-15T10:00:00Z",
-				statusCheckRollup: "SUCCESS",
-				checkRuns: [],
+				statusCheckRollup: { state: "SUCCESS", checkRuns: [] },
 			},
 		],
 		files: [
@@ -177,11 +178,11 @@ describe("upsertPrs", () => {
 	});
 
 	test("updates state from open to closed", () => {
-		upsertPrs(db, PROJECT_ID, [makePr({ number: 1, state: "open" })]);
-		upsertPrs(db, PROJECT_ID, [makePr({ number: 1, state: "closed" })]);
+		upsertPrs(db, PROJECT_ID, [makePr({ number: 1, state: "OPEN" })]);
+		upsertPrs(db, PROJECT_ID, [makePr({ number: 1, state: "CLOSED" })]);
 
 		const cached = getCachedPrs(db, PROJECT_ID);
-		expect(cached[0].state).toBe("closed");
+		expect(cached[0].state).toBe("CLOSED");
 	});
 });
 
@@ -192,9 +193,9 @@ describe("upsertPrs", () => {
 describe("getCachedPrs", () => {
 	beforeEach(() => {
 		upsertPrs(db, PROJECT_ID, [
-			makePr({ number: 1, state: "open", createdAt: "2025-01-10T00:00:00Z" }),
-			makePr({ number: 2, state: "closed", createdAt: "2025-01-11T00:00:00Z" }),
-			makePr({ number: 3, state: "open", createdAt: "2025-01-12T00:00:00Z" }),
+			makePr({ number: 1, state: "OPEN", createdAt: "2025-01-10T00:00:00Z" }),
+			makePr({ number: 2, state: "CLOSED", createdAt: "2025-01-11T00:00:00Z" }),
+			makePr({ number: 3, state: "OPEN", createdAt: "2025-01-12T00:00:00Z" }),
 		]);
 	});
 
@@ -212,14 +213,14 @@ describe("getCachedPrs", () => {
 		const result = getCachedPrs(db, PROJECT_ID, "open");
 		expect(result).toHaveLength(2);
 		for (const pr of result) {
-			expect(pr.state).toBe("open");
+			expect(pr.state).toBe("OPEN");
 		}
 	});
 
 	test("filters by state 'closed'", () => {
 		const result = getCachedPrs(db, PROJECT_ID, "closed");
 		expect(result).toHaveLength(1);
-		expect(result[0].state).toBe("closed");
+		expect(result[0].state).toBe("CLOSED");
 	});
 
 	test("orders by createdAt DESC", () => {
@@ -239,7 +240,7 @@ describe("getCachedPrs", () => {
 		expect(pr).toHaveProperty("number");
 		expect(pr).toHaveProperty("title");
 		expect(pr).toHaveProperty("state");
-		expect(pr).toHaveProperty("draft");
+		expect(pr).toHaveProperty("isDraft");
 		expect(pr).toHaveProperty("merged");
 		expect(pr).toHaveProperty("labels");
 		expect(Array.isArray(pr.labels)).toBe(true);

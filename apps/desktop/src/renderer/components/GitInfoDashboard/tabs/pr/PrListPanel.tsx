@@ -186,7 +186,7 @@ function PrRow({
 			<div className="flex min-w-0 items-start gap-2">
 				<PrStateIcon
 					state={pr.state}
-					draft={pr.draft}
+					isDraft={pr.isDraft}
 					merged={pr.merged}
 					className="mt-0.5 shrink-0"
 				/>
