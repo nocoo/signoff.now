@@ -4,7 +4,7 @@
 
 This document is the **target specification** for pulse CLI's command structure, public interface naming, and output data model. It defines the canonical naming conventions (aligned with GitHub GraphQL schema) and the full command surface, covering both existing implementations and planned additions.
 
-> **Current code uses legacy names.** The PR detail capability is implemented, currently exposed as `pr-detail` with field names like `draft`, `headBranch`, `state: "open"`. This spec defines the target names (`pr show`, `isDraft`, `headRefName`, `state: "OPEN"`). The Rename phase in [Implementation Phases](#implementation-phases) describes the migration. Until that phase lands, [02-pulse.md](./02-pulse.md) and [03-pulse-pr-cache.md](./03-pulse-pr-cache.md) reflect the current code naming.
+> **All non-ADO phases are implemented.** The CLI exposes `prs`, `pr show`, `pr diff`, `pr search`, and `repo` commands. Output types and fields are aligned with GitHub GraphQL naming. Nested pagination is implemented for all high-risk connections. ADO support remains blocked.
 
 ### Naming Conventions
 
@@ -51,10 +51,10 @@ Global Flags:
 | Command | Resource | Action | GitHub API | Status |
 |---------|----------|--------|------------|--------|
 | `prs` | PullRequest (collection) | list | GraphQL `repository.pullRequests` | ✅ Implemented |
-| `pr show` | PullRequest (single) | detail | GraphQL `repository.pullRequest(number:)` | ✅ Implemented (as `pr-detail`) |
-| `pr diff` | PullRequest (single) | diff | REST `GET .../pulls/{N}/files` + `Accept: diff` | ❌ Planned |
-| `pr search` | PullRequest (collection) | search | GraphQL `search(type: ISSUE)` | ❌ Planned |
-| `repo` | Repository | show | GraphQL `repository` | ❌ Planned |
+| `pr show` | PullRequest (single) | detail | GraphQL `repository.pullRequest(number:)` | ✅ Implemented |
+| `pr diff` | PullRequest (single) | diff | REST `GET .../pulls/{N}/files` + `Accept: diff` | ✅ Implemented |
+| `pr search` | PullRequest (collection) | search | GraphQL `search(type: ISSUE)` | ✅ Implemented |
+| `repo` | Repository | show | GraphQL `repository` | ✅ Implemented |
 
 ### Subcommand Flags
 
@@ -561,16 +561,16 @@ Current pr-detail query uses fixed `first:N` limits without following `pageInfo.
 
 | Nested Connection | Current Limit | Truncation Risk | Follow-up Pagination |
 |-------------------|---------------|-----------------|---------------------|
-| `labels` | `first:20` | Low (few PRs have >20 labels) | ❌ Not implemented |
-| `participants` | `first:100` | Low-Medium (large PRs in big orgs) | ❌ Not implemented |
-| `assignees` | `first:20` | Very low | ❌ Not implemented |
-| `reviewRequests` | `first:20` | Very low | ❌ Not implemented |
-| `reviews` | `first:100` | Low (rare to exceed) | ❌ Not implemented |
-| `reviews.comments` | `first:100` per review | Low | ❌ Not implemented |
-| `comments` (issue) | `first:100` | Medium (bot-heavy PRs can exceed) | ❌ Not implemented |
-| `commits` | `first:250` | Low-Medium (long-lived feature branches) | ❌ Not implemented |
-| `commits.statusCheckRollup.contexts` | `first:100` per commit | Low (only head commit typically matters) | ❌ Not implemented |
-| `files` | `first:100` | **Medium-High** (refactors, renames) | ❌ Not implemented |
+| `labels` | `first:20` | Low (few PRs have >20 labels) | ❌ Not needed |
+| `participants` | `first:100` | Low-Medium (large PRs in big orgs) | ✅ Implemented |
+| `assignees` | `first:20` | Very low | ✅ Implemented |
+| `reviewRequests` | `first:20` | Very low | ✅ Implemented |
+| `reviews` | `first:100` | Low (rare to exceed) | ✅ Implemented |
+| `reviews.comments` | `first:100` per review | Low | ✅ Implemented |
+| `comments` (issue) | `first:100` | Medium (bot-heavy PRs can exceed) | ✅ Implemented |
+| `commits` | `first:250` | Low-Medium (long-lived feature branches) | ✅ Implemented |
+| `commits.statusCheckRollup.contexts` | `first:100` per commit | Low (only head commit typically matters) | ❌ Not needed |
+| `files` | `first:100` | **Medium-High** (refactors, renames) | ✅ Implemented |
 
 > **Highest risk:** `files` — repository-wide renames or refactors routinely touch >100 files. `comments` is next — PRs with CI bots posting status updates can accumulate many comments.
 
@@ -609,20 +609,20 @@ This is incremental — each connection can be paginated independently. For typi
 | Capability | Legacy | Pulse | Status | Notes |
 |------------|--------|-------|--------|-------|
 | List PRs (open/closed/all) | `gh pr list --json` | `prs --state` | ✅ | |
-| List PRs (search / time-window) | `gh pr list --search "created:{range}"` | `pr search --query` | ❌ | Phase: search |
+| List PRs (search / time-window) | `gh pr list --search "created:{range}"` | `pr search --query` | ✅ | |
 | PR detail (scalar fields) | `gh pr view --json` | `pr show --number` | ✅ | |
-| Reviews | `gh api .../reviews` (paginated to exhaustion) | Nested `reviews(first:100)` | 🔶 | No nested pagination; truncates at 100 |
-| Review comments | `gh api .../comments` (paginated to exhaustion) | Nested `reviews.comments(first:100)` | 🔶 | Truncates at 100 per review |
-| Issue comments | `gh api .../issues/.../comments` (paginated to exhaustion) | Nested `comments(first:100)` | 🔶 | Truncates at 100 |
-| Commits | `gh api .../commits` (paginated) | Nested `commits(first:250)` | 🔶 | Truncates at 250 |
-| CI check runs | `gh api .../check-runs` | Nested `statusCheckRollup.contexts(first:100)` | 🔶 | Truncates at 100 per commit |
-| Changed files (metadata) | `gh api .../files` (paginated to exhaustion) | Nested `files(first:100)` | 🔶 | Truncates at 100 |
-| File patches (diff content) | REST `.../files` `patch` field | — | ❌ | Phase: diff (REST fallback) |
-| Full PR diff | `gh pr diff` | — | ❌ | Phase: diff (REST fallback) |
+| Reviews | `gh api .../reviews` (paginated to exhaustion) | Nested `reviews(first:100)` + follow-up pagination | ✅ | |
+| Review comments | `gh api .../comments` (paginated to exhaustion) | Nested `reviews.comments(first:100)` + follow-up | ✅ | |
+| Issue comments | `gh api .../issues/.../comments` (paginated to exhaustion) | Nested `comments(first:100)` + follow-up | ✅ | |
+| Commits | `gh api .../commits` (paginated) | Nested `commits(first:250)` + follow-up | ✅ | |
+| CI check runs | `gh api .../check-runs` | Nested `statusCheckRollup.contexts(first:100)` | 🔶 | No nested pagination for contexts |
+| Changed files (metadata) | `gh api .../files` (paginated to exhaustion) | Nested `files(first:100)` + follow-up | ✅ | |
+| File patches (diff content) | REST `.../files` `patch` field | REST `.../pulls/{N}/files` | ✅ | |
+| Full PR diff | `gh pr diff` | REST `Accept: application/vnd.github.diff` | ✅ | |
 | Mergeable status | `gh pr view --json mergeable` | GraphQL `mergeable` + `mergeStateStatus` | ✅ | |
 | Review requests | Not in legacy | GraphQL `reviewRequests` | ✅ | Pulse-only; capped at `first:20` |
 | Participants & assignees | Not in legacy | GraphQL `participants` + `assignees` | ✅ | Pulse-only; capped at `first:100` / `first:20` |
-| Repo metadata | Not in legacy | — | ❌ | Phase: repo |
+| Repo metadata | Not in legacy | `repo` | ✅ | |
 | Azure DevOps | `az repos pr list/show` | — | ❌ | **Blocked:** no desktop ADO project |
 
 ### Identity & Auth
@@ -668,14 +668,14 @@ This is incremental — each connection can be paginated independently. For typi
 
 ## Implementation Phases
 
-| Phase | Commands | Scope |
-|-------|----------|-------|
-| **Rename** (breaking) | All existing | Rename types/fields/subcommands to new spec; update all tests and consumers |
-| **Nested pagination** | `pr show` | Add `pageInfo` to nested connections; follow-up queries when `hasNextPage` |
-| **Diff** | `pr diff` | REST fallback for file patches and unified diff |
-| **Search** | `pr search` | GraphQL `search(type: ISSUE)` with qualifier string |
-| **Repo** | `repo` | GraphQL `repository` metadata query |
-| **ADO** | All | Platform abstraction + ADO REST client. **Blocked until desktop has ADO project.** |
+| Phase | Commands | Scope | Status |
+|-------|----------|-------|--------|
+| **Rename** (breaking) | All existing | Rename types/fields/subcommands to new spec; update all tests and consumers | ✅ Done |
+| **Nested pagination** | `pr show` | Add `pageInfo` to nested connections; follow-up queries when `hasNextPage` | ✅ Done |
+| **Diff** | `pr diff` | REST fallback for file patches and unified diff | ✅ Done |
+| **Search** | `pr search` | GraphQL `search(type: ISSUE)` with qualifier string | ✅ Done |
+| **Repo** | `repo` | GraphQL `repository` metadata query | ✅ Done |
+| **ADO** | All | Platform abstraction + ADO REST client. **Blocked until desktop has ADO project.** | ❌ Blocked |
 
 ### Atomic Commits: Rename Phase
 
