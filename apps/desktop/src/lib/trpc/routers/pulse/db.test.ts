@@ -61,6 +61,8 @@ function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
 		additions: 100,
 		deletions: 20,
 		changedFiles: 5,
+		totalCommentsCount: 0,
+		commitsCount: 1,
 		...overrides,
 	};
 }
@@ -70,6 +72,7 @@ function makePrDetail(
 ): PullRequestDetail {
 	return {
 		...makePr(),
+		commitsCount: 1,
 		body: "## Summary\nAdds tests",
 		mergeable: "MERGEABLE",
 		mergeStateStatus: "CLEAN",

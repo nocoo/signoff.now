@@ -37,6 +37,8 @@ function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
 		additions: 10,
 		deletions: 5,
 		changedFiles: 2,
+		totalCommentsCount: 0,
+		commitsCount: 1,
 		...overrides,
 	};
 }

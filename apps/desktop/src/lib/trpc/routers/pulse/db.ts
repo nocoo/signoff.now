@@ -244,6 +244,8 @@ export function getCachedPrDetail(
 		additions: pr.additions,
 		deletions: pr.deletions,
 		changedFiles: pr.changedFiles,
+		totalCommentsCount: pr.totalCommentsCount ?? 0,
+		commitsCount: pr.commitsCount ?? 0,
 
 		// Detail fields
 		body: det.body,
@@ -251,7 +253,6 @@ export function getCachedPrDetail(
 		mergeStateStatus:
 			det.mergeStateStatus as PullRequestDetail["mergeStateStatus"],
 		mergedBy: det.mergedBy,
-		totalCommentsCount: det.totalCommentsCount,
 		headRefOid: det.headRefOid,
 		baseRefOid: det.baseRefOid,
 		isCrossRepository: det.isCrossRepository,
@@ -392,5 +393,7 @@ function rowToPullRequestInfo(row: any): PullRequestInfo {
 		additions: row.additions,
 		deletions: row.deletions,
 		changedFiles: row.changedFiles,
+		totalCommentsCount: row.totalCommentsCount ?? 0,
+		commitsCount: row.commitsCount ?? 0,
 	};
 }
