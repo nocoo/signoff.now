@@ -49,6 +49,8 @@ function makeReport(): PullRequestsReport {
 				additions: 100,
 				deletions: 5,
 				changedFiles: 4,
+				totalCommentsCount: 0,
+				commitsCount: 1,
 			},
 		],
 	};
@@ -82,6 +84,7 @@ function makeDetailReport(): PullRequestDetailReport {
 			additions: 100,
 			deletions: 5,
 			changedFiles: 4,
+			commitsCount: 0,
 			body: "description",
 			mergeable: "MERGEABLE",
 			mergeStateStatus: "CLEAN",
@@ -162,6 +165,8 @@ function makeSearchReport(): PullRequestSearchReport {
 				additions: 5,
 				deletions: 3,
 				changedFiles: 1,
+				totalCommentsCount: 0,
+				commitsCount: 1,
 			},
 		],
 	};

@@ -43,7 +43,7 @@ function makeMinimalDetailNode(
 		milestone: null,
 		reviews: { pageInfo: NO_MORE_PAGES, nodes: [] },
 		comments: { pageInfo: NO_MORE_PAGES, nodes: [] },
-		commits: { pageInfo: NO_MORE_PAGES, nodes: [] },
+		commits: { totalCount: 0, pageInfo: NO_MORE_PAGES, nodes: [] },
 		files: { pageInfo: NO_MORE_PAGES, nodes: [] },
 		...overrides,
 	};
@@ -240,6 +240,7 @@ describe("GitHubClient nested pagination", () => {
 				],
 			},
 			commits: {
+				totalCount: 1,
 				pageInfo: { hasNextPage: true, endCursor: "cc1" },
 				nodes: [
 					{

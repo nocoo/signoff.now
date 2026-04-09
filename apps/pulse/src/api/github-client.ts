@@ -47,6 +47,8 @@ query($owner: String!, $repo: String!, $states: [PullRequestState!], $cursor: St
         labels(first: 10) { nodes { name } }
         reviewDecision
         additions deletions changedFiles
+        totalCommentsCount
+        commits { totalCount }
       }
     }
   }
@@ -116,6 +118,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       }
 
       commits(first: 250) {
+        totalCount
         pageInfo { hasNextPage endCursor }
         nodes {
           commit {
@@ -164,6 +167,8 @@ query($query: String!, $cursor: String) {
         labels(first: 10) { nodes { name } }
         reviewDecision
         additions deletions changedFiles
+        totalCommentsCount
+        commits { totalCount }
       }
     }
   }

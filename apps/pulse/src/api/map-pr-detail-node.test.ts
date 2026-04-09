@@ -73,6 +73,7 @@ function makeDetailNode(
 			],
 		},
 		commits: {
+			totalCount: 1,
 			pageInfo: NO_MORE_PAGES,
 			nodes: [
 				{
@@ -206,6 +207,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
+					totalCount: 1,
 					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
@@ -366,6 +368,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
+					totalCount: 1,
 					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{
@@ -427,6 +430,7 @@ describe("mapPullRequestDetailNode", () => {
 		const detail = mapPullRequestDetailNode(
 			makeDetailNode({
 				commits: {
+					totalCount: 1,
 					pageInfo: NO_MORE_PAGES,
 					nodes: [
 						{

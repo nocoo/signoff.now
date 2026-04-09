@@ -22,6 +22,8 @@ function makePr(overrides?: Partial<PullRequestInfo>): PullRequestInfo {
 		additions: 50,
 		deletions: 10,
 		changedFiles: 3,
+		totalCommentsCount: 5,
+		commitsCount: 2,
 		...overrides,
 	};
 }
@@ -61,6 +63,8 @@ describe("formatPrLine", () => {
 		expect(line).toContain("#42");
 		expect(line).toContain("Add feature X");
 		expect(line).toContain("+50 -10");
+		expect(line).toContain("💬5");
+		expect(line).toContain("📦2");
 		expect(line).toContain("@alice");
 	});
 

@@ -25,6 +25,8 @@ function makePrNode(
 		additions: 50,
 		deletions: 10,
 		changedFiles: 3,
+		totalCommentsCount: 5,
+		commits: { totalCount: 2 },
 		...overrides,
 	};
 }
@@ -51,6 +53,8 @@ describe("mapPullRequestNode", () => {
 			additions: 50,
 			deletions: 10,
 			changedFiles: 3,
+			totalCommentsCount: 5,
+			commitsCount: 2,
 		});
 	});
 

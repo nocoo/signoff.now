@@ -49,7 +49,7 @@ export function formatPrLine(pr: PullRequestInfo): string {
 	const review = pr.reviewDecision
 		? ` (${formatReviewDecision(pr.reviewDecision)})`
 		: "";
-	const stats = `+${pr.additions} -${pr.deletions}`;
+	const stats = `+${pr.additions} -${pr.deletions} 💬${pr.totalCommentsCount} 📦${pr.commitsCount}`;
 
 	return `  ${stateIcon} #${pr.number} ${pr.title}${labels}${review}  ${stats}  @${pr.author}`;
 }

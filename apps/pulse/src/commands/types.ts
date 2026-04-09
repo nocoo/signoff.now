@@ -117,6 +117,8 @@ export interface PullRequestInfo {
 	additions: number;
 	deletions: number;
 	changedFiles: number;
+	totalCommentsCount: number;
+	commitsCount: number;
 }
 
 // ---------------------------------------------------------------------------

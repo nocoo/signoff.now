@@ -133,6 +133,8 @@ export interface GraphQLPullRequestNode {
 	additions: number;
 	deletions: number;
 	changedFiles: number;
+	totalCommentsCount: number | null;
+	commits: { totalCount: number };
 }
 
 export interface GraphQLPrsResponse {
@@ -208,7 +210,8 @@ export interface GraphQLPageInfo {
 }
 
 /** Extended GraphQL PR node with detail fields. */
-export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
+export interface GraphQLPullRequestDetailNode
+	extends Omit<GraphQLPullRequestNode, "commits"> {
 	body: string;
 	mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 	mergeStateStatus:
@@ -273,6 +276,7 @@ export interface GraphQLPullRequestDetailNode extends GraphQLPullRequestNode {
 		}>;
 	};
 	commits: {
+		totalCount: number;
 		pageInfo: GraphQLPageInfo;
 		nodes: Array<{
 			commit: {

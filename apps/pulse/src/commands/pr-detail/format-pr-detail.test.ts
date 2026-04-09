@@ -24,6 +24,7 @@ function makePrDetail(
 		additions: 50,
 		deletions: 10,
 		changedFiles: 3,
+		commitsCount: 1,
 		body: "## Summary\nAdds feature X",
 		mergeable: "MERGEABLE",
 		mergeStateStatus: "CLEAN",

@@ -41,6 +41,8 @@ function makeReport(
 				additions: 10,
 				deletions: 2,
 				changedFiles: 1,
+				totalCommentsCount: 0,
+				commitsCount: 1,
 			},
 		],
 		...overrides,

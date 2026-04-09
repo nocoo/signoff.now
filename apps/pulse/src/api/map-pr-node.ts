@@ -27,5 +27,7 @@ export function mapPullRequestNode(
 		additions: node.additions,
 		deletions: node.deletions,
 		changedFiles: node.changedFiles,
+		totalCommentsCount: node.totalCommentsCount ?? 0,
+		commitsCount: node.commits.totalCount,
 	};
 }

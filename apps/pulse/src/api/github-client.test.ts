@@ -27,6 +27,8 @@ const OK_RESPONSE: GraphQLPrsResponse = {
 						additions: 10,
 						deletions: 2,
 						changedFiles: 1,
+						totalCommentsCount: 3,
+						commits: { totalCount: 1 },
 					},
 				],
 			},
@@ -469,6 +471,8 @@ function makeSearchNode(overrides?: Record<string, unknown>) {
 		additions: 10,
 		deletions: 2,
 		changedFiles: 1,
+		totalCommentsCount: 3,
+		commits: { totalCount: 1 },
 		...overrides,
 	};
 }
