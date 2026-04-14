@@ -24,7 +24,7 @@
 		"build": "turbo build",
 		"test": "turbo test",
 		"test:ci": "turbo test:ci",
-		"lint": "bunx @biomejs/biome check .",
+		"lint": "bunx @biomejs/biome check --error-on-warnings .",
 		"lint:fix": "bunx @biomejs/biome check --write --unsafe .",
 		"format": "bunx @biomejs/biome format --write .",
 		"typecheck": "tsc --noEmit && turbo typecheck",
