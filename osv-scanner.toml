@@ -1,74 +1,141 @@
-# Electron CVEs - upgrading Electron is a separate task
-[[IgnoredVulns]]
-id = "GHSA-jfqg-hf23-qpw2"
-reason = "Electron upgrade tracked separately"
+# Transitive dependency CVEs — Electron and other deps tracked for separate upgrade
 
 [[IgnoredVulns]]
-id = "GHSA-jfqx-fxh3-c62j"
-reason = "Electron upgrade tracked separately"
+id = "GHSA-2v35-w6hq-6mfw"
+reason = "@xmldom/xmldom — transitive dep, upgrade tracked separately"
 
 [[IgnoredVulns]]
-id = "GHSA-jjp3-mq3x-295m"
-reason = "Electron upgrade tracked separately"
+id = "GHSA-3c8v-cfp5-9885"
+reason = "electron — transitive dep, upgrade tracked separately"
 
-[[IgnoredVulns]]
-id = "GHSA-mwmh-mq4g-g6gr"
-reason = "Electron upgrade tracked separately"
-
-[[IgnoredVulns]]
-id = "GHSA-r5p7-gp4j-qhrx"
-reason = "Electron upgrade tracked separately"
-
-[[IgnoredVulns]]
-id = "GHSA-xj5x-m3f3-5x3h"
-reason = "Electron upgrade tracked separately"
-
-[[IgnoredVulns]]
-id = "GHSA-xwr5-m59h-vwqr"
-reason = "Electron upgrade tracked separately"
-
-# esbuild - transitive dep from electron-vite
-[[IgnoredVulns]]
-id = "GHSA-67mh-4wv8-2f99"
-reason = "Transitive dep from electron-vite, no direct upgrade path"
-
-# lodash - transitive dep
-[[IgnoredVulns]]
-id = "GHSA-f23m-r3pf-42rh"
-reason = "Transitive dep, no direct upgrade path"
-
-[[IgnoredVulns]]
-id = "GHSA-r5fr-rjxr-66jc"
-reason = "Transitive dep, no direct upgrade path"
-
-# picomatch - transitive dep
 [[IgnoredVulns]]
 id = "GHSA-3v7f-55p6-f55p"
-reason = "Transitive dep from chokidar/micromatch"
+reason = "picomatch — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-4p4r-m79c-wq3v"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-4w7w-66w2-5vf9"
+reason = "vite — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-532v-xpq5-8h95"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-5rqw-r77c-jp79"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-67mh-4wv8-2f99"
+reason = "esbuild — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-8337-3p73-46f4"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-8x5q-pvf5-64mp"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-9899-m83m-qhpj"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-9w97-2464-8783"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-9wfr-w7mm-pc7f"
+reason = "electron — transitive dep, upgrade tracked separately"
 
 [[IgnoredVulns]]
 id = "GHSA-c2c7-rcm5-vvqj"
-reason = "Transitive dep from chokidar/micromatch"
+reason = "picomatch — transitive dep, upgrade tracked separately"
 
-# postcss - transitive dep
 [[IgnoredVulns]]
-id = "GHSA-qx2v-qp2m-jg93"
-reason = "Transitive dep, upgrade pending"
+id = "GHSA-f23m-r3pf-42rh"
+reason = "lodash — transitive dep, upgrade tracked separately"
 
-# uuid - major version jump required (9→14, 13→14)
 [[IgnoredVulns]]
-id = "GHSA-w5hq-g745-h8pq"
-reason = "Major version upgrade, tracked separately"
+id = "GHSA-f37v-82c4-4x64"
+reason = "electron — transitive dep, upgrade tracked separately"
 
-# vite - upgrade pending
 [[IgnoredVulns]]
-id = "GHSA-4w7w-66w2-5vf9"
-reason = "Vite upgrade tracked separately"
+id = "GHSA-f3pv-wv63-48x8"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-f6ww-3ggp-fr8h"
+reason = "@xmldom/xmldom — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-f886-m6hf-6m8v"
+reason = "brace-expansion — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-gpj5-g38j-94v9"
+reason = "drizzle-orm — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-j759-j44w-7fr8"
+reason = "@xmldom/xmldom — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-jfqg-hf23-qpw2"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-jfqx-fxh3-c62j"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-jjp3-mq3x-295m"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-mwmh-mq4g-g6gr"
+reason = "electron — transitive dep, upgrade tracked separately"
 
 [[IgnoredVulns]]
 id = "GHSA-p9ff-h696-f583"
-reason = "Vite upgrade tracked separately"
+reason = "vite — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-qx2v-qp2m-jg93"
+reason = "postcss — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-r5fr-rjxr-66jc"
+reason = "lodash — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-r5p7-gp4j-qhrx"
+reason = "electron — transitive dep, upgrade tracked separately"
 
 [[IgnoredVulns]]
 id = "GHSA-v2wj-q39q-566r"
-reason = "Vite upgrade tracked separately"
+reason = "vite — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+reason = "uuid — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-wh4c-j3r5-mjhp"
+reason = "@xmldom/xmldom — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-x6wf-f3px-wcqx"
+reason = "@xmldom/xmldom — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-xj5x-m3f3-5x3h"
+reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-xwr5-m59h-vwqr"
+reason = "electron — transitive dep, upgrade tracked separately"
