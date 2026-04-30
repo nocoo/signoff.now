@@ -1,0 +1,74 @@
+# Electron CVEs - upgrading Electron is a separate task
+[[IgnoredVulns]]
+id = "GHSA-jfqg-hf23-qpw2"
+reason = "Electron upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-jfqx-fxh3-c62j"
+reason = "Electron upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-jjp3-mq3x-295m"
+reason = "Electron upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-mwmh-mq4g-g6gr"
+reason = "Electron upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-r5p7-gp4j-qhrx"
+reason = "Electron upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-xj5x-m3f3-5x3h"
+reason = "Electron upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-xwr5-m59h-vwqr"
+reason = "Electron upgrade tracked separately"
+
+# esbuild - transitive dep from electron-vite
+[[IgnoredVulns]]
+id = "GHSA-67mh-4wv8-2f99"
+reason = "Transitive dep from electron-vite, no direct upgrade path"
+
+# lodash - transitive dep
+[[IgnoredVulns]]
+id = "GHSA-f23m-r3pf-42rh"
+reason = "Transitive dep, no direct upgrade path"
+
+[[IgnoredVulns]]
+id = "GHSA-r5fr-rjxr-66jc"
+reason = "Transitive dep, no direct upgrade path"
+
+# picomatch - transitive dep
+[[IgnoredVulns]]
+id = "GHSA-3v7f-55p6-f55p"
+reason = "Transitive dep from chokidar/micromatch"
+
+[[IgnoredVulns]]
+id = "GHSA-c2c7-rcm5-vvqj"
+reason = "Transitive dep from chokidar/micromatch"
+
+# postcss - transitive dep
+[[IgnoredVulns]]
+id = "GHSA-qx2v-qp2m-jg93"
+reason = "Transitive dep, upgrade pending"
+
+# uuid - major version jump required (9→14, 13→14)
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+reason = "Major version upgrade, tracked separately"
+
+# vite - upgrade pending
+[[IgnoredVulns]]
+id = "GHSA-4w7w-66w2-5vf9"
+reason = "Vite upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-p9ff-h696-f583"
+reason = "Vite upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-v2wj-q39q-566r"
+reason = "Vite upgrade tracked separately"
