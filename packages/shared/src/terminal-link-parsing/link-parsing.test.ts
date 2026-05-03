@@ -6,7 +6,7 @@
  *  https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminalContrib/links/test/browser/terminalLinkParsing.test.ts
  *--------------------------------------------------------------------------------------------*/
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
 	detectLinkSuffixes,
 	detectLinks,
