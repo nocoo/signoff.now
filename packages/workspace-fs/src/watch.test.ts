@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import type { Event as ParcelWatcherEvent } from "@parcel/watcher";
+import { describe, expect, it } from "vitest";
 import type { InternalWatchEvent } from "./watch";
 import { coalesceWatchEvents, reconcileRenameEvents } from "./watch";
 
