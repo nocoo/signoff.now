@@ -5,13 +5,13 @@
  * Uses mock filesystem functions to test without real disk I/O.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFilesystemRouter } from "./index";
 
 /** Mock filesystem operations. */
 function createMockFs() {
 	return {
-		listDirectory: mock(() =>
+		listDirectory: vi.fn(() =>
 			Promise.resolve([
 				{ name: "src", isDirectory: true, isSymlink: false, size: 0 },
 				{
@@ -23,17 +23,17 @@ function createMockFs() {
 				{ name: "README.md", isDirectory: false, isSymlink: false, size: 567 },
 			]),
 		),
-		readFile: mock(() =>
+		readFile: vi.fn(() =>
 			Promise.resolve({
 				content: 'console.log("hello");',
 				encoding: "utf-8",
 			}),
 		),
-		writeFile: mock(() => Promise.resolve()),
-		createDirectory: mock(() => Promise.resolve()),
-		deletePath: mock(() => Promise.resolve()),
-		movePath: mock(() => Promise.resolve()),
-		getMetadata: mock(() =>
+		writeFile: vi.fn(() => Promise.resolve()),
+		createDirectory: vi.fn(() => Promise.resolve()),
+		deletePath: vi.fn(() => Promise.resolve()),
+		movePath: vi.fn(() => Promise.resolve()),
+		getMetadata: vi.fn(() =>
 			Promise.resolve({
 				name: "index.ts",
 				isDirectory: false,
@@ -57,7 +57,7 @@ describe("filesystem router", () => {
 	});
 
 	afterEach(() => {
-		mock.restore();
+		vi.restoreAllMocks();
 	});
 
 	// ── listDirectory ────────────────────────────────────

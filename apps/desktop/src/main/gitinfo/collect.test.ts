@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { CollectError, collectAll } from "./collect";
 
 describe("collectAll", () => {
@@ -18,7 +18,7 @@ describe("collectAll", () => {
 
 	test("returns a valid report for the current repo", async () => {
 		// Use the signoff.now monorepo root (definitely a git repo)
-		const repoRoot = `${import.meta.dir}/../../../..`;
+		const repoRoot = `${import.meta.dirname}/../../../..`;
 		const report = await collectAll(repoRoot);
 
 		// Structure checks

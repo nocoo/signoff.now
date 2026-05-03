@@ -2,7 +2,7 @@
  * Tests for the new-workspace-modal Zustand store.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "vitest";
 import { useNewWorkspaceModalStore } from "./new-workspace-modal";
 
 describe("useNewWorkspaceModalStore", () => {

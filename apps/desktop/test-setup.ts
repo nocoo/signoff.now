@@ -1,13 +1,14 @@
 /**
  * Test setup for @signoff/desktop.
  *
- * Loaded via bunfig.toml [test] preload before every test file.
- * Mocks Electron APIs and browser globals that aren't available in Bun.
+ * Loaded via vitest.config.ts setupFiles before every test file.
+ * Mocks Electron APIs and browser globals that aren't available in the
+ * vitest (node) test environment.
  */
-import { mock } from "bun:test";
+import { vi } from "vitest";
 
 // ─── Mock: electron ──────────────────────────────────────────────────────────
-mock.module("electron", () => ({
+vi.mock("electron", () => ({
 	app: {
 		getPath: (name: string) => `/tmp/signoff-test/${name}`,
 		getName: () => "signoff-test",
@@ -78,17 +79,13 @@ mock.module("electron", () => ({
 }));
 
 // ─── Mock: trpc-electron ─────────────────────────────────────────────────────
-mock.module("trpc-electron/main", () => ({
+vi.mock("trpc-electron/main", () => ({
 	createIPCHandler: () => {},
 	exposeElectronTRPC: () => {},
 }));
 
-mock.module("trpc-electron/preload", () => ({
-	exposeElectronTRPC: () => {},
-}));
-
 // ─── Mock: node-pty (native module not available in Bun) ─────────────────────
-mock.module("node-pty", () => ({
+vi.mock("node-pty", () => ({
 	spawn: () => ({
 		pid: 12345,
 		onData: () => {},
@@ -102,7 +99,7 @@ mock.module("node-pty", () => ({
 }));
 
 // ─── Mock: better-sqlite3 (native module not available in Bun) ───────────────
-mock.module("better-sqlite3", () => {
+vi.mock("better-sqlite3", () => {
 	class MockDatabase {
 		pragma() {
 			return "";
@@ -124,7 +121,7 @@ mock.module("better-sqlite3", () => {
 // that works directly in Bun. Only native modules need mocking.
 
 // ─── Mock: main/lib/local-db (better-sqlite3 not available in Bun) ───────────
-mock.module("./src/main/lib/local-db", () => ({
+vi.mock("./src/main/lib/local-db", () => ({
 	db: null,
 	getDb: () => null,
 	getSqlite: () => null,

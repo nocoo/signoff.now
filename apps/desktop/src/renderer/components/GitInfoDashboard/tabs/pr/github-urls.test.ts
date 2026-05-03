@@ -2,7 +2,7 @@
  * Tests for GitHub URL builder and parser.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { GitHubUrlContext } from "./github-urls";
 import { buildGitHubUrl, parseGitHubPrUrl } from "./github-urls";
 

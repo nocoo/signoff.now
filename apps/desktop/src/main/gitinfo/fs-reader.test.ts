@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createNodeExecutor } from "./executor";
 import { createNodeFsReader } from "./fs-reader";
 
@@ -26,7 +26,7 @@ describe("createNodeFsReader", () => {
 
 	test("fileSize returns positive number for existing file", async () => {
 		// Use the test file itself — guaranteed to exist
-		const size = await fs.fileSize(`${import.meta.dir}/fs-reader.test.ts`);
+		const size = await fs.fileSize(`${import.meta.dirname}/fs-reader.test.ts`);
 		expect(size).toBeGreaterThan(0);
 	});
 

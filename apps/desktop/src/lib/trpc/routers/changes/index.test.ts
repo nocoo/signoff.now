@@ -6,13 +6,13 @@
  * without requiring an actual git repository.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChangesRouter } from "./index";
 
 /** Mock simple-git instance. */
 function createMockGit() {
 	return {
-		status: mock(() =>
+		status: vi.fn(() =>
 			Promise.resolve({
 				files: [
 					{
@@ -38,7 +38,7 @@ function createMockGit() {
 				tracking: "origin/main",
 			}),
 		),
-		diff: mock(() =>
+		diff: vi.fn(() =>
 			Promise.resolve(
 				[
 					"diff --git a/src/index.ts b/src/index.ts",
@@ -53,16 +53,16 @@ function createMockGit() {
 				].join("\n"),
 			),
 		),
-		add: mock(() => Promise.resolve()),
-		reset: mock(() => Promise.resolve()),
-		commit: mock(() =>
+		add: vi.fn(() => Promise.resolve()),
+		reset: vi.fn(() => Promise.resolve()),
+		commit: vi.fn(() =>
 			Promise.resolve({
 				commit: "abc1234",
 				summary: { changes: 1, insertions: 2, deletions: 0 },
 			}),
 		),
-		checkout: mock(() => Promise.resolve()),
-		log: mock(() =>
+		checkout: vi.fn(() => Promise.resolve()),
+		log: vi.fn(() =>
 			Promise.resolve({
 				latest: {
 					hash: "abc1234",
@@ -89,7 +89,7 @@ describe("changes router", () => {
 	});
 
 	afterEach(() => {
-		mock.restore();
+		vi.restoreAllMocks();
 	});
 
 	// ── status ──────────────────────────────────────────
@@ -119,7 +119,7 @@ describe("changes router", () => {
 		});
 
 		it("maps added, deleted, and renamed statuses", async () => {
-			(mockGit.status as ReturnType<typeof mock>).mockImplementation(() =>
+			(mockGit.status as ReturnType<typeof vi.fn>).mockImplementation(() =>
 				Promise.resolve({
 					files: [
 						{ path: "added.ts", index: "A", working_dir: " " },
@@ -223,7 +223,7 @@ describe("changes router", () => {
 		});
 
 		it("handles commit with null summary", async () => {
-			(mockGit.commit as ReturnType<typeof mock>).mockImplementation(() =>
+			(mockGit.commit as ReturnType<typeof vi.fn>).mockImplementation(() =>
 				Promise.resolve({ commit: "def5678", summary: null }),
 			);
 			const result = await router.commit({

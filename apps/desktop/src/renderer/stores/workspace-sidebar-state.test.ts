@@ -10,7 +10,7 @@
  * - Collapsed state detection
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 // Mock localStorage for zustand persist middleware
 const mockStorage = new Map<string, string>();

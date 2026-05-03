@@ -6,13 +6,13 @@
  * Tests the router procedures via direct tRPC caller.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { projects, type SelectProject } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
 import {
 	createTestDb,
 	type TestDb,
 } from "lib/trpc/routers/workspaces/utils/test-db";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { createProjectsRouter } from "./index";
 
 let db: TestDb;

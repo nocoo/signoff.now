@@ -5,7 +5,7 @@
  * Uses a mock store to test hotkey CRUD operations.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHotkeysRouter } from "./index";
 
 /** Default hotkey bindings for testing. */
@@ -41,17 +41,17 @@ function createMockStore() {
 	let bindings = [...DEFAULT_BINDINGS];
 
 	return {
-		list: mock(() => Promise.resolve([...bindings])),
-		get: mock((action: string) =>
+		list: vi.fn(() => Promise.resolve([...bindings])),
+		get: vi.fn((action: string) =>
 			Promise.resolve(bindings.find((b) => b.action === action) ?? null),
 		),
-		update: mock((action: string, keys: string) => {
+		update: vi.fn((action: string, keys: string) => {
 			bindings = bindings.map((b) =>
 				b.action === action ? { ...b, keys } : b,
 			);
 			return Promise.resolve(bindings.find((b) => b.action === action) ?? null);
 		}),
-		reset: mock((action: string) => {
+		reset: vi.fn((action: string) => {
 			const defaultBinding = DEFAULT_BINDINGS.find((b) => b.action === action);
 			if (defaultBinding) {
 				bindings = bindings.map((b) =>
@@ -60,7 +60,7 @@ function createMockStore() {
 			}
 			return Promise.resolve(bindings.find((b) => b.action === action) ?? null);
 		}),
-		resetAll: mock(() => {
+		resetAll: vi.fn(() => {
 			bindings = [...DEFAULT_BINDINGS];
 			return Promise.resolve([...bindings]);
 		}),
@@ -82,7 +82,7 @@ describe("hotkeys router", () => {
 	});
 
 	afterEach(() => {
-		mock.restore();
+		vi.restoreAllMocks();
 	});
 
 	// ── list ────────────────────────────────────────────

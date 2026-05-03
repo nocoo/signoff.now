@@ -2,7 +2,7 @@
  * Tests for GitInfoDashboard utility functions.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
 	formatBytes,
 	formatNumber,

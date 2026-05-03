@@ -4,8 +4,8 @@
  * TDD: written before the store implementation.
  */
 
-import { afterEach, describe, expect, it } from "bun:test";
 import type { MosaicParent } from "react-mosaic-component";
+import { afterEach, describe, expect, it } from "vitest";
 import { useTabsStore } from "./index";
 import type { PaneId, Tab } from "./types";
 import { TabType } from "./types";

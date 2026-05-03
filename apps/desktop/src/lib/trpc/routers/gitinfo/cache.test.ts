@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import type { CollectorTier } from "@signoff/gitinfo";
+import { describe, expect, test } from "vitest";
 import { clearAll, getCached, invalidate, setCached } from "./cache";
 
 // Use a minimal mock report — only needs to satisfy the type

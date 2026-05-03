@@ -5,13 +5,13 @@
  * all operations to the TerminalManager.
  */
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { createTerminalRouter } from "../index";
 
 /** Creates a mock TerminalManager with all methods as spies. */
 function createMockManager() {
 	return {
-		createOrAttach: mock(() =>
+		createOrAttach: vi.fn(() =>
 			Promise.resolve({
 				isNew: true,
 				snapshot: null,
@@ -19,13 +19,13 @@ function createMockManager() {
 				pid: null,
 			}),
 		),
-		write: mock(() => Promise.resolve()),
-		resize: mock(() => Promise.resolve()),
-		detach: mock(() => Promise.resolve()),
-		kill: mock(() => Promise.resolve()),
-		signal: mock(() => Promise.resolve()),
-		clearScrollback: mock(() => Promise.resolve()),
-		listSessions: mock(() => Promise.resolve({ sessions: [] })),
+		write: vi.fn(() => Promise.resolve()),
+		resize: vi.fn(() => Promise.resolve()),
+		detach: vi.fn(() => Promise.resolve()),
+		kill: vi.fn(() => Promise.resolve()),
+		signal: vi.fn(() => Promise.resolve()),
+		clearScrollback: vi.fn(() => Promise.resolve()),
+		listSessions: vi.fn(() => Promise.resolve({ sessions: [] })),
 	};
 }
 

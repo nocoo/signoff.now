@@ -4,9 +4,9 @@
  * Uses in-memory SQLite via createTestDb (same pattern as other router tests).
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { projects } from "@signoff/local-db";
 import type { PullRequestDetail, PullRequestInfo } from "@signoff/pulse";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { createTestDb, type TestDb } from "../workspaces/utils/test-db";
 import {
 	clearCache,

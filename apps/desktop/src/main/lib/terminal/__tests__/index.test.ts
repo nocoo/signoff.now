@@ -6,7 +6,7 @@
  * via mock Socket to avoid requiring a real daemon.
  */
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { TerminalManager } from "../index";
 
 describe("TerminalManager", () => {
@@ -38,9 +38,9 @@ describe("TerminalManager", () => {
 	it("accepts IPC bridge via setIpcBridge", () => {
 		const manager = new TerminalManager();
 		const bridge = {
-			onData: mock(() => {}),
-			onExit: mock(() => {}),
-			onError: mock(() => {}),
+			onData: vi.fn(() => {}),
+			onExit: vi.fn(() => {}),
+			onError: vi.fn(() => {}),
 		};
 		// Should not throw
 		manager.setIpcBridge(bridge);

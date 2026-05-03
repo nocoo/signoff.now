@@ -4,7 +4,7 @@
  * TDD: written before implementation.
  */
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { useChangesStore } from "./index";
 
 afterEach(() => {

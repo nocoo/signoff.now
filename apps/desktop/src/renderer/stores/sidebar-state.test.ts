@@ -12,7 +12,7 @@
  * - Persist migration (percentage to pixel)
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 
 // Mock localStorage for zustand persist middleware
 const mockStorage = new Map<string, string>();
