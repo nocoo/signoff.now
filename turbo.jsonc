@@ -15,9 +15,9 @@
 			"dependsOn": ["^build"],
 			"outputs": []
 		},
-		"test:ci": {
+		"test:coverage": {
 			"dependsOn": ["^build"],
-			"outputs": []
+			"outputs": ["coverage/**"]
 		},
 		"typecheck": {
 			"dependsOn": ["^build"],
