@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { mapPullRequestDetailNode } from "./map-pr-detail-node.ts";
 import type { GraphQLPullRequestDetailNode } from "./types.ts";
 

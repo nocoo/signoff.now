@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { GitHubClient } from "./github-client.ts";
 import type {
 	GraphQLPullRequestDetailNode,
@@ -59,7 +59,7 @@ function wrapDetailResponse(
 
 function mockFetchSequence(responses: unknown[]) {
 	let callIndex = 0;
-	return mock(() => {
+	return vi.fn(() => {
 		const body = responses[callIndex++];
 		return Promise.resolve({
 			ok: true,

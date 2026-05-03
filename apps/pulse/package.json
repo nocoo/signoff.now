@@ -30,8 +30,8 @@
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
-		"test": "bun test --pass-with-no-tests",
-		"test:ci": "bun run ../../scripts/check-coverage.ts --threshold 95",
+		"test": "vitest run",
+		"test:coverage": "vitest run --coverage",
 		"test:integration": "bun test src/__integration__/",
 		"clean": "git clean -xdf .cache .turbo dist node_modules"
 	},

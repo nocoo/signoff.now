@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { MockGitHubClient } from "../../api/mock-client.ts";
 import { fetchPrDiff } from "./fetch-pr-diff.ts";
 
