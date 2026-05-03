@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { GitInfoReport } from "../commands/types.ts";
 import { formatJson, formatJsonPretty } from "./output.ts";
 
