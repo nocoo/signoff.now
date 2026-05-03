@@ -17,9 +17,9 @@
  * - getBranchWorkspace
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { projects, settings, workspaces, worktrees } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
 	activateProject,
 	clearWorkspaceDeletingStatus,

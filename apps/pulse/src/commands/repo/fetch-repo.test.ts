@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { MockGitHubClient } from "../../api/mock-client.ts";
 import type { RepositoryInfo } from "../types.ts";
 import { fetchRepo } from "./fetch-repo.ts";

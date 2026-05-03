@@ -6,7 +6,7 @@
  * Language loading is verified in Electron runtime / E2E tests.
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { detectLanguage } from "./languages";
 
 describe("detectLanguage", () => {

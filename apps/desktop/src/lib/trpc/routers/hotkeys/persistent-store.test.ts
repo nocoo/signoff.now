@@ -6,11 +6,11 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as schema from "@signoff/local-db";
 import { settings } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createHotkeysRouter } from "./index";
 
 const CREATE_SETTINGS_SQL = `

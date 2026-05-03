@@ -6,12 +6,12 @@
  * { workspacePath, path } convention and FsHostService's { absolutePath }.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { FsHostService } from "@signoff/workspace-fs/host";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the factory module before importing the adapter
 const mockFsService = {
-	listDirectory: mock(() =>
+	listDirectory: vi.fn(() =>
 		Promise.resolve({
 			entries: [
 				{ absolutePath: "/ws/src", name: "src", kind: "directory" as const },
@@ -28,7 +28,7 @@ const mockFsService = {
 			],
 		}),
 	),
-	readFile: mock(() =>
+	readFile: vi.fn(() =>
 		Promise.resolve({
 			kind: "text" as const,
 			content: "hello world",
@@ -37,20 +37,20 @@ const mockFsService = {
 			revision: "rev1",
 		}),
 	),
-	writeFile: mock(() =>
+	writeFile: vi.fn(() =>
 		Promise.resolve({ ok: true as const, revision: "rev2" }),
 	),
-	createDirectory: mock(() =>
+	createDirectory: vi.fn(() =>
 		Promise.resolve({ absolutePath: "/ws/newdir", kind: "directory" as const }),
 	),
-	deletePath: mock(() => Promise.resolve({ absolutePath: "/ws/old.ts" })),
-	movePath: mock(() =>
+	deletePath: vi.fn(() => Promise.resolve({ absolutePath: "/ws/old.ts" })),
+	movePath: vi.fn(() =>
 		Promise.resolve({
 			fromAbsolutePath: "/ws/old.ts",
 			toAbsolutePath: "/ws/new.ts",
 		}),
 	),
-	getMetadata: mock(() =>
+	getMetadata: vi.fn(() =>
 		Promise.resolve({
 			absolutePath: "/ws/index.ts",
 			kind: "file" as const,
@@ -62,14 +62,14 @@ const mockFsService = {
 			revision: "rev3",
 		}),
 	),
-	close: mock(() => Promise.resolve()),
+	close: vi.fn(() => Promise.resolve()),
 } satisfies Record<string, unknown>;
 
 // Mock getFsHostService to return our mock service
-mock.module("../index", () => ({
+vi.mock("../index", () => ({
 	getFsHostService: (_rootPath: string) =>
 		mockFsService as unknown as FsHostService,
-	closeAllFsHostServices: mock(() => Promise.resolve()),
+	closeAllFsHostServices: vi.fn(() => Promise.resolve()),
 }));
 
 // Import adapter after mocking
@@ -89,7 +89,7 @@ describe("createFsAdapter", () => {
 	});
 
 	afterEach(() => {
-		// Note: do NOT call mock.restore() here — it would undo mock.module()
+		// Note: do NOT call vi.restoreAllMocks() here — it would undo vi.mock()
 		// for other test files sharing the process.
 	});
 

@@ -15,7 +15,6 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +22,7 @@ import * as schema from "@signoff/local-db";
 import { settings } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createHotkeysRouter } from "../../routers/hotkeys";
 import { createProjectsRouter } from "../../routers/projects";
 import { createSettingsRouter } from "../../routers/settings";

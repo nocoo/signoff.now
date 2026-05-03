@@ -13,8 +13,8 @@
  * - scrollToBottom utility
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { Terminal as XTerm } from "@xterm/xterm";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 // ─── Terminal Config ────────────────────────────────────────────────────────
 
@@ -91,16 +91,16 @@ describe("Terminal/helpers setupCopyHandler", () => {
 	function createXtermStub(selection: string) {
 		const listeners = new Map<string, EventListener>();
 		const element = {
-			addEventListener: mock((eventName: string, listener: EventListener) => {
+			addEventListener: vi.fn((eventName: string, listener: EventListener) => {
 				listeners.set(eventName, listener);
 			}),
-			removeEventListener: mock((eventName: string) => {
+			removeEventListener: vi.fn((eventName: string) => {
 				listeners.delete(eventName);
 			}),
 		} as unknown as HTMLElement;
 		const xterm = {
 			element,
-			getSelection: mock(() => selection),
+			getSelection: vi.fn(() => selection),
 		} as unknown as XTerm;
 		return { xterm, listeners };
 	}
@@ -110,8 +110,8 @@ describe("Terminal/helpers setupCopyHandler", () => {
 		const { xterm, listeners } = createXtermStub("foo   \nbar  ");
 		setupCopyHandler(xterm);
 
-		const preventDefault = mock(() => {});
-		const setData = mock(() => {});
+		const preventDefault = vi.fn(() => {});
+		const setData = vi.fn(() => {});
 		const copyEvent = {
 			preventDefault,
 			clipboardData: { setData },
@@ -128,15 +128,15 @@ describe("Terminal/helpers setupCopyHandler", () => {
 	test("prefers clipboardData over navigator.clipboard", async () => {
 		const { setupCopyHandler } = await import("./helpers");
 		const { xterm, listeners } = createXtermStub("foo   \nbar  ");
-		const writeText = mock(() => Promise.resolve());
+		const writeText = vi.fn(() => Promise.resolve());
 
 		// @ts-expect-error - mocking navigator
 		globalThis.navigator = { clipboard: { writeText } };
 
 		setupCopyHandler(xterm);
 
-		const preventDefault = mock(() => {});
-		const setData = mock(() => {});
+		const preventDefault = vi.fn(() => {});
+		const setData = vi.fn(() => {});
 		const copyEvent = {
 			preventDefault,
 			clipboardData: { setData },
@@ -152,7 +152,7 @@ describe("Terminal/helpers setupCopyHandler", () => {
 	test("falls back to navigator.clipboard when clipboardData missing", async () => {
 		const { setupCopyHandler } = await import("./helpers");
 		const { xterm, listeners } = createXtermStub("foo   \nbar  ");
-		const writeText = mock(() => Promise.resolve());
+		const writeText = vi.fn(() => Promise.resolve());
 
 		// @ts-expect-error - mocking navigator
 		globalThis.navigator = { clipboard: { writeText } };
@@ -160,7 +160,7 @@ describe("Terminal/helpers setupCopyHandler", () => {
 		setupCopyHandler(xterm);
 
 		const copyEvent = {
-			preventDefault: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
 			clipboardData: null,
 		} as unknown as ClipboardEvent;
 
@@ -178,7 +178,7 @@ describe("Terminal/helpers setupCopyHandler", () => {
 		setupCopyHandler(xterm);
 
 		const copyEvent = {
-			preventDefault: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
 			clipboardData: null,
 		} as unknown as ClipboardEvent;
 
@@ -209,14 +209,14 @@ describe("Terminal/helpers setupPasteHandler", () => {
 	function createXtermStub() {
 		const listeners = new Map<string, EventListener>();
 		const textarea = {
-			addEventListener: mock((eventName: string, listener: EventListener) => {
+			addEventListener: vi.fn((eventName: string, listener: EventListener) => {
 				listeners.set(eventName, listener);
 			}),
-			removeEventListener: mock((eventName: string) => {
+			removeEventListener: vi.fn((eventName: string) => {
 				listeners.delete(eventName);
 			}),
 		} as unknown as HTMLTextAreaElement;
-		const paste = mock(() => {});
+		const paste = vi.fn(() => {});
 		const xterm = {
 			textarea,
 			paste,
@@ -227,14 +227,14 @@ describe("Terminal/helpers setupPasteHandler", () => {
 	test("forwards Ctrl+V for image-only clipboard payloads", async () => {
 		const { setupPasteHandler } = await import("./helpers");
 		const { xterm, listeners } = createXtermStub();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupPasteHandler(xterm, { onWrite });
 
-		const preventDefault = mock(() => {});
-		const stopImmediatePropagation = mock(() => {});
+		const preventDefault = vi.fn(() => {});
+		const stopImmediatePropagation = vi.fn(() => {});
 		const pasteEvent = {
 			clipboardData: {
-				getData: mock(() => ""),
+				getData: vi.fn(() => ""),
 				types: ["Files", "image/png"],
 			},
 			preventDefault,
@@ -250,17 +250,17 @@ describe("Terminal/helpers setupPasteHandler", () => {
 	test("ignores empty clipboard payloads", async () => {
 		const { setupPasteHandler } = await import("./helpers");
 		const { xterm, listeners } = createXtermStub();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupPasteHandler(xterm, { onWrite });
 
-		const preventDefault = mock(() => {});
+		const preventDefault = vi.fn(() => {});
 		const pasteEvent = {
 			clipboardData: {
-				getData: mock(() => ""),
+				getData: vi.fn(() => ""),
 				types: [],
 			},
 			preventDefault,
-			stopImmediatePropagation: mock(() => {}),
+			stopImmediatePropagation: vi.fn(() => {}),
 		} as unknown as ClipboardEvent;
 
 		listeners.get("paste")?.(pasteEvent);
@@ -276,11 +276,11 @@ describe("Terminal/helpers setupPasteHandler", () => {
 
 		const pasteEvent = {
 			clipboardData: {
-				getData: mock(() => "hello world"),
+				getData: vi.fn(() => "hello world"),
 				types: ["text/plain"],
 			},
-			preventDefault: mock(() => {}),
-			stopImmediatePropagation: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
+			stopImmediatePropagation: vi.fn(() => {}),
 		} as unknown as ClipboardEvent;
 
 		listeners.get("paste")?.(pasteEvent);
@@ -291,16 +291,16 @@ describe("Terminal/helpers setupPasteHandler", () => {
 	test("small paste with onWrite sends directly with newline normalization", async () => {
 		const { setupPasteHandler } = await import("./helpers");
 		const { xterm, listeners } = createXtermStub();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupPasteHandler(xterm, { onWrite });
 
 		const pasteEvent = {
 			clipboardData: {
-				getData: mock(() => "line1\nline2"),
+				getData: vi.fn(() => "line1\nline2"),
 				types: ["text/plain"],
 			},
-			preventDefault: mock(() => {}),
-			stopImmediatePropagation: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
+			stopImmediatePropagation: vi.fn(() => {}),
 		} as unknown as ClipboardEvent;
 
 		listeners.get("paste")?.(pasteEvent);
@@ -312,7 +312,7 @@ describe("Terminal/helpers setupPasteHandler", () => {
 	test("bracketed paste wraps content with escape sequences", async () => {
 		const { setupPasteHandler } = await import("./helpers");
 		const { xterm, listeners } = createXtermStub();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupPasteHandler(xterm, {
 			onWrite,
 			isBracketedPasteEnabled: () => true,
@@ -320,11 +320,11 @@ describe("Terminal/helpers setupPasteHandler", () => {
 
 		const pasteEvent = {
 			clipboardData: {
-				getData: mock(() => "pasted"),
+				getData: vi.fn(() => "pasted"),
 				types: ["text/plain"],
 			},
-			preventDefault: mock(() => {}),
-			stopImmediatePropagation: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
+			stopImmediatePropagation: vi.fn(() => {}),
 		} as unknown as ClipboardEvent;
 
 		listeners.get("paste")?.(pasteEvent);
@@ -377,7 +377,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 		globalThis.navigator = { platform: "MacIntel" };
 
 		const { xterm, captured } = captureHandler();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupKeyboardHandler(xterm, { onWrite });
 
 		captured.handler?.({
@@ -408,7 +408,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 		globalThis.navigator = { platform: "Win32" };
 
 		const { xterm, captured } = captureHandler();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupKeyboardHandler(xterm, { onWrite });
 
 		captured.handler?.({
@@ -436,7 +436,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 	test("Shift+Enter calls onShiftEnter", async () => {
 		const { setupKeyboardHandler } = await import("./helpers");
 		const { xterm, captured } = captureHandler();
-		const onShiftEnter = mock(() => {});
+		const onShiftEnter = vi.fn(() => {});
 		setupKeyboardHandler(xterm, { onShiftEnter });
 
 		const result = captured.handler?.({
@@ -446,7 +446,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 			metaKey: false,
 			ctrlKey: false,
 			altKey: false,
-			preventDefault: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
 		} as unknown as KeyboardEvent);
 
 		expect(onShiftEnter).toHaveBeenCalled();
@@ -459,7 +459,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 		globalThis.navigator = { platform: "MacIntel" };
 
 		const { xterm, captured } = captureHandler();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupKeyboardHandler(xterm, { onWrite });
 
 		const result = captured.handler?.({
@@ -469,7 +469,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 			ctrlKey: false,
 			altKey: false,
 			shiftKey: false,
-			preventDefault: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
 		} as unknown as KeyboardEvent);
 
 		expect(onWrite).toHaveBeenCalledWith("\x15\x1b[D");
@@ -482,7 +482,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 		globalThis.navigator = { platform: "MacIntel" };
 
 		const { xterm, captured } = captureHandler();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupKeyboardHandler(xterm, { onWrite });
 
 		captured.handler?.({
@@ -492,7 +492,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 			ctrlKey: false,
 			altKey: false,
 			shiftKey: false,
-			preventDefault: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
 		} as unknown as KeyboardEvent);
 
 		expect(onWrite).toHaveBeenCalledWith("\x01");
@@ -504,7 +504,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 		globalThis.navigator = { platform: "MacIntel" };
 
 		const { xterm, captured } = captureHandler();
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupKeyboardHandler(xterm, { onWrite });
 
 		captured.handler?.({
@@ -514,7 +514,7 @@ describe("Terminal/helpers setupKeyboardHandler", () => {
 			ctrlKey: false,
 			altKey: false,
 			shiftKey: false,
-			preventDefault: mock(() => {}),
+			preventDefault: vi.fn(() => {}),
 		} as unknown as KeyboardEvent);
 
 		expect(onWrite).toHaveBeenCalledWith("\x05");
@@ -552,10 +552,10 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 		const { setupClickToMoveCursor } = await import("./helpers");
 		const listeners = new Map<string, EventListener>();
 		const element = {
-			addEventListener: mock((name: string, fn: EventListener) => {
+			addEventListener: vi.fn((name: string, fn: EventListener) => {
 				listeners.set(name, fn);
 			}),
-			removeEventListener: mock(() => {}),
+			removeEventListener: vi.fn(() => {}),
 			getBoundingClientRect: () => ({
 				left: 0,
 				top: 0,
@@ -590,7 +590,7 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 		xterm.buffer.active = { ...xterm.buffer.active };
 		xterm.buffer.normal = xterm.buffer.active;
 
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupClickToMoveCursor(xterm as unknown as XTerm, { onWrite });
 
 		// Click at column 8 (x=85, which is col 8 at cellWidth=10)
@@ -612,10 +612,10 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 		const { setupClickToMoveCursor } = await import("./helpers");
 		const listeners = new Map<string, EventListener>();
 		const element = {
-			addEventListener: mock((name: string, fn: EventListener) => {
+			addEventListener: vi.fn((name: string, fn: EventListener) => {
 				listeners.set(name, fn);
 			}),
-			removeEventListener: mock(() => {}),
+			removeEventListener: vi.fn(() => {}),
 			getBoundingClientRect: () => ({
 				left: 0,
 				top: 0,
@@ -649,7 +649,7 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 		xterm.buffer.active = { ...xterm.buffer.active };
 		xterm.buffer.normal = xterm.buffer.active;
 
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupClickToMoveCursor(xterm as unknown as XTerm, { onWrite });
 
 		// Click at column 7 (x=75, col 7 at cellWidth=10)
@@ -671,10 +671,10 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 		const { setupClickToMoveCursor } = await import("./helpers");
 		const listeners = new Map<string, EventListener>();
 		const element = {
-			addEventListener: mock((name: string, fn: EventListener) => {
+			addEventListener: vi.fn((name: string, fn: EventListener) => {
 				listeners.set(name, fn);
 			}),
-			removeEventListener: mock(() => {}),
+			removeEventListener: vi.fn(() => {}),
 		};
 
 		const normalBuffer = { viewportY: 0, cursorX: 5, cursorY: 0 };
@@ -691,7 +691,7 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 			hasSelection: () => false,
 		};
 
-		const onWrite = mock(() => {});
+		const onWrite = vi.fn(() => {});
 		setupClickToMoveCursor(xterm as unknown as XTerm, { onWrite });
 
 		listeners.get("click")?.({
@@ -705,9 +705,9 @@ describe("Terminal/helpers setupClickToMoveCursor", () => {
 
 	test("cleanup removes click listener", async () => {
 		const { setupClickToMoveCursor } = await import("./helpers");
-		const removeEventListener = mock(() => {});
+		const removeEventListener = vi.fn(() => {});
 		const element = {
-			addEventListener: mock(() => {}),
+			addEventListener: vi.fn(() => {}),
 			removeEventListener,
 		};
 
@@ -732,14 +732,14 @@ describe("Terminal/helpers setupFocusListener", () => {
 		const { setupFocusListener } = await import("./helpers");
 		const listeners = new Map<string, EventListener>();
 		const textarea = {
-			addEventListener: mock((name: string, fn: EventListener) => {
+			addEventListener: vi.fn((name: string, fn: EventListener) => {
 				listeners.set(name, fn);
 			}),
-			removeEventListener: mock(() => {}),
+			removeEventListener: vi.fn(() => {}),
 		};
 
 		const xterm = { textarea } as unknown as XTerm;
-		const onFocus = mock(() => {});
+		const onFocus = vi.fn(() => {});
 
 		setupFocusListener(xterm, onFocus);
 
@@ -756,9 +756,9 @@ describe("Terminal/helpers setupFocusListener", () => {
 
 	test("cleanup removes focus listener", async () => {
 		const { setupFocusListener } = await import("./helpers");
-		const removeEventListener = mock(() => {});
+		const removeEventListener = vi.fn(() => {});
 		const textarea = {
-			addEventListener: mock(() => {}),
+			addEventListener: vi.fn(() => {}),
 			removeEventListener,
 		};
 		const xterm = { textarea } as unknown as XTerm;
@@ -775,7 +775,7 @@ describe("Terminal/helpers setupFocusListener", () => {
 describe("Terminal/helpers scrollToBottom", () => {
 	test("scrolls to end of buffer", async () => {
 		const { scrollToBottom } = await import("./helpers");
-		const scrollToLine = mock(() => {});
+		const scrollToLine = vi.fn(() => {});
 		const xterm = {
 			buffer: {
 				active: { baseY: 100 },

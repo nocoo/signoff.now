@@ -7,9 +7,9 @@
  * migration set.
  */
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 import {
 	projects,
 	pullRequestDetails,
@@ -21,7 +21,7 @@ import {
 	worktrees,
 } from "./schema";
 
-const DRIZZLE_DIR = join(import.meta.dir, "../../drizzle");
+const DRIZZLE_DIR = join(import.meta.dirname, "../../drizzle");
 
 /** Read and execute all migration SQL files in order */
 function applyMigrations(db: Database): void {

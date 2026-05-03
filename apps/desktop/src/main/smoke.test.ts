@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 // ─── Test Setup Verification ─────────────────────────────────────────────────
 // These tests verify that test-setup.ts preload mocks are active.
@@ -11,7 +11,7 @@ const hasElectronMock = await import("electron")
 	.then((m) => typeof m.app?.getName === "function")
 	.catch(() => false);
 
-describe.if(hasElectronMock)("test-setup mocks", () => {
+describe.skipIf(!hasElectronMock)("test-setup mocks", () => {
 	test("electron mock resolves", async () => {
 		const electron = await import("electron");
 		expect(electron.app).toBeDefined();

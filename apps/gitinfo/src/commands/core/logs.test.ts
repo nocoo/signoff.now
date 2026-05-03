@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { createMockExecutor } from "../../executor/mock-executor.ts";
 import type { MockResponse } from "../../executor/types.ts";
 import {

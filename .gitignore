@@ -47,5 +47,8 @@ yarn.lock
 # tsbuildinfo
 *.tsbuildinfo
 
+# vitest coverage
+coverage/
+
 # Claude binaries - downloaded at build time
 apps/desktop/resources/bin/

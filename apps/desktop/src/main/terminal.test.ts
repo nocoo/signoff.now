@@ -12,8 +12,8 @@
  * - Terminal lib stubs
  */
 
-import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
+import { describe, expect, test } from "vitest";
 
 // ─── Binary Frame Protocol ───────────────────────────────────────────────────
 
@@ -158,8 +158,8 @@ describe("terminal-host/pty-subprocess-ipc", () => {
 		const { SHELL_READY_MARKER } = await import(
 			"./terminal-host/pty-subprocess-ipc"
 		);
-		expect(SHELL_READY_MARKER).toStartWith("\x1b]777;");
-		expect(SHELL_READY_MARKER).toEndWith("\x07");
+		expect(SHELL_READY_MARKER.startsWith("\x1b]777;")).toBe(true);
+		expect(SHELL_READY_MARKER.endsWith("\x07")).toBe(true);
 		expect(SHELL_READY_MARKER).toContain("signoff");
 	});
 });

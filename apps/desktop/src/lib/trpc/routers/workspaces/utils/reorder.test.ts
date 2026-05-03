@@ -7,7 +7,7 @@
  * - computeNextTabOrder: max+1 or 0 for empty arrays
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { computeNextTabOrder, reorderItems } from "./reorder";
 
 describe("reorderItems", () => {

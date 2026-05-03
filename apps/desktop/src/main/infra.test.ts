@@ -6,10 +6,10 @@
  * data in ~/.signoff/data/.
  */
 
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 // ─── D1: Redirect all state paths to temp directory ─────────────────────────
 
@@ -25,7 +25,7 @@ afterAll(() => {
 });
 
 // Mock the environment module BEFORE importing app-state / window-state
-mock.module("main/lib/app-environment", () => ({
+vi.mock("main/lib/app-environment", () => ({
 	SIGNOFF_HOME_DIR: TEST_HOME,
 	getAppStatePath: () => join(TEST_DATA_DIR, "app-state.json"),
 	getWindowStatePath: () => join(TEST_DATA_DIR, "window-state.json"),

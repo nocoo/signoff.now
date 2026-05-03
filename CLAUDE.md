@@ -61,10 +61,10 @@ Symptoms of stale build: `ERR_DLOPEN_FAILED` with `NODE_MODULE_VERSION` mismatch
 
 ## Test Notes
 
-- Desktop tests require preload mocks (`apps/desktop/test-setup.ts` via `bunfig.toml`)
-- Running `bun test` from monorepo root skips mock-dependent tests gracefully (`describe.if`)
-- Running `bun test` from `apps/desktop/` runs full suite with mocks
-- Husky pre-commit runs `turbo test:ci` (per-workspace, with preload)
+- Desktop tests require preload mocks (`apps/desktop/test-setup.ts`, loaded via `vitest.config.ts` `setupFiles`)
+- `bun run test:coverage` from monorepo root runs each workspace's `test:coverage` script (vitest), enforcing per-package coverage thresholds
+- Inside `apps/desktop/` and `packages/local-db/`, tests run via `bun --bun vitest` because of bun:sqlite / electron preload requirements; `test:coverage` in those two packages skips the `--coverage` flag because neither the v8 nor the istanbul vitest provider works under the bun runtime — see the comment block in their `vitest.config.ts`. Coverage is enforced by the other packages (gitinfo, pulse, shared, workspace-fs).
+- Husky pre-commit runs `bun run test:coverage` (vitest with coverage gate)
 
 ## Retrospective
 

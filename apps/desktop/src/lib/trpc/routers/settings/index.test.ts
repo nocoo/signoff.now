@@ -6,7 +6,7 @@
  * without requiring a real SQLite database.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSettingsRouter } from "./index";
 
 /** Default settings shape returned by the mock. */
@@ -40,9 +40,9 @@ function createMockDb() {
 
 	return {
 		/** Simulates db.select().from(settings).get() */
-		get: mock(() => Promise.resolve({ ...currentSettings })),
+		get: vi.fn(() => Promise.resolve({ ...currentSettings })),
 		/** Simulates db.update(settings).set(values).where(eq(settings.id, 1)) */
-		update: mock((values: Record<string, unknown>) => {
+		update: vi.fn((values: Record<string, unknown>) => {
 			currentSettings = { ...currentSettings, ...values };
 			return Promise.resolve({ ...currentSettings });
 		}),
@@ -65,7 +65,7 @@ describe("settings router", () => {
 	});
 
 	afterEach(() => {
-		mock.restore();
+		vi.restoreAllMocks();
 	});
 
 	// ── get ──────────────────────────────────────────────
@@ -86,7 +86,7 @@ describe("settings router", () => {
 		});
 
 		it("returns default values when settings not initialized", async () => {
-			(mockDb.get as ReturnType<typeof mock>).mockImplementation(() =>
+			(mockDb.get as ReturnType<typeof vi.fn>).mockImplementation(() =>
 				Promise.resolve(null),
 			);
 			const result = await router.get();

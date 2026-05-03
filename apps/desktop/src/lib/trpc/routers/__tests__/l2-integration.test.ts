@@ -15,15 +15,6 @@
  */
 
 import {
-	afterAll,
-	beforeAll,
-	beforeEach,
-	describe,
-	expect,
-	mock,
-	test,
-} from "bun:test";
-import {
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -35,6 +26,15 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import simpleGit from "simple-git";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 import { createAutoUpdateRouter } from "../auto-update";
 import { createChangesRouter } from "../changes";
 import { createConfigRouter } from "../config";
@@ -94,7 +94,7 @@ describe("changes router (real git)", () => {
 
 		expect(typeof result.branch).toBe("string");
 		expect(result.branch).toBeTruthy();
-		expect(result.files).toBeArray();
+		expect(Array.isArray(result.files)).toBe(true);
 		expect(result.files).toHaveLength(0);
 	});
 
@@ -453,8 +453,8 @@ describe("config router", () => {
 
 describe("external router", () => {
 	let shellOps: {
-		showItemInFolder: ReturnType<typeof mock>;
-		openExternal: ReturnType<typeof mock>;
+		showItemInFolder: (fullPath: string) => void;
+		openExternal: (url: string) => Promise<void>;
 	};
 	let caller: ReturnType<
 		ReturnType<typeof createExternalRouter>["createCaller"]
@@ -462,8 +462,8 @@ describe("external router", () => {
 
 	beforeEach(() => {
 		shellOps = {
-			showItemInFolder: mock(() => {}),
-			openExternal: mock(() => Promise.resolve()),
+			showItemInFolder: vi.fn(() => {}),
+			openExternal: vi.fn(() => Promise.resolve()),
 		};
 		const externalRouter = createExternalRouter(shellOps);
 		caller = externalRouter.createCaller({});
@@ -556,9 +556,9 @@ describe("menu router", () => {
 	function createMockWindow() {
 		return {
 			webContents: {
-				send: mock(() => {}),
-				toggleDevTools: mock(() => {}),
-				reload: mock(() => {}),
+				send: vi.fn(() => {}),
+				toggleDevTools: vi.fn(() => {}),
+				reload: vi.fn(() => {}),
 			},
 		};
 	}
@@ -635,11 +635,11 @@ describe("menu router", () => {
 describe("window router", () => {
 	function createMockWindow(maximized = false) {
 		return {
-			minimize: mock(() => {}),
-			maximize: mock(() => {}),
-			unmaximize: mock(() => {}),
-			close: mock(() => {}),
-			isMaximized: mock(() => maximized),
+			minimize: vi.fn(() => {}),
+			maximize: vi.fn(() => {}),
+			unmaximize: vi.fn(() => {}),
+			close: vi.fn(() => {}),
+			isMaximized: vi.fn(() => maximized),
 			webContents: {
 				on: () => {},
 				send: () => {},

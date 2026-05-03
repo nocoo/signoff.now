@@ -5,8 +5,8 @@
  * These tests cover the extracted pure logic: author filter and loading states.
  */
 
-import { describe, expect, test } from "bun:test";
 import type { PullRequestInfo } from "@signoff/pulse";
+import { describe, expect, test } from "vitest";
 import {
 	deriveIsDetailLoading,
 	deriveIsLoading,

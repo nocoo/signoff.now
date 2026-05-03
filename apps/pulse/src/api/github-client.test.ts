@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { GitHubClient } from "./github-client.ts";
 import type { GraphQLPrsResponse } from "./types.ts";
 
@@ -57,7 +57,7 @@ describe("GitHubClient retry", () => {
 	});
 
 	test("succeeds on first attempt", async () => {
-		const fetchMock = mock(() => Promise.resolve(jsonResponse(OK_RESPONSE)));
+		const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(OK_RESPONSE)));
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const client = fastClient();
@@ -73,7 +73,7 @@ describe("GitHubClient retry", () => {
 
 	test("retries on 502 and eventually succeeds", async () => {
 		let callCount = 0;
-		const fetchMock = mock(() => {
+		const fetchMock = vi.fn(() => {
 			callCount++;
 			if (callCount <= 2) {
 				return Promise.resolve(jsonResponse({}, 502));
@@ -94,7 +94,7 @@ describe("GitHubClient retry", () => {
 	});
 
 	test("throws after exhausting retries on 502", async () => {
-		const fetchMock = mock(() => Promise.resolve(jsonResponse({}, 502)));
+		const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({}, 502)));
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const client = fastClient();
@@ -111,7 +111,7 @@ describe("GitHubClient retry", () => {
 	});
 
 	test("does not retry on 401", async () => {
-		const fetchMock = mock(() =>
+		const fetchMock = vi.fn(() =>
 			Promise.resolve(
 				new Response("Unauthorized", {
 					status: 401,
@@ -135,7 +135,7 @@ describe("GitHubClient retry", () => {
 
 	test("retries on 503 and 504", async () => {
 		let callCount = 0;
-		const fetchMock = mock(() => {
+		const fetchMock = vi.fn(() => {
 			callCount++;
 			if (callCount === 1) return Promise.resolve(jsonResponse({}, 503));
 			if (callCount === 2) return Promise.resolve(jsonResponse({}, 504));
@@ -185,7 +185,7 @@ describe("GitHubClient.fetchPullRequestFiles", () => {
 			},
 		];
 
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(restFiles)),
 		) as unknown as typeof fetch;
 
@@ -229,7 +229,7 @@ describe("GitHubClient.fetchPullRequestFiles", () => {
 		];
 
 		let callCount = 0;
-		globalThis.fetch = mock(() => {
+		globalThis.fetch = vi.fn(() => {
 			callCount++;
 			if (callCount === 1) return Promise.resolve(jsonResponse(fullPage));
 			return Promise.resolve(jsonResponse(lastPage));
@@ -254,7 +254,7 @@ describe("GitHubClient.fetchPullRequestFiles", () => {
 		];
 
 		let callCount = 0;
-		globalThis.fetch = mock(() => {
+		globalThis.fetch = vi.fn(() => {
 			callCount++;
 			if (callCount <= 2) return Promise.resolve(jsonResponse({}, 502));
 			return Promise.resolve(jsonResponse(files));
@@ -268,7 +268,7 @@ describe("GitHubClient.fetchPullRequestFiles", () => {
 	});
 
 	test("throws on non-retryable REST error (401)", async () => {
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(
 				new Response("Unauthorized", {
 					status: 401,
@@ -336,7 +336,7 @@ describe("GitHubClient.fetchPullRequestFiles", () => {
 			},
 		];
 
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(files)),
 		) as unknown as typeof fetch;
 
@@ -370,7 +370,7 @@ describe("GitHubClient.fetchPullRequestDiff", () => {
 		const diffText =
 			"diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1,2 @@\n+new line";
 
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(new Response(diffText, { status: 200 })),
 		) as unknown as typeof fetch;
 
@@ -383,7 +383,7 @@ describe("GitHubClient.fetchPullRequestDiff", () => {
 	test("sends correct Accept header for diff format", async () => {
 		let capturedHeaders: Headers | undefined;
 
-		globalThis.fetch = mock((_url: string, init?: RequestInit) => {
+		globalThis.fetch = vi.fn((_url: string, init?: RequestInit) => {
 			capturedHeaders = new Headers(init?.headers);
 			return Promise.resolve(new Response("diff content", { status: 200 }));
 		}) as unknown as typeof fetch;
@@ -396,7 +396,7 @@ describe("GitHubClient.fetchPullRequestDiff", () => {
 
 	test("retries on 503 for diff endpoint", async () => {
 		let callCount = 0;
-		globalThis.fetch = mock(() => {
+		globalThis.fetch = vi.fn(() => {
 			callCount++;
 			if (callCount <= 1) {
 				return Promise.resolve(
@@ -417,7 +417,7 @@ describe("GitHubClient.fetchPullRequestDiff", () => {
 	});
 
 	test("throws after exhausting retries for diff endpoint", async () => {
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(
 				new Response("Bad Gateway", { status: 502, statusText: "Bad Gateway" }),
 			),
@@ -486,7 +486,7 @@ describe("GitHubClient.searchPullRequests", () => {
 
 	test("returns mapped PR results from search", async () => {
 		const resp = searchResponse([makeSearchNode()]);
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(resp)),
 		) as unknown as typeof fetch;
 
@@ -504,7 +504,7 @@ describe("GitHubClient.searchPullRequests", () => {
 
 	test("includes repo scope and is:pr in search query", async () => {
 		let capturedBody = "";
-		globalThis.fetch = mock((_url: string, init?: RequestInit) => {
+		globalThis.fetch = vi.fn((_url: string, init?: RequestInit) => {
 			capturedBody = (init?.body as string) ?? "";
 			return Promise.resolve(jsonResponse(searchResponse([])));
 		}) as unknown as typeof fetch;
@@ -527,7 +527,7 @@ describe("GitHubClient.searchPullRequests", () => {
 			{ __typename: "Issue", number: 2, title: "An Issue" },
 			makeSearchNode({ number: 3 }),
 		]);
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(resp)),
 		) as unknown as typeof fetch;
 
@@ -551,7 +551,7 @@ describe("GitHubClient.searchPullRequests", () => {
 			{ hasNextPage: true, endCursor: "cursor-1" },
 			50,
 		);
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(resp)),
 		) as unknown as typeof fetch;
 
@@ -568,7 +568,7 @@ describe("GitHubClient.searchPullRequests", () => {
 
 	test("paginates across multiple pages", async () => {
 		let callCount = 0;
-		globalThis.fetch = mock(() => {
+		globalThis.fetch = vi.fn(() => {
 			callCount++;
 			if (callCount === 1) {
 				return Promise.resolve(
@@ -597,7 +597,7 @@ describe("GitHubClient.searchPullRequests", () => {
 	});
 
 	test("throws on GraphQL error", async () => {
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(
 				jsonResponse({
 					data: { search: null },
@@ -658,7 +658,7 @@ describe("GitHubClient.fetchRepository", () => {
 	});
 
 	test("maps repository node to RepositoryInfo", async () => {
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(repoResponse(makeRepoNode()))),
 		) as unknown as typeof fetch;
 
@@ -686,7 +686,7 @@ describe("GitHubClient.fetchRepository", () => {
 			licenseInfo: null,
 			repositoryTopics: { nodes: [] },
 		});
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(jsonResponse(repoResponse(node))),
 		) as unknown as typeof fetch;
 
@@ -702,7 +702,7 @@ describe("GitHubClient.fetchRepository", () => {
 	});
 
 	test("throws on GraphQL error", async () => {
-		globalThis.fetch = mock(() =>
+		globalThis.fetch = vi.fn(() =>
 			Promise.resolve(
 				jsonResponse({
 					data: { repository: null },

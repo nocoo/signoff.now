@@ -5,7 +5,6 @@
  * Uses in-memory SQLite + Drizzle for realistic DB testing.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	projects,
 	type SelectWorkspace,
@@ -18,6 +17,7 @@ import {
 	createTestDb,
 	type TestDb,
 } from "lib/trpc/routers/workspaces/utils/test-db";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { createWorkspacesRouter } from "./index";
 
 let db: TestDb;

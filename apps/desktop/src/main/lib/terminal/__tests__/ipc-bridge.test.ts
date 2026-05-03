@@ -5,13 +5,13 @@
  * via webContents.send().
  */
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { createTerminalIpcBridge, TERMINAL_IPC } from "../ipc-bridge";
 
 function createMockWindow() {
 	return {
 		webContents: {
-			send: mock(() => {}),
+			send: vi.fn(() => {}),
 		},
 	};
 }

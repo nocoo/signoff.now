@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import type { FsWatchEvent } from "../types";
 import { createFsHostService } from "./service";
 

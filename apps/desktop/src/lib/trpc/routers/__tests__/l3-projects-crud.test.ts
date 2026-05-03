@@ -14,7 +14,6 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +21,7 @@ import * as schema from "@signoff/local-db";
 import { projects } from "@signoff/local-db";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { createProjectsRouter } from "../../routers/projects";
 
 const CREATE_TABLES_SQL = `

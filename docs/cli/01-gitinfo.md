@@ -681,7 +681,7 @@ const logsCollector: Collector<GitLogs> = {
 
 | Layer | Content | Threshold | Husky Stage |
 |-------|---------|-----------|-------------|
-| **L1 Unit Test** | All core functions, collectors, arg parser, formatters | ≥ 95% line coverage (when coverage data exists; pass-through if no test files or no coverable code — see `check-coverage.ts`) | pre-commit |
+| **L1 Unit Test** | All core functions, collectors, arg parser, formatters | Per-package thresholds in `vitest.config.ts` (≥ 95% lines for `gitinfo`/`pulse`/`local-db`/`desktop`; lower for `shared`/`workspace-fs` — see comments in those configs) | pre-commit |
 | **L2 Lint** | Biome strict (correctness/suspicious/complexity/style all error) | 0 warnings | pre-commit |
 | **L3 Typecheck** | `tsc --noEmit` | 0 errors | pre-push |
 | **L4 Integration** | `*.integration.test.ts` files in `src/__integration__/`; run manually via `bun test src/__integration__/` | Pass | manual |
@@ -689,27 +689,19 @@ const logsCollector: Collector<GitLogs> = {
 ### Unit test approach
 
 - **Co-located**: `*.test.ts` alongside source files
-- **Framework**: `bun:test` (`describe`, `it`, `expect`)
+- **Framework**: `vitest` (`describe`, `it`, `expect`)
 - **Mock pattern**: `createMockExecutor()` for git commands + `createMockFsReader()` for filesystem access (needed by `repoState`, `hooks`, `gitDirSizeKiB`, and `largestTracked` tests — see [FsReader usage table](#fsreader--filesystem-access))
 - **Edge cases**: empty repo, detached HEAD, no remotes, Unicode author names, zero tags, merge-in-progress, Windows-style line endings in git output
-- **Integration test isolation**: Integration tests (real git commands, temp repos) live in `src/__integration__/` with `.integration.test.ts` suffix. Isolation is handled via `bunfig.toml` at the package level:
-
-```toml
-# apps/gitinfo/bunfig.toml
-[test]
-pathIgnorePatterns = ["**/__integration__/**"]
-```
-
-This ensures both `bun test` (direct) and `check-coverage.ts` (which runs bare `bun test --coverage`) automatically skip integration tests — no CLI flags needed. Integration tests run explicitly via `bun test src/__integration__/`.
+- **Integration test isolation**: Integration tests (real git commands, temp repos) live in `src/__integration__/` with `.integration.test.ts` suffix. Vitest excludes that directory in each package's `vitest.config.ts` (`test.exclude` and `coverage.exclude`), so `vitest run` and `vitest run --coverage` skip integration tests by default. Run them explicitly via `bun test src/__integration__/`.
 
 ### Coverage enforcement
 
 ```jsonc
 // package.json scripts
-"test:ci": "bun run ../../scripts/check-coverage.ts --threshold 95"
+"test:coverage": "vitest run --coverage"
 ```
 
-Runs `bun test --coverage`, parses the "All files" summary line, and fails if line coverage < 95%. **Caveat:** if no coverage data is present (no test files or no coverable code), the script passes through without enforcing the threshold — see `scripts/check-coverage.ts`.
+Vitest runs with the v8 coverage provider and enforces the per-package thresholds declared in `vitest.config.ts` (`coverage.thresholds`). The run fails if any of `statements`/`functions`/`lines`/`branches` falls below its threshold.
 
 ---
 

@@ -8,7 +8,7 @@
  * - triggerAction returns "none" when no window is available
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test, vi } from "vitest";
 import {
 	createMenuRouter,
 	MENU_ACTION_IPC_CHANNEL,
@@ -19,9 +19,9 @@ import {
 function createMockWindow() {
 	return {
 		webContents: {
-			send: mock(() => {}),
-			toggleDevTools: mock(() => {}),
-			reload: mock(() => {}),
+			send: vi.fn(() => {}),
+			toggleDevTools: vi.fn(() => {}),
+			reload: vi.fn(() => {}),
 		},
 	};
 }
