@@ -21,8 +21,8 @@
 		"clean": "git clean -xdf .cache .turbo dist node_modules",
 		"generate": "drizzle-kit generate",
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
-		"test": "bun test --pass-with-no-tests",
-		"test:ci": "bun run ../../scripts/check-coverage.ts"
+		"test": "bun --bun vitest run",
+		"test:coverage": "bun --bun vitest run --coverage"
 	},
 	"dependencies": {
 		"drizzle-orm": "0.45.1",
