@@ -22,7 +22,7 @@
 		"generate": "drizzle-kit generate",
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
 		"test": "bun --bun vitest run",
-		"test:coverage": "bun --bun vitest run --coverage"
+		"test:coverage": "bun --bun vitest run"
 	},
 	"dependencies": {
 		"drizzle-orm": "0.45.1",

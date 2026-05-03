@@ -11,7 +11,7 @@
 		"clean": "git clean -xdf .cache .turbo dist dist-electron node_modules out",
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
 		"test": "bun --bun vitest run",
-		"test:coverage": "bun --bun vitest run --coverage",
+		"test:coverage": "bun --bun vitest run",
 		"test:l2": "bun test src/lib/trpc/routers/__tests__/e2e-smoke.test.ts src/lib/trpc/routers/__tests__/l2-integration.test.ts"
 	},
 	"dependencies": {

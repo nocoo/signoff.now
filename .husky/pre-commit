@@ -1,6 +1,6 @@
 # L1 + G1 — pre-commit (<30s)
 # L1: Unit tests
-bun run test
+bun run test:coverage
 
 # G1: Static analysis (lint-staged for incremental + typecheck)
 bunx lint-staged --concurrent false
