@@ -566,11 +566,11 @@ prose styles. Requires installing both runtime and dev dependencies (see §4.3).
 
 **GhLink component testing note:** The desktop app currently has no React component
 testing infrastructure (`@testing-library/react`, `jsdom`, `happy-dom`, etc.) — only
-`bun:test` for pure logic. `GhLink` is a thin wrapper (calls `buildGitHubUrl` +
+`vitest` for pure logic. `GhLink` is a thin wrapper (calls `buildGitHubUrl` +
 `openUrl` mutation), so the testing strategy is:
 
 - **Pure logic** (`buildGitHubUrl`, `parseGitHubPrUrl`) — full unit test coverage
-  with `bun:test`, no DOM needed.
+  with `vitest`, no DOM needed.
 - **GhLink component** — verified manually in the running app. Adding a component
   test framework (e.g. `@testing-library/react` + `happy-dom`) is out of scope for
   this change. If the project later adds component testing, GhLink should be covered
