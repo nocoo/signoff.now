@@ -28,6 +28,21 @@ export default defineConfig({
 			"src/lib/trpc/routers/__tests__/l3-projects-crud.test.ts",
 		],
 		setupFiles: ["./test-setup.ts"],
+		// Coverage notes:
+		// Tests in this package run under `bun --bun vitest` because of
+		// bun:sqlite (via @signoff/local-db) and electron preload mocks.
+		// Neither vitest coverage provider works in that runtime:
+		//  - `v8`: bun does not expose the v8 coverage hooks vitest needs.
+		//  - `istanbul`: tested against vitest 4.1; instrumentation hooks
+		//    are not invoked under the bun runtime, so reports show
+		//    everything as 0% (gate becomes meaningless).
+		// `test:coverage` therefore intentionally runs without `--coverage`
+		// and the `coverage` block below is preserved only so HTML reports
+		// can be generated manually with `vitest run --coverage` (e.g.
+		// when running with `node` for ad-hoc inspection). The numerical
+		// gate is enforced by other packages (gitinfo / pulse / shared /
+		// workspace-fs) which run on node, plus by the L4 integration
+		// tests under `src/__integration__/`.
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
