@@ -13,7 +13,7 @@ Integrates terminal, code editor (CodeMirror 6), Git diff viewer, and file explo
 - **Terminal**: node-pty + xterm.js (daemon architecture: host → subprocess per PTY)
 - **Editor**: CodeMirror 6 (multi-language)
 - **Lint/Format**: Biome 2.4
-- **Test**: `bun test` (per-workspace via turbo)
+- **Test**: `vitest` (per-workspace via turbo)
 - **CI**: GitHub Actions
 
 ## Workspace Layout
@@ -32,7 +32,7 @@ tooling/typescript/    # Shared tsconfig presets
 ```bash
 bun run dev            # Electron dev mode (electron-vite dev)
 bun run build          # Production build
-bun test               # Run all tests via turbo
+bun run test           # Run all tests via turbo (vitest)
 bun run lint           # Biome check
 bun run lint:fix       # Biome check --write --unsafe
 bun run typecheck      # tsc --noEmit + turbo typecheck
