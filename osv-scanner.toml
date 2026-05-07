@@ -139,3 +139,7 @@ reason = "electron — transitive dep, upgrade tracked separately"
 [[IgnoredVulns]]
 id = "GHSA-xwr5-m59h-vwqr"
 reason = "electron — transitive dep, upgrade tracked separately"
+
+[[IgnoredVulns]]
+id = "GHSA-v2v4-37r5-5v8g"
+reason = "ip-address — transitive dep (CIDR validation, no untrusted input)"

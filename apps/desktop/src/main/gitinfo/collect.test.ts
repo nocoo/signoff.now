@@ -43,7 +43,9 @@ describe("collectAll", () => {
 
 		// Meta should have real data (we're in a git repo)
 		expect(report.meta.repoName).toBeTruthy();
-		expect(report.meta.currentBranch).toBeTruthy();
+		// HEAD reference must exist; currentBranch may be null in detached-HEAD
+		// environments (e.g. CI checkout to a commit SHA), so assert HEAD instead.
+		expect(report.meta.head).toBeTruthy();
 	}, 60_000); // Allow up to 60s for slow collectors
 
 	test("CollectError has correct name property", () => {
