@@ -61,6 +61,7 @@ export function BarChart({
 		return (
 			<div className={cn("flex items-end gap-1", className)}>
 				{visible.map((item, i) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: label may repeat across visible bars
 					<Tooltip key={`${item.label}-${i}`}>
 						<TooltipTrigger asChild>
 							<div className="flex flex-1 flex-col items-center gap-1">
@@ -91,6 +92,7 @@ export function BarChart({
 	return (
 		<div className={cn("flex flex-col gap-1.5", className)}>
 			{visible.map((item, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: label may repeat across visible bars
 				<div key={`${item.label}-${i}`} className="flex items-center gap-2">
 					<span className="w-24 shrink-0 truncate text-sm text-muted-foreground">
 						{item.label}

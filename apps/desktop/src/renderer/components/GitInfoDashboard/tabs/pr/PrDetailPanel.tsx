@@ -424,6 +424,7 @@ export function PrDetailPanel({
 						<div className="flex flex-col gap-2">
 							{pr.comments.map((comment, i) => (
 								<div
+									// biome-ignore lint/suspicious/noArrayIndexKey: author+createdAt may repeat across rapid comments
 									key={`${comment.author}-${comment.createdAt}-${i}`}
 									className="flex flex-col gap-0.5 rounded bg-muted/50 p-2"
 								>

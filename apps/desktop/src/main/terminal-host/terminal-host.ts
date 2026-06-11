@@ -176,7 +176,7 @@ export class TerminalHost {
 	 */
 	resize(request: ResizeRequest): EmptyResponse {
 		const session = this.sessions.get(request.sessionId);
-		if (!session || !session.isAttachable) {
+		if (!session?.isAttachable) {
 			return { success: true };
 		}
 		session.resize(request.cols, request.rows);
@@ -205,7 +205,7 @@ export class TerminalHost {
 		const { sessionId, signal } = request;
 		const session = this.sessions.get(sessionId);
 
-		if (!session || !session.isAttachable) {
+		if (!session?.isAttachable) {
 			return { success: true };
 		}
 
