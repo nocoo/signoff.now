@@ -56,5 +56,5 @@ function Avatar({ className, size = "md", fullName, image }: AvatarProps) {
 	);
 }
 
-export { Avatar };
 export type { AvatarProps };
+export { Avatar };

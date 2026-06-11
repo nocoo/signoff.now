@@ -87,7 +87,7 @@ export function ContributorsTab({ contributors }: ContributorsTabProps) {
 							{contributors.authors.map((author, i) => {
 								const stats = statsMap.get(author.email);
 								return (
-									<TableRow key={`${author.email}-${i}`}>
+									<TableRow key={author.email}>
 										<TableCell className="p-2 text-sm text-muted-foreground">
 											{i + 1}
 										</TableCell>
