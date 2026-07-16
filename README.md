@@ -10,7 +10,8 @@
 |:-----|:-----|
 | **[docs/01-项目定位.md](./docs/01-项目定位.md)** | 产品定位、实体、活跃度、管线与一期范围（**从这里读起**） |
 | **[docs/02-数据结构与D1.md](./docs/02-数据结构与D1.md)** | 核心数据结构与 D1 schema / 迁库 |
-| **[docs/03-Settings设计.md](./docs/03-Settings设计.md)** | Settings：DB、Web CRUD、CLI 读 D1 |
+| **[docs/03-Web模块模板.md](./docs/03-Web模块模板.md)** | Web/Worker 模板：basalt、bat、MVVM、覆盖率、hooks、CF Access |
+| **[docs/04-Settings设计.md](./docs/04-Settings设计.md)** | Settings：DB、Web CRUD、CLI 读 D1 |
 | [docs/README.md](./docs/README.md) | 文档索引 |
 | [docs/archive/](./docs/archive/) | 历史文档（不代表当前定位） |
 
@@ -25,4 +26,4 @@ DDL：`packages/db/migrations/`。说明见 02。
 
 ## 状态
 
-定位（01）与 D1 schema（02）已确认；采集管线与 Web CRUD 待后续文档与实现。
+定位（01）与 D1 schema（02）已确认；Web 模板（03）与 Settings 设计（04）已出稿；采集管线与 Web CRUD 待实现。

@@ -1,7 +1,7 @@
-# 03 — Settings 设计
+# 04 — Settings 设计
 
 > 状态：设计稿（待实现）  
-> 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)  
+> 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)、[03-Web模块模板](./03-Web模块模板.md)  
 > 范围：Settings 的 DB 语义、Web 页面与 CRUD、CLI/管线如何读取 D1 中的 Settings 供采集使用
 
 ---
@@ -529,11 +529,11 @@ Worker 路由（未来 `packages/worker` 或 `apps/web` functions）：
 |:-----|:-----|
 | 01 | 业务含义：时区、后缀、权重 |
 | 02 | 表结构、stale、config_version 列 |
-| 03（本文） | Settings 专篇：UI/API/CLI 读路径 |
-| 04 | 采集 CLI 命令与 raw 布局（将消费 bootstrap） |
-| 05 | 其它实体 CRUD 页面 |
-| 06 | Access、Pipeline Token、Worker 部署 |
+| 03 | Web 模板：Basalt/MVVM/覆盖率/hooks/Access（本文 UI 按 03 落地） |
+| 04（本文） | Settings 专篇：UI/API/CLI 读路径 |
+| 05 | 采集 CLI 命令与 raw 布局（将消费 bootstrap） |
+| 06 | 其它实体 CRUD 页面 |
 
 ---
 
-**文档结束（03）**
+**文档结束（04）**

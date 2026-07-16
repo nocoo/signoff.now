@@ -6,7 +6,8 @@
 |:-----|:-----|:-----|
 | 01 | [项目定位](./01-项目定位.md) | 已确认 |
 | 02 | [数据结构与 D1](./02-数据结构与D1.md) | 已确认（0001–0003 远端已应用） |
-| 03 | [Settings 设计](./03-Settings设计.md) | 设计稿（DB / Web CRUD / CLI 读 D1） |
+| 03 | [Web 模块模板](./03-Web模块模板.md) | 设计稿（basalt/bat、MVVM、覆盖率、hooks、Access） |
+| 04 | [Settings 设计](./04-Settings设计.md) | 设计稿（DB / Web CRUD / CLI 读 D1） |
 
 ## 归档
 
