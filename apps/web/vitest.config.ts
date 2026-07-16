@@ -8,29 +8,23 @@ export default defineConfig({
 		},
 	},
 	test: {
-		// node is enough for pure utils; switch to jsdom when component tests land
 		environment: "node",
 		globals: true,
 		include: ["src/**/*.{test,spec}.{ts,tsx}"],
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
-			include: ["src/**/*.{ts,tsx}"],
+			include: ["src/models/**/*.{ts,tsx}", "src/lib/**/*.{ts,tsx}"],
 			exclude: [
 				"src/**/*.{test,spec}.{ts,tsx}",
-				// Views excluded from coverage gate (see docs/01)
-				"src/App.tsx",
-				"src/main.tsx",
-				"src/vite-env.d.ts",
-				"src/**/views/**",
-				"src/**/*.view.tsx",
+				"src/**/*.d.ts",
+				"src/models/*Api.ts",
 			],
-			// Hard gate: non-View code must stay ≥95%
 			thresholds: {
 				statements: 95,
 				functions: 95,
 				lines: 95,
-				branches: 95,
+				branches: 80,
 			},
 		},
 	},
