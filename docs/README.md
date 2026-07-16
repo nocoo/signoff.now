@@ -1,8 +1,14 @@
-# Documentation
+# 文档索引
 
-| Directory | Description |
-|:----------|:------------|
-| [cli/](./cli/) | **Active** — gitinfo & pulse CLI (source of truth) |
-| [archive/](./archive/) | Historical docs (Electron desktop, old CLI drafts, UI plans) |
+按编号阅读。**当前有效的产品定义从 01 开始。**
 
-Start with [cli/README.md](./cli/README.md).
+| 编号 | 文档 | 状态 |
+|:-----|:-----|:-----|
+| 01 | [项目定位](./01-项目定位.md) | 已确认 |
+
+## 归档
+
+| 路径 | 说明 |
+|:-----|:-----|
+| [archive/](./archive/) | Electron 时代、旧 CLI 草稿、桌面 PR UI 等 |
+| [cli/](./cli/) | 既有 `gitinfo` / `pulse` 工程说明（质量标杆参考，**不是** 01 产品全文） |

@@ -1,59 +1,17 @@
 # signoff.now
 
-Local-first workspace tooling monorepo.
+围绕**开发者**与 **Git 仓库**的数据可视化与分析平台。
 
-## First-class CLIs
+管理者在本机采集 Azure DevOps 数据，写入 Cloudflare D1；Web 只读展示活跃度热力图、明细与多选对比。
 
-| Tool | Package | Docs |
-|:-----|:--------|:-----|
-| **gitinfo** | `@signoff/gitinfo` | [docs/cli/gitinfo.md](./docs/cli/gitinfo.md) |
-| **pulse** | `@signoff/pulse` | [docs/cli/pulse.md](./docs/cli/pulse.md) |
+## 文档
 
-```bash
-bun install
+| 文档 | 说明 |
+|:-----|:-----|
+| **[docs/01-项目定位.md](./docs/01-项目定位.md)** | 产品定位、实体、活跃度、管线与一期范围（**从这里读起**） |
+| [docs/README.md](./docs/README.md) | 文档索引 |
+| [docs/archive/](./docs/archive/) | 历史文档（不代表当前定位） |
 
-# Local git insight
-bun run apps/gitinfo/src/main.ts --help
-bun run apps/gitinfo/src/main.ts meta --pretty
+## 状态
 
-# GitHub collaboration data (requires `gh auth login`)
-bun run apps/pulse/src/main.ts --help
-bun run apps/pulse/src/main.ts repo --pretty
-```
-
-## Web frontend
-
-Vite + React SPA at `apps/web` (hello-world scaffold; product requirements TBD).
-
-```bash
-bun run dev   # http://localhost:7010
-```
-
-## Workspace layout
-
-```
-apps/
-  gitinfo/     # Local git repository insight CLI
-  pulse/       # GitHub PR / repo data CLI
-  web/         # Vite SPA
-packages/      # Shared libraries (may be re-scoped)
-docs/
-  cli/         # Active CLI documentation
-  archive/     # Historical design docs
-```
-
-## Commands
-
-```bash
-bun run test
-bun run test:coverage
-bun run lint
-bun run typecheck
-bun run dev          # web SPA
-bun run dev:all      # all workspace dev scripts
-```
-
-## Docs
-
-- Active: [docs/cli/](./docs/cli/)
-- Archive: [docs/archive/](./docs/archive/)
+产品定位已确认（见 01）。实现按文档分阶段推进；仓库内仍有脚手架与历史 CLI 标杆代码。
