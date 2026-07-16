@@ -1,0 +1,17 @@
+# signoff.now — Cloudflare Worker + D1 (schema package lives in packages/db)
+# Docs: docs/02-数据结构与D1.md
+#
+# Apply migrations:
+#   bun run db:migrate:local
+#   bun run db:migrate:remote
+
+name = "signoff"
+main = "packages/db/src/worker-placeholder.ts"
+compatibility_date = "2026-03-21"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "signoff-db"
+database_id = "a94a2bfd-e1e9-4795-a282-eaf2beb9352b"
+migrations_dir = "packages/db/migrations"

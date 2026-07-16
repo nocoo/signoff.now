@@ -9,9 +9,19 @@
 | 文档 | 说明 |
 |:-----|:-----|
 | **[docs/01-项目定位.md](./docs/01-项目定位.md)** | 产品定位、实体、活跃度、管线与一期范围（**从这里读起**） |
+| **[docs/02-数据结构与D1.md](./docs/02-数据结构与D1.md)** | 核心数据结构与 D1 schema / 迁库 |
 | [docs/README.md](./docs/README.md) | 文档索引 |
 | [docs/archive/](./docs/archive/) | 历史文档（不代表当前定位） |
 
+## D1
+
+```bash
+bun run db:migrate:local
+bun run db:migrate:remote
+```
+
+DDL：`packages/db/migrations/`。说明见 02。
+
 ## 状态
 
-产品定位已确认（见 01）。实现按文档分阶段推进；仓库内仍有脚手架与历史 CLI 标杆代码。
+定位（01）与 D1 schema（02）已确认；采集管线与 Web CRUD 待后续文档与实现。

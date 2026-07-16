@@ -1,0 +1,16 @@
+{
+	"name": "@signoff/db",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
+		"test": "echo \"no unit tests in @signoff/db yet\"",
+		"test:coverage": "echo \"no unit tests in @signoff/db yet\""
+	},
+	"devDependencies": {
+		"@signoff/typescript": "workspace:*",
+		"typescript": "7.0.2",
+		"wrangler": "^4.106.0"
+	}
+}
