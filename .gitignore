@@ -38,6 +38,9 @@ yarn.lock
 # Temporary files
 .tmp/
 
+# Local collection payloads (raw/normalized JSON; never commit)
+.data/
+
 # Turbo
 .turbo
 .cache
