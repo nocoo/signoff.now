@@ -2,5 +2,6 @@
 
 | Directory | Description |
 |:----------|:------------|
-| [architecture/](./architecture/) | System architecture and design documents |
-| [cli/](./cli/) | CLI tools design documents |
+| [archive/](./archive/) | Historical design docs from the Electron-era monorepo |
+
+Active product requirements will be re-established after the Vite frontend bootstrap.
