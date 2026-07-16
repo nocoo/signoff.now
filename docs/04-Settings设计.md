@@ -193,8 +193,8 @@ server: {
 
 要点：
 
-- 浏览器只打开 **`https://signoff.dev.hexly.ai`**（经 Caddy）；不要依赖裸 `http://localhost:7042` 做日常联调（Access 绕过与 cookie 域以 `*.dev.hexly.ai` 为准，见 03）。  
-- Settings 页请求 **`/api/settings`** 为 **same-origin**；Vite 把 `/api/*` 转到本机 Worker `37042`。  
+- 浏览器只打开 **`https://signoff.dev.hexly.ai`**（经 Caddy）；不要依赖裸 `http://localhost:7042` 做日常联调。  
+- Settings 页请求 **`/api/settings`** 为 **same-origin**；Vite 把 `/api/*` 转到本机 Worker `37042`（proxy 后 Worker 侧 Host 为 `127.0.0.1`，走 03 的 `isLocalhost`）。  
 - Worker 未起时 SPA 仍可渲染，API 为 502——属预期。
 
 #### Caddyfile 片段（源：`~/workspace/personal/workflow/caddy/Caddyfile`）
@@ -235,8 +235,9 @@ open https://signoff.dev.hexly.ai/settings
 
 | 组件 | 本地 Auth 行为 |
 |:-----|:---------------|
-| Vite + Caddy host `signoff.dev.hexly.ai` | Worker `isLocalhost` 族把 `*.dev.hexly.ai` 当本地 → **跳过 Access JWT**（对照 bat 参考实现；模板仍是 basalt） |
-| CLI `settings pull` | 可指 `SIGNOFF_API_BASE=http://127.0.0.1:37042` + Pipeline Token；**不要**走浏览器 Access |
+| Vite proxy → `127.0.0.1:37042` | Worker Host 为 loopback → `isLocalhost`（与 bat 相同）→ **跳过** Access / Pipeline Token |
+| Caddy `signoff.dev.hexly.ai` | Host 后缀 `*.dev.hexly.ai` → 同 bat `isLocalhost`，本地跳过鉴权（**不**另加 ENVIRONMENT 开关） |
+| CLI `settings pull` | `SIGNOFF_API_BASE=http://127.0.0.1:37042`（本地）或 machine host（远端）；Bearer Pipeline Token；**不要**走浏览器 Access |
 
 CLI 读 Settings 的契约仍见 §6；本地只是把 base URL 指到 `37042`。
 
@@ -551,14 +552,17 @@ npx wrangler d1 execute signoff-db --remote --command \
 
 ## 8. 安全
 
+鉴权分层与 [03 §8](./03-Web模块模板.md) / bat 一致：browser Access、machine 白名单 + Pipeline Token、本地 `isLocalhost` 旁路。
+
 | 通道 | 认证 |
 |:-----|:-----|
-| 浏览器 `GET/PUT /api/settings` | Cloudflare Access（管理者） |
-| CLI `GET /api/pipeline/bootstrap` | `Authorization: Bearer <SIGNOFF_PIPELINE_TOKEN>` |
-| CLI 写 ingest | 同上 Pipeline Token（权限可分 read/write scope，06 细化） |
+| 浏览器 `GET/PUT /api/settings` | Cloudflare Access（`accessAuthenticated`；**不**用 Pipeline Token） |
+| CLI `GET /api/pipeline/bootstrap` | machine host 或本机 loopback + `Authorization: Bearer`（read/write scope 见 03） |
+| CLI 写 ingest | 同上 write token；machine 白名单 path |
 
 - Pipeline Token **不**进入前端 bundle。  
-- Settings PUT **不**接受 token 提权改 version 为任意值（只能 +1 服务端逻辑）。
+- Settings PUT **不**接受 token 提权改 version 为任意值（只能 +1 服务端逻辑）。  
+- machine host **禁止** `PUT /api/settings` 等管理路由（entryControl 白名单，见 03）。
 
 ---
 
