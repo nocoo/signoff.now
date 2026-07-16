@@ -17,7 +17,7 @@ async function runOsvScanner(): Promise<boolean> {
 	console.log(DIVIDER);
 
 	try {
-		await $`osv-scanner --lockfile=bun.lock --config=.osv-scanner.toml`.quiet();
+		await $`osv-scanner --lockfile=bun.lock --config=osv-scanner.toml`.quiet();
 		console.log("✅ osv-scanner: no vulnerabilities found");
 		return true;
 	} catch (error) {
