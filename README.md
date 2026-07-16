@@ -24,6 +24,16 @@ bun run db:migrate:remote
 
 DDL：`packages/db/migrations/`。说明见 02。
 
+## 本地 Web
+
+```bash
+bun run dev
+# https://signoff.dev.hexly.ai  → Caddy → Vite :7042
+# /api/* proxy → wrangler :37042（Worker 就绪后）
+```
+
+端口与 Caddy 约定见 [docs/04-Settings设计.md](./docs/04-Settings设计.md) §4.2。
+
 ## 状态
 
 定位（01）与 D1 schema（02）已确认；Web 模板（03）与 Settings 设计（04）已出稿；采集管线与 Web CRUD 待实现。
