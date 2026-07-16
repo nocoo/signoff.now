@@ -1,0 +1,3 @@
+[test]
+# Bun-native coverage (vitest v8 provider is broken under bun:sqlite)
+coverageThreshold = { lines = 0.95, functions = 0.95, statements = 0.95 }

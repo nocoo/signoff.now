@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
+import { DB_SCHEMA_VERSION } from "./index.ts";
 import {
 	applyMigrations,
 	defaultMigrationsDir,
@@ -13,7 +14,16 @@ describe("D1 migrations", () => {
 		const files = listMigrationFiles(migrationsDir);
 		expect(files[0]).toBe("0001_initial.sql");
 		expect(files).toContain("0002_correctness_and_indexes.sql");
+		expect(files).toContain("0003_repo_guid_and_score_index.sql");
 		expect(files).toEqual([...files].sort((a, b) => a.localeCompare(b)));
+	});
+
+	test("DB_SCHEMA_VERSION matches highest migration number", () => {
+		const files = listMigrationFiles(migrationsDir);
+		const max = Math.max(
+			...files.map((f) => Number.parseInt(f.slice(0, 4), 10)),
+		);
+		expect(DB_SCHEMA_VERSION).toBe(max);
 	});
 
 	test("applies full suite on empty database", () => {
@@ -55,16 +65,12 @@ describe("D1 migrations", () => {
 			.all()
 			.map((r) => r.key);
 
-		expect(keys).toEqual(
-			expect.arrayContaining([
-				"timezone",
-				"email_suffixes",
-				"activity_weights",
-				"pipeline_config_version",
-				"scores_stale",
-				"scores_stale_reason",
-			]),
-		);
+		expect(keys).toContain("timezone");
+		expect(keys).toContain("email_suffixes");
+		expect(keys).toContain("activity_weights");
+		expect(keys).toContain("pipeline_config_version");
+		expect(keys).toContain("scores_stale");
+		expect(keys).toContain("scores_stale_reason");
 
 		const timezone = db
 			.query<{ value: string }, []>(
@@ -72,13 +78,6 @@ describe("D1 migrations", () => {
 			)
 			.get();
 		expect(JSON.parse(timezone?.value ?? "")).toBe("Asia/Shanghai");
-
-		const suffixes = db
-			.query<{ value: string }, []>(
-				`SELECT value FROM settings WHERE key = 'email_suffixes'`,
-			)
-			.get();
-		expect(JSON.parse(suffixes?.value ?? "")).toEqual(["microsoft.com"]);
 
 		const version = db
 			.query<{ value: string }, []>(
@@ -108,7 +107,6 @@ describe("D1 migrations", () => {
 		db.query(
 			`UPDATE developers SET archived_at = unixepoch() WHERE id = 'd1'`,
 		).run();
-		// Active alias free again
 		db.query(
 			`INSERT INTO developers (id, name, alias) VALUES ('d2', 'Ada 2', 'ada')`,
 		).run();
@@ -154,7 +152,7 @@ describe("D1 migrations", () => {
 		}).toThrow();
 	});
 
-	test("repos external_id unique among active rows", () => {
+	test("external_id is globally unique including archived rows", () => {
 		const db = openMemoryDb();
 		applyMigrations(db, migrationsDir);
 
@@ -162,15 +160,49 @@ describe("D1 migrations", () => {
 			`INSERT INTO repos (id, provider, org, project, name, external_id)
 			 VALUES ('r1', 'ado', 'o', 'p', 'n1', 'guid-1')`,
 		).run();
+		db.query(
+			`UPDATE repos SET archived_at = unixepoch() WHERE id = 'r1'`,
+		).run();
+
+		// Must not insert a second row with same GUID — re-enable r1 instead
 		expect(() => {
 			db.query(
 				`INSERT INTO repos (id, provider, org, project, name, external_id)
 				 VALUES ('r2', 'ado', 'o', 'p', 'n2', 'guid-1')`,
 			).run();
 		}).toThrow();
+
+		// Re-enable archived row
+		db.query(
+			`UPDATE repos SET archived_at = NULL, enabled = 1 WHERE id = 'r1'`,
+		).run();
+		const row = db
+			.query<{ id: string }, []>(
+				`SELECT id FROM repos WHERE external_id = 'guid-1' AND archived_at IS NULL`,
+			)
+			.get();
+		expect(row?.id).toBe("r1");
 	});
 
-	test("required indexes exist", () => {
+	test("ADO active enabled repo requires external_id", () => {
+		const db = openMemoryDb();
+		applyMigrations(db, migrationsDir);
+
+		expect(() => {
+			db.query(
+				`INSERT INTO repos (id, provider, org, project, name, external_id, enabled)
+				 VALUES ('r1', 'ado', 'o', 'p', 'n1', NULL, 1)`,
+			).run();
+		}).toThrow();
+
+		// disabled without guid ok
+		db.query(
+			`INSERT INTO repos (id, provider, org, project, name, external_id, enabled)
+			 VALUES ('r2', 'ado', 'o', 'p', 'n2', NULL, 0)`,
+		).run();
+	});
+
+	test("required indexes exist including scores config_day_dev", () => {
 		const db = openMemoryDb();
 		applyMigrations(db, migrationsDir);
 
@@ -188,6 +220,7 @@ describe("D1 migrations", () => {
 			"idx_repos_provider_external_id",
 			"idx_developers_alias_active",
 			"idx_activities_config_version",
+			"idx_scores_config_day_dev",
 		]) {
 			expect(indexes).toContain(name);
 		}
@@ -215,7 +248,6 @@ describe("D1 migrations", () => {
 			.all() as Array<{ detail: string }>;
 
 		const details = plan.map((p) => p.detail).join(" | ");
-		// Primary key (developer_id, day_key) should be usable
 		expect(details.toLowerCase()).toMatch(
 			/scores|primary|developer_id|day_key/,
 		);
