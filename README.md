@@ -10,6 +10,7 @@
 |:-----|:-----|
 | **[docs/01-项目定位.md](./docs/01-项目定位.md)** | 产品定位、实体、活跃度、管线与一期范围（**从这里读起**） |
 | **[docs/02-数据结构与D1.md](./docs/02-数据结构与D1.md)** | 核心数据结构与 D1 schema / 迁库 |
+| **[docs/03-Settings设计.md](./docs/03-Settings设计.md)** | Settings：DB、Web CRUD、CLI 读 D1 |
 | [docs/README.md](./docs/README.md) | 文档索引 |
 | [docs/archive/](./docs/archive/) | 历史文档（不代表当前定位） |
 
