@@ -22,7 +22,7 @@ CREATE TABLE settings (
 -- Seed defaults (JSON values as text)
 INSERT INTO settings (key, value, updated_at) VALUES
 	('timezone', '"Asia/Shanghai"', unixepoch()),
-	('email_suffixes', '["microsoft.com"]', unixepoch()),
+	('email_suffixes', '["example.com"]', unixepoch()),
 	(
 		'activity_weights',
 		'{"pr.merged":10,"pr.closed":2,"pr.created":2,"pr.vote":3,"pr.active":2,"wi.created":3,"wi.updated":1,"wi.closed":5}',
