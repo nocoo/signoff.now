@@ -6,9 +6,13 @@
 #   bun run db:migrate:remote
 
 name = "signoff"
-main = "packages/db/src/worker-placeholder.ts"
-compatibility_date = "2026-07-16"
+main = "packages/worker/src/index.ts"
+compatibility_date = "2026-07-07"
 workers_dev = true
+
+# Local: bun run dev:worker → :37042 with --local D1
+[dev]
+port = 37042
 
 [[d1_databases]]
 binding = "DB"

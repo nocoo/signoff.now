@@ -21,6 +21,8 @@
 	},
 	"scripts": {
 		"dev": "turbo run dev --filter=@signoff/web",
+		"dev:worker": "wrangler dev --port 37042 --local",
+		"dev:stack": "echo 'Terminal 1: bun run dev:worker  |  Terminal 2: bun run dev'",
 		"build": "turbo build",
 		"test": "turbo test",
 		"test:coverage": "turbo test:coverage",
