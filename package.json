@@ -17,11 +17,11 @@
 		"husky": "^9.0.0",
 		"lint-staged": "^16.4.0",
 		"turbo": "^2.9.18",
-		"typescript": "^5.9.3",
+		"typescript": "7.0.2",
 		"vitest": "^4.1.8"
 	},
 	"scripts": {
-		"dev": "turbo run dev",
+		"dev": "turbo run dev --filter=@signoff/web",
 		"build": "turbo build",
 		"test": "turbo test",
 		"test:coverage": "turbo test:coverage",
@@ -33,7 +33,8 @@
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
 		"db:generate": "bun run --cwd packages/local-db generate",
-		"security": "bun run scripts/run-security.ts"
+		"security": "bun run scripts/run-security.ts",
+		"dev:all": "turbo run dev"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [
@@ -53,6 +54,6 @@
 		"tar": "^7.5.16",
 		"tmp": "^0.2.6",
 		"undici": "^6.27.0",
-		"vite": "^7.3.5"
+		"vite": "^8.1.4"
 	}
 }
