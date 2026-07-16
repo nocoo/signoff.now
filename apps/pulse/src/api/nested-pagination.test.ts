@@ -356,9 +356,9 @@ describe("GitHubClient nested pagination", () => {
 		globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 		const client = new GitHubClient("test-token");
-		expect(client.fetchPullRequestDetail("acme", "repo", 1)).rejects.toThrow(
-			"Rate limited",
-		);
+		await expect(
+			client.fetchPullRequestDetail("acme", "repo", 1),
+		).rejects.toThrow("Rate limited");
 	});
 
 	test("paginates participants when hasNextPage is true", async () => {

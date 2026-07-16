@@ -1,9 +1,8 @@
 /**
- * Extractable orchestration function for desktop integration.
+ * Library orchestration entry points (same flow as the CLI).
  *
- * Mirrors the logic in main.ts (get remote → parse → resolve identity → fetch PRs)
- * but accepts a CommandExecutor via DI, allowing the desktop app to inject its own
- * Node.js executor instead of requiring Bun at runtime.
+ * Mirrors main.ts (get remote → parse → resolve identity → fetch)
+ * with injectable CommandExecutor / optional apiClient for tests and host apps.
  */
 
 import { GitHubClient } from "./api/github-client.ts";

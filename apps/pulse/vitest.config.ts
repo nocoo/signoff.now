@@ -15,12 +15,18 @@ export default defineConfig({
 				"src/main.ts",
 				"src/**/types.ts",
 				"src/**/*.types.ts",
+				// Process I/O adapters
+				"src/executor/bun-executor.ts",
+				// Filesystem cache store (Bun.file I/O)
+				"src/identity/fs-cache-store.ts",
+				// Test double used by unit tests (not production)
+				"src/api/mock-client.ts",
 			],
 			thresholds: {
-				statements: 95,
-				functions: 95,
-				lines: 95,
-				branches: 80,
+				statements: 97,
+				functions: 97,
+				lines: 97,
+				branches: 85,
 			},
 		},
 	},

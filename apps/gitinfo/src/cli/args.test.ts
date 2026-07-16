@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ArgParseError, parseArgs } from "./args.ts";
+import { ArgParseError, getHelpText, parseArgs } from "./args.ts";
 
 describe("parseArgs", () => {
 	it("parses empty args", () => {
@@ -90,5 +90,17 @@ describe("parseArgs", () => {
 		const result = parseArgs(["--pretty", "meta"]);
 		expect(result.section).toBe("meta");
 		expect(result.pretty).toBe(true);
+	});
+});
+
+describe("getHelpText", () => {
+	it("lists all sections and flags", () => {
+		const help = getHelpText();
+		expect(help).toContain("gitinfo [section] [flags]");
+		expect(help).toContain("meta");
+		expect(help).toContain("contributors");
+		expect(help).toContain("--full");
+		expect(help).toContain("--pretty");
+		expect(help).toContain("--cwd");
 	});
 });

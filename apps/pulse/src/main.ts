@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import pkg from "../package.json";
 import { GitHubClient } from "./api/github-client.ts";
 import { ArgParseError, getHelpText, parseArgs } from "./cli/args.ts";
 import { formatOutput } from "./cli/output.ts";
@@ -13,7 +14,7 @@ import { createFsCacheStore } from "./identity/fs-cache-store.ts";
 import { parseRemoteUrl } from "./identity/resolve-remote.ts";
 import { resolveIdentity } from "./identity/resolve-user.ts";
 
-const VERSION = "0.1.0";
+const VERSION = pkg.version;
 
 async function main(): Promise<void> {
 	let args: ReturnType<typeof parseArgs>;
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
 	}
 
 	if (args.version) {
-		console.log(VERSION);
+		console.log(`pulse v${VERSION}`);
 		return;
 	}
 

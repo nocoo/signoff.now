@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import pkg from "../package.json";
 import { ArgParseError, getHelpText, parseArgs } from "./cli/args.ts";
 import { formatJson } from "./cli/output.ts";
 import { branchesCollector } from "./commands/collectors/branches.collector.ts";
@@ -26,7 +27,7 @@ import type { CollectorTier, GitInfoReport } from "./commands/types.ts";
 import { createBunExecutor } from "./executor/bun-executor.ts";
 import { createBunFsReader } from "./executor/bun-fs-reader.ts";
 
-const VERSION = "0.1.0";
+const VERSION = pkg.version;
 
 const ALL_COLLECTORS = [
 	metaCollector,

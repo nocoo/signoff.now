@@ -31,7 +31,7 @@ describe("createMockFsReader", () => {
 
 	it("fileSize throws for unconfigured path", async () => {
 		const fs = createMockFsReader();
-		expect(fs.fileSize("/unknown")).rejects.toThrow("No mock fileSize");
+		await expect(fs.fileSize("/unknown")).rejects.toThrow("No mock fileSize");
 	});
 
 	it("dirSizeKiB returns configured values", async () => {

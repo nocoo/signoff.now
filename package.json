@@ -34,7 +34,9 @@
 		"clean:workspaces": "turbo clean",
 		"db:generate": "bun run --cwd packages/local-db generate",
 		"security": "bun run scripts/run-security.ts",
-		"dev:all": "turbo run dev"
+		"dev:all": "turbo run dev",
+		"gitinfo": "bun run apps/gitinfo/src/main.ts",
+		"pulse": "bun run apps/pulse/src/main.ts"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [

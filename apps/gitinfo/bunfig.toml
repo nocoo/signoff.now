@@ -1,2 +1,2 @@
 [test]
-pathIgnorePatterns = ["**/__integration__/**"]
+# Integration tests are run via package script test:integration
