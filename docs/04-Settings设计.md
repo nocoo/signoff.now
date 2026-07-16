@@ -235,7 +235,7 @@ open https://signoff.dev.hexly.ai/settings
 
 | 组件 | 本地 Auth 行为 |
 |:-----|:---------------|
-| Vite + Caddy host `signoff.dev.hexly.ai` | Worker `isLocalhost` 族把 `*.dev.hexly.ai` 当本地 → **跳过 Access JWT**（与 bat 一致） |
+| Vite + Caddy host `signoff.dev.hexly.ai` | Worker `isLocalhost` 族把 `*.dev.hexly.ai` 当本地 → **跳过 Access JWT**（对照 bat 参考实现；模板仍是 basalt） |
 | CLI `settings pull` | 可指 `SIGNOFF_API_BASE=http://127.0.0.1:37042` + Pipeline Token；**不要**走浏览器 Access |
 
 CLI 读 Settings 的契约仍见 §6；本地只是把 base URL 指到 `37042`。
@@ -615,7 +615,7 @@ Worker 路由（未来 `packages/worker` 或 `apps/web` functions）：
 |:-----|:-----|
 | 01 | 业务含义：时区、后缀、权重 |
 | 02 | 表结构、stale、config_version 列 |
-| 03 | Web 模板：Basalt/MVVM/覆盖率/hooks/Access（本文 UI 按 03 落地） |
+| 03 | Web **basalt 模板** + bat 参考实现（MVVM/覆盖率/hooks/Access；本文 UI 按 03 落地） |
 | 04（本文） | Settings 专篇：UI/API/CLI 读路径 |
 | 05 | 采集 CLI 命令与 raw 布局（将消费 bootstrap） |
 | 06 | 其它实体 CRUD 页面 |
