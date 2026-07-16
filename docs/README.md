@@ -2,6 +2,7 @@
 
 | Directory | Description |
 |:----------|:------------|
-| [archive/](./archive/) | Historical design docs from the Electron-era monorepo |
+| [cli/](./cli/) | **Active** — gitinfo & pulse CLI (source of truth) |
+| [archive/](./archive/) | Historical docs (Electron desktop, old CLI drafts, UI plans) |
 
-Active product requirements will be re-established after the Vite frontend bootstrap.
+Start with [cli/README.md](./cli/README.md).
