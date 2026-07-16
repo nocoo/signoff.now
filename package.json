@@ -32,7 +32,6 @@
 		"prepare": "husky",
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
-		"db:generate": "bun run --cwd packages/local-db generate",
 		"security": "bun run scripts/run-security.ts",
 		"dev:all": "turbo run dev",
 		"gitinfo": "bun run apps/gitinfo/src/main.ts",
@@ -42,10 +41,6 @@
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [
 			"bunx @biomejs/biome check --write --error-on-warnings"
 		]
-	},
-	"dependencies": {
-		"react-markdown": "^10.1.0",
-		"remark-gfm": "^4.0.1"
 	},
 	"overrides": {
 		"@babel/core": "^7.29.6",

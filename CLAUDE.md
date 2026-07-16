@@ -1,80 +1,41 @@
 # signoff.now
 
-Local-first workspace tooling monorepo. Electron desktop has been removed.
+Developer + git-repo activity analytics platform (manager-facing).
 
-## First-class products
+Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位.md)**.
 
-### CLIs (maintained)
+## Shape
 
-| Package | Role |
-|:--------|:-----|
-| `@signoff/gitinfo` | Local git repository insight |
-| `@signoff/pulse` | GitHub collaboration data (PRs, detail, diff, search, repo) |
+| Piece | Role |
+|:------|:-----|
+| **Web** | Vite SPA on CF Worker + Access; CRUD entities/settings; **read-only** Activity/Score |
+| **CLI / Scripts / Skills** | Local ADO collection → JSON under `.data/` (gitignored) → validate → ingest D1 |
+| **DB** | Cloudflare D1 (not Electron SQLite) |
 
-Docs: `docs/cli/`. Run via `bun run apps/<name>/src/main.ts`.
-
-### Web
-
-`apps/web` — Vite + React 19 + TypeScript 7 + Tailwind v4 + Basalt design tokens (scaffold).
-
-## Tech Stack
-
-- **Monorepo**: Turborepo + Bun workspaces (`bun@1.3.6`)
-- **CLI runtime**: Bun (TypeScript entrypoints)
-- **Frontend**: Vite 8 + React 19 + TypeScript 7.0.2
-- **Lint/Format**: Biome (`--error-on-warnings`)
-- **Test**: Vitest + coverage thresholds (CLIs: ≥97% lines/statements/functions, ≥85% branches)
-
-## Workspace Layout
+## Layout
 
 ```
-apps/gitinfo/          # gitinfo CLI
-apps/pulse/            # pulse CLI
-apps/web/              # Vite SPA
-packages/*             # shared libs (re-scope later)
-docs/cli/              # active CLI docs
-docs/archive/          # Electron-era + old drafts
-tooling/typescript/    # shared tsconfig presets
+apps/gitinfo/   # quality-bar CLI (local git)
+apps/pulse/     # quality-bar CLI (remote collab patterns)
+apps/web/       # Vite frontend scaffold
+docs/01-*.md    # product docs
+.data/          # local payloads — never commit
 ```
 
 ## Commands
 
 ```bash
-bun run dev            # web SPA
-bun run test           # turbo test
-bun run test:coverage  # turbo coverage (enforced thresholds)
-bun run lint           # Biome check --error-on-warnings
-bun run typecheck      # root tsc + turbo typecheck
+bun run dev
+bun run test / test:coverage
+bun run lint
+bun run typecheck
+bun run security   # osv-scanner (osv-scanner.toml) + gitleaks
+bun run gitinfo -- --help
+bun run pulse -- --help
 ```
 
-CLI package scripts (from package dir):
+## Quality
 
-```bash
-bun run typecheck && bun run lint && bun run test:coverage
-bun run test:integration   # gitinfo only — real git subprocess
-```
-
-## Notes
-
-- CLI docs in `docs/cli/` are the source of truth; do not treat gitinfo/pulse as legacy.
-- Reference monorepo patterns: sibling `../bat`
-- Reference design system: sibling `../basalt`
-- Do not reintroduce Electron unless product requirements explicitly call for it
-
-## Retrospective
-
-### 2024-03-24: PR Cache SQLite Migration (Electron era)
-
-Historical lessons — kept if SQLite returns.
-
-**Migration runner 只执行了第一个文件**
-- 扫描整个 `drizzle/` 目录，按文件名排序执行所有 `.sql`。
-
-**幂等 migration catch 不全**
-- `ALTER TABLE ADD COLUMN` 的 `"duplicate column name"` 需与 `"already exists"` 一并 catch。
-
-**Drizzle better-sqlite3 `db.transaction()`**
-- 回调必须接收 `tx`，内部操作用 `tx`。
-
-**PrDetailPanel null detail**
-- 穷举状态组合，不要用 `as` 强转绕过 null check。
+- TDD; Biome 0 warnings
+- Coverage ≥95% on CLI/scripts/shared and web Model/ViewModel; Views excluded
+- Do not reintroduce Electron or local better-sqlite3/drizzle for product data
