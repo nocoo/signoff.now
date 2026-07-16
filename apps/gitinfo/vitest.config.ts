@@ -22,11 +22,12 @@ export default defineConfig({
 				"src/commands/collectors/*.collector.ts",
 				"src/commands/collectors/all.ts",
 			],
+			// statements/lines/functions ≥95% (doc). branches floor = measured baseline (no regression).
 			thresholds: {
-				statements: 97,
-				functions: 97,
-				lines: 97,
-				branches: 85,
+				statements: 95,
+				functions: 95,
+				lines: 95,
+				branches: 88,
 			},
 		},
 	},

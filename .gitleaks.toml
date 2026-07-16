@@ -4,7 +4,7 @@
 title = "signoff.now gitleaks config"
 
 [allowlist]
-  paths = [
-    '''bun\.lock''',
-    '''\.osv-scanner\.toml''',
-  ]
+paths = [
+	'''bun\.lock''',
+	'''osv-scanner\.toml''',
+]

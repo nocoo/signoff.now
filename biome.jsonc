@@ -6,13 +6,7 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": [
-			"**",
-			"!**/drizzle",
-			"!**/*.template.js",
-			"!**/*.template.sh",
-			"!**/routeTree.gen.ts"
-		]
+		"includes": ["**", "!**/*.template.js", "!**/*.template.sh"]
 	},
 	"formatter": {
 		"formatWithErrors": true
@@ -131,30 +125,6 @@
 	},
 	"overrides": [
 		{
-			"includes": ["apps/desktop/src/renderer/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"paths": {
-									"@signoff/workspace-fs/host": "Renderer code must stay browser-compatible. Import Node filesystem helpers from the desktop server/host layer instead.",
-									"@signoff/workspace-fs/server": "Renderer code must stay browser-compatible. Import Node filesystem helpers from the desktop server/host layer instead."
-								},
-								"patterns": [
-									{
-										"group": ["node:*"],
-										"message": "Renderer code must not import Node builtins."
-									}
-								]
-							}
-						}
-					}
-				}
-			}
-		},
-		{
 			"includes": [
 				"**/*.test.ts",
 				"**/*.test.tsx",
@@ -182,14 +152,7 @@
 			}
 		},
 		{
-			"includes": [
-				"apps/desktop/src/main/**",
-				"apps/gitinfo/**",
-				"apps/pulse/**",
-				"scripts/**",
-				"packages/workspace-fs/**",
-				"packages/local-db/**"
-			],
+			"includes": ["apps/gitinfo/**", "apps/pulse/**", "scripts/**"],
 			"linter": {
 				"rules": {
 					"suspicious": {

@@ -1,7 +1,3 @@
-# osv-scanner config — single source for local scripts/run-security.ts and CI.
-# Keep ignores minimal. Prefer deleting vulnerable packages over long-term ignores.
-
-[[IgnoredVulns]]
-# esbuild via @esbuild-kit (transitive, dev-only tooling paths if present)
-id = "GHSA-67mh-4wv8-2f99"
-reason = "Transitive dev dependency; esbuild development server is not exposed."
+# osv-scanner config — single source for scripts/run-security.ts and CI.
+# Prefer removing vulnerable packages over long-lived ignores.
+# (No Electron / drizzle / deleted-package ignores.)

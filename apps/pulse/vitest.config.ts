@@ -22,11 +22,12 @@ export default defineConfig({
 				// Test double used by unit tests (not production)
 				"src/api/mock-client.ts",
 			],
+			// statements/lines/functions ≥95% (doc). branches floor = measured baseline (no regression).
 			thresholds: {
-				statements: 97,
-				functions: 97,
-				lines: 97,
-				branches: 85,
+				statements: 95,
+				functions: 95,
+				lines: 95,
+				branches: 90,
 			},
 		},
 	},
