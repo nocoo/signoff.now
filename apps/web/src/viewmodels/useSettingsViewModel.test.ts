@@ -95,12 +95,13 @@ describe("useSettingsViewModel", () => {
 		expect(result.current.toast).toMatch(/no changes/i);
 	});
 
-	test("save 409 reloads", async () => {
+	test("save 409 reloads then surfaces conflict message", async () => {
 		vi.mocked(settingsApi.fetchSettings)
 			.mockResolvedValueOnce(sample)
 			.mockResolvedValueOnce({
 				...sample,
 				pipelineConfigVersion: 3,
+				timezone: "Europe/Berlin",
 			});
 		vi.mocked(settingsApi.putSettings).mockRejectedValue(
 			new ApiError("conflict", 409),
@@ -117,10 +118,14 @@ describe("useSettingsViewModel", () => {
 		await act(async () => {
 			await result.current.save();
 		});
-		// reload() clears error after successful re-fetch; assert version advanced
 		await waitFor(() =>
 			expect(result.current.settings?.pipelineConfigVersion).toBe(3),
 		);
+		// Form replaced with server state; error explains why (not cleared by reload)
+		expect(result.current.form?.timezone).toBe("Europe/Berlin");
+		expect(result.current.error).toMatch(/version conflict/i);
+		expect(result.current.error).toMatch(/loaded latest/i);
+		expect(result.current.dirty).toBe(false);
 		expect(
 			vi.mocked(settingsApi.fetchSettings).mock.calls.length,
 		).toBeGreaterThanOrEqual(2);
@@ -202,6 +207,31 @@ describe("useSettingsViewModel", () => {
 		await waitFor(() =>
 			expect(result.current.settings?.pipelineConfigVersion).toBe(4),
 		);
+		expect(result.current.error).toMatch(/version conflict/i);
+	});
+
+	test("save 409 keeps reload error when re-fetch fails", async () => {
+		vi.mocked(settingsApi.fetchSettings)
+			.mockResolvedValueOnce(sample)
+			.mockRejectedValueOnce(new Error("reload failed"));
+		vi.mocked(settingsApi.putSettings).mockRejectedValue(
+			new ApiError("conflict", 409),
+		);
+		const { result } = renderHook(() => useSettingsViewModel());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		act(() => {
+			result.current.setForm({
+				timezone: "Asia/Tokyo",
+				emailSuffixes: ["example.com"],
+				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
+			});
+		});
+		await act(async () => {
+			await result.current.save();
+		});
+		await waitFor(() => expect(result.current.error).toMatch(/reload failed/));
+		// Do not overwrite reload failure with the conflict-success copy
+		expect(result.current.error).not.toMatch(/loaded latest/i);
 	});
 
 	test("save non-Error rejection", async () => {

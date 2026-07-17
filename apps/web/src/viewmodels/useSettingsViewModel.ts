@@ -18,7 +18,7 @@ export function useSettingsViewModel() {
 	const [error, setError] = useState<string | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
 
-	const reload = useCallback(async () => {
+	const reload = useCallback(async (): Promise<boolean> => {
 		setLoading(true);
 		setError(null);
 		try {
@@ -27,8 +27,10 @@ export function useSettingsViewModel() {
 			const f = toFormState(s);
 			setForm(f);
 			setBaseline(f);
+			return true;
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Failed to load settings");
+			return false;
 		} finally {
 			setLoading(false);
 		}
@@ -83,8 +85,14 @@ export function useSettingsViewModel() {
 						? Number((e as { status: unknown }).status)
 						: undefined;
 			if (status === 409) {
-				setError("Version conflict — reloading latest settings.");
-				await reload();
+				// reload() clears error; set conflict message after successful re-fetch
+				// so the user knows why their draft form was replaced with server state
+				const ok = await reload();
+				if (ok) {
+					setError(
+						"Version conflict — loaded latest settings. Re-apply your changes if needed.",
+					);
+				}
 			} else {
 				setError(e instanceof Error ? e.message : "Save failed");
 			}
