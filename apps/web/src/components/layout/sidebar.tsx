@@ -189,8 +189,8 @@ export function Sidebar({
 			>
 				{collapsed ? (
 					<div className="flex h-screen w-[68px] flex-col items-center">
-						<div className="flex h-14 items-center justify-center">
-							<span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+						<div className="flex h-14 w-full items-center pl-6 pr-3">
+							<span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
 								S
 							</span>
 						</div>
