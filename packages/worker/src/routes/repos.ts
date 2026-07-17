@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { newId, normalizeName, type RepoRow } from "../lib/entities.js";
+import { asObjectBody, readJsonBody } from "../lib/http-body.js";
 import type { AppEnv } from "../types.js";
 
 function mapRepo(r: RepoRow) {
@@ -28,10 +29,10 @@ export async function reposListRoute(c: Context<AppEnv>) {
 }
 
 function parseRepoBody(body: unknown) {
-	if (!body || typeof body !== "object") {
+	const b = asObjectBody(body);
+	if (!b) {
 		return null;
 	}
-	const b = body as Record<string, unknown>;
 	const provider = typeof b.provider === "string" ? b.provider : "ado";
 	if (provider !== "ado" && provider !== "github") {
 		return null;
@@ -58,13 +59,11 @@ function parseRepoBody(body: unknown) {
 }
 
 export async function reposCreateRoute(c: Context<AppEnv>) {
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
-	const parsed = parseRepoBody(body);
+	const parsed = parseRepoBody(raw.value);
 	if (!parsed || "error" in parsed) {
 		return c.json(
 			{ error: parsed && "error" in parsed ? parsed.error : "Invalid body" },
@@ -105,13 +104,14 @@ export async function reposPatchRoute(c: Context<AppEnv>) {
 	if (!existing || existing.archived_at !== null) {
 		return c.json({ error: "Not found" }, 404);
 	}
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
-	const b = body as Record<string, unknown>;
+	const b = asObjectBody(raw.value);
+	if (!b) {
+		return c.json({ error: "Invalid payload" }, 400);
+	}
 	const merged = {
 		provider: typeof b.provider === "string" ? b.provider : existing.provider,
 		org: b.org !== undefined ? b.org : existing.org,

@@ -129,4 +129,71 @@ describe("diffBusiness", () => {
 		expect(d.recomputeKind).toBe("full_rematch");
 		expect(d.timezoneChanged).toBe(true);
 	});
+
+	test("full_rematch on suffixes and weights", () => {
+		const s = diffBusiness(base, {
+			timezone: "UTC",
+			emailSuffixes: ["corp.example.com"],
+			activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
+		});
+		expect(s.suffixesChanged).toBe(true);
+		expect(s.reason).toContain("email_suffixes");
+		const w = diffBusiness(base, {
+			timezone: "UTC",
+			emailSuffixes: ["example.com"],
+			activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS, "pr.merged": 99 },
+		});
+		expect(w.weightsChanged).toBe(true);
+	});
+});
+
+describe("parseBusinessInput branches", () => {
+	test("invalid payload types", () => {
+		expect(parseBusinessInput(null).ok).toBe(false);
+		expect(
+			parseBusinessInput({
+				expectedVersion: 1.5,
+				timezone: "UTC",
+				emailSuffixes: ["example.com"],
+				activityWeights: DEFAULT_ACTIVITY_WEIGHTS,
+			}).ok,
+		).toBe(false);
+		expect(
+			parseBusinessInput({
+				expectedVersion: 1,
+				timezone: "Not/AZone",
+				emailSuffixes: ["example.com"],
+				activityWeights: DEFAULT_ACTIVITY_WEIGHTS,
+			}).ok,
+		).toBe(false);
+		expect(
+			parseBusinessInput({
+				expectedVersion: 1,
+				timezone: "UTC",
+				emailSuffixes: ["a@b.com"],
+				activityWeights: DEFAULT_ACTIVITY_WEIGHTS,
+			}).ok,
+		).toBe(false);
+		expect(
+			parseBusinessInput({
+				expectedVersion: 1,
+				timezone: "UTC",
+				emailSuffixes: ["example.com"],
+				activityWeights: { "pr.merged": "x" },
+			}).ok,
+		).toBe(false);
+	});
+});
+
+describe("normalizeEmailSuffixes edge", () => {
+	test("rejects non-string element and blank", () => {
+		expect(normalizeEmailSuffixes([1])).toBeNull();
+		expect(normalizeEmailSuffixes(["  "])).toBeNull();
+	});
+});
+
+describe("normalizeActivityWeights edge", () => {
+	test("rejects array", () => {
+		expect(normalizeActivityWeights([])).toBeNull();
+	});
 });

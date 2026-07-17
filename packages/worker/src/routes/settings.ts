@@ -1,4 +1,6 @@
 import type { Context } from "hono";
+import { batchChanges } from "../lib/entities.js";
+import { asObjectBody, readJsonBody } from "../lib/http-body.js";
 import {
 	diffBusiness,
 	jsonText,
@@ -6,9 +8,10 @@ import {
 	rowsToAppSettings,
 	type SettingsRow,
 } from "../lib/settings.js";
+import { settingsPutCasOutcome } from "../lib/settings-cas.js";
 import type { AppEnv } from "../types.js";
 
-async function loadSettings(db: D1Database) {
+export async function loadSettings(db: D1Database) {
 	const res = await db
 		.prepare("SELECT key, value, updated_at FROM settings")
 		.all<SettingsRow>();
@@ -21,14 +24,15 @@ export async function settingsGetRoute(c: Context<AppEnv>) {
 }
 
 export async function settingsPutRoute(c: Context<AppEnv>) {
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
+	if (!asObjectBody(raw.value)) {
+		return c.json({ error: "Invalid payload" }, 400);
+	}
 
-	const parsed = parseBusinessInput(body);
+	const parsed = parseBusinessInput(raw.value);
 	if (!parsed.ok) {
 		return c.json({ error: parsed.error }, 400);
 	}
@@ -53,12 +57,8 @@ export async function settingsPutRoute(c: Context<AppEnv>) {
 		});
 	}
 
-	const expected = String(parsed.expectedVersion);
-	const nextVersion = String(parsed.expectedVersion + 1);
-	const expectedLit = jsonText(parsed.expectedVersion);
-	// JSON number stored without extra quotes — seed uses bare `1`
-	const expectedSql = expected;
-	const nextSql = nextVersion;
+	const expectedSql = String(parsed.expectedVersion);
+	const nextSql = String(parsed.expectedVersion + 1);
 
 	const stmts = [
 		c.env.DB.prepare(
@@ -93,43 +93,20 @@ export async function settingsPutRoute(c: Context<AppEnv>) {
 	];
 
 	const results = await c.env.DB.batch(stmts);
-	const bump = results[results.length - 1];
-	const changes =
-		bump && "meta" in bump && bump.meta && typeof bump.meta === "object"
-			? ((bump.meta as { changes?: number }).changes ?? 0)
-			: 0;
+	const bumpChanges = batchChanges(results[results.length - 1]);
 
-	// D1 batch may report changes differently; also compare reloaded version
-	const after = await loadSettings(c.env.DB);
-	if (
-		changes === 0 &&
-		after.pipelineConfigVersion === current.pipelineConfigVersion
-	) {
+	if (settingsPutCasOutcome(bumpChanges) === "conflict") {
+		const latest = await loadSettings(c.env.DB);
 		return c.json(
 			{
 				error: "Version conflict",
-				currentVersion: after.pipelineConfigVersion,
+				currentVersion: latest.pipelineConfigVersion,
 			},
 			409,
 		);
 	}
 
-	if (after.pipelineConfigVersion !== parsed.expectedVersion + 1) {
-		// Lost race or unexpected store format (JSON quoted number)
-		// Retry path: accept if already advanced and matches business fields
-		if (after.pipelineConfigVersion === current.pipelineConfigVersion) {
-			// Try quoted JSON form for version CAS (json_valid stores as number text)
-			return c.json(
-				{
-					error: "Version conflict",
-					currentVersion: after.pipelineConfigVersion,
-				},
-				409,
-			);
-		}
-	}
-
-	void expectedLit;
+	const after = await loadSettings(c.env.DB);
 	return c.json({
 		settings: after,
 		recomputeRequired: true,

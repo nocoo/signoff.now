@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { newId, normalizeName, type TeamRow } from "../lib/entities.js";
+import { asObjectBody, readJsonBody } from "../lib/http-body.js";
 import type { AppEnv } from "../types.js";
 
 function mapTeam(r: TeamRow) {
@@ -22,13 +23,15 @@ export async function teamsListRoute(c: Context<AppEnv>) {
 }
 
 export async function teamsCreateRoute(c: Context<AppEnv>) {
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
-	const name = normalizeName((body as Record<string, unknown>).name);
+	const b = asObjectBody(raw.value);
+	if (!b) {
+		return c.json({ error: "Invalid payload" }, 400);
+	}
+	const name = normalizeName(b.name);
 	if (!name) {
 		return c.json({ error: "name required" }, 400);
 	}
@@ -50,13 +53,15 @@ export async function teamsCreateRoute(c: Context<AppEnv>) {
 
 export async function teamsPatchRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
-	const name = normalizeName((body as Record<string, unknown>).name);
+	const b = asObjectBody(raw.value);
+	if (!b) {
+		return c.json({ error: "Invalid payload" }, 400);
+	}
+	const name = normalizeName(b.name);
 	if (!name) {
 		return c.json({ error: "name required" }, 400);
 	}

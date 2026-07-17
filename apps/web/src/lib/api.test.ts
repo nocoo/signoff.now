@@ -36,4 +36,27 @@ describe("apiFetch", () => {
 			expect((e as ApiError).message).toBe("Version conflict");
 		}
 	});
+
+	test("non-json error body", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("plain fail", { status: 500 })),
+		);
+		try {
+			await apiFetch("/api/x");
+			expect.unreachable();
+		} catch (e) {
+			expect(e).toBeInstanceOf(ApiError);
+			expect((e as ApiError).message).toBe("plain fail");
+		}
+	});
+
+	test("empty ok body", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("", { status: 200 })),
+		);
+		const data = await apiFetch<null>("/api/x");
+		expect(data).toBeNull();
+	});
 });

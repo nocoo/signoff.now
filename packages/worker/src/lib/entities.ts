@@ -71,31 +71,65 @@ export function normalizeColor(color: unknown): string | null {
 	return c.toUpperCase();
 }
 
-/** Bump pipeline version + mark stale (alias/match-set change). CAS free — single writer admin path. */
-export async function bumpConfigStale(
+/**
+ * Atomic config version +1 and stale flags (no pre-read RMW).
+ * Prefer same `db.batch` as entity INSERT; for UPDATE check changes first.
+ */
+export function staleBumpStatements(
 	db: D1Database,
 	reason: string,
-): Promise<void> {
-	const row = await db
-		.prepare(`SELECT value FROM settings WHERE key = 'pipeline_config_version'`)
-		.first<{ value: string }>();
-	const current = Number(JSON.parse(row?.value ?? "1"));
-	const next = (Number.isFinite(current) ? current : 1) + 1;
-	await db.batch([
-		db
-			.prepare(
-				`UPDATE settings SET value = ?, updated_at = unixepoch() WHERE key = 'pipeline_config_version'`,
-			)
-			.bind(String(next)),
+): D1PreparedStatement[] {
+	return [
 		db.prepare(
-			`UPDATE settings SET value = 'true', updated_at = unixepoch() WHERE key = 'scores_stale'`,
+			`UPDATE settings
+       SET value = CAST(value AS INTEGER) + 1, updated_at = unixepoch()
+       WHERE key = 'pipeline_config_version'`,
+		),
+		db.prepare(
+			`UPDATE settings SET value = 'true', updated_at = unixepoch()
+       WHERE key = 'scores_stale'`,
 		),
 		db
 			.prepare(
-				`UPDATE settings SET value = ?, updated_at = unixepoch() WHERE key = 'scores_stale_reason'`,
+				`UPDATE settings SET value = ?, updated_at = unixepoch()
+         WHERE key = 'scores_stale_reason'`,
 			)
 			.bind(jsonText(reason)),
-	]);
+	];
+}
+
+/**
+ * Clear stale only when version still equals expected (SQL CAS).
+ * Returns statements for one batch; caller checks changes on scores_stale update.
+ */
+export function clearStaleCasStatements(
+	db: D1Database,
+	expectedVersion: number,
+): D1PreparedStatement[] {
+	const expected = String(expectedVersion);
+	return [
+		db
+			.prepare(
+				`UPDATE settings SET value = 'false', updated_at = unixepoch()
+         WHERE key = 'scores_stale'
+           AND (SELECT value FROM settings WHERE key = 'pipeline_config_version') = ?`,
+			)
+			.bind(expected),
+		db
+			.prepare(
+				`UPDATE settings SET value = 'null', updated_at = unixepoch()
+         WHERE key = 'scores_stale_reason'
+           AND (SELECT value FROM settings WHERE key = 'pipeline_config_version') = ?`,
+			)
+			.bind(expected),
+	];
+}
+
+export function batchChanges(result: D1Result | undefined): number {
+	if (!result?.meta || typeof result.meta !== "object") {
+		return 0;
+	}
+	return (result.meta as { changes?: number }).changes ?? 0;
 }
 
 export { newId };

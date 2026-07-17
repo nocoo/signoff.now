@@ -1,0 +1,9 @@
+[test]
+# Gate pure lib + middleware helpers (routes hit D1; covered via unit of extracted logic)
+coverageThreshold = { lines = 0.95, functions = 0.95, statements = 0.95 }
+coveragePathIgnorePatterns = [
+  "src/index.ts",
+  "src/routes/**",
+  "src/middleware/access-auth.ts",
+  "src/types.ts",
+]

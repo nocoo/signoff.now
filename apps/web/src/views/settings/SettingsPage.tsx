@@ -15,8 +15,30 @@ export function SettingsPage() {
 	const vm = useSettingsViewModel();
 	const [suffixDraft, setSuffixDraft] = useState("");
 
-	if (vm.loading || !vm.form || !vm.settings) {
+	if (vm.loading) {
 		return <p className="text-sm text-muted-foreground">Loading settings…</p>;
+	}
+
+	if (vm.error && (!vm.form || !vm.settings)) {
+		return (
+			<div className="space-y-3">
+				<p className="text-sm text-destructive">{vm.error}</p>
+				<p className="text-sm text-muted-foreground">
+					Is the Worker running on :37042? Try <code>bun run dev:all</code>.
+				</p>
+				<button
+					type="button"
+					className="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm"
+					onClick={() => void vm.reload()}
+				>
+					Retry
+				</button>
+			</div>
+		);
+	}
+
+	if (!vm.form || !vm.settings) {
+		return <p className="text-sm text-muted-foreground">No settings loaded.</p>;
 	}
 
 	const form = vm.form;

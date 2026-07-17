@@ -12,6 +12,11 @@ import {
 import { liveRoute } from "./routes/live.js";
 import { meRoute } from "./routes/me.js";
 import {
+	pipelineBootstrapRoute,
+	pipelineIngestRoute,
+	pipelineRecomputeCompleteRoute,
+} from "./routes/pipeline.js";
+import {
 	reposArchiveRoute,
 	reposCreateRoute,
 	reposListRoute,
@@ -47,6 +52,10 @@ app.get("/api/me", meRoute);
 
 app.get("/api/settings", settingsGetRoute);
 app.put("/api/settings", settingsPutRoute);
+
+app.get("/api/pipeline/bootstrap", pipelineBootstrapRoute);
+app.post("/api/pipeline/ingest", pipelineIngestRoute);
+app.post("/api/pipeline/recompute/complete", pipelineRecomputeCompleteRoute);
 
 app.get("/api/developers", developersListRoute);
 app.post("/api/developers", developersCreateRoute);

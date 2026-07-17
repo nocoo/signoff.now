@@ -1,5 +1,7 @@
 export type Bindings = {
 	DB: D1Database;
+	/** Static assets (SPA / placeholder). */
+	ASSETS?: Fetcher;
 	/** Pipeline write token (ingest / recompute). */
 	SIGNOFF_PIPELINE_WRITE_TOKEN?: string;
 	/** Optional read token; falls back to write token when unset. */

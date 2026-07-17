@@ -75,6 +75,44 @@ describe("parseTeam / parseTag / parseRepo", () => {
 		expect(r.externalId).toBe("guid");
 		expect(r.enabled).toBe(true);
 	});
+
+	test("archived team/tag/repo", () => {
+		expect(
+			parseTeam({
+				id: "t",
+				name: "X",
+				createdAt: 1,
+				updatedAt: 2,
+				archivedAt: 5,
+			}).archivedAt,
+		).toBe(5);
+		expect(
+			parseTag({
+				id: "g",
+				name: "x",
+				color: "#000000",
+				createdAt: 1,
+				updatedAt: 2,
+				archivedAt: 6,
+			}).archivedAt,
+		).toBe(6);
+		const r = parseRepo({
+			id: "r",
+			provider: "ado",
+			org: "o",
+			project: "p",
+			name: "n",
+			remoteUrl: "https://example.com",
+			externalId: null,
+			enabled: false,
+			createdAt: 1,
+			updatedAt: 2,
+			archivedAt: 7,
+		});
+		expect(r.archivedAt).toBe(7);
+		expect(r.remoteUrl).toBe("https://example.com");
+		expect(r.enabled).toBe(false);
+	});
 });
 
 describe("validateDeveloperInput", () => {

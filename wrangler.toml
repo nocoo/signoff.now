@@ -14,6 +14,14 @@ workers_dev = true
 [dev]
 port = 37042
 
+# SPA/static: placeholder shell under packages/worker/public.
+# Production: build apps/web then point directory at apps/web/dist (or copy).
+[assets]
+directory = "packages/worker/public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "signoff-db"

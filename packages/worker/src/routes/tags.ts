@@ -5,6 +5,7 @@ import {
 	normalizeName,
 	type TagRow,
 } from "../lib/entities.js";
+import { asObjectBody, readJsonBody } from "../lib/http-body.js";
 import type { AppEnv } from "../types.js";
 
 function mapTag(r: TagRow) {
@@ -28,13 +29,14 @@ export async function tagsListRoute(c: Context<AppEnv>) {
 }
 
 export async function tagsCreateRoute(c: Context<AppEnv>) {
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
-	const b = body as Record<string, unknown>;
+	const b = asObjectBody(raw.value);
+	if (!b) {
+		return c.json({ error: "Invalid payload" }, 400);
+	}
 	const name = normalizeName(b.name);
 	const color = normalizeColor(b.color ?? "#3B82F6");
 	if (!name || !color) {
@@ -58,11 +60,13 @@ export async function tagsCreateRoute(c: Context<AppEnv>) {
 
 export async function tagsPatchRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
-	let body: unknown;
-	try {
-		body = await c.req.json();
-	} catch {
+	const raw = await readJsonBody(c);
+	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
+	}
+	const b = asObjectBody(raw.value);
+	if (!b) {
+		return c.json({ error: "Invalid payload" }, 400);
 	}
 	const existing = await c.env.DB.prepare(`SELECT * FROM tags WHERE id = ?`)
 		.bind(id)
@@ -70,7 +74,6 @@ export async function tagsPatchRoute(c: Context<AppEnv>) {
 	if (!existing || existing.archived_at !== null) {
 		return c.json({ error: "Not found" }, 404);
 	}
-	const b = body as Record<string, unknown>;
 	const name = b.name !== undefined ? normalizeName(b.name) : existing.name;
 	const color =
 		b.color !== undefined ? normalizeColor(b.color) : existing.color;
