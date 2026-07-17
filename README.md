@@ -22,13 +22,14 @@ bun install
 # 1. 本地 D1 migrations
 bun run db:migrate:local
 
-# 2. Worker（终端 1）— :37042，本地 D1
-bun run dev:worker
+# 2. 同时起 Vite (:7042) + Worker (:37042, local D1)
+bun run dev:all
 
-# 3. Vite SPA（终端 2）— :7042
-bun run dev
+# 或分开：
+# bun run dev:worker   # 终端 1
+# bun run dev          # 终端 2
 
-# 4. 浏览器
+# 3. 浏览器
 #    https://signoff.dev.hexly.ai   （Caddy TLS，推荐）
 #    或 http://localhost:7042
 ```

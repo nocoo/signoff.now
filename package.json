@@ -22,7 +22,7 @@
 	"scripts": {
 		"dev": "turbo run dev --filter=@signoff/web",
 		"dev:worker": "wrangler dev --port 37042 --local",
-		"dev:stack": "echo 'Terminal 1: bun run dev:worker  |  Terminal 2: bun run dev'",
+		"dev:all": "turbo run dev --filter=@signoff/web --filter=@signoff/worker",
 		"build": "turbo build",
 		"test": "turbo test",
 		"test:coverage": "turbo test:coverage",
@@ -34,7 +34,6 @@
 		"clean": "git clean -xdf node_modules",
 		"clean:workspaces": "turbo clean",
 		"security": "bun run scripts/run-security.ts",
-		"dev:all": "turbo run dev",
 		"gitinfo": "bun run apps/gitinfo/src/main.ts",
 		"pulse": "bun run apps/pulse/src/main.ts",
 		"db:migrate:local": "wrangler d1 migrations apply signoff-db --local",
