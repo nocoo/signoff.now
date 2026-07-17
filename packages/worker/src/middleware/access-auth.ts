@@ -1,28 +1,33 @@
 // Access JWT verification for browser hosts (aligned with bat access-auth.ts).
 
 import type { Context, Next } from "hono";
-import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { AppEnv } from "../types.js";
+import {
+	resetJwksCacheForTests,
+	verifyAccessJwtWithJose,
+} from "./access-jose.js";
+import {
+	type AccessPrincipal,
+	principalFromPayload,
+} from "./access-principal.js";
 import { isLocalhost, isMachineEndpoint } from "./entry-control.js";
 
-let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
-let jwksCacheTeamDomain: string | null = null;
+export type { AccessPrincipal };
+export { principalFromPayload, resetJwksCacheForTests };
 
-function getJWKS(teamDomain: string) {
-	if (jwksCache && jwksCacheTeamDomain === teamDomain) {
-		return jwksCache;
-	}
-	jwksCache = createRemoteJWKSet(
-		new URL(`https://${teamDomain}/cdn-cgi/access/certs`),
-	);
-	jwksCacheTeamDomain = teamDomain;
-	return jwksCache;
-}
+/** Injectable verifier for tests (production uses jose JWKS). */
+export type AccessJwtVerifier = (
+	jwt: string,
+	teamDomain: string,
+	aud: string,
+) => Promise<AccessPrincipal>;
 
-/** Reset JWKS cache (tests only). */
-export function resetJwksCacheForTests(): void {
-	jwksCache = null;
-	jwksCacheTeamDomain = null;
+let testVerifier: AccessJwtVerifier | null = null;
+
+export function setAccessJwtVerifierForTests(
+	verifier: AccessJwtVerifier | null,
+): void {
+	testVerifier = verifier;
 }
 
 export async function accessAuth(c: Context<AppEnv>, next: Next) {
@@ -55,24 +60,11 @@ export async function accessAuth(c: Context<AppEnv>, next: Next) {
 	}
 
 	try {
-		const jwks = getJWKS(teamDomain);
-		const { payload } = await jwtVerify(jwt, jwks, {
-			issuer: `https://${teamDomain}`,
-			audience: aud,
-		});
+		const verifier = testVerifier ?? verifyAccessJwtWithJose;
+		const principal = await verifier(jwt, teamDomain, aud);
 		c.set("accessAuthenticated", true);
-		const email =
-			typeof payload.email === "string"
-				? payload.email
-				: typeof payload.sub === "string"
-					? payload.sub
-					: null;
-		const name =
-			typeof payload.name === "string"
-				? payload.name
-				: (email?.split("@")[0] ?? null);
-		c.set("accessEmail", email);
-		c.set("accessName", name);
+		c.set("accessEmail", principal.email);
+		c.set("accessName", principal.name);
 	} catch {
 		return c.json({ error: "Invalid Access JWT" }, 403);
 	}

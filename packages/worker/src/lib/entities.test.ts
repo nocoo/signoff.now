@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+	archiveDeveloperBatch,
 	batchChanges,
 	clearStaleCasStatements,
 	normalizeAlias,
 	normalizeColor,
 	normalizeName,
+	restoreDeveloperBatch,
 	staleBumpStatements,
 } from "./entities.js";
 import { asObjectBody } from "./http-body.js";
@@ -71,9 +73,19 @@ describe("staleBumpStatements / clearStaleCasStatements", () => {
 		const stmts = staleBumpStatements(mockDb(), "reason");
 		expect(stmts).toHaveLength(3);
 	});
+	test("guarded bump has changes() clause", () => {
+		const stmts = staleBumpStatements(mockDb(), "reason", {
+			onlyIfPreviousChanges: true,
+		});
+		expect(stmts).toHaveLength(3);
+	});
 	test("returns two clear-stale cas statements", () => {
 		const stmts = clearStaleCasStatements(mockDb(), 3);
 		expect(stmts).toHaveLength(2);
+	});
+	test("archive/restore batches are entity + 3 bump stmts", () => {
+		expect(archiveDeveloperBatch(mockDb(), "id")).toHaveLength(4);
+		expect(restoreDeveloperBatch(mockDb(), "id")).toHaveLength(4);
 	});
 });
 

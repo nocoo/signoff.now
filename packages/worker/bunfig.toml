@@ -1,9 +1,19 @@
 [test]
-# Gate pure lib + middleware helpers (routes hit D1; covered via unit of extracted logic)
+# 95% on lib + middleware (route handlers thin; critical logic extracted to lib/)
+# access-auth is covered by unit tests — do not exclude it.
 coverageThreshold = { lines = 0.95, functions = 0.95, statements = 0.95 }
 coveragePathIgnorePatterns = [
   "src/index.ts",
-  "src/routes/**",
-  "src/middleware/access-auth.ts",
   "src/types.ts",
+  # Real JWKS network path (exercised via injectable verifier in access-auth tests)
+  "src/middleware/access-jose.ts",
+  # Thin D1 wiring only — business rules live under src/lib/
+  "src/routes/developers.ts",
+  "src/routes/teams.ts",
+  "src/routes/tags.ts",
+  "src/routes/repos.ts",
+  "src/routes/settings.ts",
+  "src/routes/live.ts",
+  "src/routes/me.ts",
+  "src/routes/pipeline.ts",
 ]

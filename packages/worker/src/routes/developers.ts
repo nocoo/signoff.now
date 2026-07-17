@@ -1,9 +1,12 @@
 import type { Context } from "hono";
 import {
+	archiveDeveloperBatch,
+	batchChanges,
 	type DeveloperRow,
 	newId,
 	normalizeAlias,
 	normalizeName,
+	restoreDeveloperBatch,
 	staleBumpStatements,
 } from "../lib/entities.js";
 import { asObjectBody, readJsonBody } from "../lib/http-body.js";
@@ -124,35 +127,29 @@ export async function developersPatchRoute(c: Context<AppEnv>) {
 
 export async function developersArchiveRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
-	// Gate on row match, then atomic version +1 (CAST)
-	const r = await c.env.DB.prepare(
-		`UPDATE developers SET archived_at = unixepoch(), updated_at = unixepoch()
-     WHERE id = ? AND archived_at IS NULL`,
-	)
-		.bind(id)
-		.run();
-	if (!r.meta.changes) {
+	if (!id) {
+		return c.json({ error: "Missing id" }, 400);
+	}
+	// Single batch: archive + version bump gated on SQLite changes()
+	const results = await c.env.DB.batch(archiveDeveloperBatch(c.env.DB, id));
+	if (batchChanges(results[0]) === 0) {
 		return c.json({ error: "Not found" }, 404);
 	}
-	await c.env.DB.batch(staleBumpStatements(c.env.DB, "developer archived"));
 	return c.json({ ok: true });
 }
 
 export async function developersRestoreRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
+	if (!id) {
+		return c.json({ error: "Missing id" }, 400);
+	}
 	try {
-		const r = await c.env.DB.prepare(
-			`UPDATE developers SET archived_at = NULL, updated_at = unixepoch()
-       WHERE id = ? AND archived_at IS NOT NULL`,
-		)
-			.bind(id)
-			.run();
-		if (!r.meta.changes) {
+		const results = await c.env.DB.batch(restoreDeveloperBatch(c.env.DB, id));
+		if (batchChanges(results[0]) === 0) {
 			return c.json({ error: "Not found" }, 404);
 		}
 	} catch {
 		return c.json({ error: "Alias conflict with active developer" }, 409);
 	}
-	await c.env.DB.batch(staleBumpStatements(c.env.DB, "developer restored"));
 	return c.json({ ok: true });
 }

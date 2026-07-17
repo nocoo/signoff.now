@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { bootstrapSnapshotStatements } from "../lib/bootstrap.js";
 import {
 	batchChanges,
 	clearStaleCasStatements,
@@ -6,24 +7,45 @@ import {
 	type RepoRow,
 } from "../lib/entities.js";
 import { asObjectBody, readJsonBody } from "../lib/http-body.js";
+import {
+	gatePipelineIngest,
+	ingestNotImplementedBody,
+} from "../lib/pipeline-ingest.js";
+import { rowsToAppSettings, type SettingsRow } from "../lib/settings.js";
 import type { AppEnv } from "../types.js";
 import { loadSettings } from "./settings.js";
 
-/** GET /api/pipeline/bootstrap — CLI settings + entities (phase-1). */
+/** GET /api/pipeline/bootstrap — one batch snapshot (settings + devs + repos). */
 export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
-	const settings = await loadSettings(c.env.DB);
-	const devs = await c.env.DB.prepare(
-		`SELECT id, name, alias FROM developers WHERE archived_at IS NULL ORDER BY name`,
-	).all<Pick<DeveloperRow, "id" | "name" | "alias">>();
-	const repos = await c.env.DB.prepare(
-		`SELECT id, provider, org, project, name, external_id, enabled
-     FROM repos WHERE archived_at IS NULL AND enabled = 1 ORDER BY org, project, name`,
-	).all<
-		Pick<
-			RepoRow,
-			"id" | "provider" | "org" | "project" | "name" | "external_id" | "enabled"
-		>
-	>();
+	const results = await c.env.DB.batch(bootstrapSnapshotStatements(c.env.DB));
+
+	const settingsRows =
+		(results[0] as D1Result<SettingsRow> | undefined)?.results ?? [];
+	const devs =
+		(
+			results[1] as
+				| D1Result<Pick<DeveloperRow, "id" | "name" | "alias">>
+				| undefined
+		)?.results ?? [];
+	const repos =
+		(
+			results[2] as
+				| D1Result<
+						Pick<
+							RepoRow,
+							| "id"
+							| "provider"
+							| "org"
+							| "project"
+							| "name"
+							| "external_id"
+							| "enabled"
+						>
+				  >
+				| undefined
+		)?.results ?? [];
+
+	const settings = rowsToAppSettings(settingsRows);
 
 	return c.json({
 		fetchedAt: new Date().toISOString(),
@@ -35,12 +57,12 @@ export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
 			scoresStale: settings.scoresStale,
 			scoresStaleReason: settings.scoresStaleReason,
 		},
-		developers: (devs.results ?? []).map((d) => ({
+		developers: devs.map((d) => ({
 			id: d.id,
 			name: d.name,
 			alias: d.alias,
 		})),
-		repos: (repos.results ?? []).map((r) => ({
+		repos: repos.map((r) => ({
 			id: r.id,
 			provider: r.provider,
 			org: r.org,
@@ -53,8 +75,8 @@ export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
 }
 
 /**
- * POST /api/pipeline/ingest — version gate only (full body ingest later).
- * Requires pipelineConfigVersion === current.
+ * POST /api/pipeline/ingest — not implemented for Activity/Score writes.
+ * Returns 501 after validation so CLI never treats data as durable.
  */
 export async function pipelineIngestRoute(c: Context<AppEnv>) {
 	const raw = await readJsonBody(c);
@@ -62,31 +84,23 @@ export async function pipelineIngestRoute(c: Context<AppEnv>) {
 		return c.json({ error: "Invalid JSON body" }, 400);
 	}
 	const body = asObjectBody(raw.value);
-	if (!body) {
-		return c.json({ error: "Invalid payload" }, 400);
-	}
-	if (
-		typeof body.pipelineConfigVersion !== "number" ||
-		!Number.isInteger(body.pipelineConfigVersion)
-	) {
-		return c.json({ error: "pipelineConfigVersion required (integer)" }, 400);
-	}
 	const settings = await loadSettings(c.env.DB);
-	if (body.pipelineConfigVersion !== settings.pipelineConfigVersion) {
+	const gate = gatePipelineIngest(body, settings.pipelineConfigVersion);
+
+	if (gate.kind === "bad_request") {
+		return c.json({ error: gate.error }, 400);
+	}
+	if (gate.kind === "conflict") {
 		return c.json(
 			{
 				error: "Version conflict",
-				currentVersion: settings.pipelineConfigVersion,
+				currentVersion: gate.currentVersion,
 			},
 			409,
 		);
 	}
-	// Phase-1: accept empty activity payload; real upsert comes later
-	return c.json({
-		ok: true,
-		pipelineConfigVersion: settings.pipelineConfigVersion,
-		accepted: Array.isArray(body.activities) ? body.activities.length : 0,
-	});
+
+	return c.json(ingestNotImplementedBody(gate.currentVersion), 501);
 }
 
 /**

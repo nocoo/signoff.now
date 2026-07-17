@@ -23,6 +23,7 @@
 		"dev": "turbo run dev --filter=@signoff/web",
 		"dev:worker": "wrangler dev --port 37042 --local",
 		"dev:all": "turbo run dev --filter=@signoff/web --filter=@signoff/worker",
+		"build:web": "turbo run build --filter=@signoff/web",
 		"build": "turbo build",
 		"test": "turbo test",
 		"test:coverage": "turbo test:coverage",

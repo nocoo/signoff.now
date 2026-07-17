@@ -34,6 +34,10 @@ bun run dev:all
 #    或 http://localhost:7042
 ```
 
+生产 Worker 静态资源：`bun run build:web` 产出 `apps/web/dist`，由 `wrangler.toml` `[assets]` 挂载（SPA fallback）。deploy / dry-run 前必须先 build web。
+
+`POST /api/pipeline/ingest` 目前返回 **501 Not Implemented**（不会假装写入 Activity/Score）。
+
 本地鉴权：Worker 对 `localhost` / `127.0.0.1` / `*.dev.hexly.ai` 跳过 Access（与 bat 一致）。侧栏显示 **Dev (anonymous)**。生产需配置 `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD`。
 
 | 端口 | 用途 |
@@ -61,4 +65,4 @@ bun run security
 
 ## 状态
 
-Web dashboard + Settings / Developers / Teams / Tags / Repos CRUD 可本地运行；Activity 热力图与 ADO 采集管线待后续。
+Web dashboard + Settings / Developers / Teams / Tags / Repos CRUD 可本地运行；pipeline bootstrap/complete 可用；**ingest 写 Activity/Score 尚未实现（501）**。

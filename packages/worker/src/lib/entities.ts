@@ -73,28 +73,69 @@ export function normalizeColor(color: unknown): string | null {
 
 /**
  * Atomic config version +1 and stale flags (no pre-read RMW).
- * Prefer same `db.batch` as entity INSERT; for UPDATE check changes first.
+ * Prefer same `db.batch` as entity INSERT.
+ *
+ * When chained after an entity UPDATE, pass `onlyIfPreviousChanges: true` so
+ * bump statements use SQLite `changes() > 0` and no-op if the UPDATE matched 0 rows.
  */
 export function staleBumpStatements(
 	db: D1Database,
 	reason: string,
+	opts?: { onlyIfPreviousChanges?: boolean },
 ): D1PreparedStatement[] {
+	const guard = opts?.onlyIfPreviousChanges ? " AND changes() > 0" : "";
 	return [
 		db.prepare(
 			`UPDATE settings
        SET value = CAST(value AS INTEGER) + 1, updated_at = unixepoch()
-       WHERE key = 'pipeline_config_version'`,
+       WHERE key = 'pipeline_config_version'${guard}`,
 		),
 		db.prepare(
 			`UPDATE settings SET value = 'true', updated_at = unixepoch()
-       WHERE key = 'scores_stale'`,
+       WHERE key = 'scores_stale'${guard}`,
 		),
 		db
 			.prepare(
 				`UPDATE settings SET value = ?, updated_at = unixepoch()
-         WHERE key = 'scores_stale_reason'`,
+         WHERE key = 'scores_stale_reason'${guard}`,
 			)
 			.bind(jsonText(reason)),
+	];
+}
+
+/** Archive developer + stale bump in one batch (bump gated on archive changes()). */
+export function archiveDeveloperBatch(
+	db: D1Database,
+	id: string,
+): D1PreparedStatement[] {
+	return [
+		db
+			.prepare(
+				`UPDATE developers SET archived_at = unixepoch(), updated_at = unixepoch()
+         WHERE id = ? AND archived_at IS NULL`,
+			)
+			.bind(id),
+		...staleBumpStatements(db, "developer archived", {
+			onlyIfPreviousChanges: true,
+		}),
+	];
+}
+
+/** Restore developer + stale bump in one batch. */
+export function restoreDeveloperBatch(
+	db: D1Database,
+	id: string,
+): D1PreparedStatement[] {
+	return [
+		db
+			.prepare(
+				`UPDATE developers SET archived_at = NULL, updated_at = unixepoch()
+         WHERE id = ? AND archived_at IS NOT NULL`,
+			)
+			.bind(id),
+		...staleBumpStatements(db, "developer restored", {
+			onlyIfPreviousChanges: true,
+		}),
 	];
 }
 
