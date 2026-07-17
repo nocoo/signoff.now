@@ -1,8 +1,11 @@
 import { useState } from "react";
+import { AlertBanner } from "@/components/AlertBanner";
+import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	DEFAULT_ACTIVITY_WEIGHTS,
 	normalizeSuffixInput,
@@ -11,28 +14,44 @@ import {
 } from "@/models/settings";
 import { useSettingsViewModel } from "@/viewmodels/useSettingsViewModel";
 
+function SettingsSkeleton() {
+	return (
+		<div className="space-y-6">
+			<div className="space-y-2">
+				<Skeleton className="h-8 w-40" />
+				<Skeleton className="h-4 w-72" />
+			</div>
+			<div className="rounded-[var(--radius-card)] bg-secondary p-5 space-y-3">
+				<Skeleton className="h-4 w-24" />
+				<Skeleton className="h-9 w-full max-w-md" />
+			</div>
+		</div>
+	);
+}
+
 export function SettingsPage() {
 	const vm = useSettingsViewModel();
 	const [suffixDraft, setSuffixDraft] = useState("");
 
 	if (vm.loading) {
-		return <p className="text-sm text-muted-foreground">Loading settings…</p>;
+		return <SettingsSkeleton />;
 	}
 
 	if (vm.error && (!vm.form || !vm.settings)) {
 		return (
-			<div className="space-y-3">
-				<p className="text-sm text-destructive">{vm.error}</p>
+			<div className="space-y-4">
+				<PageHeader
+					title="Settings"
+					description="Timezone, email suffixes, and activity weights."
+				/>
+				<AlertBanner variant="error">{vm.error}</AlertBanner>
 				<p className="text-sm text-muted-foreground">
-					Is the Worker running on :37042? Try <code>bun run dev:all</code>.
+					Is the Worker running on :37042? Try{" "}
+					<code className="rounded bg-secondary px-1">bun run dev:all</code>.
 				</p>
-				<button
-					type="button"
-					className="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm"
-					onClick={() => void vm.reload()}
-				>
+				<Button variant="secondary" onClick={() => void vm.reload()}>
 					Retry
-				</button>
+				</Button>
 			</div>
 		);
 	}
@@ -56,27 +75,32 @@ export function SettingsPage() {
 	};
 
 	return (
-		<div className="space-y-8">
+		<div className="space-y-6">
+			<PageHeader
+				title="Settings"
+				description="Business configuration drives identity matching and scoring. Changes bump pipeline config version and may require full rematch."
+				actions={
+					<Button
+						disabled={!vm.dirty || !!vm.validationError || vm.saving}
+						onClick={() => void vm.save()}
+					>
+						{vm.saving ? "Saving…" : "Save changes"}
+					</Button>
+				}
+			/>
+
 			{vm.settings.scoresStale ? (
-				<div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+				<AlertBanner variant="warning">
 					<strong>Scores may be stale.</strong>{" "}
 					{vm.settings.scoresStaleReason ?? "Configuration changed."} Run a full
 					rematch on a machine with az access.
-				</div>
+				</AlertBanner>
 			) : null}
 
-			{vm.error ? (
-				<div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-					{vm.error}
-				</div>
-			) : null}
-			{vm.toast ? (
-				<div className="rounded-md border border-border bg-secondary px-4 py-2 text-sm">
-					{vm.toast}
-				</div>
-			) : null}
+			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
+			{vm.toast ? <AlertBanner variant="info">{vm.toast}</AlertBanner> : null}
 
-			<section className="space-y-3">
+			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
 				<h2 className="font-display text-base font-semibold">Timezone</h2>
 				<div className="max-w-md space-y-2">
 					<Label htmlFor="tz">IANA timezone</Label>
@@ -88,8 +112,11 @@ export function SettingsPage() {
 				</div>
 			</section>
 
-			<section className="space-y-3">
+			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
 				<h2 className="font-display text-base font-semibold">Email suffixes</h2>
+				<p className="text-xs text-muted-foreground">
+					Identity match: <code>alias@suffix</code> against ADO uniqueName.
+				</p>
 				<div className="flex flex-wrap gap-2">
 					{form.emailSuffixes.map((s) => (
 						<Badge key={s} variant="secondary" className="gap-2">
@@ -97,6 +124,7 @@ export function SettingsPage() {
 							<button
 								type="button"
 								className="text-muted-foreground hover:text-foreground"
+								aria-label={`Remove ${s}`}
 								onClick={() =>
 									patch({
 										emailSuffixes: form.emailSuffixes.filter((x) => x !== s),
@@ -126,8 +154,8 @@ export function SettingsPage() {
 				</div>
 			</section>
 
-			<section className="space-y-3">
-				<div className="flex items-center justify-between">
+			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
+				<div className="flex items-center justify-between gap-2">
 					<h2 className="font-display text-base font-semibold">
 						Activity weights
 					</h2>
@@ -142,17 +170,24 @@ export function SettingsPage() {
 						Reset defaults
 					</Button>
 				</div>
-				<div className="overflow-x-auto rounded-md border border-border">
+				<div className="overflow-x-auto rounded-[var(--radius-widget)] border border-border">
 					<table className="w-full text-sm">
-						<thead className="bg-secondary/60 text-left">
-							<tr>
-								<th className="px-3 py-2 font-medium">Type</th>
-								<th className="px-3 py-2 font-medium">Weight</th>
+						<thead>
+							<tr className="border-b border-border text-left">
+								<th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+									Type
+								</th>
+								<th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+									Weight
+								</th>
 							</tr>
 						</thead>
 						<tbody>
 							{Object.keys(DEFAULT_ACTIVITY_WEIGHTS).map((key) => (
-								<tr key={key} className="border-t border-border">
+								<tr
+									key={key}
+									className="border-b border-border last:border-0 hover:bg-background/50"
+								>
 									<td className="px-3 py-2">
 										{WEIGHT_LABELS[key] ?? key}
 										<span className="ml-2 text-xs text-muted-foreground">
@@ -181,19 +216,28 @@ export function SettingsPage() {
 				</div>
 			</section>
 
-			<section className="space-y-2 rounded-md bg-secondary/40 p-4 text-sm">
+			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 text-sm space-y-2">
 				<h2 className="font-display font-semibold">Pipeline status</h2>
 				<p>
-					Config version: <strong>{vm.settings.pipelineConfigVersion}</strong>
+					Config version:{" "}
+					<strong className="font-display">
+						{vm.settings.pipelineConfigVersion}
+					</strong>
 				</p>
 				<p>
-					Stale: <strong>{vm.settings.scoresStale ? "yes" : "no"}</strong>
+					Stale:{" "}
+					<strong>
+						{vm.settings.scoresStale ? (
+							<span className="text-warning">yes</span>
+						) : (
+							<span className="text-success">no</span>
+						)}
+					</strong>
 				</p>
 			</section>
 
-			<div className="flex justify-end gap-2">
+			<div className="flex justify-end gap-2 sm:hidden">
 				<Button
-					type="button"
 					disabled={!vm.dirty || !!vm.validationError || vm.saving}
 					onClick={() => void vm.save()}
 				>

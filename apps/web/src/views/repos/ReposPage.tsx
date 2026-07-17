@@ -1,7 +1,12 @@
+import { GitBranch } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AlertBanner } from "@/components/AlertBanner";
+import { EmptyState } from "@/components/EmptyState";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { Repo } from "@/models/entities";
 import { archiveRepo, createRepo, listRepos } from "@/models/entitiesApi";
 
@@ -12,6 +17,7 @@ export function ReposPage() {
 	const [name, setName] = useState("");
 	const [externalId, setExternalId] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [loading, setLoading] = useState(true);
 
 	const reload = useCallback(async () => {
 		try {
@@ -19,6 +25,8 @@ export function ReposPage() {
 			setError(null);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Load failed");
+		} finally {
+			setLoading(false);
 		}
 	}, []);
 
@@ -28,102 +36,125 @@ export function ReposPage() {
 
 	return (
 		<div className="space-y-6">
-			{error ? <p className="text-sm text-destructive">{error}</p> : null}
-			<section className="grid max-w-2xl gap-3 rounded-md border border-border p-4 sm:grid-cols-2">
-				<div className="space-y-1">
-					<Label>Org</Label>
-					<Input value={org} onChange={(e) => setOrg(e.target.value)} />
+			<PageHeader
+				title="Repos"
+				description="Azure DevOps repository bindings for local pipeline collection."
+			/>
+			{error ? <AlertBanner variant="error">{error}</AlertBanner> : null}
+
+			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-4">
+				<h2 className="font-display text-base font-semibold">Bind repo</h2>
+				<div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+					<div className="space-y-1.5">
+						<Label>Org</Label>
+						<Input value={org} onChange={(e) => setOrg(e.target.value)} />
+					</div>
+					<div className="space-y-1.5">
+						<Label>Project</Label>
+						<Input
+							value={project}
+							onChange={(e) => setProject(e.target.value)}
+						/>
+					</div>
+					<div className="space-y-1.5">
+						<Label>Repo name</Label>
+						<Input value={name} onChange={(e) => setName(e.target.value)} />
+					</div>
+					<div className="space-y-1.5">
+						<Label>ADO repository GUID</Label>
+						<Input
+							value={externalId}
+							onChange={(e) => setExternalId(e.target.value)}
+							placeholder="xxxxxxxx-xxxx-…"
+						/>
+					</div>
 				</div>
-				<div className="space-y-1">
-					<Label>Project</Label>
-					<Input value={project} onChange={(e) => setProject(e.target.value)} />
-				</div>
-				<div className="space-y-1">
-					<Label>Repo name</Label>
-					<Input value={name} onChange={(e) => setName(e.target.value)} />
-				</div>
-				<div className="space-y-1">
-					<Label>ADO repository GUID</Label>
-					<Input
-						value={externalId}
-						onChange={(e) => setExternalId(e.target.value)}
-						placeholder="xxxxxxxx-xxxx-…"
-					/>
-				</div>
-				<div className="sm:col-span-2">
-					<Button
-						onClick={() =>
-							void createRepo({
-								org,
-								project,
-								name,
-								externalId,
-								provider: "ado",
-								enabled: true,
+				<Button
+					onClick={() =>
+						void createRepo({
+							org,
+							project,
+							name,
+							externalId,
+							provider: "ado",
+							enabled: true,
+						})
+							.then(() => {
+								setOrg("");
+								setProject("");
+								setName("");
+								setExternalId("");
+								return reload();
 							})
-								.then(() => {
-									setOrg("");
-									setProject("");
-									setName("");
-									setExternalId("");
-									return reload();
-								})
-								.catch((e: Error) => setError(e.message))
-						}
-					>
-						Add repo
-					</Button>
-				</div>
+							.catch((e: Error) => setError(e.message))
+					}
+				>
+					Add repo
+				</Button>
 			</section>
 
-			<div className="overflow-x-auto rounded-md border border-border">
-				<table className="w-full text-sm">
-					<thead className="bg-secondary/60 text-left">
-						<tr>
-							<th className="px-3 py-2">Org / Project</th>
-							<th className="px-3 py-2">Name</th>
-							<th className="px-3 py-2">GUID</th>
-							<th className="px-3 py-2" />
-						</tr>
-					</thead>
-					<tbody>
-						{items.map((r) => (
-							<tr key={r.id} className="border-t border-border">
-								<td className="px-3 py-2">
-									{r.org} / {r.project}
-								</td>
-								<td className="px-3 py-2">{r.name}</td>
-								<td className="px-3 py-2 font-mono text-xs">
-									{r.externalId ?? "—"}
-								</td>
-								<td className="px-3 py-2 text-right">
-									<Button
-										variant="destructive"
-										size="sm"
-										onClick={() =>
-											void archiveRepo(r.id)
-												.then(reload)
-												.catch((e: Error) => setError(e.message))
-										}
-									>
-										Archive
-									</Button>
-								</td>
+			{loading ? (
+				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
+					<Skeleton className="h-10 w-full" />
+					<Skeleton className="h-10 w-full" />
+				</div>
+			) : items.length === 0 ? (
+				<div className="rounded-[var(--radius-card)] bg-secondary">
+					<EmptyState
+						icon={GitBranch}
+						title="No repos bound"
+						description="Bind an ADO repository (org / project / name / GUID) so the local pipeline can collect."
+					/>
+				</div>
+			) : (
+				<div className="overflow-x-auto rounded-[var(--radius-card)] bg-secondary">
+					<table className="w-full text-sm">
+						<thead>
+							<tr className="border-b border-border text-left">
+								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+									Org / Project
+								</th>
+								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+									Name
+								</th>
+								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+									GUID
+								</th>
+								<th className="px-4 py-3" />
 							</tr>
-						))}
-						{items.length === 0 ? (
-							<tr>
-								<td
-									colSpan={4}
-									className="px-3 py-6 text-center text-muted-foreground"
+						</thead>
+						<tbody>
+							{items.map((r) => (
+								<tr
+									key={r.id}
+									className="border-b border-border last:border-0 hover:bg-background/50"
 								>
-									No repos
-								</td>
-							</tr>
-						) : null}
-					</tbody>
-				</table>
-			</div>
+									<td className="px-4 py-3">
+										{r.org} / {r.project}
+									</td>
+									<td className="px-4 py-3 font-medium">{r.name}</td>
+									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+										{r.externalId ?? "—"}
+									</td>
+									<td className="px-4 py-3 text-right">
+										<Button
+											variant="destructive"
+											size="sm"
+											onClick={() =>
+												void archiveRepo(r.id)
+													.then(reload)
+													.catch((e: Error) => setError(e.message))
+											}
+										>
+											Archive
+										</Button>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
 		</div>
 	);
 }
