@@ -76,7 +76,13 @@ export function useSettingsViewModel() {
 				setToast("Saved (no changes affecting scores).");
 			}
 		} catch (e) {
-			if (e instanceof ApiError && e.status === 409) {
+			const status =
+				e instanceof ApiError
+					? e.status
+					: e && typeof e === "object" && "status" in e
+						? Number((e as { status: unknown }).status)
+						: undefined;
+			if (status === 409) {
 				setError("Version conflict — reloading latest settings.");
 				await reload();
 			} else {

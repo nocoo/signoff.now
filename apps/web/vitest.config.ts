@@ -8,16 +8,22 @@ export default defineConfig({
 		},
 	},
 	test: {
-		environment: "node",
+		environment: "happy-dom",
 		globals: true,
 		include: ["src/**/*.{test,spec}.{ts,tsx}"],
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
-			include: ["src/models/**/*.{ts,tsx}", "src/lib/**/*.{ts,tsx}"],
+			// Models + ViewModels + lib (Views still excluded — docs/03)
+			include: [
+				"src/models/**/*.{ts,tsx}",
+				"src/viewmodels/**/*.{ts,tsx}",
+				"src/lib/**/*.{ts,tsx}",
+			],
 			exclude: [
 				"src/**/*.{test,spec}.{ts,tsx}",
 				"src/**/*.d.ts",
+				// HTTP clients: thin wrappers, mocked in ViewModel tests
 				"src/models/*Api.ts",
 			],
 			thresholds: {
