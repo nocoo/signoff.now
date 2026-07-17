@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import { AppShell } from "@/components/layout/app-shell";
 import { ActivityPlaceholder } from "@/views/activity/ActivityPlaceholder";
 import { DashboardPage } from "@/views/DashboardPage";
 import { DevelopersPage } from "@/views/developers/DevelopersPage";
@@ -12,7 +12,7 @@ export default function App() {
 	return (
 		<BrowserRouter>
 			<Routes>
-				<Route element={<DashboardLayout />}>
+				<Route element={<AppShell />}>
 					<Route path="/" element={<DashboardPage />} />
 					<Route path="/settings" element={<SettingsPage />} />
 					<Route path="/developers" element={<DevelopersPage />} />
