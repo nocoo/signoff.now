@@ -288,21 +288,37 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 ### 5.3 多阶段流程（06 实装形态）
 
-**明确不使用**：单 batch 完成 write+read+aggregate+finalize。**明确采用**：可重试的多阶段流程。
+**明确不使用**：单 batch 完成 write+read+aggregate+finalize。**明确采用**：可重试的多阶段流程 + 内部 chunk 状态推进。
 
 对于一次 `POST /pipeline/ingest`（一个 chunk），06 服务端顺序执行：
 
 ```
-┌─ Phase 1  Activity + Unmatched 写入 ────────────────────────┐
-│  一次 batch：                                                │
+┌─ Phase 0  Chunk 预检 ────────────────────────────────────────┐
+│  SELECT run + chunk_state by (runId, chunkIndex)             │
+│  参照 §5.4 表格分派：新 chunk / prepared 续跑 / completed     │
+│  重复 / digest 冲突 / 版本冲突 / 跳号                         │
+└─────────────────────────────────────────────────────────────┘
+        │ 新 chunk 或 prepared 续跑
+        ▼
+┌─ Phase 1  Activity + Unmatched 写入 + chunk 转 prepared ────┐
+│  一次 batch（新 chunk）：                                     │
+│    SELECT 旧 (developer_id, day_key) FROM activities         │
+│      WHERE external_ref IN (...)  -- 用于并集,见约束 5      │
 │    UPSERT activities (ON CONFLICT external_ref DO UPDATE)   │
-│    UPSERT unmatched_identities                               │
-│    UPSERT ingest_runs (状态 running / chunked)              │
-│  失败：整 batch 回滚；返回 5xx；CLI 可重试同 chunkIndex     │
+│    UPSERT unmatched_identities（首次执行才 seen_count += 1） │
+│    UPSERT ingest_runs (status='chunked')                    │
+│    INSERT ingest_chunks (runId, chunkIndex, status='prepared',│
+│                          digest, dev_day_union_json)         │
+│  失败：整 batch 回滚；返回 5xx；CLI 重试同 chunkIndex        │
+│  prepared 续跑（Phase 1 已完成过）：跳过整个 batch,           │
+│    从 ingest_chunks 读回 dev_day_union_json 进入 Phase 2     │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼  查询受影响 dev-day
 ┌─ Phase 2  查询本 chunk 涉及的 (dev, day_key) 现存 Activity ─┐
+│  受影响集合 = Phase 1 记录的 dev_day_union_json               │
+│    = 旧 (dev, day_key)（本 chunk 覆盖前的值）                │
+│    ∪ 新 (dev, day_key)（本 chunk 写入后的值）                │
 │  SELECT ... FROM activities                                  │
 │  WHERE (developer_id, day_key) IN (...)                      │
 │    AND config_version = ?  -- 必须绑定当前版本              │
@@ -310,63 +326,80 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
-┌─ Phase 3  Score UPSERT ─────────────────────────────────────┐
+┌─ Phase 3  Score UPSERT + chunk 转 completed ────────────────┐
 │  一次 batch：                                                │
 │    UPSERT scores (ON CONFLICT (developer_id, day_key)       │
 │                   DO UPDATE)                                 │
 │    UPDATE ingest_runs 累积 stats                            │
-│  失败：Phase 1 已提交、Phase 3 未提交 → CLI 重试将从         │
-│  Phase 1 幂等重放（Activity UPSERT 无副作用累积）→ Phase 3   │
-│  再次尝试，直到成功                                          │
+│    UPDATE ingest_chunks SET status='completed'              │
+│      WHERE runId=? AND chunkIndex=? AND status='prepared'   │
+│  失败：Phase 1 已提交、Phase 3 未提交 → CLI 重试将进入       │
+│  prepared 续跑分支,直接从 Phase 2 开始(不重放 Phase 1)      │
 └─────────────────────────────────────────────────────────────┘
         │
-        ▼ 仅 isFinalChunk=true 时执行
-┌─ Phase 4  finalize（可选） ─────────────────────────────────┐
-│  UPDATE ingest_runs SET status='finalized' WHERE id=runId   │
-│    AND status IN ('running','chunked')                       │
+        ▼ 仅 isFinalChunk=true 且本 chunk 走到 completed
+┌─ Phase 4  finalize run(不清 stale) ────────────────────────┐
+│  UPDATE ingest_runs SET status='finalized'                  │
+│    WHERE id=runId AND status='chunked'                       │
 │    AND config_version = ?   -- 版本 CAS                     │
-│  若 mode=full_rematch：调用 §5.7 相同 CAS 清 stale           │
-│  changes=0 → 409（run 已被别的进程 finalize，或版本变）      │
+│  changes=0 → 409(run 已被别的进程 finalize,或版本变)        │
+│  ★ 不在此清 stale;stale 由 CLI 随后单独调用                 │
+│    POST /pipeline/recompute/complete 处理(§5.7)             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **关键约束**：
 
-1. **不跨 phase 承诺原子性**。D1 无跨 batch 事务；把风险明说，靠 Phase 1/3 各自幂等 + CLI 重试兜底。
+1. **不跨 phase 承诺原子性**。D1 无跨 batch 事务；把风险明说，靠 Phase 1/3 各自幂等 + chunk 状态推进 + CLI 重试兜底。
 2. **Phase 2 的 SELECT 必须 `WHERE config_version = <current>`**。改 timezone/weights 后旧行不参与聚合。
 3. **Phase 3 不能只聚合本 chunk 的 activity**——必须查全库该 dev-day 的现存 Activity（否则同日已存在的 Activity 会丢分）。
 4. `changes = 0` **不会**让 batch 回滚。任何 CAS 保护都必须写进 `WHERE`，并**读**返回的 `meta.changes`，服务端据此返 200 / 409。
+5. **同一 `external_ref` 被 rematch 移动 developer 或 day_key**（例：改了 alias 或 timezone 后重放）：Phase 1 必须先 SELECT 旧的 `(developer_id, day_key)` 记入 dev_day_union，Phase 2 的受影响集合 = 旧 ∪ 新，否则旧 dev-day 的 Score 不会被重算，留下"幽灵分"。
+6. **同一版本下跨 developer 的 `external_ref` 冲突**（不同 developer_id 命中同一 external_ref）：视为客户端 bug，Phase 1 拒绝，返回 **422**；不允许静默用新 developer 覆盖。
 
 ### 5.4 runId / chunk / finalize 状态机
 
-**`ingest_runs` 表新增列**（06 提交时通过 `0005_*` migration）：
+**新增两张表**（06 提交时通过 `0005_*` migration；05 只冻结契约）：
+
+**`ingest_runs`**（扩列，非新表）：
 
 | 列 | 类型 | 说明 |
 |:---|:-----|:-----|
 | `id` | TEXT PK | = `runId`（ULID） |
-| `status` | TEXT | `running` / `chunked` / `finalized` / `failed` |
+| `status` | TEXT | `chunked` / `finalized` / `failed` |
 | `config_version` | INTEGER | 该 run 绑定的 pipelineConfigVersion |
 | `mode` | TEXT | `incremental` / `full_rematch` |
-| `last_chunk_index` | INTEGER | 最新已成功 Phase 1 的 chunkIndex；用于顺序校验 |
-| `chunk_digests_json` | TEXT | `{ "0": "sha256:...", "1": "sha256:..." }`；每 chunk body 的 SHA-256，用于幂等去重 |
 
-**幂等 & 顺序规则**：
+**`ingest_chunks`**（新表）：
 
-| 请求 | 服务端行为 |
-|:-----|:-----------|
-| 新 `runId`，`chunkIndex=0` | 建 run 行；执行 Phase 1..3；`last_chunk_index=0`；chunk_digest 记 sha256 |
-| 已知 `runId`，`chunkIndex = last + 1` | 正常执行 Phase 1..3；更新 `last_chunk_index`、`chunk_digests` |
-| 已知 `runId`，`chunkIndex ≤ last` 且 digest **相同** | 幂等 no-op：直接返 200，`activities.upserted=0` |
-| 已知 `runId`，`chunkIndex ≤ last` 且 digest **不同** | **409** — 同 chunkIndex 请求体已变，客户端 bug |
-| 已知 `runId`，`chunkIndex > last + 1` | **400** — 跳号；CLI 顺序错乱 |
-| 已知 `runId`，`config_version` 与 run 记录不等 | **409** — 中途 version 变化，本 run 作废 |
-| `isFinalChunk=true` 到达 | 执行 Phase 4；status → `finalized` |
-| 已 `finalized` 的 run 再收 chunk | **409** — 不接受追加 |
+| 列 | 类型 | 说明 |
+|:---|:-----|:-----|
+| `run_id` | TEXT | FK ingest_runs.id |
+| `chunk_index` | INTEGER | 序号，从 0 起 |
+| PK | `(run_id, chunk_index)` | 复合主键 |
+| `status` | TEXT | `prepared` / `completed` — chunk 内部两阶段 |
+| `digest` | TEXT | 请求体 SHA-256（不含 headers），首次落库时写入 |
+| `dev_day_union_json` | TEXT | Phase 1 收集的旧∪新 (dev,day) 集合；Phase 2/3 重试续跑用 |
+| `finished_at` | INTEGER | completed 时写入 |
 
-**unmatched_identities 幂等**（消除 seen_count 重复累加）：
+**幂等 & 顺序规则**（Phase 0 分派表；每条对应一种客户端请求）：
 
-- 使用 chunk digest 去重：同一 `(runId, chunkIndex)` 只**首次**执行时对 `seen_count += 1`；重放不累加。
-- 实现：Phase 1 的 UPSERT unmatched 前先检查 digest；若已存在则跳过。
+| 请求 | ingest_chunks 状态 | 服务端行为 |
+|:-----|:-------------------|:-----------|
+| 新 `runId`，`chunkIndex=0` | 无 | 建 run + chunk 行；跑 Phase 1..3；chunk → completed |
+| 已知 `runId`，`chunkIndex = max_completed + 1` | 无 | 跑 Phase 1..3；chunk → completed |
+| 已知 `runId`，`chunkIndex` 已存在，`status=prepared`，digest **相同** | prepared | 从 Phase 2 续跑；Phase 3 成功 → completed |
+| 已知 `runId`，`chunkIndex` 已存在，`status=completed`，digest **相同** | completed | 幂等 no-op：直接返 200，counts 为空 |
+| 已知 `runId`，`chunkIndex` 已存在，digest **不同**（无论 status） | 任一 | **409** — 请求体已变；客户端 bug |
+| 已知 `runId`，`chunkIndex > max(completed, prepared) + 1` | 无 | **400** — 跳号；CLI 顺序错乱 |
+| 已知 `runId`，`config_version` 与 run 记录不等 | 任一 | **409** — 中途 version 变化，本 run 作废 |
+| `isFinalChunk=true` 且本 chunk 走到 completed | completed | 追加 Phase 4；run.status → `finalized` |
+| 已 `finalized` 的 run 再收 chunk | — | **409** — 不接受追加 |
+
+**关键点**：
+
+- **completed → no-op；prepared → 从 Phase 2 续跑**。这两分支必须严格区分，否则 Phase 1 提交后 Phase 3 失败，重试会因 digest 相同而"no-op"跳过 Score 写入，留下缺分。
+- **seen_count 幂等**：Phase 1 只在**新建** chunk 行（即之前无该 `(runId, chunkIndex)` 记录）时对 unmatched `seen_count += 1`；prepared 续跑不再累加。
 
 ### 5.5 服务端反污染 / 反注入
 
@@ -387,6 +420,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 - `type ∈ pr.*` ⇒ `repoId` 必填
 - `type ∈ wi.*` ⇒ `repoId` 必须 null；`sourceIds` 必须含 `projectGuid` 与 `wiId`
 - `sourceIds` 结构按 type 校验：`pr.vote` 必须有 `voterIdentityId`+`threadId`+`commentId`；`pr.active` 必须有 `iterationId`；`wi.updated` 必须有 `revisionId` 等（06 逐条落）
+- 同 `external_ref` 命中不同 `developer_id` → **422**（§5.3 约束 6）
 
 ### 5.6 鉴权契约（同步修 03 与 `pipeline-auth.ts`）
 
@@ -394,25 +428,29 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 | 通道 | Pipeline write（`/api/pipeline/ingest`、`/pipeline/recompute/*`） | Pipeline read（`/api/pipeline/bootstrap`） | 管理 API（`/api/settings`、entity CRUD） |
 |:-----|:------|:------|:------|
-| **浏览器 + Access JWT** | ❌ **403** — Access 用户禁止 pipeline write | ⚠️ 可选：允许（诊断用），但不推荐 | ✅ |
+| **浏览器 + Access JWT** | ❌ **403** — Access 用户禁止 pipeline write | ❌ **403** — 浏览器无 CLI 语境；诊断走本地 loopback | ✅ |
 | **Machine host + Bearer Write Token** | ✅ | ✅ | ❌ 403（machine host 不做管理写） |
 | **Machine host + Bearer Read Token** | ❌ 403 | ✅ | ❌ 403 |
-| **loopback (127.0.0.1 / *.dev.hexly.ai)** | ✅（本地开发） | ✅ | ✅ |
+| **loopback (127.0.0.1 / *.dev.hexly.ai)** | ✅（本地开发，**始终**跳过 token） | ✅（**始终**跳过 token） | ✅ |
 | **Pipeline Token 出现在浏览器 bundle** | 硬禁止（gitleaks 规则可考虑加） | — | — |
 
 **05 对代码的影响**：
 
-- `packages/worker/src/middleware/pipeline-auth.ts:44-47`：**移除** `if (browser && accessAuthenticated) { return next(); }` 对 pipeline write 路径的放行；改为仅对 `/api/settings` 等管理 API 放行。
-- 新增测试：Access JWT 打 `/api/pipeline/ingest` → 403。
+- `packages/worker/src/middleware/pipeline-auth.ts:44-47`：**移除** `if (browser && accessAuthenticated) { return next(); }` 对 pipeline 全部路径的放行；改为仅对 `/api/settings` 等管理 API 放行。
+- 新增测试：Access JWT 打 `/api/pipeline/ingest` → 403；Access JWT 打 `/api/pipeline/bootstrap` → 403。
 - `docs/03-Web模块模板.md` §8 表格同步修订（05 收尾时改，与本节表格严格对齐）。
 
 ### 5.7 recompute complete 契约收紧
 
-`POST /api/pipeline/recompute/complete` 已在 04 §6.7 定义；05 补：
+`POST /api/pipeline/recompute/complete` 已在 04 §6.7 定义；05 补充作为 **stale 清理的唯一入口**（Phase 4 不清 stale）：
 
-- Body 增加 `runId` 字段；服务端校验该 run **必须已 `finalized`** 且 `mode='full_rematch'`；否则 409。
+- Body 必须包含 `{ runId, pipelineConfigVersion, ok: true }`。
+- 服务端校验：
+  - `runId` 存在，`status = 'finalized'`，`mode = 'full_rematch'`；否则 **409**。
+  - `pipelineConfigVersion` 与 run 记录 + 当前 Settings 三者相等；否则 **409**。
 - 清 stale 的 CAS 保持 04 语义（`WHERE (SELECT value FROM settings WHERE key='pipeline_config_version') = <expected>`）。
-- 一次成功清理后 `run.status` 不变（仍是 `finalized`）；stale 标志转为 false。
+- 一次成功清理后 `run.status` 不变（仍是 `finalized`）；`scores_stale` 标志转为 false，`scores_stale_reason` → null。
+- **`incremental` mode 的 run 不能调用 recompute complete**（stale 只由 Settings 变更引入，非 incremental 触发）。
 
 ### 5.8 `/api/pipeline/ingest` 在 05 期间的行为
 
