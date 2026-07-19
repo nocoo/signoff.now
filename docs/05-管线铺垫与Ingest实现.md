@@ -300,7 +300,9 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 │  2. 若"新 chunk"分支:                                       │
 │       SELECT developer_id, day_key FROM activities          │
 │         WHERE external_ref IN (<本 chunk 全部 externalRef>) │
-│         AND config_version = <current>                      │
+│         -- **不过滤 config_version**:rematch 场景中旧行     │
+│         -- 属前一版本,若过滤当前版本会漏掉,§5.3 约束 5     │
+│         -- 详述                                              │
 │       -- D1 read; 结果送回 JS                              │
 │     JS: dev_day_union = set(旧 (dev,day))                   │
 │         ∪ set(新 (dev,day) from 本 chunk activities)        │
@@ -345,9 +347,12 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 │  一次 batch：                                                │
 │    UPSERT scores (ON CONFLICT (developer_id, day_key)       │
 │                   DO UPDATE)  -- 对**有**聚合结果的 dev-day │
+│    -- UPSERT 的 config_version 写为 <expected>              │
 │    DELETE FROM scores                                        │
 │      WHERE (developer_id, day_key) IN (受影响集合 - 聚合结果)│
+│        AND config_version = <expected>                       │
 │      -- 见约束 7:聚合为空表示该 dev-day 已无当前版本 Activity│
+│      -- 显式绑 config_version 防止误删其他版本残留(若有)    │
 │    UPDATE ingest_runs 累积 stats                            │
 │    UPDATE ingest_chunks SET status='completed'              │
 │      WHERE runId=? AND chunkIndex=? AND status='prepared'   │
@@ -372,7 +377,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 2. **Phase 2 的 SELECT 必须 `WHERE config_version = <current>`**。改 timezone/weights 后旧行不参与聚合。
 3. **Phase 3 不能只聚合本 chunk 的 activity**——必须查全库该 dev-day 的现存 Activity（否则同日已存在的 Activity 会丢分）。
 4. `changes = 0` **不会**让 batch 回滚。任何 CAS 保护都必须写进 `WHERE`，并**读**返回的 `meta.changes`，服务端据此返 200 / 409。
-5. **同一 `external_ref` 被 rematch 移动 developer 或 day_key**（例：改了 alias 或 timezone 后重放）：**Phase 0** 必须先 SELECT 旧的 `(developer_id, day_key)`（不放进 Phase 1 batch），JS 侧算好并集后随 Phase 1 batch 一次性写入 `ingest_chunks.dev_day_union_json`；Phase 2 的受影响集合 = 旧 ∪ 新，否则旧 dev-day 的 Score 不会被重算，留下"幽灵分"。
+5. **同一 `external_ref` 被 rematch 移动 developer 或 day_key**（例：改了 alias 或 timezone 后重放）：**Phase 0** 必须先 SELECT 旧的 `(developer_id, day_key)`（不放进 Phase 1 batch），JS 侧算好并集后随 Phase 1 batch 一次性写入 `ingest_chunks.dev_day_union_json`；**该 Phase 0 SELECT 不能过滤 `config_version`**——bump 后旧 Activity 属**前一版本**，若绑当前版本会漏掉,导致旧 dev-day 的 Score 无法参与 Phase 3 重算。Phase 2 聚合 Activity 时才过滤当前版本(§5.3 约束 2)。
 6. **同一版本下跨 developer 的 `external_ref` 冲突**（不同 developer_id 命中同一 external_ref）：视为客户端 bug，Phase 1 拒绝，返回 **422**；不允许静默用新 developer 覆盖。
 7. **Score DELETE 补齐**：受影响 dev-day 集合中，若 Phase 2 聚合结果**为空**（该 dev-day 的当前版本已无 Activity——比如 rematch 后所有 Activity 移到新 dev），Phase 3 必须对这些 dev-day 执行 `DELETE FROM scores`；否则旧 Score 会残留。
 8. **三重 version 校验**：每次 mutation 都必须验证 `request.pipelineConfigVersion === run.config_version === current Settings.pipeline_config_version`。三者任一不等 → 409。特别是 Phase 3 UPSERT scores 前须重取当前 Settings 版本，避免 Settings 已变但旧版本 Score 覆盖新状态。
