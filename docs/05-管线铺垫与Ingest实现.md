@@ -386,7 +386,9 @@ Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VA
         │
         ▼ 仅 isFinalChunk=true 且本 chunk 走到 completed 且 run 尚未 finalized
 ┌─ Phase 4  finalize run(不清 stale) ────────────────────────┐
-│  UPDATE ingest_runs SET status='finalized'                  │
+│  UPDATE ingest_runs                                          │
+│    SET status='finalized',                                    │
+│        finished_at=<unix seconds>                             │
 │    WHERE id=runId AND status='chunked'                       │
 │    AND config_version = ?   -- 版本 CAS                     │
 │  changes=0 → 409(run 已被别的进程 finalize,或版本变)        │
@@ -408,28 +410,41 @@ Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VA
 
 ### 5.4 runId / chunk / finalize 状态机
 
-**新增两张表**（06 提交时通过 `0005_*` migration；05 只冻结契约）：
+**表变更**（06 提交时通过 `0005_ingest_run_states.sql`；05 只冻结契约）：
 
-**`ingest_runs`**（扩列，非新表）：
+**重建 `ingest_runs`**（**不能只加列**）：
+
+0001 里 `ingest_runs.status` 有 `CHECK (status IN ('running','success','failed','partial'))` 硬约束(见 `packages/db/migrations/0001_initial.sql`);新状态 `chunked` / `finalized` 会被 CHECK 拒绝。06 的 migration 必须走 SQLite 标准迁移路径:
+
+1. 建 `ingest_runs_new` 含新 CHECK
+2. 迁移旧数据(`running`→`chunked`,`success`→`finalized`,`failed`/`partial`→`failed`)
+3. 修改 FK 引用 / 索引
+4. `DROP TABLE ingest_runs; ALTER RENAME`
+
+新 `ingest_runs`：
 
 | 列 | 类型 | 说明 |
 |:---|:-----|:-----|
 | `id` | TEXT PK | = `runId`（ULID） |
-| `status` | TEXT | `chunked` / `finalized` / `failed` |
-| `config_version` | INTEGER | 该 run 绑定的 pipelineConfigVersion |
-| `mode` | TEXT | `incremental` / `full_rematch` |
+| `status` | TEXT CHECK (status IN ('chunked','finalized','failed')) | 新状态集 |
+| `config_version` | INTEGER NOT NULL | 该 run 绑定的 pipelineConfigVersion |
+| `mode` | TEXT CHECK (mode IN ('incremental','full_rematch')) | |
+| `started_at` | INTEGER | 保留原列 |
+| `finished_at` | INTEGER NULL | **Phase 4** 写入 unix seconds;`chunked` 状态为 NULL |
+| `stats_json` | TEXT | 保留原列 |
+| `error_message` | TEXT | 保留原列 |
 
-**`ingest_chunks`**（新表）：
+**新增 `ingest_chunks`**：
 
 | 列 | 类型 | 说明 |
 |:---|:-----|:-----|
-| `run_id` | TEXT | FK ingest_runs.id |
-| `chunk_index` | INTEGER | 序号，从 0 起 |
+| `run_id` | TEXT NOT NULL | FK ingest_runs.id |
+| `chunk_index` | INTEGER NOT NULL | 序号，从 0 起 |
 | PK | `(run_id, chunk_index)` | 复合主键 |
-| `status` | TEXT | `prepared` / `completed` — chunk 内部两阶段 |
-| `digest` | TEXT | 请求体 SHA-256（不含 headers），首次落库时写入 |
-| `dev_day_union_json` | TEXT | Phase 1 收集的旧∪新 (dev,day) 集合；Phase 2/3 重试续跑用 |
-| `finished_at` | INTEGER | completed 时写入 |
+| `status` | TEXT CHECK (status IN ('prepared','completed')) | chunk 内部两阶段 |
+| `digest` | TEXT NOT NULL | 请求体 SHA-256（不含 headers），首次落库时写入 |
+| `dev_day_union_json` | TEXT NOT NULL | Phase 0 收集的旧∪新 (dev,day) 集合；Phase 2/3 重试续跑用 |
+| `finished_at` | INTEGER NULL | `completed` 时写入 |
 
 **幂等 & 顺序规则**（Phase 0 分派表；每条对应一种客户端请求）：
 
