@@ -423,75 +423,133 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 ---
 
-## 6. 域包 `packages/domain` 设计
+## 6. 域包 `packages/domain` 设计（05 只出契约，06 实装函数）
 
-### 6.1 目录
+### 6.1 05 交付范围
+
+**05 只落**：包结构、导出、DTO、常量、zod schema、函数**签名**。函数体一律 `throw new Error("unimplemented — see docs/06")`，测试只覆盖类型/zod/常量。
+
+**06 实装**：`matchDeveloper` / `dayKey` / `buildExternalRef` / `aggregateScores` / `parseUniqueName` 的函数体、边界样例测试、95% 覆盖率。
+
+### 6.2 目录
 
 ```
 packages/domain/
-├── package.json                # name: @signoff/domain, private, exports: index, activity, score, identity
+├── package.json                # name: @signoff/domain, private
 ├── tsconfig.json
-├── bunfig.toml                 # bun coverage thresholds
+├── bunfig.toml                 # bun coverage thresholds — 05 阶段 domain 只覆盖常量/zod/paths
 └── src/
-    ├── index.ts                # 只 re-export，不写业务
-    ├── constants.ts            # ACTIVITY_TYPES, DEFAULT_WEIGHTS
-    ├── identity.ts             # matchDeveloper, parseUniqueName
-    ├── identity.test.ts
-    ├── day-key.ts              # dayKey(occurredAt, tz), inverseDayKey (仅测试用)
-    ├── day-key.test.ts
-    ├── external-ref.ts         # buildExternalRef by type
-    ├── external-ref.test.ts
-    ├── activity.ts             # zod schema + Activity type
-    ├── activity.test.ts
-    ├── score.ts                # aggregateScores(activities, weights)
-    └── score.test.ts
+    ├── index.ts                # 只 re-export
+    ├── constants.ts            # ACTIVITY_TYPES, DEFAULT_WEIGHTS   ← 05 落
+    ├── activity.ts             # activitySchema, sourceIdsSchemas   ← 05 落
+    ├── ingest.ts               # ingestBodySchema, chunk/run 类型   ← 05 落
+    ├── paths.ts                # rawPath(), normalizedPath(), cachePath()  ← 05 落
+    ├── identity.ts             # matchDeveloper() 签名               ← 05 签名，06 实装
+    ├── day-key.ts              # dayKey() 签名                        ← 05 签名，06 实装
+    ├── external-ref.ts         # buildExternalRef() 签名              ← 05 签名，06 实装
+    ├── score.ts                # aggregateScores() 签名               ← 05 签名，06 实装
+    └── *.test.ts               # 05 只测已落项（常量/zod/paths）
 ```
 
-### 6.2 硬约束
+### 6.3 硬约束
 
 | 项 | 规则 |
 |:---|:-----|
 | 零副作用 | 不引入 React / fetch / fs / D1 类型 |
-| Bun 原生测试 | `bun test --coverage`；≥95%（对齐 02 § 9 门禁） |
-| 无网络 | 测试禁止真实网络 / 时区 fallback；使用 `TZ=UTC` 与 `formatToParts` 断言 |
-| Import boundary | Worker/Web/CLI 都通过 `@signoff/domain` import；**禁止**跨 monorepo 相对路径引用 |
+| Bun 原生测试 | `bun test --coverage`；05 阈值先设 90%（因函数体未实装），06 恢复到 ≥95% |
+| Import boundary | Worker/Web/CLI 都通过 `@signoff/domain` import；禁止跨包相对路径 |
 
-### 6.3 关键 API 类型
+### 6.4 关键契约（05 落地）
+
+**常量**：
 
 ```ts
-// packages/domain/src/activity.ts
+// packages/domain/src/constants.ts
 export const ACTIVITY_TYPES = [
   "pr.merged", "pr.closed", "pr.created", "pr.vote", "pr.active",
   "wi.created", "wi.updated", "wi.closed",
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
+// 对齐 01 §6.3；权重统一为非负整数（对齐 D1 scores.total INTEGER）
+export const DEFAULT_WEIGHTS: Readonly<Record<ActivityType, number>> = {
+  "pr.merged": 10, "pr.closed": 2, "pr.created": 2,
+  "pr.vote": 3, "pr.active": 2,
+  "wi.created": 3, "wi.updated": 1, "wi.closed": 5,
+};
+```
+
+**Activity + sourceIds**（服务端据此重算 externalRef）：
+
+```ts
+// packages/domain/src/activity.ts
+import { z } from "zod";
+import { ACTIVITY_TYPES } from "./constants.js";
+
+const prSourceIds = z.object({
+  prRepoGuid: z.string().uuid(),
+  prId: z.number().int().positive(),
+});
+const prVoteSourceIds = prSourceIds.extend({
+  voterIdentityId: z.string().min(1),
+  threadId: z.number().int().positive(),
+  commentId: z.number().int().nonnegative(),
+});
+const prActiveSourceIds = prSourceIds.extend({
+  iterationId: z.number().int().positive(),
+});
+const wiSourceIds = z.object({
+  projectGuid: z.string().uuid(),
+  wiId: z.number().int().positive(),
+});
+const wiUpdateSourceIds = wiSourceIds.extend({
+  revisionId: z.number().int().positive(),
+});
+
 export const activitySchema = z.object({
   type: z.enum(ACTIVITY_TYPES),
   occurredAt: z.number().int().positive(),
-  dayKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  provider: z.literal("ado"),          // 一期仅 ado
+  provider: z.literal("ado"),
   org: z.string().min(1),
   project: z.string().min(1),
   repoId: z.string().nullable(),
-  externalRef: z.string().min(1),
   developerId: z.string().min(1),
   matchedUniqueName: z.string().min(1),
+  sourceIds: z.union([prSourceIds, prVoteSourceIds, prActiveSourceIds, wiSourceIds, wiUpdateSourceIds]),
   meta: z.record(z.unknown()).optional(),
-});
+  // 禁止字段：id / externalRef / dayKey / config_version（zod .strict()）
+}).strict();
+
 export type Activity = z.infer<typeof activitySchema>;
 ```
 
+**Ingest body**（含 chunk/run 状态）：
+
 ```ts
-// packages/domain/src/day-key.ts
-export function dayKey(occurredAtSec: number, timeZone: string): string {
-  const d = new Date(occurredAtSec * 1000);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(d);
-  // 拼 YYYY-MM-DD
-}
+// packages/domain/src/ingest.ts
+export const ingestBodySchema = z.object({
+  pipelineConfigVersion: z.number().int().positive(),
+  runId: z.string().min(20),                    // ULID / UUID
+  chunkIndex: z.number().int().nonnegative(),
+  isFinalChunk: z.boolean(),
+  runMeta: z.object({
+    startedAt: z.number().int().positive(),
+    source: z.enum(["ado", "fixture"]),
+    windowFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    windowTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    mode: z.enum(["incremental", "full_rematch"]),
+  }),
+  activities: z.array(activitySchema).max(500), // §5.2 硬上限
+  unmatchedIdentities: z.array(z.object({
+    uniqueName: z.string().min(1),
+    sampleOrg: z.string().optional(),
+    sampleProject: z.string().optional(),
+    sampleContext: z.string().optional(),
+  })).max(200),
+}).strict();
 ```
+
+**函数签名（05 落，06 实装）**：
 
 ```ts
 // packages/domain/src/identity.ts
@@ -499,72 +557,98 @@ export function matchDeveloper(
   uniqueName: string,
   developers: readonly { id: string; alias: string }[],
   suffixes: readonly string[],
-): { id: string } | null;
-```
+): { id: string } | null {
+  throw new Error("unimplemented — see docs/06");
+}
 
-```ts
+// packages/domain/src/day-key.ts
+export function dayKey(occurredAtSec: number, timeZone: string): string {
+  throw new Error("unimplemented — see docs/06");
+}
+
+// packages/domain/src/external-ref.ts
+export function buildExternalRef(type: ActivityType, sourceIds: unknown): string {
+  throw new Error("unimplemented — see docs/06");
+}
+
 // packages/domain/src/score.ts
+export type ScoreRow = {
+  developerId: string; dayKey: string;
+  total: number; breakdown: Partial<Record<ActivityType, number>>;
+  activityCount: number;
+};
 export function aggregateScores(
   activities: readonly Activity[],
   weights: Readonly<Record<ActivityType, number>>,
-): Array<{
-  developerId: string;
-  dayKey: string;
-  total: number;
-  breakdown: Partial<Record<ActivityType, number>>;
-  activityCount: number;
-}>;
+): ScoreRow[] {
+  throw new Error("unimplemented — see docs/06");
+}
 ```
+
+> **`parseUniqueName` 剥前缀被删除**。01 明确「人类身份的 `uniqueName` 几乎全是邮箱」+ 精确匹配；无必要预先剥 `vsts:` 之类前缀（会引入猜测）。若 06 遇到真实 ADO 格式必须规范化，届时基于实测数据再加，并写进 06 与本节。
+
+### 6.5 05 测试范围
+
+| 已落项 | 测试 |
+|:-------|:-----|
+| 常量 | 键完整性（全部 8 种 type、DEFAULT_WEIGHTS 有全部键） |
+| activitySchema | 拒绝 `id`/`externalRef`/`dayKey`/`config_version`；type 不在枚举；sourceIds 与 type 不匹配 |
+| ingestBodySchema | `activities.length > 500` 拒绝；`runId` 长度、`windowFrom` 格式 |
+| paths | `rawPath("ado", "acme", "Alpha", "repos/foo", "prs/1234")` 生成正确 |
+
+**未落函数**的测试：只测「调用时抛 `unimplemented`」，作为 06 落地的"红灯"。
 
 ---
 
-## 7. Score 聚合骨架（详细算法见 06）
+## 7. Score 输入 / 输出契约（算法定稿见 06）
 
-**05 只定「够 P2 打通」的骨架**；06 展开边界与证明。
+**05 只冻结签名与约束**；算法（终态优先、日折叠、activityCount 定义、breakdown 结构）由 06 定稿。
 
 ### 7.1 输入
 
-- `activities: Activity[]` — 属于同一 `pipelineConfigVersion`、可跨 developer、跨日
-- `weights: Record<ActivityType, number>` — 来自 Settings
+| 项 | 类型 | 约束 |
+|:---|:-----|:-----|
+| `activities` | `readonly Activity[]` | 属于同一 `pipelineConfigVersion`；可跨 developer、跨日 |
+| `weights` | `Readonly<Record<ActivityType, number>>` | 值为**非负整数**（与 D1 INTEGER 一致；小数留给二期） |
 
-### 7.2 步骤（默认策略）
+### 7.2 输出
 
-1. **分组**：按 `(developerId, dayKey)` 分组。
-2. **同日折叠**（防重复计分）：
-   - `pr.vote`：**不折叠**，一天多次投票各计。
-   - `pr.active`：**同 PR 同日** 折叠为一次（多个 iteration 只计一次）。
-   - `wi.updated`：**同 WI 同日** 折叠为一次（多个 revision 只计一次）。
-   - `pr.created` / `pr.merged` / `pr.closed`：每个 PR 状态转换只会有一条 external_ref，自然唯一。
-3. **终态优先**（PR 作者侧同日多条时的优先级）：
-   - `pr.merged` > `pr.closed` > `pr.created` / `pr.active`
-   - 命中终态的当天，同 PR 的 `created` / `active` **不再计入作者侧 total**（但仍写入 activities 表供审计）。
-   - `pr.vote` 记投票者，独立于作者侧，不受此规则影响。
-4. **加权求和**：`total = Σ weight[type] × 折叠后计数`
-5. **breakdown**：`{ "pr.merged": 10, "wi.updated": 1, ... }`（仅出现的 type）
-6. **activityCount**：**折叠前**的原始条数（审计意义）；DB 存这个值。
+`ScoreRow[]`（见 §6.4）；每 `(developerId, dayKey)` 组合最多一条。
 
-### 7.3 边界样例（06 会写全表）
+### 7.3 硬约束（05 冻结）
 
-| 场景 | 输入 | 期望 total |
-|:-----|:-----|:-----------|
-| 同 PR 同日 create + active × 3 + merged | 5 条 activity | `pr.merged` 权重（终态优先，其余作者侧丢） |
-| 同 WI 同日 3 次 revision | 3 条 `wi.updated` | 1 × `wi.updated` 权重 |
-| 同 dev 同日给 3 个 PR 各投一票 | 3 条 `pr.vote` | 3 × `pr.vote` 权重 |
-| 同 dev 同日 5 个不同 PR 都合并 | 5 条 `pr.merged` | 5 × `pr.merged` 权重 |
+1. **纯函数**：同输入 → 同输出；不读 clock、不读文件。
+2. **合并顺序无关**：`aggregate(a ++ b) == aggregate(b ++ a)`（相同 dev-day 结果一致）。
+3. **数值溢出保护**：`total` 使用 JS number（安全整数范围 2^53）；单 dev 单日单 type 权重上限约 100 × 100_000 事件 = 10^7，安全。
+4. `breakdown` 只出现 **出现在输入中**的 type key。
 
-### 7.4 决议
+### 7.4 06 待决清单（05 明确不定）
 
-一期算法**必须与 06 保持一致**；写 P1 时 06 先落骨架、留边界表 TODO 即可，但**默认策略见 §7.2**、不允许在 P2 里自造。
+- [ ] `pr.vote` 是否折叠（默认候选：不折叠）
+- [ ] `pr.active` 同 PR 同日折叠策略（默认候选：折叠为一次；仅计一份权重）
+- [ ] `wi.updated` 同 WI 同日折叠策略（同上）
+- [ ] 同 PR 同日 `pr.merged` + `pr.created` + `pr.active` 时，作者侧终态优先规则
+- [ ] `activityCount` 定义：**折叠前**还是**折叠后**（默认候选：折叠前，用于审计）
+- [ ] `pr.merged` 与 `pr.closed` 是否互斥（同 PR 不应同时出现）
+- [ ] 边界样例全表（06 §X）
+
+**任何 06 决策不允许覆盖 §7.3 硬约束。**
 
 ---
 
-## 8. Web 只读读回（P3）
+## 8. Web 只读读回（05 只冻结 DTO 契约；实现在 06）
 
-### 8.1 `GET /api/activity/heatmap`
+**05 不实现** heatmap / timeline 路由与前端接线；05 只出下面这些 DTO 契约，让 06 与 Web 前端能对齐。
 
-**Query**：`devs=id1,id2,...`（≤ 20 个）、`from=YYYY-MM-DD`、`to=YYYY-MM-DD`（闭区间，≤ 366 天）
+### 8.1 `GET /api/activity/heatmap` — 契约冻结
 
-**Auth**：Access。
+**Query**（zod）：
+
+| 参数 | 类型 | 约束 |
+|:-----|:-----|:-----|
+| `devs` | 逗号分隔 dev id | 1..20 个 |
+| `from` | `YYYY-MM-DD` | 必填 |
+| `to` | `YYYY-MM-DD` | ≥ from；跨度 ≤ 366 天 |
 
 **Response 200**：
 
@@ -572,48 +656,62 @@ export function aggregateScores(
 {
   "pipelineConfigVersion": 3,
   "scoresStale": false,
+  "staleReason": null,
   "rows": [
-    { "developerId": "01J...", "dayKey": "2026-07-01", "total": 10, "activityCount": 1 },
-    { "developerId": "01J...", "dayKey": "2026-07-02", "total": 3, "activityCount": 3 }
+    { "developerId": "01J...", "dayKey": "2026-07-01", "total": 10, "activityCount": 1 }
   ]
 }
 ```
 
-**SQL 骨架**：
+**stale 语义（**必须由 05 定死**）**：
+
+| 状态 | 行为 |
+|:-----|:-----|
+| `scoresStale = false` 且存在 `config_version = pipeline_config_version` 的 rows | 正常返回 rows |
+| `scoresStale = true`（配置刚变，未 recompute） | **仍返回 200，rows 用旧 config_version 的最近 finalized 数据**；`scoresStale=true` 与 `staleReason` 让前端渲染横幅（03 §5.3 已定语义） |
+| 无任何 finalized 数据 | 返回 200，`rows=[]`，`scoresStale=false` |
+
+**SQL 骨架（06 实装）**：
 
 ```sql
 SELECT developer_id, day_key, total, activity_count
 FROM scores
 WHERE developer_id IN (?, ?, ...)
   AND day_key BETWEEN ? AND ?
-  AND config_version = (SELECT value FROM settings WHERE key='pipeline_config_version');
+  AND config_version = (
+    -- stale=false: 当前版本；stale=true: 最新已 finalized 的 run.config_version
+    SELECT ... FROM ingest_runs WHERE status='finalized' ORDER BY finished_at DESC LIMIT 1
+  );
 ```
 
-> 用 `config_version` 过滤 → 一旦 stale 且未重算，返回可能为空或部分；前端应显示 stale 横幅（F4）。
+### 8.2 `GET /api/activity/timeline` — 契约冻结
 
-### 8.2 `GET /api/activity/timeline`
+**Query**（keyset cursor）：
 
-**Query**：`dev=id`、`from=`、`to=`（≤ 90 天）、`limit=100`（分页，默认按 `occurred_at DESC`）
+| 参数 | 说明 |
+|:-----|:-----|
+| `dev` | 单个 dev id |
+| `from` / `to` | 时间窗（跨度 ≤ 90 天） |
+| `limit` | 1..200，默认 100 |
+| `cursor` | opaque base64，编码 `(occurredAt, id)`；首次省略 |
+
+**排序**：`ORDER BY occurred_at DESC, id DESC`（稳定 keyset）。
 
 **Response 200**：
 
 ```json
 {
   "items": [
-    {
-      "id": "01J...",
-      "type": "pr.merged",
-      "occurredAt": 1720000123,
-      "dayKey": "2026-07-03",
-      "org": "acme", "project": "Alpha", "repoId": "01J...",
-      "meta": { "prId": 1234, "title": "..." }
-    }
+    { "id": "01J...", "type": "pr.merged", "occurredAt": 1720000123, "dayKey": "2026-07-03",
+      "org": "acme", "project": "Alpha", "repoId": "01J...", "meta": {} }
   ],
-  "nextCursor": null
+  "nextCursor": "eyJvIjoxNzIwMDAwMDAwLCJpIjoiMDFKLi4uIn0="
 }
 ```
 
-### 8.3 前端 MVVM 落点
+**stale 语义**：同 8.1；活动列表本身不受 stale 影响（activity 与 config_version 独立索引），但 UI 可用 8.1 横幅提示"分数可能过期"。
+
+### 8.3 前端 MVVM 落点（06 实装）
 
 | 层 | 路径 |
 |:---|:-----|
@@ -623,47 +721,52 @@ WHERE developer_id IN (?, ?, ...)
 
 heatmap 色阶：**复用 basalt tokens `--heatmap-*`**，不硬编码 hex。
 
-### 8.4 P3 完成的可视化验收
-
-用 P4-骨架的 `signoff ingest fixture ./fake-activities.json` 灌一份 3 dev × 30 天假 Activity → 打开 `https://signoff.dev.hexly.ai` → 能看到热力图、色阶正确、多选对比可切换、stale 横幅在改 Settings 后出现 → **P3 通过**。
-
 ---
 
-## 9. CLI 骨架预留（P4-骨架，不含真 ADO）
+## 9. CLI 骨架（05 核心交付；无真 ADO）
+
+新 app **`apps/collect`**（临时名）；final 名与 monorepo 位置由 07 确定。
 
 ### 9.1 目录
 
 ```
-apps/collect/                    # @signoff/collect — 临时名，06 定 final 名
-├── package.json                 # 依赖: @signoff/domain, commander, zod, ...
+apps/collect/
+├── package.json                 # 依赖: @signoff/domain, commander, zod
 ├── tsconfig.json
-├── src/
-│   ├── main.ts                  # commander 入口
-│   ├── logger.ts                # gitinfo/pulse 风格
-│   ├── config/env.ts            # 读 SIGNOFF_API_BASE / SIGNOFF_PIPELINE_TOKEN
-│   ├── az/check.ts              # az login 校验（P4-骨架只做 --dry-run）
-│   ├── az/check.test.ts
-│   ├── pipeline/client.ts       # bootstrap / ingest / recompute/complete
-│   ├── pipeline/client.test.ts
-│   ├── cache/bootstrap.ts       # .data/cache/bootstrap.json 读写
-│   ├── raw/paths.ts             # C3 path builder
-│   ├── raw/schema.ts            # C2 zod（骨架版，字段少）
-│   ├── commands/
-│   │   ├── settings-pull.ts     # D5
-│   │   ├── ingest-fixture.ts    # D7
-│   │   └── collect.ts           # P5 才实现；P4-骨架只留 stub + --dry-run
-│   └── commands/*.test.ts
+├── vitest.config.ts             # coverage ≥95%
+└── src/
+    ├── main.ts                  # commander 入口
+    ├── logger.ts                # gitinfo/pulse 风格
+    ├── config/env.ts            # SIGNOFF_API_BASE / SIGNOFF_PIPELINE_WRITE_TOKEN 读取
+    ├── config/env.test.ts
+    ├── doctor/index.ts          # 汇总各项检查
+    ├── doctor/az.ts             # exec az account show; 未登录返 fail
+    ├── doctor/az.test.ts        # mock exec
+    ├── doctor/http.ts           # 试探 bootstrap；带 timeout
+    ├── doctor/index.test.ts
+    ├── pipeline/client.ts       # bootstrap / ingest / recompute-complete
+    ├── pipeline/client.test.ts  # mock fetch 覆盖 200/401/403/409/413/501
+    ├── cache/bootstrap.ts       # .data/cache/bootstrap.json 读写 + 版本校验
+    ├── cache/bootstrap.test.ts
+    ├── commands/settings-pull.ts
+    ├── commands/settings-pull.test.ts
+    ├── commands/settings-show.ts
+    ├── commands/collect-dry-run.ts  # 打印将要拉的 org/project/repo；不调 ADO
+    ├── commands/collect-dry-run.test.ts
+    ├── commands/ingest-fixture.ts   # STUB: 读文件，zod 校验，打印 body，不真发
+    └── commands/ingest-fixture.test.ts
 ```
 
-### 9.2 命令表（P4-骨架）
+### 9.2 命令表（05 全部落地）
 
-| 命令 | 状态 | 说明 |
-|:-----|:-----|:-----|
-| `signoff settings pull` | ✅ P4-骨架 | 04 §6.4；写 `.data/cache/bootstrap.json` |
-| `signoff settings show` | ✅ P4-骨架 | 读缓存 |
-| `signoff ingest fixture <file>` | ✅ P4-骨架 | 读 Activity JSON → POST ingest；验证 P2/P3 链路 |
-| `signoff collect --dry-run` | ⚠️ stub | 打印计划：需要拉哪些 org/project/repo；**不**调 ADO |
-| `signoff collect` | ❌ P5 | 真 ADO 拉取 → raw → transform → ingest |
+| 命令 | 05 行为 | 06 追加 |
+|:-----|:--------|:--------|
+| `signoff doctor` | ✅ 校验 az / .data / bootstrap 可达 / token 存在 | 加 ADO 网络探测 |
+| `signoff settings pull` | ✅ 04 §6.4；写 `.data/cache/bootstrap.json` | — |
+| `signoff settings show` | ✅ 读缓存或 `--remote` 刷新 | — |
+| `signoff collect --dry-run` | ✅ 打印将要拉哪些 repo/project；**不**调 ADO | 加真 collect 主路径 |
+| `signoff collect` | ⚠️ stub：打印 "not implemented (see docs/06)" 后 exit 1 | ✅ 真 ADO 拉取 + transform + ingest |
+| `signoff ingest fixture <file>` | ⚠️ **STUB**：读 JSON、`ingestBodySchema.parse`、**打印** body 摘要（前 3 条 activity + 总数）、退出 0 **不真发** | ✅ 真 POST /pipeline/ingest；处理 200/409/501 |
 
 ### 9.3 质量门
 
@@ -676,16 +779,32 @@ apps/collect/                    # @signoff/collect — 临时名，06 定 final
 | Typecheck | 0 error |
 | 网络测试 | mock 强制；无真实网络 |
 
+### 9.4 exit code
+
+| Code | 场景 |
+|:-----|:-----|
+| 0 | 成功 |
+| 1 | 通用运行时失败 |
+| 2 | 环境不满足（az 未登录、token 缺失） |
+| 3 | 契约错误（cache 版本不一致、bootstrap 拒绝） |
+| 4 | 服务端 5xx |
+
 ---
 
-## 10. Fixture 定义（P3 验收用）
+## 10. Fixture 定义（05 只定格式；06 首次落库）
 
-`fixtures/activities.sample.json`（可放 `packages/domain/fixtures/` 或 `apps/collect/fixtures/`）：
+`fixtures/activities.sample.json`（放 `packages/domain/fixtures/` 或 `apps/collect/fixtures/`）——**05 定格式**，**06 首次真正 POST 到 ingest 并落库**。
+
+### 10.1 JSON 格式
+
+必须能通过 `ingestBodySchema.parse`：
 
 ```json
 {
   "pipelineConfigVersion": 1,
-  "runId": "fixture-01",
+  "runId": "fixture-01JAAAAAAAAAAAAAAAAA",
+  "chunkIndex": 0,
+  "isFinalChunk": true,
   "runMeta": {
     "startedAt": 1720000000,
     "source": "fixture",
@@ -697,21 +816,35 @@ apps/collect/                    # @signoff/collect — 临时名，06 定 final
     {
       "type": "pr.merged",
       "occurredAt": 1720000123,
-      "dayKey": "2026-07-03",
       "provider": "ado",
       "org": "acme", "project": "Alpha",
       "repoId": "<seeded-repo-id>",
-      "externalRef": "ado:pr:11111111-1111-1111-1111-111111111111:1001:merged",
       "developerId": "<seeded-dev-id>",
       "matchedUniqueName": "ada@example.com",
-      "meta": { "prId": 1001, "title": "Fixture PR" }
+      "sourceIds": {
+        "prRepoGuid": "11111111-1111-1111-1111-111111111111",
+        "prId": 1001
+      },
+      "meta": { "title": "Fixture PR" }
     }
   ],
   "unmatchedIdentities": []
 }
 ```
 
-配套 seed 脚本：`scripts/seed-fixture.ts` 通过 `wrangler d1 execute --local` 插入若干 developers / repos，让 fixture 里的 `developerId` / `repoId` 有效。
+### 10.2 Seed 前置条件（05 定；06 或手动执行）
+
+- `scripts/seed-fixture.ts`：通过 `wrangler d1 execute --local` 插入若干 developers / repos / project_external_id，让 fixture 里的 id 有效。
+- Repo 的 `project_external_id` 必须与 fixture `activities[].sourceIds.projectGuid`（wi.*）或 `prRepoGuid`（pr.*）互相自洽。
+
+### 10.3 05 的用途
+
+- 用来验证 `ingestBodySchema` 能通过（05 单测跑）。
+- 用来验证 `signoff ingest fixture ./fixtures/activities.sample.json` **stub** 能读入、校验、打印。
+
+### 10.4 06 的用途
+
+- 用来做首次真正 POST /pipeline/ingest 的 E2E：D1 出现 activity / score 行 → Web heatmap 可见。
 
 ---
 
@@ -719,56 +852,67 @@ apps/collect/                    # @signoff/collect — 临时名，06 定 final
 
 | 文档 | 关系 |
 |:-----|:-----|
-| **01** | 定义 Activity type、默认权重、身份匹配规则（本文所有算法必须遵守） |
-| **02** | Schema、external_ref 模板、config_version 语义（本文写入路径必须遵守） |
-| **03** | Web 模板与 MVVM（P3 页面必须遵守） |
-| **04** | Settings CAS PUT、bootstrap 契约（本文 5.2/5.3 CAS 语义与之一致） |
-| **05（本文）** | 铺垫 & Ingest 服务端实现 & 域包 & Web 只读 & CLI 骨架 |
-| **06** | Activity 重建算法与 Score 细节（终态优先证明、日折叠边界、rematch 全流程） |
-| **07** | CLI 命令矩阵、raw 逐字段 schema、az 调用与错误分类 |
+| **01** | 定义 Activity type、默认权重、身份匹配规则（本文所有契约必须遵守） |
+| **02** | Schema、external_ref 模板、config_version 语义（本文写入路径的 sourceIds 与之一一对应） |
+| **03** | Web 模板与 MVVM；**§5.6 收紧鉴权表述后需同步修 03 §8** |
+| **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致） |
+| **05（本文）** | 06 开工前的**基础设施 + 冻结契约** |
+| **06** | Activity/Score 真实写入、算法定稿、fixture 首次落库、Web 数据读回、真实 ADO 拉取入门 |
+| **07** | CLI 命令矩阵、raw JSON 逐字段 schema、az 调用与错误分类 |
 
-**05 定「怎么写库、写什么形状」；06 定「怎么算、边界如何」；07 定「怎么拉、raw 长什么样」**。
+**05 定"契约"；06 定"算法与实装"；07 定"外部数据源与命令表"。**
 
 ---
 
-## 12. 验收清单
+## 12. 05 验收清单
 
-### P1 域逻辑
-- [ ] `packages/domain` 建包 + Bun coverage ≥95%
-- [ ] `matchDeveloper` 测试覆盖大小写、多后缀、group/bot 拒绝
-- [ ] `dayKey` 用真 IANA（`Asia/Shanghai` / `America/Los_Angeles` / `UTC`）三时区断言跨零点边界
-- [ ] `buildExternalRef` 8 种 type 全覆盖 + 拒绝空 id
-- [ ] `activitySchema` zod 拒绝：type 不在枚举、dayKey 格式错、外部 ref 空、pr.* 缺 repoId、wi.* 有 repoId
-- [ ] `aggregateScores` §7.3 表格样例全通过
+### S1 Schema & Bootstrap
+- [ ] `packages/db/migrations/0004_repo_project_guid.sql` 落地并 remote apply
+- [ ] `repos` 表新增 `project_external_id TEXT`；索引若需要（06 可能加）留 TODO 注释
+- [ ] `GET /api/pipeline/bootstrap` 响应 `repos[].projectExternalId`
+- [ ] Web repos 页新增 project GUID 编辑字段；`POST/PUT /api/repos` 支持该字段
+- [ ] Worker 与 Web 单测通过
 
-### P2 服务端写入
-- [ ] `POST /pipeline/ingest` 真实写入 activities + scores + unmatched + ingest_runs
-- [ ] CAS 失败（`pipelineConfigVersion` 不匹配）→ 409
-- [ ] 引用完整性（归档 dev / 归档 repo / type-repoId 组合非法）→ 422
-- [ ] body 校验（缺字段、超 5000 条）→ 400 / 413
-- [ ] fixture E2E：wrangler --local D1 灌数据成功；重复 POST 同 ref 不产生第二行（幂等）
-- [ ] bootstrap 返回增加 `projectGuid` 字段（A6）
+### S2 Domain 契约包
+- [ ] `packages/domain` 建包 + tsconfig + bunfig
+- [ ] 导出 `ACTIVITY_TYPES` / `DEFAULT_WEIGHTS` / `activitySchema` / `ingestBodySchema` / `paths` 帮手
+- [ ] `matchDeveloper` / `dayKey` / `buildExternalRef` / `aggregateScores` 有签名 + `unimplemented` 抛错
+- [ ] `parseUniqueName` **不存在**（明确删除，避免猜测剥前缀）
+- [ ] `bun test` 通过；已落项覆盖率 ≥90%
+- [ ] Worker 与 Web import `@signoff/domain` 无循环
 
-### P3 Web 读回
-- [ ] `GET /api/activity/heatmap` 按 `config_version` 过滤，支持多 dev、限时间窗
-- [ ] `GET /api/activity/timeline` 分页
-- [ ] Web dashboard / activity 页从占位换为真调用
-- [ ] `scores_stale=true` 时 UI 显示横幅
-- [ ] 浏览器打开 `signoff.dev.hexly.ai/activity` 看到 P2 灌入的假数据
+### S3 CLI 骨架
+- [ ] `apps/collect` 建 app + vitest
+- [ ] `signoff doctor` 检 az / .data / bootstrap / token；每一项 pass/fail 打印
+- [ ] `signoff settings pull` 打通 bootstrap → 写 cache（含 `pipelineConfigVersion` + `fetchedAt`）
+- [ ] `signoff settings show` 读 cache 或 `--remote` 刷新
+- [ ] `signoff collect --dry-run` 打印计划（org/project/repo × PR/WI），**不调 ADO**
+- [ ] `signoff ingest fixture <file>` 读 JSON → `ingestBodySchema.parse` → 打印 body 摘要 → 退出 0，**不发 HTTP**
+- [ ] Pipeline client mock 测试覆盖 200/401/403/409/413/501
+- [ ] exit code 语义（§9.4）落地
+- [ ] Coverage ≥95%
 
-### P4-骨架 CLI
-- [ ] `apps/collect` 建 app + coverage ≥95%
-- [ ] `signoff settings pull` 打通 bootstrap → 写 cache
-- [ ] `signoff ingest fixture <file>` 读 JSON POST 到 ingest → 打通
-- [ ] `signoff collect --dry-run` 打印计划（不调 ADO）
-- [ ] Pipeline HTTP client 用 mock 测试 401 / 409 / 200
-- [ ] `az login` 校验 stub（真实调用留 P5）
+### S4 Ingest 契约冻结
+- [ ] §5 全部小节写完并 review 通过
+- [ ] `packages/worker/src/middleware/pipeline-auth.ts` 移除 `browser + Access → skip token` 对 pipeline write 的放行
+- [ ] 新测试：Access JWT + `POST /api/pipeline/ingest` → 403
+- [ ] `packages/worker/src/routes/pipeline.ts` 的 501 分支保留；body zod 校验先跑（可选）
+- [ ] `docs/03-Web模块模板.md` §8 鉴权表格与本文 §5.6 完全一致
+
+### S5 本地闭环
+- [ ] `bun run dev:all` 起 web + worker + wrangler local D1，migrations apply
+- [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/bootstrap` 无 token 应 200
+- [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/ingest -X POST ...` 应返 501（未来 401 由 06 决定）
+- [ ] `signoff doctor` 全绿
+- [ ] `signoff settings pull` 写出 `.data/cache/bootstrap.json` 且 `pipelineConfigVersion` 与 Web 一致
+- [ ] `signoff ingest fixture ./fixtures/activities.sample.json` 打印 body 摘要，退出 0
 
 ### 全阶段横切
 - [ ] 所有新增文件 Biome 0 warning
-- [ ] `packages/domain` 被 worker/web/collect 三边 import 不循环
-- [ ] `.data/` 覆盖在 `.gitignore`
-- [ ] `docs/README.md` 更新索引到 05
+- [ ] `.data/` 已在 `.gitignore`；本地 token 不进仓库
+- [ ] `docs/README.md` 索引指向 05；06 / 07 骨架已建（可为 stub）
+
+**任何"D1 里出现 Activity/Score 行"都不是 05 验收信号 —— 那是 06。**
 
 ---
 
@@ -776,9 +920,9 @@ apps/collect/                    # @signoff/collect — 临时名，06 定 final
 
 | 编号 | 内容 | 触发时机 |
 |:-----|:-----|:---------|
-| 06 | Activity 重建算法与 Score（终态优先/日折叠边界表；rematch 全流程；分批策略） | P1 落地前先出骨架；P2 前定稿 |
-| 07 | CLI 命令矩阵与落盘（ADO REST 端点、raw 逐字段 schema、错误分类） | P4-骨架落地后、P5 开工前 |
-| 08 | Ingest 鉴权与运维（Pipeline Token 轮换、machine 白名单、ingest_runs 观察面） | P2 上线后按需 |
+| 06 | Activity 重建算法与 Score（§7.4 待决清单定稿；ingest 真实写入实装；Web 读回 UI；fixture 首次落库；ADO 采集初步） | 05 完成 S1..S5 后立即开工 |
+| 07 | CLI 命令矩阵与 ADO 落盘（raw JSON 逐字段 schema、az 调用、错误分类、增量游标） | 06 中 ADO 采集初步完成后展开 |
+| 08 | Ingest 鉴权与运维（Pipeline Token 轮换、machine 白名单、ingest_runs 观察面） | 06 上线后按需 |
 
 ---
 
