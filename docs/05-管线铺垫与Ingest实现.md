@@ -171,18 +171,24 @@
 
 ---
 
-## 5. Ingest API 契约（新）
+## 5. Ingest 契约（05 冻结，06 实装）
 
-### 5.1 `POST /api/pipeline/ingest`
+> **本节是 06 的冻结契约**。05 完成时 `/api/pipeline/ingest` **仍返 501**；06 按本节实装真写入，不允许再改协议。
+>
+> **不承诺**：单个 `env.DB.batch()` 内完成 Activity 写 + 查询 + Score 聚合 + finalize 的原子性——D1 无此语义（见 §5.3）。
 
-**Auth**：Pipeline Token（machine host 或 loopback）；浏览器 Access **禁止**打此路由（entryControl 白名单）。
+### 5.1 `POST /api/pipeline/ingest` — 请求 / 响应 / 错误码
+
+**鉴权**：见 §5.6。**Content-Type**：`application/json`。**幂等键**：`(runId, chunkIndex)`（见 §5.4）。
 
 **Body**：
 
 ```json
 {
   "pipelineConfigVersion": 3,
-  "runId": "01J...ULID",
+  "runId": "01J7XZ8K3N4Y5W2P6Q9R1STVWX",
+  "chunkIndex": 0,
+  "isFinalChunk": false,
   "runMeta": {
     "startedAt": 1720000000,
     "source": "ado",
@@ -194,50 +200,48 @@
     {
       "type": "pr.merged",
       "occurredAt": 1720000123,
-      "dayKey": "2026-07-03",
       "provider": "ado",
       "org": "acme",
       "project": "Alpha",
       "repoId": "01J...",
-      "externalRef": "ado:pr:{repoGuid}:{prId}:merged",
       "developerId": "01J...",
       "matchedUniqueName": "ada@example.com",
-      "meta": { "prId": 1234, "title": "..." }
+      "sourceIds": {
+        "prRepoGuid": "11111111-1111-1111-1111-111111111111",
+        "prId": 1234
+      },
+      "meta": { "title": "Refactor auth" }
     }
   ],
   "unmatchedIdentities": [
-    {
-      "uniqueName": "bot@acme.example",
-      "sampleOrg": "acme",
-      "sampleProject": "Alpha",
-      "sampleContext": "pr.vote:1234"
-    }
+    { "uniqueName": "bot@acme.example", "sampleOrg": "acme", "sampleProject": "Alpha", "sampleContext": "pr.vote:1234" }
   ]
 }
 ```
 
-**校验**（400 场景）：
+**关键字段口径**：
 
-| 项 | 规则 |
-|:---|:-----|
-| `pipelineConfigVersion` | 整数，缺 → 400 |
-| `runId` | 非空字符串；CLI 生成（推荐 ULID） |
-| `activities` | 数组，长度 ≤ **5000**（A7）；元素通过 B4 zod |
-| `activities[].dayKey` | 格式 `YYYY-MM-DD`；服务端**不重算**（信任 CLI，但 §5.4 有 rematch 抽查规则） |
-| `activities[].externalRef` | 匹配 02 §5.2 模板；非空 |
-| `activities[].developerId` | 存在于 `developers` 且未归档 |
-| `activities[].repoId` | 若 type 为 `pr.*`：必填且未归档；若 `wi.*`：必须为 null |
-| `activities[].type` | 在 `ACTIVITY_TYPES` 枚举内 |
+| 字段 | 说明 |
+|:-----|:-----|
+| `runId` | ULID / UUID；一次逻辑运行的全局 ID；CLI 生成 |
+| `chunkIndex` | 该 run 内的分片序号，从 0 起单调递增；同 `(runId, chunkIndex)` 重复请求应幂等（见 §5.4） |
+| `isFinalChunk` | true 表示该 run 最后一块；服务端据此驱动状态机到 `finalized` |
+| `runMeta.mode` | `incremental` \| `full_rematch` |
+| `activities[].sourceIds` | **服务端据此重算 externalRef**（§5.5）；客户端**不得**提供 `externalRef` |
+| `activities[].occurredAt` | UTC unix 秒；服务端据此**重算 dayKey**（§5.5）；客户端**不得**提供 `dayKey` |
+| 禁止字段 | `id`、`config_version`、`externalRef`、`dayKey`（服务端一律拒绝） |
 
-**成功响应 200**：
+**成功响应 200**（每一 chunk 都返回；`isFinalChunk=true` 时额外含 `finalized: true`）：
 
 ```json
 {
-  "runId": "01J...ULID",
+  "runId": "01J...",
+  "chunkIndex": 0,
   "pipelineConfigVersion": 3,
-  "activities": { "received": 1234, "upserted": 1234, "skipped": 0 },
+  "activities": { "received": 250, "upserted": 250, "rejected": 0 },
   "scores": { "affectedDevDays": 88, "recomputed": 88 },
-  "unmatched": { "upserted": 3 }
+  "unmatched": { "upserted": 3 },
+  "finalized": false
 }
 ```
 
@@ -245,48 +249,177 @@
 
 | HTTP | 场景 |
 |:-----|:-----|
-| 400 | body 校验失败 |
-| 401/403 | Pipeline Token 缺失 / 白名单不通过 |
-| 409 | `pipelineConfigVersion` 与当前不等（并发或 CLI 未刷新 cache） |
-| 413 | `activities.length > 5000`（或后续可提到 100k，视 D1 batch 限制） |
-| 422 | 引用完整性：`developerId` 归档、`repoId` 归档、`type` 与 `repoId` 组合非法 |
-| 500 | D1 约束失败、意外错误 |
+| 400 | body 校验失败（缺字段、格式错、包含禁止字段、`activities.length` 超上限） |
+| 401 | Pipeline Token 缺失 |
+| 403 | 白名单/host 不通过、Read Token 打 write route、Access 浏览器打 pipeline write |
+| 409 | `pipelineConfigVersion` 与当前不等；或 `(runId, chunkIndex)` 已存在但请求体哈希不同 |
+| 413 | payload 字节超上限 |
+| 422 | 引用完整性：`developerId`/`repoId` 归档、`repoId` 与 type 组合非法、`sourceIds` 缺项 |
+| 500 | 意外错误 |
+| 501 | **05 阶段服务端一律返 501**；06 上线后本码退役 |
 
-### 5.2 服务端处理顺序（**同一 `env.DB.batch()`**）
+### 5.2 D1 查询预算与 payload 上限（硬约束）
 
-1. 载入 `pipelineConfigVersion`（`loadSettings`）。
-2. `gate = { kind }` 校验 body（沿用 `pipeline-ingest.ts` 结构，新增 `ok` 分支替代 `not_implemented`）。
-3. 组装 batch：
-   - N × `INSERT OR REPLACE INTO activities (...) VALUES (...) WHERE (SELECT value FROM settings WHERE key='pipeline_config_version')='<expected>'`
-     - **注意**：D1 `INSERT OR REPLACE` 遇 UNIQUE(external_ref) 会替换旧行；`config_version` 列写当前值。
-   - M × `INSERT OR REPLACE INTO scores (developer_id, day_key, config_version, total, breakdown_json, activity_count, computed_at) VALUES (...) WHERE ...`
-     - M 条 = 本 batch 涉及的 `(dev, day_key)` 集合
-   - K × `INSERT ... ON CONFLICT(unique_name) DO UPDATE SET last_seen_at=..., seen_count=seen_count+...`（unmatched）
-   - 1 × `INSERT INTO ingest_runs (id, started_at, finished_at, status, stats_json)`
-4. `batch()` 执行；任一 `INSERT INTO activities` 或 `scores` 的 `changes === 0` 判定为 CAS 失败 → **409**（版本已变），**整批不写**（依赖 D1 batch 事务语义）。
+D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices skill 再核验一次）：
 
-> **D1 事务性提醒**：D1 `batch()` 目前是事务性执行；一旦某条失败整批回滚（截至本文写作时的行为）。若未来 D1 语义变化，需在此加入显式 `BEGIN/COMMIT` 或改用 sessions。
+| 项 | Free | Paid | 05/06 侧策略 |
+|:---|:-----|:-----|:-------------|
+| 每次 Worker invocation 可执行 SQL statement 数 | **50** | **1000** | 06 部署目标 = **Paid**；文档同时给 Free 与 Paid 的降级方案 |
+| 单 statement 参数上限 | 100 | 100 | 06 用多行 `VALUES (..),(..),..` 时按 100 参数拆 |
+| Worker 请求体 | — | 100 MB | 我方硬上限 **512 KB / 请求**（远小于 D1 阈值，避免误传） |
 
-### 5.3 Score 重算范围（增量语义）
+**05 冻结的应用层预算**（写进 zod）：
 
-**增量 ingest**（`runMeta.mode = "incremental"`）：
+| 项 | 值 | 理由 |
+|:---|:---|:-----|
+| `activities.length` | ≤ **500** / chunk | Paid 环境预留：500 条 Activity UPSERT + ≤500 dev-day 二次查询 + ≤500 Score UPSERT + finalize ≈ ≤ 1000 stmt（贴近 Paid 上限） |
+| `unmatchedIdentities.length` | ≤ 200 / chunk | 与 activities 一并落 |
+| `activities[].meta` 序列化后 | ≤ **4 KB** / 条 | 大 meta 用 chunk-external 存储 |
+| `payload bytes` | ≤ **512 KB** | 服务端读 body 前用 `Content-Length` 卡；超则 413 |
+| Free 环境降级 | `activities.length` ≤ **20** / chunk | 06 若跑 Free 需切此档；否则 stmt budget 会爆 |
 
-- 只重算「本次 batch 涉及的 `(dev, day_key)` 对」的 Score。
-- 服务端根据 `activities[].developerId` × `activities[].dayKey` 派生受影响 dev-day 集合。
-- 对每个受影响 dev-day，从 **D1 `activities` 表当前所有行** 重新聚合（不是仅本 batch！否则丢失同日历史 activity）。
+**06 的分片策略**：
 
-**Full rematch**（`runMeta.mode = "full_rematch"`）：
+- CLI 端把待写 Activity 按 500 一段切成 N 个 chunk；顺序发送。
+- 若某 chunk 返回 409（版本冲突），CLI 应**中止后续 chunk**，`settings pull` 后**放弃当前 runId**、开新 runId 重头。
+- 若某 chunk 返回 5xx，CLI 可重试**同一** `(runId, chunkIndex)`——服务端幂等保障（§5.4）。
 
-- CLI 责任：**在同一次 ingest 序列中**覆盖历史窗口的全部 activities。
-- 服务端：ingest 完成后需一次 `POST /pipeline/recompute/complete` 清 stale。
-- 简化实现：**一期 full_rematch 不做分批**，若数据量超出 5000 上限则强制拒绝，要求 CLI 拆窗口。
+### 5.3 多阶段流程（06 实装形态）
 
-### 5.4 反注入 / 反污染
+**明确不使用**：单 batch 完成 write+read+aggregate+finalize。**明确采用**：可重试的多阶段流程。
 
-- Web 通过 Access 打的 `/api/settings` 已能改 `pipelineConfigVersion`（+1），但**不能**指定任意值。
-- Ingest 不允许 body 中的 `activities[].config_version` 或 `activities[].id`；服务端生成 `id`（若采用 UPSERT by external_ref 则不需要）与 `config_version`。
-- `external_ref` 不能包含空格与非 ASCII 控制字符（zod regex）。
-- 拒绝跨 developer 的 `external_ref` 冲突（同 ref 命中不同 developer_id 视为攻击 / bug）→ 422。
+对于一次 `POST /pipeline/ingest`（一个 chunk），06 服务端顺序执行：
+
+```
+┌─ Phase 1  Activity + Unmatched 写入 ────────────────────────┐
+│  一次 batch：                                                │
+│    UPSERT activities (ON CONFLICT external_ref DO UPDATE)   │
+│    UPSERT unmatched_identities                               │
+│    UPSERT ingest_runs (状态 running / chunked)              │
+│  失败：整 batch 回滚；返回 5xx；CLI 可重试同 chunkIndex     │
+└─────────────────────────────────────────────────────────────┘
+        │
+        ▼  查询受影响 dev-day
+┌─ Phase 2  查询本 chunk 涉及的 (dev, day_key) 现存 Activity ─┐
+│  SELECT ... FROM activities                                  │
+│  WHERE (developer_id, day_key) IN (...)                      │
+│    AND config_version = ?  -- 必须绑定当前版本              │
+│  domain.aggregateScores(rows, weights)                       │
+└─────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─ Phase 3  Score UPSERT ─────────────────────────────────────┐
+│  一次 batch：                                                │
+│    UPSERT scores (ON CONFLICT (developer_id, day_key)       │
+│                   DO UPDATE)                                 │
+│    UPDATE ingest_runs 累积 stats                            │
+│  失败：Phase 1 已提交、Phase 3 未提交 → CLI 重试将从         │
+│  Phase 1 幂等重放（Activity UPSERT 无副作用累积）→ Phase 3   │
+│  再次尝试，直到成功                                          │
+└─────────────────────────────────────────────────────────────┘
+        │
+        ▼ 仅 isFinalChunk=true 时执行
+┌─ Phase 4  finalize（可选） ─────────────────────────────────┐
+│  UPDATE ingest_runs SET status='finalized' WHERE id=runId   │
+│    AND status IN ('running','chunked')                       │
+│    AND config_version = ?   -- 版本 CAS                     │
+│  若 mode=full_rematch：调用 §5.7 相同 CAS 清 stale           │
+│  changes=0 → 409（run 已被别的进程 finalize，或版本变）      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**关键约束**：
+
+1. **不跨 phase 承诺原子性**。D1 无跨 batch 事务；把风险明说，靠 Phase 1/3 各自幂等 + CLI 重试兜底。
+2. **Phase 2 的 SELECT 必须 `WHERE config_version = <current>`**。改 timezone/weights 后旧行不参与聚合。
+3. **Phase 3 不能只聚合本 chunk 的 activity**——必须查全库该 dev-day 的现存 Activity（否则同日已存在的 Activity 会丢分）。
+4. `changes = 0` **不会**让 batch 回滚。任何 CAS 保护都必须写进 `WHERE`，并**读**返回的 `meta.changes`，服务端据此返 200 / 409。
+
+### 5.4 runId / chunk / finalize 状态机
+
+**`ingest_runs` 表新增列**（06 提交时通过 `0005_*` migration）：
+
+| 列 | 类型 | 说明 |
+|:---|:-----|:-----|
+| `id` | TEXT PK | = `runId`（ULID） |
+| `status` | TEXT | `running` / `chunked` / `finalized` / `failed` |
+| `config_version` | INTEGER | 该 run 绑定的 pipelineConfigVersion |
+| `mode` | TEXT | `incremental` / `full_rematch` |
+| `last_chunk_index` | INTEGER | 最新已成功 Phase 1 的 chunkIndex；用于顺序校验 |
+| `chunk_digests_json` | TEXT | `{ "0": "sha256:...", "1": "sha256:..." }`；每 chunk body 的 SHA-256，用于幂等去重 |
+
+**幂等 & 顺序规则**：
+
+| 请求 | 服务端行为 |
+|:-----|:-----------|
+| 新 `runId`，`chunkIndex=0` | 建 run 行；执行 Phase 1..3；`last_chunk_index=0`；chunk_digest 记 sha256 |
+| 已知 `runId`，`chunkIndex = last + 1` | 正常执行 Phase 1..3；更新 `last_chunk_index`、`chunk_digests` |
+| 已知 `runId`，`chunkIndex ≤ last` 且 digest **相同** | 幂等 no-op：直接返 200，`activities.upserted=0` |
+| 已知 `runId`，`chunkIndex ≤ last` 且 digest **不同** | **409** — 同 chunkIndex 请求体已变，客户端 bug |
+| 已知 `runId`，`chunkIndex > last + 1` | **400** — 跳号；CLI 顺序错乱 |
+| 已知 `runId`，`config_version` 与 run 记录不等 | **409** — 中途 version 变化，本 run 作废 |
+| `isFinalChunk=true` 到达 | 执行 Phase 4；status → `finalized` |
+| 已 `finalized` 的 run 再收 chunk | **409** — 不接受追加 |
+
+**unmatched_identities 幂等**（消除 seen_count 重复累加）：
+
+- 使用 chunk digest 去重：同一 `(runId, chunkIndex)` 只**首次**执行时对 `seen_count += 1`；重放不累加。
+- 实现：Phase 1 的 UPSERT unmatched 前先检查 digest；若已存在则跳过。
+
+### 5.5 服务端反污染 / 反注入
+
+服务端**不信任** CLI 的以下派生字段，必须重新计算并比对：
+
+| 字段 | 服务端行为 |
+|:-----|:-----------|
+| `externalRef` | 用 `activities[].sourceIds` + `activities[].type` 走域包 `buildExternalRef` 重算；写库用重算值；客户端提供 `externalRef` → **400** |
+| `dayKey` | 用 `occurredAt` + 当前 Settings.timezone 走域包 `dayKey` 重算；客户端提供 → **400** |
+| `matchedUniqueName` | 用 `activities[].developerId` 查 Developer.alias × 当前 email_suffixes，比对客户端提供值；不一致 → **422** |
+| `config_version` | 服务端写当前 `pipelineConfigVersion`；客户端提供 → **400** |
+| `id` | 服务端生成（若 UPSERT 命中现有 external_ref 则复用旧 id）；客户端提供 → **400** |
+
+**引用完整性**（**422**）：
+
+- `developerId` 必须在 `developers` 且 `archived_at IS NULL`
+- `repoId` 若非 null 必须在 `repos` 且 `archived_at IS NULL` 且 `enabled=1`
+- `type ∈ pr.*` ⇒ `repoId` 必填
+- `type ∈ wi.*` ⇒ `repoId` 必须 null；`sourceIds` 必须含 `projectGuid` 与 `wiId`
+- `sourceIds` 结构按 type 校验：`pr.vote` 必须有 `voterIdentityId`+`threadId`+`commentId`；`pr.active` 必须有 `iterationId`；`wi.updated` 必须有 `revisionId` 等（06 逐条落）
+
+### 5.6 鉴权契约（同步修 03 与 `pipeline-auth.ts`）
+
+**05 明确**（替代 03 §8 与当前 `pipeline-auth.ts` 中"Access 浏览器可打 pipeline write"的旧表述）：
+
+| 通道 | Pipeline write（`/api/pipeline/ingest`、`/pipeline/recompute/*`） | Pipeline read（`/api/pipeline/bootstrap`） | 管理 API（`/api/settings`、entity CRUD） |
+|:-----|:------|:------|:------|
+| **浏览器 + Access JWT** | ❌ **403** — Access 用户禁止 pipeline write | ⚠️ 可选：允许（诊断用），但不推荐 | ✅ |
+| **Machine host + Bearer Write Token** | ✅ | ✅ | ❌ 403（machine host 不做管理写） |
+| **Machine host + Bearer Read Token** | ❌ 403 | ✅ | ❌ 403 |
+| **loopback (127.0.0.1 / *.dev.hexly.ai)** | ✅（本地开发） | ✅ | ✅ |
+| **Pipeline Token 出现在浏览器 bundle** | 硬禁止（gitleaks 规则可考虑加） | — | — |
+
+**05 对代码的影响**：
+
+- `packages/worker/src/middleware/pipeline-auth.ts:44-47`：**移除** `if (browser && accessAuthenticated) { return next(); }` 对 pipeline write 路径的放行；改为仅对 `/api/settings` 等管理 API 放行。
+- 新增测试：Access JWT 打 `/api/pipeline/ingest` → 403。
+- `docs/03-Web模块模板.md` §8 表格同步修订（05 收尾时改，与本节表格严格对齐）。
+
+### 5.7 recompute complete 契约收紧
+
+`POST /api/pipeline/recompute/complete` 已在 04 §6.7 定义；05 补：
+
+- Body 增加 `runId` 字段；服务端校验该 run **必须已 `finalized`** 且 `mode='full_rematch'`；否则 409。
+- 清 stale 的 CAS 保持 04 语义（`WHERE (SELECT value FROM settings WHERE key='pipeline_config_version') = <expected>`）。
+- 一次成功清理后 `run.status` 不变（仍是 `finalized`）；stale 标志转为 false。
+
+### 5.8 `/api/pipeline/ingest` 在 05 期间的行为
+
+05 完成时服务端**必须**：
+
+- 保留 501 响应体（04 已定的 `Not Implemented` 格式）。
+- **允许** body 校验先跑（zod 通过后再返 501），以便 CLI 骨架能验证 body 结构。
+- 400/401/403/409/413/422 分支**可选**是否在 05 阶段生效；若不生效，05 的 CLI mock 测试直接期待 501。
+- **禁止**返回任何"已写入 N 条 Activity"的成功响应体——避免 CLI 误信。
 
 ---
 
