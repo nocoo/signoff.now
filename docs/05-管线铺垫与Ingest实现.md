@@ -132,7 +132,7 @@
 | Gap | 05 交付 | 06 使用 |
 |:----|:--------|:--------|
 | body/响应/错误码 | §5.1 定死 | 按契约实装 |
-| D1 查询预算 | §5.2：Free 50 / Paid 1000 stmt 上限；`activities.length ≤ 20`（一期兼容 Free；SQL 形态定后 06 再提议放大）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 |
+| D1 查询预算 | §5.2：Free 50 / Paid 1000 stmt 上限；`activities.length ≤ 10`（一期兼容 Free；SQL 形态定后 06 再提议放大）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 |
 | 多阶段流程 | §5.3：不承诺单 batch 原子；拆 Activity write → 查询 → Score upsert → finalize；每阶段独立 CAS | 06 按阶段实装 |
 | runId/chunk/finalize 状态机 | §5.4：run 生命周期 `pending → chunked → finalized/failed`；chunk 幂等 by `(runId, chunkIndex)` | 06 实装状态转换 |
 | 服务端反污染 | §5.5：dayKey/identity/externalRef 服务端重算并比对，客户端不可提供 `id` / `config_version` | 06 实装校验 |
@@ -272,8 +272,8 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 | 项 | 值 | 理由 |
 |:---|:---|:-----|
-| `activities.length` | ≤ **20** / chunk | **一期硬上限**，兼容 Free（stmt budget 50）。SQL 形态未定前不冻结更大值；一个 chunk 粗略约 20 activity UPSERT + 二次 SELECT + ≤20 Score UPSERT + run/unmatched/CAS ≈ 40–50 stmt。Paid 环境按同上限跑,余量作为安全垫;06 若切多行 `VALUES` 或 JSON 参数后重新测算,再由 06 提议放大 |
-| `unmatchedIdentities.length` | ≤ **20** / chunk | 与 activities 同数量级 |
+| `activities.length` | ≤ **10** / chunk | **一期硬上限**，兼容 Free（stmt budget 50）。最坏一 chunk 约:Phase 0 1 SELECT + Phase 1 (10 activity UPSERT + 10 unmatched UPSERT + 1 run UPSERT + 1 chunk INSERT) + Phase 3 (最多 20 dev-day Score UPSERT/DELETE + 1 run stat UPDATE + 1 chunk UPDATE) ≈ ~45 stmt,贴近 Free 上限。SQL 形态未定前不冻结更大值;06 若切多行 `VALUES` 或 JSON 参数后重新测算,再由 06 提议放大 |
+| `unmatchedIdentities.length` | ≤ **10** / chunk | 与 activities 同数量级 |
 | `activities[].meta` 序列化后 | ≤ **4 KB** / 条 | 超上限直接 400 拒绝；一期不做外部存储 |
 | `payload bytes` | ≤ **512 KB** | 服务端**必须校验实际读取字节数**（`Content-Length` 可缺失或伪造），流式读到阈值即拒 413 |
 | 单 statement 参数绑定 | ≤ **100** | D1 硬限制;06 若切多行 `VALUES` 须按 100 参数拆 |
@@ -282,7 +282,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 **06 的分片策略**：
 
-- CLI 端把待写 Activity 按 20 一段切成 N 个 chunk；顺序发送。
+- CLI 端把待写 Activity 按 10 一段切成 N 个 chunk；顺序发送。
 - 若某 chunk 返回 409（版本冲突），CLI 应**中止后续 chunk**，`settings pull` 后**放弃当前 runId**、开新 runId 重头。
 - 若某 chunk 返回 5xx，CLI 可重试**同一** `(runId, chunkIndex)`——服务端幂等保障（§5.4）。
 
@@ -293,30 +293,45 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 对于一次 `POST /pipeline/ingest`（一个 chunk），06 服务端顺序执行：
 
 ```
-┌─ Phase 0  Chunk 预检 ────────────────────────────────────────┐
-│  SELECT run + chunk_state by (runId, chunkIndex)             │
-│  参照 §5.4 表格分派：新 chunk / prepared 续跑 / completed     │
-│  重复 / digest 冲突 / 版本冲突 / 跳号                         │
+┌─ Phase 0  Chunk 预检 + 旧 dev-day 查询 + JS 算并集 ─────────┐
+│  1. SELECT run + chunk_state by (runId, chunkIndex)         │
+│     参照 §5.4 表格分派:                                     │
+│       新 chunk / prepared 续跑 / completed / 冲突 / 跳号   │
+│  2. 若"新 chunk"分支:                                       │
+│       SELECT developer_id, day_key FROM activities          │
+│         WHERE external_ref IN (<本 chunk 全部 externalRef>) │
+│         AND config_version = <current>                      │
+│       -- D1 read; 结果送回 JS                              │
+│     JS: dev_day_union = set(旧 (dev,day))                   │
+│         ∪ set(新 (dev,day) from 本 chunk activities)        │
+│     (这一 SELECT + JS 计算与 Phase 1 batch **分开一次**     │
+│      D1 请求发出;D1 batch() 无法消费前一条 SELECT 结果      │
+│      来构造后一条 statement,所以并集必须 JS 侧算好再传入)   │
+│  3. 若"prepared 续跑"分支:                                  │
+│       跳过 SELECT,从 ingest_chunks 读回 dev_day_union_json │
+│       进入 Phase 2                                          │
+│  4. 若"completed"分支:                                      │
+│       走 §5.4 finalize 幂等规则(见该节完整表)              │
 └─────────────────────────────────────────────────────────────┘
         │ 新 chunk 或 prepared 续跑
         ▼
 ┌─ Phase 1  Activity + Unmatched 写入 + chunk 转 prepared ────┐
-│  一次 batch（新 chunk）：                                     │
-│    SELECT 旧 (developer_id, day_key) FROM activities         │
-│      WHERE external_ref IN (...)  -- 用于并集,见约束 5      │
+│  一次 batch(新 chunk):                                       │
 │    UPSERT activities (ON CONFLICT external_ref DO UPDATE)   │
-│    UPSERT unmatched_identities（首次执行才 seen_count += 1） │
+│    UPSERT unmatched_identities(首次执行才 seen_count += 1)  │
 │    UPSERT ingest_runs (status='chunked')                    │
 │    INSERT ingest_chunks (runId, chunkIndex, status='prepared',│
 │                          digest, dev_day_union_json)         │
-│  失败：整 batch 回滚；返回 5xx；CLI 重试同 chunkIndex        │
-│  prepared 续跑（Phase 1 已完成过）：跳过整个 batch,           │
-│    从 ingest_chunks 读回 dev_day_union_json 进入 Phase 2     │
+│      -- dev_day_union_json 来自 Phase 0 计算结果            │
+│  失败:整 batch 回滚;返回 5xx;CLI 重试同 chunkIndex(将从    │
+│    Phase 0 重新执行,并集重算,输出相同结果)                  │
+│  prepared 续跑:跳过整个 batch,直接从 Phase 0 读回的         │
+│    dev_day_union_json 进入 Phase 2                          │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼  查询受影响 dev-day
 ┌─ Phase 2  查询本 chunk 涉及的 (dev, day_key) 现存 Activity ─┐
-│  受影响集合 = Phase 1 记录的 dev_day_union_json               │
+│  受影响集合 = Phase 0/1 记录的 dev_day_union_json             │
 │    = 旧 (dev, day_key)（本 chunk 覆盖前的值）                │
 │    ∪ 新 (dev, day_key)（本 chunk 写入后的值）                │
 │  SELECT ... FROM activities                                  │
@@ -326,25 +341,28 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
-┌─ Phase 3  Score UPSERT + chunk 转 completed ────────────────┐
+┌─ Phase 3  Score UPSERT + DELETE 空聚合 + chunk 转 completed ┐
 │  一次 batch：                                                │
 │    UPSERT scores (ON CONFLICT (developer_id, day_key)       │
-│                   DO UPDATE)                                 │
+│                   DO UPDATE)  -- 对**有**聚合结果的 dev-day │
+│    DELETE FROM scores                                        │
+│      WHERE (developer_id, day_key) IN (受影响集合 - 聚合结果)│
+│      -- 见约束 7:聚合为空表示该 dev-day 已无当前版本 Activity│
 │    UPDATE ingest_runs 累积 stats                            │
 │    UPDATE ingest_chunks SET status='completed'              │
 │      WHERE runId=? AND chunkIndex=? AND status='prepared'   │
-│  失败：Phase 1 已提交、Phase 3 未提交 → CLI 重试将进入       │
+│  失败:Phase 1 已提交、Phase 3 未提交 → CLI 重试将进入        │
 │  prepared 续跑分支,直接从 Phase 2 开始(不重放 Phase 1)      │
 └─────────────────────────────────────────────────────────────┘
         │
-        ▼ 仅 isFinalChunk=true 且本 chunk 走到 completed
+        ▼ 仅 isFinalChunk=true 且本 chunk 走到 completed 且 run 尚未 finalized
 ┌─ Phase 4  finalize run(不清 stale) ────────────────────────┐
 │  UPDATE ingest_runs SET status='finalized'                  │
 │    WHERE id=runId AND status='chunked'                       │
 │    AND config_version = ?   -- 版本 CAS                     │
 │  changes=0 → 409(run 已被别的进程 finalize,或版本变)        │
 │  ★ 不在此清 stale;stale 由 CLI 随后单独调用                 │
-│    POST /pipeline/recompute/complete 处理(§5.7)             │
+│    POST /api/pipeline/recompute/complete 处理(§5.7)         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -354,8 +372,10 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 2. **Phase 2 的 SELECT 必须 `WHERE config_version = <current>`**。改 timezone/weights 后旧行不参与聚合。
 3. **Phase 3 不能只聚合本 chunk 的 activity**——必须查全库该 dev-day 的现存 Activity（否则同日已存在的 Activity 会丢分）。
 4. `changes = 0` **不会**让 batch 回滚。任何 CAS 保护都必须写进 `WHERE`，并**读**返回的 `meta.changes`，服务端据此返 200 / 409。
-5. **同一 `external_ref` 被 rematch 移动 developer 或 day_key**（例：改了 alias 或 timezone 后重放）：Phase 1 必须先 SELECT 旧的 `(developer_id, day_key)` 记入 dev_day_union，Phase 2 的受影响集合 = 旧 ∪ 新，否则旧 dev-day 的 Score 不会被重算，留下"幽灵分"。
+5. **同一 `external_ref` 被 rematch 移动 developer 或 day_key**（例：改了 alias 或 timezone 后重放）：**Phase 0** 必须先 SELECT 旧的 `(developer_id, day_key)`（不放进 Phase 1 batch），JS 侧算好并集后随 Phase 1 batch 一次性写入 `ingest_chunks.dev_day_union_json`；Phase 2 的受影响集合 = 旧 ∪ 新，否则旧 dev-day 的 Score 不会被重算，留下"幽灵分"。
 6. **同一版本下跨 developer 的 `external_ref` 冲突**（不同 developer_id 命中同一 external_ref）：视为客户端 bug，Phase 1 拒绝，返回 **422**；不允许静默用新 developer 覆盖。
+7. **Score DELETE 补齐**：受影响 dev-day 集合中，若 Phase 2 聚合结果**为空**（该 dev-day 的当前版本已无 Activity——比如 rematch 后所有 Activity 移到新 dev），Phase 3 必须对这些 dev-day 执行 `DELETE FROM scores`；否则旧 Score 会残留。
+8. **三重 version 校验**：每次 mutation 都必须验证 `request.pipelineConfigVersion === run.config_version === current Settings.pipeline_config_version`。三者任一不等 → 409。特别是 Phase 3 UPSERT scores 前须重取当前 Settings 版本，避免 Settings 已变但旧版本 Score 覆盖新状态。
 
 ### 5.4 runId / chunk / finalize 状态机
 
@@ -608,13 +628,13 @@ export const ingestBodySchema = z.object({
     windowTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     mode: z.enum(["incremental", "full_rematch"]),
   }),
-  activities: z.array(activitySchema).max(20), // §5.2 硬上限（一期兼容 Free）
+  activities: z.array(activitySchema).max(10), // §5.2 硬上限（一期兼容 Free）
   unmatchedIdentities: z.array(z.object({
     uniqueName: z.string().min(1),
     sampleOrg: z.string().optional(),
     sampleProject: z.string().optional(),
     sampleContext: z.string().optional(),
-  })).max(20),
+  })).max(10),
 }).strict();
 ```
 
@@ -654,7 +674,7 @@ export type AggregateScores = (
 |:-------|:-----|
 | 常量 | 键完整性（全部 8 种 type、DEFAULT_WEIGHTS 有全部键；权重值皆为非负整数） |
 | activitySchema | 拒绝 `id`/`externalRef`/`dayKey`/`config_version`；type 不在枚举；sourceIds 与 type 错配（如 `wi.updated` + PR sourceIds、`pr.vote` 缺 threadId、`pr.merged` 附 `repoId=null`） |
-| ingestBodySchema | `activities.length > 20` 拒绝；`unmatchedIdentities.length > 20` 拒绝；`runId` 长度、`windowFrom` 格式 |
+| ingestBodySchema | `activities.length > 10` 拒绝；`unmatchedIdentities.length > 10` 拒绝；`runId` 长度、`windowFrom` 格式 |
 | paths | `rawPath("ado", "acme", "Alpha", "repos/foo", "prs/1234")` 生成正确 |
 
 **函数实现相关测试** 一律留给 06；05 不写任何"函数调用抛 unimplemented"级别的伪测试。
