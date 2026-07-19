@@ -437,7 +437,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 | `config_version` | 服务端写当前 `pipelineConfigVersion`；客户端提供 → **400** |
 | `id` | 服务端生成（若 UPSERT 命中现有 external_ref 则复用旧 id）；客户端提供 → **400** |
 
-**引用完整性**（**422**）：
+**引用完整性 + sourceIds 绑定校验**（**422**）：
 
 - `developerId` 必须在 `developers` 且 `archived_at IS NULL`
 - `repoId` 若非 null 必须在 `repos` 且 `archived_at IS NULL` 且 `enabled=1`
@@ -445,6 +445,11 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 - `type ∈ wi.*` ⇒ `repoId` 必须 null；`sourceIds` 必须含 `projectGuid` 与 `wiId`
 - `sourceIds` 结构按 type 校验：`pr.vote` 必须有 `voterIdentityId`+`threadId`+`commentId`；`pr.active` 必须有 `iterationId`；`wi.updated` 必须有 `revisionId` 等（06 逐条落）
 - 同 `external_ref` 命中不同 `developer_id` → **422**（§5.3 约束 6）
+- **sourceIds 与 Repo/Project 严格绑定**（防攻击者提交别的真实 GUID）：
+  - `pr.*`：`sourceIds.prRepoGuid` 必须等于 `repos.external_id`（查 `repoId` 那行）；不等 → **422**
+  - `pr.*` / `wi.*`：`activities[].provider` / `.org` / `.project` 必须与对应 `repos` 行（PR 场景）或 `repos.project_external_id` 反向匹配一次的 org/project（WI 场景）**严格相等**；不等 → **422**
+  - `wi.*`：`sourceIds.projectGuid` 必须等于该 `activities[].org + .project` 组合下**任意** `repos` 行的 `project_external_id`（同 project 一致由 §3.1 硬约束保证）；不等 → **422**
+- 上述绑定校验必须在 Phase 0/1 之前完成；一旦发现即 short-circuit 整个 chunk。
 
 ### 5.6 鉴权契约（同步修 03 与 `pipeline-auth.ts`）
 
@@ -480,9 +485,13 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 05 完成时服务端**必须**：
 
-- 保留 501 响应体（04 已定的 `Not Implemented` 格式）。
-- **允许** body 校验先跑（zod 通过后再返 501），以便 CLI 骨架能验证 body 结构。
-- 400/401/403/409/413/422 分支**可选**是否在 05 阶段生效；若不生效，05 的 CLI mock 测试直接期待 501。
+- 保留 501 响应体（04 已定的 `Not Implemented` 格式）作为**成功走完全部预检后的最终返回**。
+- **强制**先跑以下预检（**皆在 05 内实装**，不留可选），任一失败即返对应错误码，不走到 501：
+  - **鉴权**（§5.6）：401 / 403
+  - **payload 字节校验**（§5.2 流式读取）：413
+  - **Zod body schema 校验**（§6 discriminated union + strict）：400
+  - **`pipelineConfigVersion` gate**（与当前 Settings 相等）：409
+- 引用完整性 & sourceIds 绑定校验（§5.5 422 分支）**留给 06 实装**——因为 06 才建 `ingest_chunks` / 才真读 `activities` / 才有 UPSERT 语境；05 阶段这些走到 501 前不校验。
 - **禁止**返回任何"已写入 N 条 Activity"的成功响应体——避免 CLI 误信。
 
 ---
@@ -943,7 +952,7 @@ apps/collect/
 | **01** | 定义 Activity type、默认权重、身份匹配规则（本文所有契约必须遵守） |
 | **02** | Schema、external_ref 模板、config_version 语义（本文写入路径的 sourceIds 与之一一对应） |
 | **03** | Web 模板与 MVVM；**§5.6 收紧鉴权表述后需同步修 03 §8** |
-| **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致） |
+| **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致）；**§5.7 收紧 recompute complete 契约（必须绑 runId + mode='full_rematch' + 三重 version）后需同步修 04 §6.7** |
 | **05（本文）** | 06 开工前的**基础设施 + 冻结契约** |
 | **06** | Activity/Score 真实写入（基于 fixture 与 06 手工放到 `.data/normalized/` 的 Activity JSON）；算法定稿；fixture 首次落库；Web 数据读回。**不含**真实 ADO 采集 |
 | **07** | 真实 ADO 拉取（az/PR/WI）+ raw 逐字段 schema + normalized transform，写入 06 已实装的 Ingest 链路 |
@@ -967,7 +976,7 @@ apps/collect/
 - [ ] `packages/domain` 常量 `DEFAULT_WEIGHTS` 值全部整数（已覆盖）
 - [ ] `PUT /api/settings` 校验 `activityWeights[*]` 为 **z.number().int().nonnegative()**；小数或负数 → 400
 - [ ] Web `useSettingsViewModel` 校验一致；表单 UI 阻止输入小数/负数
-- [ ] 既有数据兼容：远端 D1 现有 `activity_weights` 若已有小数（可能人工写入），S1 落地前跑一次 `SELECT` 抽查，若存在则 04 §6.7 描述的一次性 fix migration 前置
+- [ ] 既有数据兼容：远端 D1 现有 `activity_weights` 若已有小数（曾人工写入），S1 落地前跑一次 `SELECT value FROM settings WHERE key='activity_weights'` 抽查；若存在，落一次一次性 fix migration（`0005_normalize_activity_weights.sql`：round + 非负 clamp），并在 05 收尾时同步补 04 §3.2 的校验规则
 - [ ] `packages/worker/lib/settings.ts` 单测覆盖：小数拒绝 / 负数拒绝 / 整数通过
 
 ### S2 Domain 契约包
@@ -993,7 +1002,8 @@ apps/collect/
 - [ ] §5 全部小节写完并 review 通过
 - [ ] `packages/worker/src/middleware/pipeline-auth.ts` 移除 `browser + Access → skip token` 对 pipeline write 的放行
 - [ ] 新测试：Access JWT + `POST /api/pipeline/ingest` → 403
-- [ ] `packages/worker/src/routes/pipeline.ts` 的 501 分支保留；body zod 校验先跑（可选）
+- [ ] `packages/worker/src/routes/pipeline.ts` 按 §5.8 强制预检：鉴权 401/403 → payload 413 → Zod 400 → version gate 409 → 全通过后返 501；引用完整性 422 留 06
+- [ ] 上述预检各写单测覆盖
 - [ ] `docs/03-Web模块模板.md` §8 鉴权表格与本文 §5.6 完全一致
 
 ### S5 本地闭环
