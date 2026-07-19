@@ -409,7 +409,9 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 | 新 `runId`，`chunkIndex=0` | 无 | 建 run + chunk 行；跑 Phase 1..3；chunk → completed |
 | 已知 `runId`，`chunkIndex = max_completed + 1` | 无 | 跑 Phase 1..3；chunk → completed |
 | 已知 `runId`，`chunkIndex` 已存在，`status=prepared`，digest **相同** | prepared | 从 Phase 2 续跑；Phase 3 成功 → completed |
-| 已知 `runId`，`chunkIndex` 已存在，`status=completed`，digest **相同** | completed | 幂等 no-op：直接返 200，counts 为空 |
+| 已知 `runId`，`chunkIndex` 已存在，`status=completed`，digest **相同**，`isFinalChunk=false` | completed | 幂等 no-op：直接返 200，counts 为空 |
+| 已知 `runId`，`chunkIndex` 已存在，`status=completed`，digest **相同**，`isFinalChunk=true`，**run 未 finalized** | completed | **必须重跑 Phase 4**（此前 Phase 4 未成功）；不能返回 no-op，否则 run 永远无法 finalized |
+| 已知 `runId`，`chunkIndex` 已存在，`status=completed`，digest **相同**，`isFinalChunk=true`，**run 已 finalized** | completed | 幂等 no-op：直接返 200，`finalized: true` |
 | 已知 `runId`，`chunkIndex` 已存在，digest **不同**（无论 status） | 任一 | **409** — 请求体已变；客户端 bug |
 | 已知 `runId`，`chunkIndex > max(completed, prepared) + 1` | 无 | **400** — 跳号；CLI 顺序错乱 |
 | 已知 `runId`，`config_version` 与 run 记录不等 | 任一 | **409** — 中途 version 变化，本 run 作废 |
@@ -418,7 +420,9 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 **关键点**：
 
-- **completed → no-op；prepared → 从 Phase 2 续跑**。这两分支必须严格区分，否则 Phase 1 提交后 Phase 3 失败，重试会因 digest 相同而"no-op"跳过 Score 写入，留下缺分。
+- **completed → 视 run 是否 finalized 决定 no-op 还是补 Phase 4；prepared → 从 Phase 2 续跑**。这两分支必须严格区分，否则:
+  - Phase 1 提交后 Phase 3 失败,重试因 digest 相同而"no-op" → 跳过 Score 写入,留下缺分。
+  - Phase 3 完成后 Phase 4 失败,重试因 digest 相同而"no-op" → run 永远 chunked 状态,CLI 无法调 recompute/complete 清 stale。
 - **seen_count 幂等**：Phase 1 只在**新建** chunk 行（即之前无该 `(runId, chunkIndex)` 记录）时对 unmatched `seen_count += 1`；prepared 续跑不再累加。
 
 ### 5.5 服务端反污染 / 反注入
