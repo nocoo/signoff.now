@@ -132,7 +132,7 @@
 | Gap | 05 交付 | 06 使用 |
 |:----|:--------|:--------|
 | body/响应/错误码 | §5.1 定死 | 按契约实装 |
-| D1 查询预算 | §5.2：Free 50 / Paid 1000 stmt 上限；`activities.length ≤ 500`（保守，为二次查询与 score upsert 留余量）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 |
+| D1 查询预算 | §5.2：Free 50 / Paid 1000 stmt 上限；`activities.length ≤ 20`（一期兼容 Free；SQL 形态定后 06 再提议放大）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 |
 | 多阶段流程 | §5.3：不承诺单 batch 原子；拆 Activity write → 查询 → Score upsert → finalize；每阶段独立 CAS | 06 按阶段实装 |
 | runId/chunk/finalize 状态机 | §5.4：run 生命周期 `pending → chunked → finalized/failed`；chunk 幂等 by `(runId, chunkIndex)` | 06 实装状态转换 |
 | 服务端反污染 | §5.5：dayKey/identity/externalRef 服务端重算并比对，客户端不可提供 `id` / `config_version` | 06 实装校验 |
@@ -272,15 +272,17 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 | 项 | 值 | 理由 |
 |:---|:---|:-----|
-| `activities.length` | ≤ **500** / chunk | Paid 环境预留：500 条 Activity UPSERT + ≤500 dev-day 二次查询 + ≤500 Score UPSERT + finalize ≈ ≤ 1000 stmt（贴近 Paid 上限） |
-| `unmatchedIdentities.length` | ≤ 200 / chunk | 与 activities 一并落 |
-| `activities[].meta` 序列化后 | ≤ **4 KB** / 条 | 大 meta 用 chunk-external 存储 |
-| `payload bytes` | ≤ **512 KB** | 服务端读 body 前用 `Content-Length` 卡；超则 413 |
-| Free 环境降级 | `activities.length` ≤ **20** / chunk | 06 若跑 Free 需切此档；否则 stmt budget 会爆 |
+| `activities.length` | ≤ **20** / chunk | **一期硬上限**，兼容 Free（stmt budget 50）。SQL 形态未定前不冻结更大值；一个 chunk 粗略约 20 activity UPSERT + 二次 SELECT + ≤20 Score UPSERT + run/unmatched/CAS ≈ 40–50 stmt。Paid 环境按同上限跑,余量作为安全垫;06 若切多行 `VALUES` 或 JSON 参数后重新测算,再由 06 提议放大 |
+| `unmatchedIdentities.length` | ≤ **20** / chunk | 与 activities 同数量级 |
+| `activities[].meta` 序列化后 | ≤ **4 KB** / 条 | 超上限直接 400 拒绝；一期不做外部存储 |
+| `payload bytes` | ≤ **512 KB** | 服务端**必须校验实际读取字节数**（`Content-Length` 可缺失或伪造），流式读到阈值即拒 413 |
+| 单 statement 参数绑定 | ≤ **100** | D1 硬限制;06 若切多行 `VALUES` 须按 100 参数拆 |
+
+**05 不冻结**：JSON 参数化、多行 `VALUES`、chunk 外部存储 等 SQL 优化路径——由 06 在实测 D1 stmt/bind 消耗后再提议放大 `activities.length` 上限,同步补 05 §5.2。
 
 **06 的分片策略**：
 
-- CLI 端把待写 Activity 按 500 一段切成 N 个 chunk；顺序发送。
+- CLI 端把待写 Activity 按 20 一段切成 N 个 chunk；顺序发送。
 - 若某 chunk 返回 409（版本冲突），CLI 应**中止后续 chunk**，`settings pull` 后**放弃当前 runId**、开新 runId 重头。
 - 若某 chunk 返回 5xx，CLI 可重试**同一** `(runId, chunkIndex)`——服务端幂等保障（§5.4）。
 
@@ -539,13 +541,13 @@ export const ingestBodySchema = z.object({
     windowTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     mode: z.enum(["incremental", "full_rematch"]),
   }),
-  activities: z.array(activitySchema).max(500), // §5.2 硬上限
+  activities: z.array(activitySchema).max(20), // §5.2 硬上限（一期兼容 Free）
   unmatchedIdentities: z.array(z.object({
     uniqueName: z.string().min(1),
     sampleOrg: z.string().optional(),
     sampleProject: z.string().optional(),
     sampleContext: z.string().optional(),
-  })).max(200),
+  })).max(20),
 }).strict();
 ```
 
@@ -593,7 +595,7 @@ export function aggregateScores(
 |:-------|:-----|
 | 常量 | 键完整性（全部 8 种 type、DEFAULT_WEIGHTS 有全部键） |
 | activitySchema | 拒绝 `id`/`externalRef`/`dayKey`/`config_version`；type 不在枚举；sourceIds 与 type 不匹配 |
-| ingestBodySchema | `activities.length > 500` 拒绝；`runId` 长度、`windowFrom` 格式 |
+| ingestBodySchema | `activities.length > 20` 拒绝；`runId` 长度、`windowFrom` 格式 |
 | paths | `rawPath("ado", "acme", "Alpha", "repos/foo", "prs/1234")` 生成正确 |
 
 **未落函数**的测试：只测「调用时抛 `unimplemented`」，作为 06 落地的"红灯"。
