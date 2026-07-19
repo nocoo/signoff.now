@@ -53,38 +53,38 @@
 
 ## 2. 完整链路（目标状态一次成功采集）
 
-图中标注 **【05】** 表示 05 交付的基础设施/契约，**【06】** 表示 06 实现的业务逻辑。
+图中标注 **【05】** 表示 05 交付的基础设施/契约，**【06】** 表示 06 实现的业务逻辑（fixture → Worker/D1 真实写入），**【07】** 表示 07 实现的真实 ADO 拉取。
 
 ```
-本机 az 登录  【06】
+本机 az 登录  【07】
   │
   ├─(1) signoff settings pull ──HTTPS──► GET /api/pipeline/bootstrap  【05 骨架 + 契约】
   │                                     └─► .data/cache/bootstrap.json (含 pipelineConfigVersion + projectGuid)
   │
-  ├─(2) signoff collect ──az── ADO REST                                【06】
+  ├─(2) signoff collect ──az── ADO REST                                【07】
   │     ├─ enabled repos → PRs / PR threads / PR iterations
   │     └─ distinct projects → WorkItems / WI updates
   │             │
-  │             └─► .data/raw/ado/{org}/{project}/... (JSON + schemaVersion)  【06；05 冻结目录约定】
+  │             └─► .data/raw/ado/{org}/{project}/... (JSON + schemaVersion)  【07；05 冻结目录约定】
   │
-  ├─(3) validate raw（zod）                                             【06；05 冻结 schemaVersion 常量位置】
+  ├─(3) validate raw（zod）                                             【07；05 冻结 schemaVersion 常量位置】
   │
-  ├─(4) transform: raw + settings + devs → Activity[]                   【06】
+  ├─(4) transform: raw + settings + devs → Activity[]                   【07（真 ADO 路径）／06（fixture 路径）】
   │       ├─ 身份匹配（alias@suffix ≡ uniqueName）                       【06 实现，05 只出 DTO+签名】
   │       ├─ external_ref 拼接（02 §5.2）                                【06 实现，05 只出 DTO+签名】
   │       └─ day_key（IANA 时区）                                        【06 实现，05 只出 DTO+签名】
   │
   ├─(5) POST /api/pipeline/ingest ──Bearer──► Worker                   【05 冻结契约；06 实装写库】
-  │       body = { pipelineConfigVersion, runId, chunk, activities[], unmatchedIdentities[] }
+  │       body = { pipelineConfigVersion, runId, chunkIndex, isFinalChunk, activities[], unmatchedIdentities[] }
   │       05 仍返 501；06 替换为真写入：
   │             ├─ CAS pipelineConfigVersion（多阶段流程，非单 batch 原子）
   │             ├─ UPSERT activities (ON CONFLICT external_ref DO UPDATE)
   │             ├─ 二次查询受影响 dev-day 现存 Activity
-  │             ├─ 域包 aggregateScores → UPSERT scores
+  │             ├─ 域包 aggregateScores → UPSERT / DELETE scores
   │             ├─ UPSERT unmatched_identities（幂等 seen_count）
-  │             └─ 更新 ingest_runs 状态机
+  │             └─ 更新 ingest_runs + ingest_chunks 状态机
   │
-  └─(6) POST /api/pipeline/recompute/complete（full rematch finalize）  【06 完善；05 骨架已在】
+  └─(6) POST /api/pipeline/recompute/complete（full rematch finalize）  【06 完善；05 已定契约】
 ```
 
 **05 覆盖**：(1) bootstrap 契约扩展、(5) Ingest 契约冻结、以及 (2)–(4)(6) 所需的**目录约定 / DTO 契约 / CLI 骨架 / 本地闭环**。
@@ -290,7 +290,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 **明确不使用**：单 batch 完成 write+read+aggregate+finalize。**明确采用**：可重试的多阶段流程 + 内部 chunk 状态推进。
 
-对于一次 `POST /pipeline/ingest`（一个 chunk），06 服务端顺序执行：
+对于一次 `POST /api/pipeline/ingest`（一个 chunk），06 服务端顺序执行：
 
 ```
 ┌─ Phase 0  Chunk 预检 + 旧 dev-day 查询 + JS 算并集 ─────────┐
@@ -455,7 +455,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 **05 明确**（替代 03 §8 与当前 `pipeline-auth.ts` 中"Access 浏览器可打 pipeline write"的旧表述）：
 
-| 通道 | Pipeline write（`/api/pipeline/ingest`、`/pipeline/recompute/*`） | Pipeline read（`/api/pipeline/bootstrap`） | 管理 API（`/api/settings`、entity CRUD） |
+| 通道 | Pipeline write（`/api/pipeline/ingest`、`/api/pipeline/recompute/*`） | Pipeline read（`/api/pipeline/bootstrap`） | 管理 API（`/api/settings`、entity CRUD） |
 |:-----|:------|:------|:------|
 | **浏览器 + Access JWT** | ❌ **403** — Access 用户禁止 pipeline write | ❌ **403** — 浏览器无 CLI 语境；诊断走本地 loopback | ✅ |
 | **Machine host + Bearer Write Token** | ✅ | ✅ | ❌ 403（machine host 不做管理写） |
@@ -798,6 +798,9 @@ WHERE developer_id IN (?, ?, ...)
 
 ```json
 {
+  "pipelineConfigVersion": 3,
+  "scoresStale": false,
+  "staleReason": null,
   "items": [
     { "id": "01J...", "type": "pr.merged", "occurredAt": 1720000123, "dayKey": "2026-07-03",
       "org": "acme", "project": "Alpha", "repoId": "01J...", "meta": {} }
@@ -806,7 +809,14 @@ WHERE developer_id IN (?, ?, ...)
 }
 ```
 
-**stale 语义**：同 8.1；活动列表本身不受 stale 影响（activity 与 config_version 独立索引），但 UI 可用 8.1 横幅提示"分数可能过期"。
+**stale 语义**：与 8.1 相同"stale 时返空"策略——即使 timeline 展示的是 Activity 明细而非 Score，`dayKey` 与身份匹配同样依赖当前 Settings 版本，返回旧版本的明细会与前端横幅信息不一致。
+
+| 状态 | 行为 |
+|:-----|:-----|
+| `scoresStale = false` | 200；正常返回 items（含 keyset cursor） |
+| `scoresStale = true` | **200；`items=[]`；`nextCursor=null`；`scoresStale=true` + `staleReason` 原样透传** |
+
+**config_version 过滤**：非 stale 时 SQL 必须 `WHERE config_version = (SELECT CAST(value AS INTEGER) FROM settings WHERE key='pipeline_config_version')`。
 
 ### 8.3 前端 MVVM 落点（06 实装）
 
@@ -863,7 +873,7 @@ apps/collect/
 | `signoff settings show` | ✅ 读缓存或 `--remote` 刷新 | — |
 | `signoff collect --dry-run` | ✅ 打印将要拉哪些 repo/project；**不**调 ADO | 加真 collect 主路径 |
 | `signoff collect` | ⚠️ stub：打印 "not implemented (see docs/06)" 后 exit 1 | ✅ 真 ADO 拉取 + transform + ingest |
-| `signoff ingest fixture <file>` | ⚠️ **STUB**：读 JSON、`ingestBodySchema.parse`、**打印** body 摘要（前 3 条 activity + 总数）、退出 0 **不真发** | ✅ 真 POST /pipeline/ingest；处理 200/409/501 |
+| `signoff ingest fixture <file>` | ⚠️ **STUB**：读 JSON、`ingestBodySchema.parse`、**打印** body 摘要（前 3 条 activity + 总数）、退出 0 **不真发** | ✅ 真 POST `/api/pipeline/ingest`；处理 200/409/501 |
 
 ### 9.3 质量门
 
@@ -941,7 +951,7 @@ apps/collect/
 
 ### 10.4 06 的用途
 
-- 用来做首次真正 POST /pipeline/ingest 的 E2E：D1 出现 activity / score 行 → Web heatmap 可见。
+- 用来做首次真正 POST `/api/pipeline/ingest` 的 E2E：D1 出现 activity / score 行 → Web heatmap 可见。
 
 ---
 
