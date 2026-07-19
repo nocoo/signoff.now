@@ -119,7 +119,7 @@
 | Gap | 05 交付 | 06 使用 |
 |:----|:--------|:--------|
 | 无 CLI app | commander 入口 + logger + 环境变量（`SIGNOFF_API_BASE` / `SIGNOFF_PIPELINE_WRITE_TOKEN`） | 加 collect / ingest 命令 |
-| 无 doctor | `signoff doctor` 校验：`az` 已登录、`.data` 可写、bootstrap 可达、Pipeline Token 已配置（不真调 ADO） | 每次 collect 前自动跑 |
+| 无 doctor | `signoff doctor` 校验：`az` 已登录、`.data` 可写、bootstrap 可达、Pipeline Token 已配置（**仅当** `SIGNOFF_API_BASE` 非 loopback 时检查 token；loopback 场景按 §5.6 始终跳过 token）（不真调 ADO） | 每次 collect 前自动跑 |
 | 无 HTTP client | `pipelineClient.bootstrap()` / `.ingest(body)` / `.recomputeComplete(body)`；mock 网络覆盖 401/403/409/501 | 06 换成真调用 + 200 分支 |
 | 无 settings 缓存 | `.data/cache/bootstrap.json` 读写；含 `pipelineConfigVersion` 与 `fetchedAt`；过期检查 | collect 前必须 pull |
 | 无 raw/normalized 目录约定 | `packages/domain/paths.ts` 导出 `rawPath(...)` / `normalizedPath(...)`，代码化 01 §7.2 | 06 落盘时使用 |
@@ -519,46 +519,72 @@ export const DEFAULT_WEIGHTS: Readonly<Record<ActivityType, number>> = {
 };
 ```
 
-**Activity + sourceIds**（服务端据此重算 externalRef）：
+**Activity + sourceIds**（服务端据此重算 externalRef；按 type 走 discriminated union，防止 `wi.updated` 搭配 PR sourceIds 之类的错配）：
 
 ```ts
 // packages/domain/src/activity.ts
 import { z } from "zod";
-import { ACTIVITY_TYPES } from "./constants.js";
 
-const prSourceIds = z.object({
+const prCore = z.object({
   prRepoGuid: z.string().uuid(),
   prId: z.number().int().positive(),
-});
-const prVoteSourceIds = prSourceIds.extend({
+}).strict();
+
+const prVoteIds = z.object({
+  prRepoGuid: z.string().uuid(),
+  prId: z.number().int().positive(),
   voterIdentityId: z.string().min(1),
   threadId: z.number().int().positive(),
   commentId: z.number().int().nonnegative(),
-});
-const prActiveSourceIds = prSourceIds.extend({
+}).strict();
+
+const prActiveIds = z.object({
+  prRepoGuid: z.string().uuid(),
+  prId: z.number().int().positive(),
   iterationId: z.number().int().positive(),
-});
-const wiSourceIds = z.object({
+}).strict();
+
+const wiCore = z.object({
   projectGuid: z.string().uuid(),
   wiId: z.number().int().positive(),
-});
-const wiUpdateSourceIds = wiSourceIds.extend({
-  revisionId: z.number().int().positive(),
-});
+}).strict();
 
-export const activitySchema = z.object({
-  type: z.enum(ACTIVITY_TYPES),
+const wiUpdateIds = z.object({
+  projectGuid: z.string().uuid(),
+  wiId: z.number().int().positive(),
+  revisionId: z.number().int().positive(),
+}).strict();
+
+const activityBase = {
   occurredAt: z.number().int().positive(),
   provider: z.literal("ado"),
   org: z.string().min(1),
   project: z.string().min(1),
-  repoId: z.string().nullable(),
   developerId: z.string().min(1),
   matchedUniqueName: z.string().min(1),
-  sourceIds: z.union([prSourceIds, prVoteSourceIds, prActiveSourceIds, wiSourceIds, wiUpdateSourceIds]),
   meta: z.record(z.unknown()).optional(),
-  // 禁止字段：id / externalRef / dayKey / config_version（zod .strict()）
-}).strict();
+} as const;
+
+// discriminated union by `type`；每 type 只接受对应的 sourceIds 形状与 repoId 语义
+export const activitySchema = z.discriminatedUnion("type", [
+  z.object({ ...activityBase, type: z.literal("pr.merged"),
+             repoId: z.string().min(1), sourceIds: prCore }).strict(),
+  z.object({ ...activityBase, type: z.literal("pr.closed"),
+             repoId: z.string().min(1), sourceIds: prCore }).strict(),
+  z.object({ ...activityBase, type: z.literal("pr.created"),
+             repoId: z.string().min(1), sourceIds: prCore }).strict(),
+  z.object({ ...activityBase, type: z.literal("pr.vote"),
+             repoId: z.string().min(1), sourceIds: prVoteIds }).strict(),
+  z.object({ ...activityBase, type: z.literal("pr.active"),
+             repoId: z.string().min(1), sourceIds: prActiveIds }).strict(),
+  z.object({ ...activityBase, type: z.literal("wi.created"),
+             repoId: z.null(),             sourceIds: wiCore }).strict(),
+  z.object({ ...activityBase, type: z.literal("wi.closed"),
+             repoId: z.null(),             sourceIds: wiCore }).strict(),
+  z.object({ ...activityBase, type: z.literal("wi.updated"),
+             repoId: z.null(),             sourceIds: wiUpdateIds }).strict(),
+]);
+// 禁止字段：id / externalRef / dayKey / config_version（每分支 .strict() 拒绝多余键）
 
 export type Activity = z.infer<typeof activitySchema>;
 ```
@@ -707,22 +733,25 @@ export function aggregateScores(
 
 | 状态 | 行为 |
 |:-----|:-----|
-| `scoresStale = false` 且存在 `config_version = pipeline_config_version` 的 rows | 正常返回 rows |
-| `scoresStale = true`（配置刚变，未 recompute） | **仍返回 200，rows 用旧 config_version 的最近 finalized 数据**；`scoresStale=true` 与 `staleReason` 让前端渲染横幅（03 §5.3 已定语义） |
-| 无任何 finalized 数据 | 返回 200，`rows=[]`，`scoresStale=false` |
+| `scoresStale = false` 且当前版本有 rows | 200；返回 rows；`scoresStale=false` |
+| `scoresStale = false` 且当前版本无 rows | 200；`rows=[]`；`scoresStale=false` |
+| `scoresStale = true`（配置刚变，未 recompute） | **200；`rows=[]`；`scoresStale=true` 与 `staleReason` 原样透传** — 不返回旧快照（当前 `scores` 主键 `(developer_id, day_key)` 会被新版本覆盖，无法保留历史版本；前端据 `scoresStale` 渲染横幅） |
+
+**API 不得篡改 `scoresStale`**：始终读 Settings 真实状态并透传；不允许在返回旧数据时把 `scoresStale` 改成 `false`。
 
 **SQL 骨架（06 实装）**：
 
 ```sql
+-- stale=true 时直接返回空,不查 scores
+-- stale=false:
 SELECT developer_id, day_key, total, activity_count
 FROM scores
 WHERE developer_id IN (?, ?, ...)
   AND day_key BETWEEN ? AND ?
-  AND config_version = (
-    -- stale=false: 当前版本；stale=true: 最新已 finalized 的 run.config_version
-    SELECT ... FROM ingest_runs WHERE status='finalized' ORDER BY finished_at DESC LIMIT 1
-  );
+  AND config_version = (SELECT CAST(value AS INTEGER) FROM settings WHERE key='pipeline_config_version');
 ```
+
+> **不保留历史快照**是 05 的刻意选择：一期 Scores 表主键决定了改配置后旧分被覆盖；用横幅 + 空数据引导用户重算，避免 UI 混淆新旧数据。二期若需 history，需单表存 snapshot（超出本文）。
 
 ### 8.2 `GET /api/activity/timeline` — 契约冻结
 
@@ -801,7 +830,7 @@ apps/collect/
 
 | 命令 | 05 行为 | 06 追加 |
 |:-----|:--------|:--------|
-| `signoff doctor` | ✅ 校验 az / .data / bootstrap 可达 / token 存在 | 加 ADO 网络探测 |
+| `signoff doctor` | ✅ 校验 az / .data / bootstrap 可达 / token（仅非 loopback 时检） | 加 ADO 网络探测 |
 | `signoff settings pull` | ✅ 04 §6.4；写 `.data/cache/bootstrap.json` | — |
 | `signoff settings show` | ✅ 读缓存或 `--remote` 刷新 | — |
 | `signoff collect --dry-run` | ✅ 打印将要拉哪些 repo/project；**不**调 ADO | 加真 collect 主路径 |
@@ -942,7 +971,7 @@ apps/collect/
 ### S5 本地闭环
 - [ ] `bun run dev:all` 起 web + worker + wrangler local D1，migrations apply
 - [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/bootstrap` 无 token 应 200
-- [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/ingest -X POST ...` 应返 501（未来 401 由 06 决定）
+- [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/ingest -X POST ...` 应返 501（loopback 按 §5.6 冻结契约**始终**绕过鉴权，不涉及 401）
 - [ ] `signoff doctor` 全绿
 - [ ] `signoff settings pull` 写出 `.data/cache/bootstrap.json` 且 `pipelineConfigVersion` 与 Web 一致
 - [ ] `signoff ingest fixture ./fixtures/activities.sample.json` 打印 body 摘要，退出 0
