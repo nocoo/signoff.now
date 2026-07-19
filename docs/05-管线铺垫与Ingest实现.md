@@ -102,7 +102,7 @@
 |:----|:--------|:--------|
 | **project GUID** 不在 D1 | 新 migration `0004_repo_project_guid.sql`：在 `repos` 表加 `project_external_id TEXT`（可空，允许后续回填）；Web CRUD 与 bootstrap 契约同步更新，不新建 `projects` 表 | 构造 `wi.*` 的 `external_ref = ado:wi:{projectGuid}:{wiId}:...` |
 | bootstrap 返回不完整 | `GET /api/pipeline/bootstrap` 响应 `repos[].projectExternalId`；null 表示未回填（06 允许跳过该 project 的 WI） | CLI 缓存到 `.data/cache/bootstrap.json`；skip 无 GUID 的 project |
-| Repo CRUD 无 project GUID 字段 | Web repos 页 + `POST/PUT /api/repos` 支持 `projectExternalId`；同 org/project 下应保持一致（Web 校验软提示，非硬约束） | 采集前用户回填一次 |
+| Repo CRUD 无 project GUID 字段 | Web repos 页 + `POST/PUT /api/repos` 支持 `projectExternalId`；**服务端硬拒绝**同 `(provider, org, project)` 下不一致的非空 GUID（返 409），保证同项目下所有 repo 的 project GUID 单调一致；无需新建 `projects` 表 | 采集前用户回填一次 |
 
 ### 3.2 Domain 契约包
 
@@ -162,10 +162,10 @@
 | Step | 内容 | 完成信号 |
 |:-----|:-----|:---------|
 | **S1** Schema & bootstrap | 3.1 全表 | `0004_repo_project_guid.sql` 应用；`GET /bootstrap` 返 `projectExternalId`；Repo CRUD 可编辑该字段；worker 测试通过 |
-| **S2** Domain 契约包 | 3.2 全表 | `packages/domain` 建包；导出 DTO/zod/常量/函数签名；被 worker 与 web 单测 import 不报错；`bun test` 通过（函数签名允许 `unimplemented` 抛错，只测类型/zod） |
+| **S2** Domain 契约包 | 3.2 全表 | `packages/domain` 建包；导出 DTO/zod/常量/**函数类型别名**（不含 impl 文件）；被 worker 与 web 单测 import 不报错；`bun test` 覆盖率 ≥95%（仅测常量/zod/paths） |
 | **S3** CLI 骨架 | 3.3 全表 | `signoff doctor` / `settings pull` / `settings show` / `collect --dry-run` 全部可跑；`ingest fixture` 打印 body 但不发送；单测 ≥95% |
 | **S4** Ingest 契约冻结 | 3.4 全表 + 同步修 03 鉴权表述 | §5 全部小节写完；`pipeline-auth.ts` 若与新契约冲突则同步修正测试（Access 浏览器打 pipeline write → 403） |
-| **S5** 本地闭环实测 | 3.5 全表 | 手动跑通：`bun run dev:all` → `signoff doctor` 全绿 → `signoff settings pull` 写 cache → `signoff ingest fixture ./fixture.json` 打印 body 且回收到 worker 的 501 响应 |
+| **S5** 本地闭环实测 | 3.5 全表 | 手动跑通：`bun run dev:all` → `signoff doctor` 全绿 → `signoff settings pull` 写 cache → `signoff ingest fixture ./fixture.json` 打印 body 摘要并退出 0（**不发 HTTP**）；另用 `curl -X POST http://127.0.0.1:37042/api/pipeline/ingest -d '{}'` 独立验证 worker 返 501 |
 
 **05 完成 = S1..S5 全绿**。任何"Activity/Score 在 D1 出现"都不是 05 验收信号——**留给 06**。
 
@@ -467,9 +467,11 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 ### 6.1 05 交付范围
 
-**05 只落**：包结构、导出、DTO、常量、zod schema、函数**签名**。函数体一律 `throw new Error("unimplemented — see docs/06")`，测试只覆盖类型/zod/常量。
+**05 只落**：包结构、导出、DTO、常量、zod schema、函数**类型定义**（`type`/`interface`，不落 `function`）。**不建**任何"抛 unimplemented"的函数文件。
 
-**06 实装**：`matchDeveloper` / `dayKey` / `buildExternalRef` / `aggregateScores` / `parseUniqueName` 的函数体、边界样例测试、95% 覆盖率。
+**06 实装**：`matchDeveloper` / `dayKey` / `buildExternalRef` / `aggregateScores` 的**实现文件**、边界样例测试、95% 覆盖率——**05 阶段这些 `.ts` 文件根本不存在**。
+
+理由：抛 `unimplemented` 的空壳既不能通过静态检查发现"忘了实装"，又会污染 05 覆盖率（要么门禁跳过、要么写"测试抛错"的 no-value 测试）。让 06 直接建文件更干净。
 
 ### 6.2 目录
 
@@ -477,18 +479,19 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 packages/domain/
 ├── package.json                # name: @signoff/domain, private
 ├── tsconfig.json
-├── bunfig.toml                 # bun coverage thresholds — 05 阶段 domain 只覆盖常量/zod/paths
+├── bunfig.toml                 # bun coverage thresholds
 └── src/
     ├── index.ts                # 只 re-export
     ├── constants.ts            # ACTIVITY_TYPES, DEFAULT_WEIGHTS   ← 05 落
-    ├── activity.ts             # activitySchema, sourceIdsSchemas   ← 05 落
+    ├── activity.ts             # activitySchema, sourceIds unions   ← 05 落
     ├── ingest.ts               # ingestBodySchema, chunk/run 类型   ← 05 落
     ├── paths.ts                # rawPath(), normalizedPath(), cachePath()  ← 05 落
-    ├── identity.ts             # matchDeveloper() 签名               ← 05 签名，06 实装
-    ├── day-key.ts              # dayKey() 签名                        ← 05 签名，06 实装
-    ├── external-ref.ts         # buildExternalRef() 签名              ← 05 签名，06 实装
-    ├── score.ts                # aggregateScores() 签名               ← 05 签名，06 实装
+    ├── types.ts                # 函数**类型别名**（不含 impl）        ← 05 落
+    │                           #   例：type MatchDeveloper = (u:string, ...) => {...}|null
     └── *.test.ts               # 05 只测已落项（常量/zod/paths）
+    #
+    # 以下由 06 建立(05 不存在):
+    # identity.ts / day-key.ts / external-ref.ts / score.ts + 对应 .test.ts
 ```
 
 ### 6.3 硬约束
@@ -496,7 +499,7 @@ packages/domain/
 | 项 | 规则 |
 |:---|:-----|
 | 零副作用 | 不引入 React / fetch / fs / D1 类型 |
-| Bun 原生测试 | `bun test --coverage`；05 阈值先设 90%（因函数体未实装），06 恢复到 ≥95% |
+| Bun 原生测试 | `bun test --coverage`；05 阈值 ≥95%（仅已落文件参与门禁，`include` 精确列出） |
 | Import boundary | Worker/Web/CLI 都通过 `@signoff/domain` import；禁止跨包相对路径 |
 
 ### 6.4 关键契约（05 落地）
@@ -615,40 +618,32 @@ export const ingestBodySchema = z.object({
 }).strict();
 ```
 
-**函数签名（05 落，06 实装）**：
+**函数类型（05 落，06 实装文件不在 05）**：
 
 ```ts
-// packages/domain/src/identity.ts
-export function matchDeveloper(
+// packages/domain/src/types.ts
+export type MatchDeveloper = (
   uniqueName: string,
   developers: readonly { id: string; alias: string }[],
   suffixes: readonly string[],
-): { id: string } | null {
-  throw new Error("unimplemented — see docs/06");
-}
+) => { id: string } | null;
 
-// packages/domain/src/day-key.ts
-export function dayKey(occurredAtSec: number, timeZone: string): string {
-  throw new Error("unimplemented — see docs/06");
-}
+export type DayKey = (occurredAtSec: number, timeZone: string) => string;
 
-// packages/domain/src/external-ref.ts
-export function buildExternalRef(type: ActivityType, sourceIds: unknown): string {
-  throw new Error("unimplemented — see docs/06");
-}
+export type BuildExternalRef = (
+  type: ActivityType,
+  sourceIds: unknown,     // 06 用 discriminated union 收紧
+) => string;
 
-// packages/domain/src/score.ts
 export type ScoreRow = {
   developerId: string; dayKey: string;
   total: number; breakdown: Partial<Record<ActivityType, number>>;
   activityCount: number;
 };
-export function aggregateScores(
+export type AggregateScores = (
   activities: readonly Activity[],
   weights: Readonly<Record<ActivityType, number>>,
-): ScoreRow[] {
-  throw new Error("unimplemented — see docs/06");
-}
+) => ScoreRow[];
 ```
 
 > **`parseUniqueName` 剥前缀被删除**。01 明确「人类身份的 `uniqueName` 几乎全是邮箱」+ 精确匹配；无必要预先剥 `vsts:` 之类前缀（会引入猜测）。若 06 遇到真实 ADO 格式必须规范化，届时基于实测数据再加，并写进 06 与本节。
@@ -657,12 +652,12 @@ export function aggregateScores(
 
 | 已落项 | 测试 |
 |:-------|:-----|
-| 常量 | 键完整性（全部 8 种 type、DEFAULT_WEIGHTS 有全部键） |
-| activitySchema | 拒绝 `id`/`externalRef`/`dayKey`/`config_version`；type 不在枚举；sourceIds 与 type 不匹配 |
-| ingestBodySchema | `activities.length > 20` 拒绝；`runId` 长度、`windowFrom` 格式 |
+| 常量 | 键完整性（全部 8 种 type、DEFAULT_WEIGHTS 有全部键；权重值皆为非负整数） |
+| activitySchema | 拒绝 `id`/`externalRef`/`dayKey`/`config_version`；type 不在枚举；sourceIds 与 type 错配（如 `wi.updated` + PR sourceIds、`pr.vote` 缺 threadId、`pr.merged` 附 `repoId=null`） |
+| ingestBodySchema | `activities.length > 20` 拒绝；`unmatchedIdentities.length > 20` 拒绝；`runId` 长度、`windowFrom` 格式 |
 | paths | `rawPath("ado", "acme", "Alpha", "repos/foo", "prs/1234")` 生成正确 |
 
-**未落函数**的测试：只测「调用时抛 `unimplemented`」，作为 06 落地的"红灯"。
+**函数实现相关测试** 一律留给 06；05 不写任何"函数调用抛 unimplemented"级别的伪测试。
 
 ---
 
@@ -926,7 +921,8 @@ apps/collect/
 | **03** | Web 模板与 MVVM；**§5.6 收紧鉴权表述后需同步修 03 §8** |
 | **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致） |
 | **05（本文）** | 06 开工前的**基础设施 + 冻结契约** |
-| **06** | Activity/Score 真实写入、算法定稿、fixture 首次落库、Web 数据读回、真实 ADO 拉取入门 |
+| **06** | Activity/Score 真实写入（基于 fixture 与 06 手工放到 `.data/normalized/` 的 Activity JSON）；算法定稿；fixture 首次落库；Web 数据读回。**不含**真实 ADO 采集 |
+| **07** | 真实 ADO 拉取（az/PR/WI）+ raw 逐字段 schema + normalized transform，写入 06 已实装的 Ingest 链路 |
 | **07** | CLI 命令矩阵、raw JSON 逐字段 schema、az 调用与错误分类 |
 
 **05 定"契约"；06 定"算法与实装"；07 定"外部数据源与命令表"。**
@@ -940,14 +936,22 @@ apps/collect/
 - [ ] `repos` 表新增 `project_external_id TEXT`；索引若需要（06 可能加）留 TODO 注释
 - [ ] `GET /api/pipeline/bootstrap` 响应 `repos[].projectExternalId`
 - [ ] Web repos 页新增 project GUID 编辑字段；`POST/PUT /api/repos` 支持该字段
+- [ ] `POST/PUT /api/repos` **服务端**硬拒绝同 `(provider, org, project)` 下不一致的非空 GUID → 409
 - [ ] Worker 与 Web 单测通过
+
+### S1a 权重收紧为非负整数（横跨 domain / Settings / Web / 兼容）
+- [ ] `packages/domain` 常量 `DEFAULT_WEIGHTS` 值全部整数（已覆盖）
+- [ ] `PUT /api/settings` 校验 `activityWeights[*]` 为 **z.number().int().nonnegative()**；小数或负数 → 400
+- [ ] Web `useSettingsViewModel` 校验一致；表单 UI 阻止输入小数/负数
+- [ ] 既有数据兼容：远端 D1 现有 `activity_weights` 若已有小数（可能人工写入），S1 落地前跑一次 `SELECT` 抽查，若存在则 04 §6.7 描述的一次性 fix migration 前置
+- [ ] `packages/worker/lib/settings.ts` 单测覆盖：小数拒绝 / 负数拒绝 / 整数通过
 
 ### S2 Domain 契约包
 - [ ] `packages/domain` 建包 + tsconfig + bunfig
-- [ ] 导出 `ACTIVITY_TYPES` / `DEFAULT_WEIGHTS` / `activitySchema` / `ingestBodySchema` / `paths` 帮手
-- [ ] `matchDeveloper` / `dayKey` / `buildExternalRef` / `aggregateScores` 有签名 + `unimplemented` 抛错
+- [ ] 导出 `ACTIVITY_TYPES` / `DEFAULT_WEIGHTS` / `activitySchema` / `ingestBodySchema` / `paths` 帮手 / 函数类型别名
+- [ ] **不**建 `identity.ts` / `day-key.ts` / `external-ref.ts` / `score.ts` 实现文件（留给 06）；仅在 `types.ts` 落函数类型别名
 - [ ] `parseUniqueName` **不存在**（明确删除，避免猜测剥前缀）
-- [ ] `bun test` 通过；已落项覆盖率 ≥90%
+- [ ] `bun test` 通过；已落项覆盖率 ≥95%（`include` 精确列出已落文件，避免"没实装"文件稀释门禁）
 - [ ] Worker 与 Web import `@signoff/domain` 无循环
 
 ### S3 CLI 骨架
@@ -989,8 +993,8 @@ apps/collect/
 
 | 编号 | 内容 | 触发时机 |
 |:-----|:-----|:---------|
-| 06 | Activity 重建算法与 Score（§7.4 待决清单定稿；ingest 真实写入实装；Web 读回 UI；fixture 首次落库；ADO 采集初步） | 05 完成 S1..S5 后立即开工 |
-| 07 | CLI 命令矩阵与 ADO 落盘（raw JSON 逐字段 schema、az 调用、错误分类、增量游标） | 06 中 ADO 采集初步完成后展开 |
+| 06 | Activity 重建算法与 Score（§7.4 待决清单定稿；ingest 真实写入实装；Web 读回 UI；fixture 首次落库）—— **不含**真实 ADO 拉取 | 05 完成 S1..S5 后立即开工 |
+| 07 | 真实 ADO 拉取（az/PR/WI + raw 逐字段 schema + normalized transform + 增量游标），复用 06 的 Ingest 链路 | 06 完成后展开 |
 | 08 | Ingest 鉴权与运维（Pipeline Token 轮换、machine 白名单、ingest_runs 观察面） | 06 上线后按需 |
 
 ---
