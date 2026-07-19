@@ -132,7 +132,7 @@
 | Gap | 05 交付 | 06 使用 |
 |:----|:--------|:--------|
 | body/响应/错误码 | §5.1 定死 | 按契约实装 |
-| D1 查询预算 | §5.2：Free 50 / Paid 1000 stmt 上限；`activities.length ≤ 10`（一期兼容 Free；SQL 形态定后 06 再提议放大）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 |
+| D1 查询预算 | §5.2：D1 Paid 1000 stmt 上限（**05 明确只支持 Paid**）；`activities.length ≤ 10` + `unmatched ≤ 10`（最坏 stmt ≈ 89，见 §5.2 明细）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 + query-count 断言测试 |
 | 多阶段流程 | §5.3：不承诺单 batch 原子；拆 Activity write → 查询 → Score upsert → finalize；每阶段独立 CAS | 06 按阶段实装 |
 | runId/chunk/finalize 状态机 | §5.4：run 生命周期 `pending → chunked → finalized/failed`；chunk 幂等 by `(runId, chunkIndex)` | 06 实装状态转换 |
 | 服务端反污染 | §5.5：dayKey/identity/externalRef 服务端重算并比对，客户端不可提供 `id` / `config_version` | 06 实装校验 |
@@ -264,7 +264,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 | 项 | Free | Paid | 05/06 侧策略 |
 |:---|:-----|:-----|:-------------|
-| 每次 Worker invocation 可执行 SQL statement 数 | **50** | **1000** | 06 部署目标 = **Paid**；文档同时给 Free 与 Paid 的降级方案 |
+| 每次 Worker invocation 可执行 SQL statement 数 | 50 | **1000** | **06 部署目标只支持 Paid**;05 不再承诺兼容 Free(stmt 预算无法安全覆盖多阶段) |
 | 单 statement 参数上限 | 100 | 100 | 06 用多行 `VALUES (..),(..),..` 时按 100 参数拆 |
 | Worker 请求体 | — | 100 MB | 我方硬上限 **512 KB / 请求**（远小于 D1 阈值，避免误传） |
 
@@ -272,19 +272,43 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 
 | 项 | 值 | 理由 |
 |:---|:---|:-----|
-| `activities.length` | ≤ **10** / chunk | **一期硬上限**，兼容 Free（stmt budget 50）。最坏一 chunk 约:Phase 0 1 SELECT + Phase 1 (10 activity UPSERT + 10 unmatched UPSERT + 1 run UPSERT + 1 chunk INSERT) + Phase 3 (最多 20 dev-day Score UPSERT/DELETE + 1 run stat UPDATE + 1 chunk UPDATE) ≈ ~45 stmt,贴近 Free 上限。SQL 形态未定前不冻结更大值;06 若切多行 `VALUES` 或 JSON 参数后重新测算,再由 06 提议放大 |
+| `activities.length` | ≤ **10** / chunk | **一期硬上限**(Paid)。最坏 stmt 清点见下方"stmt 明细";10 条为保守值,06 若切多行 `VALUES` / JSON 参数后**实测**再提议放大 |
 | `unmatchedIdentities.length` | ≤ **10** / chunk | 与 activities 同数量级 |
 | `activities[].meta` 序列化后 | ≤ **4 KB** / 条 | 超上限直接 400 拒绝；一期不做外部存储 |
 | `payload bytes` | ≤ **512 KB** | 服务端**必须校验实际读取字节数**（`Content-Length` 可缺失或伪造），流式读到阈值即拒 413 |
 | 单 statement 参数绑定 | ≤ **100** | D1 硬限制;06 若切多行 `VALUES` 须按 100 参数拆 |
 
-**05 不冻结**：JSON 参数化、多行 `VALUES`、chunk 外部存储 等 SQL 优化路径——由 06 在实测 D1 stmt/bind 消耗后再提议放大 `activities.length` 上限,同步补 05 §5.2。
+**最坏 stmt 明细**（一 chunk,`activities=10` `unmatched=10`,final chunk 场景;每行 = 一次 D1 statement 或 batch statement）：
+
+| Phase | 项 | 数量 |
+|:------|:---|-----:|
+| Phase 0 | SELECT 当前 Settings.pipeline_config_version | 1 |
+| Phase 0 | SELECT ingest_runs 状态 | 1 |
+| Phase 0 | SELECT ingest_chunks 状态 | 1 |
+| Phase 0 | SELECT 旧 activities by external_ref | 1 |
+| Phase 0 | 引用完整性 SELECT (developers + repos ≤ 10 × 2) | ≤ 20 |
+| Phase 1 batch | UPSERT activities × 10 | 10 |
+| Phase 1 batch | UPSERT unmatched_identities × 10 | 10 |
+| Phase 1 batch | UPSERT ingest_runs | 1 |
+| Phase 1 batch | INSERT ingest_chunks | 1 |
+| Phase 2 | SELECT activities 聚合(受影响 ≤ 20 dev-day) | 1 |
+| Phase 3 batch | UPSERT scores × ≤ 20 | ≤ 20 |
+| Phase 3 batch | DELETE scores × ≤ 20 | ≤ 20 |
+| Phase 3 batch | UPDATE ingest_runs stats | 1 |
+| Phase 3 batch | UPDATE ingest_chunks status | 1 |
+| Phase 4 batch | UPDATE ingest_runs finalize + finished_at | 1 |
+| **合计** | | **≤ 89** |
+
+Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VALUES` 优化 UPSERT 可再降。Free 上限 50 明显放不下,故**05 起明确"仅 Paid"**。
+
+**05 不冻结**：JSON 参数化、多行 `VALUES`、引用完整性 SELECT 合并 等 SQL 优化路径——由 06 在实测 D1 stmt/bind 消耗后再提议放大 `activities.length` 上限,同步补 05 §5.2。
 
 **06 的分片策略**：
 
 - CLI 端把待写 Activity 按 10 一段切成 N 个 chunk；顺序发送。
 - 若某 chunk 返回 409（版本冲突），CLI 应**中止后续 chunk**，`settings pull` 后**放弃当前 runId**、开新 runId 重头。
 - 若某 chunk 返回 5xx，CLI 可重试**同一** `(runId, chunkIndex)`——服务端幂等保障（§5.4）。
+- 06 服务端应加 **query-count 断言测试**:一次 ingest chunk 全流程 stmt 数 ≤ 100 upper bound,回归时自动失败。
 
 ### 5.3 多阶段流程（06 实装形态）
 
@@ -646,7 +670,7 @@ export const ingestBodySchema = z.object({
     windowTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     mode: z.enum(["incremental", "full_rematch"]),
   }),
-  activities: z.array(activitySchema).max(10), // §5.2 硬上限（一期兼容 Free）
+  activities: z.array(activitySchema).max(10), // §5.2 硬上限（Paid only）
   unmatchedIdentities: z.array(z.object({
     uniqueName: z.string().min(1),
     sampleOrg: z.string().optional(),
