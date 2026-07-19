@@ -41,7 +41,7 @@
 | D1 Schema（含 project GUID 补齐） | ✅ 定 + migration | 用现成 schema |
 | bootstrap 契约（返完整 project GUID） | ✅ 冻结 | 调用 |
 | `@signoff/domain` 包结构 + DTO/常量/zod | ✅ 建包 + 契约 | 实现 matchDeveloper/dayKey/buildExternalRef/aggregateScores |
-| CLI 骨架（doctor/settings pull/dry-run） | ✅ 全部落地 | 加 `collect` 真拉 ADO、`ingest` 真提交 |
+| CLI 骨架（doctor/settings pull/dry-run） | ✅ 全部落地 | 加 `collect` 真拉 ADO（**07 交付**）、`ingest` 真提交（**06 交付**） |
 | `/api/pipeline/ingest` 契约 | ✅ 定死 body/响应/错误码/幂等/D1 预算 | 按契约实现真写库 |
 | `/api/pipeline/ingest` 实现 | ❌ **仍返 501** | ✅ 替换 501，写 Activity/Score/Unmatched/IngestRun |
 | Score 聚合算法 | ⚠️ 只列输入输出与待决清单 | ✅ 定稿并实现 |
@@ -108,7 +108,7 @@
 
 | Gap | 05 交付 | 06 使用 |
 |:----|:--------|:--------|
-| CLI/Worker 类型不共享 | 新包 `packages/domain`：只有 **DTO/常量/zod schema/函数签名**，无业务实现（§6） | 06 在此包内实装 `matchDeveloper`/`dayKey`/`buildExternalRef`/`aggregateScores`/`parseUniqueName` |
+| CLI/Worker 类型不共享 | 新包 `packages/domain`：只有 **DTO/常量/zod schema/函数类型别名**，无业务实现（§6） | 06 在此包内实装 `matchDeveloper` / `dayKey` / `buildExternalRef` / `aggregateScores` |
 | Activity 结构无 SoT | 导出 `activitySchema` / `ingestBodySchema` / `ActivityType` / `ACTIVITY_TYPES` / `DEFAULT_WEIGHTS`（对齐 01 §6.3、02 §5.2） | Worker ingest 与 CLI transform 双边 import |
 | 权重数值类型不明 | 定 `weight: z.number().int().nonnegative()`，与 D1 `scores.total INTEGER` 一致；`activityWeights` Settings 校验同步收紧为非负整数 | aggregateScores 输出 `total: number` 直接落 INTEGER |
 
@@ -136,7 +136,7 @@
 | 多阶段流程 | §5.3：不承诺单 batch 原子；拆 Activity write → 查询 → Score upsert → finalize；每阶段独立 CAS | 06 按阶段实装 |
 | runId/chunk/finalize 状态机 | §5.4：run 生命周期 `pending → chunked → finalized/failed`；chunk 幂等 by `(runId, chunkIndex)` | 06 实装状态转换 |
 | 服务端反污染 | §5.5：dayKey/identity/externalRef 服务端重算并比对，客户端不可提供 `id` / `config_version` | 06 实装校验 |
-| 鉴权契约 | §5.6：浏览器 Access **禁止** pipeline write；同步修 03 与 `pipeline-auth.ts` | 06 若发现代码路径不一致需修正 |
+| 鉴权契约 | §5.6：浏览器 Access **禁止** pipeline write；同步修 03 §8 与 04 §8；`pipeline-auth.ts` | 06 若发现代码路径不一致需修正 |
 
 ### 3.5 本地开发闭环
 
@@ -164,7 +164,7 @@
 | **S1** Schema & bootstrap | 3.1 全表 | `0004_repo_project_guid.sql` 应用；`GET /bootstrap` 返 `projectExternalId`；Repo CRUD 可编辑该字段；worker 测试通过 |
 | **S2** Domain 契约包 | 3.2 全表 | `packages/domain` 建包；导出 DTO/zod/常量/**函数类型别名**（不含 impl 文件）；被 worker 与 web 单测 import 不报错；`bun test` 覆盖率 ≥95%（仅测常量/zod/paths） |
 | **S3** CLI 骨架 | 3.3 全表 | `signoff doctor` / `settings pull` / `settings show` / `collect --dry-run` 全部可跑；`ingest fixture` 打印 body 但不发送；单测 ≥95% |
-| **S4** Ingest 契约冻结 | 3.4 全表 + 同步修 03 鉴权表述 | §5 全部小节写完；`pipeline-auth.ts` 若与新契约冲突则同步修正测试（Access 浏览器打 pipeline write → 403） |
+| **S4** Ingest 契约冻结 | 3.4 全表 + 同步修 03 §8 与 04 §8 鉴权表述 | §5 全部小节写完；`pipeline-auth.ts` 若与新契约冲突则同步修正测试（Access 浏览器打 pipeline write → 403） |
 | **S5** 本地闭环实测 | 3.5 全表 | 手动跑通：`bun run dev:all` → `signoff doctor` 全绿 → `signoff settings pull` 写 cache → `signoff ingest fixture ./fixture.json` 打印 body 摘要并退出 0（**不发 HTTP**）；另用 `curl -X POST http://127.0.0.1:37042/api/pipeline/ingest -d '{}'` 独立验证 worker 返 501 |
 
 **05 完成 = S1..S5 全绿**。任何"Activity/Score 在 D1 出现"都不是 05 验收信号——**留给 06**。
@@ -238,7 +238,7 @@
   "runId": "01J...",
   "chunkIndex": 0,
   "pipelineConfigVersion": 3,
-  "activities": { "received": 250, "upserted": 250, "rejected": 0 },
+  "activities": { "received": 10, "upserted": 10, "rejected": 0 },
   "scores": { "affectedDevDays": 88, "recomputed": 88 },
   "unmatched": { "upserted": 3 },
   "finalized": false
@@ -495,7 +495,7 @@ Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VA
   - `wi.*`：`sourceIds.projectGuid` 必须等于该 `activities[].org + .project` 组合下**任意** `repos` 行的 `project_external_id`（同 project 一致由 §3.1 硬约束保证）；不等 → **422**
 - 上述绑定校验必须在 Phase 0/1 之前完成；一旦发现即 short-circuit 整个 chunk。
 
-### 5.6 鉴权契约（同步修 03 与 `pipeline-auth.ts`）
+### 5.6 鉴权契约（同步修 03 §8、04 §8 与 `pipeline-auth.ts`）
 
 **05 明确**（替代 03 §8 与当前 `pipeline-auth.ts` 中"Access 浏览器可打 pipeline write"的旧表述）：
 
@@ -675,7 +675,8 @@ export type Activity = z.infer<typeof activitySchema>;
 // packages/domain/src/ingest.ts
 export const ingestBodySchema = z.object({
   pipelineConfigVersion: z.number().int().positive(),
-  runId: z.string().min(20),                    // ULID / UUID
+  // ULID (Crockford base32, 26 chars) 或 UUID v4
+  runId: z.string().regex(/^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/),
   chunkIndex: z.number().int().nonnegative(),
   isFinalChunk: z.boolean(),
   runMeta: z.object({
@@ -1006,7 +1007,7 @@ apps/collect/
 | **01** | 定义 Activity type、默认权重、身份匹配规则（本文所有契约必须遵守） |
 | **02** | Schema、external_ref 模板、config_version 语义（本文写入路径的 sourceIds 与之一一对应） |
 | **03** | Web 模板与 MVVM；**§5.6 收紧鉴权表述后需同步修 03 §8** |
-| **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致）；**§5.7 收紧 recompute complete 契约（必须绑 runId + mode='full_rematch' + 三重 version）后需同步修 04 §6.7** |
+| **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致）；**§5.6 鉴权变化需同步修 04 §8;§5.7 收紧 recompute complete 契约（必须绑 runId + mode='full_rematch' + 三重 version）后需同步修 04 §6.7** |
 | **05（本文）** | 06 开工前的**基础设施 + 冻结契约** |
 | **06** | Activity/Score 真实写入（基于 fixture 与 06 手工放到 `.data/normalized/` 的 Activity JSON）；算法定稿；fixture 首次落库；Web 数据读回。**不含**真实 ADO 采集 |
 | **07** | 真实 ADO 拉取（az/PR/WI）+ raw 逐字段 schema + normalized transform，写入 06 已实装的 Ingest 链路 |
