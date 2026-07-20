@@ -132,9 +132,9 @@
 | Gap | 05 交付 | 06 使用 |
 |:----|:--------|:--------|
 | body/响应/错误码 | §5.1 定死 | 按契约实装 |
-| D1 查询预算 | §5.2：D1 Paid 1000 stmt 上限（**05 明确只支持 Paid**）；`activities.length ≤ 10` + `unmatched ≤ 10`（最坏 stmt ≈ 89，见 §5.2 明细）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 + query-count 断言测试 |
+| D1 查询预算 | §5.2：D1 Paid 1000 stmt 上限（**05 明确只支持 Paid**）；`activities.length ≤ 10` + `unmatched ≤ 10`（最坏 stmt ≈ 71，见 §5.2 明细）；payload ≤ 512 KB；meta_json ≤ 4 KB | 06 分批循环调用 + query-count 断言测试 |
 | 多阶段流程 | §5.3：不承诺单 batch 原子；拆 Activity write → 查询 → Score upsert → finalize；每阶段独立 CAS | 06 按阶段实装 |
-| runId/chunk/finalize 状态机 | §5.4：run 生命周期 `pending → chunked → finalized/failed`；chunk 幂等 by `(runId, chunkIndex)` | 06 实装状态转换 |
+| runId/chunk/finalize 状态机 | §5.4：run 生命周期 `chunked → finalized`（失败时 `failed`）；chunk 幂等 by `(runId, chunkIndex)` | 06 实装状态转换 |
 | 服务端反污染 | §5.5：dayKey/identity/externalRef 服务端重算并比对，客户端不可提供 `id` / `config_version` | 06 实装校验 |
 | 鉴权契约 | §5.6：浏览器 Access **禁止** pipeline write；同步修 03 §8 与 04 §8；`pipeline-auth.ts` | 06 若发现代码路径不一致需修正 |
 
@@ -239,7 +239,7 @@
   "chunkIndex": 0,
   "pipelineConfigVersion": 3,
   "activities": { "received": 10, "upserted": 10, "rejected": 0 },
-  "scores": { "affectedDevDays": 88, "recomputed": 88 },
+  "scores": { "affectedDevDays": 18, "recomputed": 18 },
   "unmatched": { "upserted": 3 },
   "finalized": false
 }
@@ -292,14 +292,14 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 | Phase 1 batch | UPSERT ingest_runs | 1 |
 | Phase 1 batch | INSERT ingest_chunks | 1 |
 | Phase 2 | SELECT activities 聚合(受影响 ≤ 20 dev-day) | 1 |
-| Phase 3 batch | UPSERT scores × ≤ 20 | ≤ 20 |
-| Phase 3 batch | DELETE scores × ≤ 20 | ≤ 20 |
+| Phase 3 | SELECT current Settings version 重读(§5.3 约束 8) | 1 |
+| Phase 3 batch | UPSERT scores 或 DELETE scores(每 dev-day 二选一,合计 ≤ 20) | ≤ 20 |
 | Phase 3 batch | UPDATE ingest_runs stats | 1 |
 | Phase 3 batch | UPDATE ingest_chunks status | 1 |
 | Phase 4 batch | UPDATE ingest_runs finalize + finished_at | 1 |
-| **合计** | | **≤ 89** |
+| **合计上限** | | **≤ 71** |
 
-Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VALUES` 优化 UPSERT 可再降。Free 上限 50 明显放不下,故**05 起明确"仅 Paid"**。
+Paid 上限 1000,单 chunk 71 有 14 倍余量;若 06 用 batch 多行 `VALUES` 优化 UPSERT 可再降。Free 上限 50 无法承载 Phase 0 完整校验(仅引用完整性就可能到 20),故**05 起明确"仅 Paid"**。
 
 **05 不冻结**：JSON 参数化、多行 `VALUES`、引用完整性 SELECT 合并 等 SQL 优化路径——由 06 在实测 D1 stmt/bind 消耗后再提议放大 `activities.length` 上限,同步补 05 §5.2。
 
@@ -308,7 +308,7 @@ Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VA
 - CLI 端把待写 Activity 按 10 一段切成 N 个 chunk；顺序发送。
 - 若某 chunk 返回 409（版本冲突），CLI 应**中止后续 chunk**，`settings pull` 后**放弃当前 runId**、开新 runId 重头。
 - 若某 chunk 返回 5xx，CLI 可重试**同一** `(runId, chunkIndex)`——服务端幂等保障（§5.4）。
-- 06 服务端应加 **query-count 断言测试**:一次 ingest chunk 全流程 stmt 数 ≤ 100 upper bound,回归时自动失败。
+- 06 服务端应加 **query-count 断言测试**:一次 ingest chunk 全流程 stmt 数 ≤ 80 upper bound(§5.2 明细算得 71,留少量余量),回归时自动失败。
 
 ### 5.3 多阶段流程（06 实装形态）
 
@@ -1011,8 +1011,7 @@ apps/collect/
 | **04** | Settings CAS PUT、bootstrap 契约（本文 §3.1 扩展 bootstrap 返回；本文 §5 CAS 语义与 04 一致）；**§5.6 鉴权变化需同步修 04 §8;§5.7 收紧 recompute complete 契约（必须绑 runId + mode='full_rematch' + 三重 version）后需同步修 04 §6.7** |
 | **05（本文）** | 06 开工前的**基础设施 + 冻结契约** |
 | **06** | Activity/Score 真实写入（基于 fixture 与 06 手工放到 `.data/normalized/` 的 Activity JSON）；算法定稿；fixture 首次落库；Web 数据读回。**不含**真实 ADO 采集 |
-| **07** | 真实 ADO 拉取（az/PR/WI）+ raw 逐字段 schema + normalized transform，写入 06 已实装的 Ingest 链路 |
-| **07** | CLI 命令矩阵、raw JSON 逐字段 schema、az 调用与错误分类 |
+| **07** | 真实 ADO 拉取（az/PR/WI）+ raw 逐字段 schema + normalized transform + CLI 命令矩阵 + 增量游标 + 错误分类,写入 06 已实装的 Ingest 链路 |
 
 **05 定"契约"；06 定"算法与实装"；07 定"外部数据源与命令表"。**
 
