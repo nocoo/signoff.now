@@ -92,6 +92,7 @@ export async function createRepo(body: {
 	project: string;
 	name: string;
 	externalId: string;
+	projectExternalId?: string | null;
 	enabled?: boolean;
 }): Promise<Repo> {
 	const raw = await apiFetch<unknown>("/api/repos", {

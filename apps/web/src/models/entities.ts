@@ -32,6 +32,8 @@ export interface Repo {
 	name: string;
 	remoteUrl: string | null;
 	externalId: string | null;
+	/** ADO project GUID; null until backfilled. */
+	projectExternalId: string | null;
 	enabled: boolean;
 	createdAt: number;
 	updatedAt: number;
@@ -81,8 +83,18 @@ export function parseRepo(raw: unknown): Repo {
 		org: String(r.org),
 		project: String(r.project),
 		name: String(r.name),
-		remoteUrl: r.remoteUrl === null ? null : String(r.remoteUrl),
-		externalId: r.externalId === null ? null : String(r.externalId),
+		remoteUrl:
+			r.remoteUrl === null || r.remoteUrl === undefined
+				? null
+				: String(r.remoteUrl),
+		externalId:
+			r.externalId === null || r.externalId === undefined
+				? null
+				: String(r.externalId),
+		projectExternalId:
+			r.projectExternalId === null || r.projectExternalId === undefined
+				? null
+				: String(r.projectExternalId),
 		enabled: Boolean(r.enabled),
 		createdAt: Number(r.createdAt),
 		updatedAt: Number(r.updatedAt),

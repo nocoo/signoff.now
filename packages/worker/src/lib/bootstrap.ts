@@ -16,7 +16,7 @@ export function bootstrapSnapshotStatements(
        WHERE archived_at IS NULL ORDER BY name`,
 		),
 		db.prepare(
-			`SELECT id, provider, org, project, name, external_id, enabled
+			`SELECT id, provider, org, project, name, external_id, project_external_id, enabled
        FROM repos WHERE archived_at IS NULL AND enabled = 1
        ORDER BY org, project, name`,
 		),

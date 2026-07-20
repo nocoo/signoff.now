@@ -16,6 +16,7 @@ export function ReposPage() {
 	const [project, setProject] = useState("");
 	const [name, setName] = useState("");
 	const [externalId, setExternalId] = useState("");
+	const [projectExternalId, setProjectExternalId] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 
@@ -68,6 +69,14 @@ export function ReposPage() {
 							placeholder="xxxxxxxx-xxxx-…"
 						/>
 					</div>
+					<div className="space-y-1.5 sm:col-span-2">
+						<Label>ADO project GUID (optional)</Label>
+						<Input
+							value={projectExternalId}
+							onChange={(e) => setProjectExternalId(e.target.value)}
+							placeholder="Project GUID for WI external_ref — same project must match"
+						/>
+					</div>
 				</div>
 				<Button
 					onClick={() =>
@@ -76,6 +85,7 @@ export function ReposPage() {
 							project,
 							name,
 							externalId,
+							projectExternalId: projectExternalId.trim() || null,
 							provider: "ado",
 							enabled: true,
 						})
@@ -84,6 +94,7 @@ export function ReposPage() {
 								setProject("");
 								setName("");
 								setExternalId("");
+								setProjectExternalId("");
 								return reload();
 							})
 							.catch((e: Error) => setError(e.message))
@@ -103,7 +114,7 @@ export function ReposPage() {
 					<EmptyState
 						icon={GitBranch}
 						title="No repos bound"
-						description="Bind an ADO repository (org / project / name / GUID) so the local pipeline can collect."
+						description="Bind an ADO repository (org / project / name / GUIDs) so the local pipeline can collect."
 					/>
 				</div>
 			) : (
@@ -118,7 +129,10 @@ export function ReposPage() {
 									Name
 								</th>
 								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
-									GUID
+									Repo GUID
+								</th>
+								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+									Project GUID
 								</th>
 								<th className="px-4 py-3" />
 							</tr>
@@ -135,6 +149,9 @@ export function ReposPage() {
 									<td className="px-4 py-3 font-medium">{r.name}</td>
 									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
 										{r.externalId ?? "—"}
+									</td>
+									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+										{r.projectExternalId ?? "—"}
 									</td>
 									<td className="px-4 py-3 text-right">
 										<Button

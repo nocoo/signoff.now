@@ -39,6 +39,7 @@ describe("pipelineBootstrapRoute", () => {
 							project: "p",
 							name: "n",
 							external_id: "g",
+							project_external_id: "pg",
 							enabled: 1,
 						},
 					],
@@ -52,11 +53,12 @@ describe("pipelineBootstrapRoute", () => {
 		const body = (await res.json()) as {
 			settings: { pipelineConfigVersion: number };
 			developers: { alias: string }[];
-			repos: { externalId: string }[];
+			repos: { externalId: string; projectExternalId: string | null }[];
 		};
 		expect(body.settings.pipelineConfigVersion).toBe(1);
 		expect(body.developers[0]?.alias).toBe("ada");
 		expect(body.repos[0]?.externalId).toBe("g");
+		expect(body.repos[0]?.projectExternalId).toBe("pg");
 	});
 });
 

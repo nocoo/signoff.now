@@ -67,12 +67,14 @@ describe("parseTeam / parseTag / parseRepo", () => {
 			name: "n",
 			remoteUrl: null,
 			externalId: "guid",
+			projectExternalId: "pg-guid",
 			enabled: true,
 			createdAt: 1,
 			updatedAt: 2,
 			archivedAt: null,
 		});
 		expect(r.externalId).toBe("guid");
+		expect(r.projectExternalId).toBe("pg-guid");
 		expect(r.enabled).toBe(true);
 	});
 
@@ -104,6 +106,7 @@ describe("parseTeam / parseTag / parseRepo", () => {
 			name: "n",
 			remoteUrl: "https://example.com",
 			externalId: null,
+			projectExternalId: null,
 			enabled: false,
 			createdAt: 1,
 			updatedAt: 2,
@@ -111,6 +114,7 @@ describe("parseTeam / parseTag / parseRepo", () => {
 		});
 		expect(r.archivedAt).toBe(7);
 		expect(r.remoteUrl).toBe("https://example.com");
+		expect(r.projectExternalId).toBeNull();
 		expect(r.enabled).toBe(false);
 	});
 });

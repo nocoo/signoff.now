@@ -15,6 +15,8 @@ describe("D1 migrations", () => {
 		expect(files[0]).toBe("0001_initial.sql");
 		expect(files).toContain("0002_correctness_and_indexes.sql");
 		expect(files).toContain("0003_repo_guid_and_score_index.sql");
+		expect(files).toContain("0004_repo_project_guid.sql");
+		expect(files).toContain("0005_normalize_activity_weights.sql");
 		expect(files).toEqual([...files].sort((a, b) => a.localeCompare(b)));
 	});
 

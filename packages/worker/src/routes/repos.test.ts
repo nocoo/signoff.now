@@ -18,6 +18,7 @@ const repo = {
 	name: "n",
 	remote_url: null as string | null,
 	external_id: "guid",
+	project_external_id: null as string | null,
 	enabled: 1,
 	created_at: 1,
 	updated_at: 1,
@@ -194,5 +195,79 @@ describe("repos routes", () => {
 				)
 			).status,
 		).toBe(409);
+	});
+
+	test("project GUID conflict → 409 on create", async () => {
+		const db = createMockD1({
+			firstBySql: [
+				{
+					match: "project_external_id FROM repos",
+					row: { project_external_id: "existing-pg" },
+				},
+			],
+		});
+		const res = await mount(db).request("http://x/api/repos", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				org: "o",
+				project: "p",
+				name: "n2",
+				externalId: "guid2",
+				projectExternalId: "other-pg",
+			}),
+		});
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Project GUID conflict");
+	});
+
+	test("create with projectExternalId succeeds when consistent", async () => {
+		const created = {
+			...repo,
+			project_external_id: "pg-1",
+		};
+		const db = createMockD1({
+			firstBySql: [
+				{ match: "project_external_id FROM repos", row: null },
+				{ match: "FROM repos WHERE id", row: created },
+			],
+			runChanges: 1,
+		});
+		const res = await mount(db).request("http://x/api/repos", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				org: "o",
+				project: "p",
+				name: "n",
+				externalId: "guid",
+				projectExternalId: "pg-1",
+			}),
+		});
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as { projectExternalId: string };
+		expect(body.projectExternalId).toBe("pg-1");
+	});
+
+	test("patch project GUID conflict → 409", async () => {
+		const db = createMockD1({
+			firstBySql: [
+				{ match: "FROM repos WHERE id", row: repo },
+				{
+					match: "project_external_id FROM repos",
+					row: { project_external_id: "existing-pg" },
+				},
+			],
+		});
+		const res = await mount(db).request("http://x/api/repos/r1", {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				externalId: "guid",
+				projectExternalId: "other-pg",
+			}),
+		});
+		expect(res.status).toBe(409);
 	});
 });

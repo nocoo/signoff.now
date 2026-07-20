@@ -35,6 +35,8 @@ export type RepoRow = {
 	name: string;
 	remote_url: string | null;
 	external_id: string | null;
+	/** ADO project GUID; null until backfilled via Web CRUD. */
+	project_external_id: string | null;
 	enabled: number;
 	created_at: number;
 	updated_at: number;

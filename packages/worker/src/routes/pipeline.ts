@@ -39,6 +39,7 @@ export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
 							| "project"
 							| "name"
 							| "external_id"
+							| "project_external_id"
 							| "enabled"
 						>
 				  >
@@ -69,6 +70,7 @@ export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
 			project: r.project,
 			name: r.name,
 			externalId: r.external_id,
+			projectExternalId: r.project_external_id,
 			enabled: r.enabled === 1,
 		})),
 	});
