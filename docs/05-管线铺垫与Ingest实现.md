@@ -1060,6 +1060,8 @@ apps/collect/
 - [ ] `packages/worker/src/routes/pipeline.ts` 按 §5.8 强制预检：鉴权 401/403 → payload 413 → Zod 400 → version gate 409 → 全通过后返 501；引用完整性 422 留 06
 - [ ] 上述预检各写单测覆盖
 - [ ] `docs/03-Web模块模板.md` §8 鉴权表格与本文 §5.6 完全一致
+- [ ] `docs/04-Settings设计.md` §8 鉴权表格与本文 §5.6 完全一致
+- [ ] `docs/04-Settings设计.md` §6.7 recompute complete 契约按本文 §5.7 更新（新增 `runId` + `mode='full_rematch'` 三重 version 校验）
 
 ### S5 本地闭环
 - [ ] `bun run dev:all` 起 web + worker + wrangler local D1，migrations apply

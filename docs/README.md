@@ -8,6 +8,7 @@
 | 02 | [数据结构与 D1](./02-数据结构与D1.md) | 已确认（0001–0003 远端已应用） |
 | 03 | [Web 模块模板](./03-Web模块模板.md) | 设计稿（**basalt 模板**；bat 为 Vite/Worker 参考实现） |
 | 04 | [Settings 设计](./04-Settings设计.md) | 设计稿（DB / Web CRUD / CLI 读 D1） |
+| 05 | [管线铺垫与 Ingest 契约](./05-管线铺垫与Ingest实现.md) | 设计稿（06 开工前置：Schema → domain → CLI → Ingest 契约 → 本地闭环）。**要求 Cloudflare Workers Paid plan** |
 
 ## 归档
 

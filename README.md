@@ -12,6 +12,11 @@
 | **[docs/02-数据结构与D1.md](./docs/02-数据结构与D1.md)** | D1 schema |
 | **[docs/03-Web模块模板.md](./docs/03-Web模块模板.md)** | Web basalt 模板 + Worker/Access |
 | **[docs/04-Settings设计.md](./docs/04-Settings设计.md)** | Settings CRUD 与 CLI 读路径 |
+| **[docs/05-管线铺垫与Ingest实现.md](./docs/05-管线铺垫与Ingest实现.md)** | 06 开工前置契约（Ingest / 域包 / CLI 骨架） |
+
+## 部署前提
+
+- **Cloudflare Workers Paid plan**（05 起冻结）。Ingest 一次请求最坏 ≈ 71 D1 statement，超过 Free tier 每 invocation 50 的上限。详见 [docs/05 §5.2](./docs/05-管线铺垫与Ingest实现.md)。
 
 ## 本地运行（Dashboard + Settings CRUD）
 
