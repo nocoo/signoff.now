@@ -91,8 +91,11 @@ export function validateForm(form: SettingsFormState): string | null {
 		}
 	}
 	for (const [k, v] of Object.entries(form.activityWeights)) {
-		if (typeof v !== "number" || !Number.isFinite(v)) {
-			return `Invalid weight for ${k}`;
+		if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v)) {
+			return `Invalid weight for ${k} (must be a non-negative integer)`;
+		}
+		if (v < 0) {
+			return `Invalid weight for ${k} (must be a non-negative integer)`;
 		}
 	}
 	return null;

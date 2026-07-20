@@ -82,6 +82,20 @@ describe("isFormDirty / validateForm", () => {
 			validateForm({
 				timezone: "UTC",
 				emailSuffixes: ["ok.com"],
+				activityWeights: { a: 1.5 },
+			}),
+		).toMatch(/weight/i);
+		expect(
+			validateForm({
+				timezone: "UTC",
+				emailSuffixes: ["ok.com"],
+				activityWeights: { a: -1 },
+			}),
+		).toMatch(/weight/i);
+		expect(
+			validateForm({
+				timezone: "UTC",
+				emailSuffixes: ["ok.com"],
 				activityWeights: { a: 1 },
 			}),
 		).toBeNull();

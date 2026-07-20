@@ -36,6 +36,20 @@ describe("normalizeActivityWeights", () => {
 	test("rejects non-numbers", () => {
 		expect(normalizeActivityWeights({ "pr.merged": "x" })).toBeNull();
 	});
+
+	test("accepts non-negative integers", () => {
+		const w = normalizeActivityWeights({ "pr.merged": 0, "pr.vote": 3 });
+		expect(w?.["pr.merged"]).toBe(0);
+		expect(w?.["pr.vote"]).toBe(3);
+	});
+
+	test("rejects floats", () => {
+		expect(normalizeActivityWeights({ "pr.merged": 1.5 })).toBeNull();
+	});
+
+	test("rejects negatives", () => {
+		expect(normalizeActivityWeights({ "pr.merged": -1 })).toBeNull();
+	});
 });
 
 describe("validateTimezone", () => {

@@ -58,6 +58,10 @@ export function normalizeEmailSuffixes(input: unknown): string[] | null {
 	return out.length >= 1 ? out : null;
 }
 
+/**
+ * Activity weights must be non-negative integers (D1 scores.total is INTEGER).
+ * Rejects floats, negatives, NaN, non-numbers.
+ */
 export function normalizeActivityWeights(
 	input: unknown,
 ): Record<string, number> | null {
@@ -66,7 +70,10 @@ export function normalizeActivityWeights(
 	}
 	const out: Record<string, number> = { ...DEFAULT_ACTIVITY_WEIGHTS };
 	for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-		if (typeof v !== "number" || !Number.isFinite(v)) {
+		if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v)) {
+			return null;
+		}
+		if (v < 0) {
 			return null;
 		}
 		out[k] = v;
