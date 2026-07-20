@@ -410,16 +410,17 @@ Paid 上限 1000,单 chunk 89 有 10 倍以上余量;若 06 用 batch 多行 `VA
 
 ### 5.4 runId / chunk / finalize 状态机
 
-**表变更**（06 提交时通过 `0005_ingest_run_states.sql`；05 只冻结契约）：
+**表变更**（06 提交时通过 `0006_ingest_run_states.sql`；05 只冻结契约。**注意**：`0005` 保留给 §12 S1a 的一次性 `activity_weights` 兼容 fix migration；06 用下一个可用编号）：
 
 **重建 `ingest_runs`**（**不能只加列**）：
 
 0001 里 `ingest_runs.status` 有 `CHECK (status IN ('running','success','failed','partial'))` 硬约束(见 `packages/db/migrations/0001_initial.sql`);新状态 `chunked` / `finalized` 会被 CHECK 拒绝。06 的 migration 必须走 SQLite 标准迁移路径:
 
-1. 建 `ingest_runs_new` 含新 CHECK
-2. 迁移旧数据(`running`→`chunked`,`success`→`finalized`,`failed`/`partial`→`failed`)
-3. 修改 FK 引用 / 索引
-4. `DROP TABLE ingest_runs; ALTER RENAME`
+0. **前置断言**:`SELECT COUNT(*) FROM ingest_runs = 0`。因 Ingest 一直返 501,当前该表**必为空**;若非空 migration **立即中止**要求人工处理(旧表无 `config_version` / `mode` 列,无法安全反向填充)。
+1. 建 `ingest_runs_new` 含新 CHECK + 新列 `config_version NOT NULL` / `mode` / `finished_at`
+2. 因 step 0 保证空表,无需 `INSERT ... SELECT` 迁移旧行
+3. 修改 FK 引用 / 索引(若有)
+4. `DROP TABLE ingest_runs; ALTER TABLE ingest_runs_new RENAME TO ingest_runs`
 
 新 `ingest_runs`：
 
@@ -676,7 +677,7 @@ export type Activity = z.infer<typeof activitySchema>;
 export const ingestBodySchema = z.object({
   pipelineConfigVersion: z.number().int().positive(),
   // ULID (Crockford base32, 26 chars) 或 UUID v4
-  runId: z.string().regex(/^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/),
+  runId: z.string().regex(/^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/),
   chunkIndex: z.number().int().nonnegative(),
   isFinalChunk: z.boolean(),
   runMeta: z.object({
@@ -954,7 +955,7 @@ apps/collect/
 ```json
 {
   "pipelineConfigVersion": 1,
-  "runId": "fixture-01JAAAAAAAAAAAAAAAAA",
+  "runId": "01JAY7B4HXTMRP0VQZ0FKZH5S8",
   "chunkIndex": 0,
   "isFinalChunk": true,
   "runMeta": {
