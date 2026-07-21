@@ -1,0 +1,10 @@
+[test]
+# Note: do not set coverageThreshold here — bun applies it per-file and also
+# includes workspace @signoff/domain sources (paths.ts) pulled via imports,
+# which falsely fails the gate. Domain package has its own ≥95% suite.
+# Collect local files are ≥97% lines in practice (see test:coverage report).
+coveragePathIgnorePatterns = [
+  "src/main.ts",
+  "src/cache/fs-bun.ts",
+  "src/doctor/exec-bun.ts",
+]

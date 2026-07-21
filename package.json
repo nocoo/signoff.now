@@ -37,6 +37,7 @@
 		"security": "bun run scripts/run-security.ts",
 		"gitinfo": "bun run apps/gitinfo/src/main.ts",
 		"pulse": "bun run apps/pulse/src/main.ts",
+		"signoff": "bun run apps/collect/src/main.ts",
 		"db:migrate:local": "wrangler d1 migrations apply signoff-db --local",
 		"db:migrate:remote": "wrangler d1 migrations apply signoff-db --remote",
 		"db:list:remote": "wrangler d1 migrations list signoff-db --remote"
