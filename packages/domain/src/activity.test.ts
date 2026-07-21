@@ -122,4 +122,22 @@ describe("activitySchema", () => {
 		});
 		expect(r.success).toBe(true);
 	});
+
+	test("rejects meta over 4 KiB", () => {
+		const r = activitySchema.safeParse({
+			...prBase,
+			type: "pr.merged",
+			meta: { x: "a".repeat(5000) },
+		});
+		expect(r.success).toBe(false);
+	});
+
+	test("accepts small meta", () => {
+		const r = activitySchema.safeParse({
+			...prBase,
+			type: "pr.merged",
+			meta: { title: "ok" },
+		});
+		expect(r.success).toBe(true);
+	});
 });

@@ -1,6 +1,10 @@
 /** @signoff/domain — DTO / constants / zod / path helpers / function type aliases. */
 
-export { type Activity, activitySchema } from "./activity.js";
+export {
+	type Activity,
+	activitySchema,
+	META_MAX_BYTES,
+} from "./activity.js";
 export {
 	ACTIVITY_TYPES,
 	type ActivityType,

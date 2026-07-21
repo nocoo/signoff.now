@@ -40,6 +40,25 @@ const wiUpdateIds = z
 	})
 	.strict();
 
+/** §5.2: meta serialized JSON ≤ 4 KiB per activity. */
+export const META_MAX_BYTES = 4 * 1024;
+
+const metaSchema = z
+	.record(z.string(), z.unknown())
+	.optional()
+	.superRefine((val, ctx) => {
+		if (val === undefined) {
+			return;
+		}
+		const bytes = new TextEncoder().encode(JSON.stringify(val)).length;
+		if (bytes > META_MAX_BYTES) {
+			ctx.addIssue({
+				code: "custom",
+				message: `meta exceeds ${META_MAX_BYTES} bytes (got ${bytes})`,
+			});
+		}
+	});
+
 const activityBase = {
 	occurredAt: z.number().int().positive(),
 	provider: z.literal("ado"),
@@ -47,7 +66,7 @@ const activityBase = {
 	project: z.string().min(1),
 	developerId: z.string().min(1),
 	matchedUniqueName: z.string().min(1),
-	meta: z.record(z.string(), z.unknown()).optional(),
+	meta: metaSchema,
 } as const;
 
 /** Discriminated union by `type`; rejects forbidden fields via .strict(). */
