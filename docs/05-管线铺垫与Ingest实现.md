@@ -1020,7 +1020,7 @@ apps/collect/
 ## 12. 05 验收清单
 
 ### S1 Schema & Bootstrap
-- [x] `packages/db/migrations/0004_repo_project_guid.sql` 落地并 remote apply
+- [x] `packages/db/migrations/0004_repo_project_guid.sql` 落地并 remote apply（review-fix 时已 `db:migrate:remote`）
 - [x] `repos` 表新增 `project_external_id TEXT`；索引若需要（06 可能加）留 TODO 注释
 - [x] `GET /api/pipeline/bootstrap` 响应 `repos[].projectExternalId`
 - [x] Web repos 页新增 project GUID 编辑字段；`POST/PUT /api/repos` 支持该字段
@@ -1066,7 +1066,7 @@ apps/collect/
 ### S5 本地闭环
 - [x] `bun run dev:all` 起 web + worker + wrangler local D1，migrations apply
 - [x] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/bootstrap` 无 token 应 200
-- [x] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/ingest -X POST ...` 应返 501（loopback 按 §5.6 冻结契约**始终**绕过鉴权，不涉及 401）
+- [x] loopback 用例：合法 fixture body 的 `POST /api/pipeline/ingest` 应返 501（`{}` 会先 400；loopback 始终绕过鉴权）
 - [x] `signoff doctor` 全绿
 - [x] `signoff settings pull` 写出 `.data/cache/bootstrap.json` 且 `pipelineConfigVersion` 与 Web 一致
 - [x] `signoff ingest fixture ./fixtures/activities.sample.json` 打印 body 摘要，退出 0
