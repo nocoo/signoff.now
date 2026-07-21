@@ -20,6 +20,37 @@ function mount(db: D1Database) {
 	return app;
 }
 
+const validIngest = {
+	pipelineConfigVersion: 1,
+	runId: "01JAY7B4HXTMRP0VQZ0FKZH5S8",
+	chunkIndex: 0,
+	isFinalChunk: true,
+	runMeta: {
+		startedAt: 1720000000,
+		source: "fixture",
+		windowFrom: "2026-06-01",
+		windowTo: "2026-07-01",
+		mode: "full_rematch",
+	},
+	activities: [
+		{
+			type: "pr.merged",
+			occurredAt: 1720000123,
+			provider: "ado",
+			org: "acme",
+			project: "Alpha",
+			repoId: "repo-1",
+			developerId: "dev-1",
+			matchedUniqueName: "ada@example.com",
+			sourceIds: {
+				prRepoGuid: "11111111-1111-4111-8111-111111111111",
+				prId: 1001,
+			},
+		},
+	],
+	unmatchedIdentities: [],
+};
+
 describe("pipelineBootstrapRoute", () => {
 	test("returns snapshot from one batch", async () => {
 		const db = createMockD1({
@@ -46,7 +77,6 @@ describe("pipelineBootstrapRoute", () => {
 				},
 			],
 		});
-		// batch uses allBySql per statement sql
 		const app = mount(db);
 		const res = await app.request("http://x/api/pipeline/bootstrap");
 		expect(res.status).toBe(200);
@@ -71,10 +101,7 @@ describe("pipelineIngestRoute", () => {
 		const res = await app.request("http://x/api/pipeline/ingest", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				pipelineConfigVersion: 1,
-				activities: [{ id: "a" }, { id: "b" }],
-			}),
+			body: JSON.stringify(validIngest),
 		});
 		expect(res.status).toBe(501);
 		const body = (await res.json()) as Record<string, unknown>;
@@ -91,12 +118,12 @@ describe("pipelineIngestRoute", () => {
 		const res = await app.request("http://x/api/pipeline/ingest", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ pipelineConfigVersion: 99 }),
+			body: JSON.stringify({ ...validIngest, pipelineConfigVersion: 99 }),
 		});
 		expect(res.status).toBe(409);
 	});
 
-	test("400 invalid body", async () => {
+	test("400 invalid json", async () => {
 		const db = createMockD1({
 			allBySql: [{ match: "FROM settings", results: DEFAULT_SETTINGS_ROWS }],
 		});
@@ -105,6 +132,18 @@ describe("pipelineIngestRoute", () => {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: "not-json",
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("400 invalid schema body", async () => {
+		const db = createMockD1({
+			allBySql: [{ match: "FROM settings", results: DEFAULT_SETTINGS_ROWS }],
+		});
+		const res = await mount(db).request("http://x/api/pipeline/ingest", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ pipelineConfigVersion: 1 }),
 		});
 		expect(res.status).toBe(400);
 	});
@@ -123,9 +162,15 @@ describe("pipelineRecomputeCompleteRoute", () => {
 		const res = await app.request("http://x/api/pipeline/recompute/complete", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ pipelineConfigVersion: 1, ok: true }),
+			body: JSON.stringify({
+				pipelineConfigVersion: 1,
+				runId: "01JAY7B4HXTMRP0VQZ0FKZH5S8",
+				ok: true,
+			}),
 		});
 		expect(res.status).toBe(200);
+		const body = (await res.json()) as { runId: string };
+		expect(body.runId).toBe("01JAY7B4HXTMRP0VQZ0FKZH5S8");
 	});
 
 	test("409 when cas changes=0", async () => {
@@ -140,7 +185,11 @@ describe("pipelineRecomputeCompleteRoute", () => {
 		const res = await app.request("http://x/api/pipeline/recompute/complete", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ pipelineConfigVersion: 1, ok: true }),
+			body: JSON.stringify({
+				pipelineConfigVersion: 1,
+				runId: "01JAY7B4HXTMRP0VQZ0FKZH5S8",
+				ok: true,
+			}),
 		});
 		expect(res.status).toBe(409);
 	});
@@ -151,8 +200,24 @@ describe("pipelineRecomputeCompleteRoute", () => {
 		const res = await app.request("http://x/api/pipeline/recompute/complete", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ pipelineConfigVersion: 1, ok: false }),
+			body: JSON.stringify({
+				pipelineConfigVersion: 1,
+				runId: "01JAY7B4HXTMRP0VQZ0FKZH5S8",
+				ok: false,
+			}),
 		});
+		expect(res.status).toBe(400);
+	});
+
+	test("400 missing runId", async () => {
+		const res = await mount(createMockD1()).request(
+			"http://x/api/pipeline/recompute/complete",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ pipelineConfigVersion: 1, ok: true }),
+			},
+		);
 		expect(res.status).toBe(400);
 	});
 
@@ -162,7 +227,7 @@ describe("pipelineRecomputeCompleteRoute", () => {
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ ok: true }),
+				body: JSON.stringify({ ok: true, runId: "x" }),
 			},
 		);
 		expect(res.status).toBe(400);
@@ -189,18 +254,6 @@ describe("pipelineRecomputeCompleteRoute", () => {
 				body: "null",
 			},
 		);
-		expect(res.status).toBe(400);
-	});
-
-	test("ingest 400 bad request kind from gate", async () => {
-		const db = createMockD1({
-			allBySql: [{ match: "FROM settings", results: DEFAULT_SETTINGS_ROWS }],
-		});
-		const res = await mount(db).request("http://x/api/pipeline/ingest", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({}),
-		});
 		expect(res.status).toBe(400);
 	});
 });

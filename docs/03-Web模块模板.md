@@ -451,21 +451,29 @@ export function isLocalhost(host: string): boolean {
 
 对照：`../bat/packages/worker/src/middleware/access-auth.ts`。
 
-#### `pipelineAuth`（对照 bat `api-key.ts`，改名）
+#### `pipelineAuth`（对照 bat `api-key.ts`，改名；**05 §5.6 收紧**）
 
 | 条件 | 行为 |
 |:-----|:-----|
 | 公开路由 `/api/live`、`/api/me` | 放行 |
-| `isLocalhost(host)` | 放行（本地 dev / E2E 不要求 token） |
-| browser host **且** `accessAuthenticated === true` | **跳过** Pipeline Token（管理者经 Access 访问管理 API；与 bat「Access 后跳过 API key」相同） |
-| 其余（主要是 machine host 上的 pipeline 路由） | 要求 `Authorization: Bearer`；write / read scope 与路由匹配（可对照 bat `BAT_WRITE_KEY` / `BAT_READ_KEY`） |
+| `isLocalhost(host)` / `*.dev.hexly.ai` | 放行（本地 dev / E2E **始终**跳过 token） |
+| browser host **且** `accessAuthenticated === true` **且** 路径为管理 API | 跳过 Pipeline Token（`/api/settings`、entity CRUD 等） |
+| browser host **且** 路径为 `/api/pipeline/*` | **403** — Access 用户**禁止** pipeline read/write（05 冻结） |
+| machine host 上的 pipeline 路由 | 要求 `Authorization: Bearer`；write / read scope 与路由匹配 |
+
+| 通道 | Pipeline write（ingest / recompute） | Pipeline read（bootstrap） | 管理 API |
+|:-----|:------|:------|:------|
+| 浏览器 + Access JWT | ❌ 403 | ❌ 403 | ✅ |
+| Machine host + Write Token | ✅ | ✅ | ❌ 403（entryControl） |
+| Machine host + Read Token | ❌ 403 | ✅ | ❌ 403 |
+| loopback / `*.dev.hexly.ai` | ✅ 跳过 token | ✅ 跳过 token | ✅ |
 
 要点：
 
 - 浏览器 **不**需要、也 **不**持有 Pipeline Token；CRUD 只靠 Access。  
 - CLI 走 **machine host**（或本机 `127.0.0.1`）+ Bearer，不走 Access。  
 - machine host 上未进白名单的路径已在 `entryControl` 被 403；token 只护白名单内的 pipeline 路由。  
-- 与 bat 一样：**不**再发明「Access 用户绝对不能打 write 路由」的第二套规则；管理写靠 Access，采集写靠 machine + token + 白名单。
+- **05 起**：Access 浏览器**不得**打任何 `/api/pipeline/*`（含 bootstrap 与 write）。
 
 ### 8.3 环境变量
 

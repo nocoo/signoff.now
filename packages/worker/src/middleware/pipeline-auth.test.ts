@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../types.js";
-import { isPipelineWritePath, pipelineAuth } from "./pipeline-auth.js";
+import {
+	isPipelinePath,
+	isPipelineWritePath,
+	pipelineAuth,
+} from "./pipeline-auth.js";
 
 describe("isPipelineWritePath", () => {
 	test("matches ingest and recompute", () => {
@@ -12,6 +16,14 @@ describe("isPipelineWritePath", () => {
 	test("rejects management and bootstrap", () => {
 		expect(isPipelineWritePath("/api/settings")).toBe(false);
 		expect(isPipelineWritePath("/api/pipeline/bootstrap")).toBe(false);
+	});
+});
+
+describe("isPipelinePath", () => {
+	test("matches all pipeline routes", () => {
+		expect(isPipelinePath("/api/pipeline/bootstrap")).toBe(true);
+		expect(isPipelinePath("/api/pipeline/ingest")).toBe(true);
+		expect(isPipelinePath("/api/settings")).toBe(false);
 	});
 });
 
@@ -48,12 +60,31 @@ describe("pipelineAuth middleware", () => {
 		expect(res.status).toBe(200);
 	});
 
-	test("browser access skips token", async () => {
+	test("browser access skips token on management", async () => {
 		const res = await app({ access: true }).request(
 			"http://signoff.example.com/api/settings",
 			{ headers: { host: "signoff.example.com" } },
 		);
 		expect(res.status).toBe(200);
+	});
+
+	test("browser Access + pipeline ingest → 403", async () => {
+		const res = await app({ access: true }).request(
+			"http://signoff.example.com/api/pipeline/ingest",
+			{
+				method: "POST",
+				headers: { host: "signoff.example.com" },
+			},
+		);
+		expect(res.status).toBe(403);
+	});
+
+	test("browser Access + pipeline bootstrap → 403", async () => {
+		const res = await app({ access: true }).request(
+			"http://signoff.example.com/api/pipeline/bootstrap",
+			{ headers: { host: "signoff.example.com" } },
+		);
+		expect(res.status).toBe(403);
 	});
 
 	test("missing bearer → 401", async () => {

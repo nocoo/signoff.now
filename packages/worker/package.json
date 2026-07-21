@@ -10,8 +10,10 @@
 		"test:coverage": "bun test --coverage src/"
 	},
 	"dependencies": {
+		"@signoff/domain": "workspace:*",
 		"hono": "4.12.30",
-		"jose": "^6.2.3"
+		"jose": "^6.2.3",
+		"zod": "^4.0.5"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250726.0",

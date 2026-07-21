@@ -552,19 +552,26 @@ npx wrangler d1 execute signoff-db --remote --command \
 服务端要求 body 版本与当前 Settings **严格相等**（不是「≥」或「仅拒绝更旧」）。  
 实现上：写入 Activity/Score 的语句或前置 CAS 须在 SQL/`batch` 内绑定该版本；**不要**只在 JS 里 `if (body.v === read.v)` 再无条件写。失败 → **409**，CLI `settings pull` 后重跑。
 
-清 stale 仅允许：
+清 stale 仅允许（**05 §5.7 收紧**；Phase 4 finalize **不清** stale）：
 
-`POST /api/pipeline/recompute/complete`（管线 token），body **至少**：
+`POST /api/pipeline/recompute/complete`（管线 token），body **必须**：
 
 ```json
 {
+  "runId": "01J…",
   "pipelineConfigVersion": 3,
   "ok": true
 }
 ```
 
+服务端校验（06 全量实装；05 至少强制 body 字段）：
+
+- `runId` 存在，`status = 'finalized'`，`mode = 'full_rematch'`；否则 **409**
+- `pipelineConfigVersion` 与 run 记录 + 当前 Settings **三者相等**；否则 **409**
+- `incremental` mode 的 run **不能**调 recompute complete
+
 服务端用 **一次** `env.DB.batch`（§3.3 清 stale SQL）：`WHERE` 子查询要求 `pipeline_config_version` 的 value **等于** body 版本；**affected rows = 0** → **409**（旧 rematch 不得清新 version 的 stale）。  
-也可在 full rematch 成功的 **同一** ingest `batch` 末尾带相同 CAS 清 stale——仍靠 SQL 相等条件，无需 run lease。
+一次成功清理后 `run.status` 仍为 `finalized`；`scores_stale` → false，`scores_stale_reason` → null。
 
 ---
 
@@ -591,13 +598,14 @@ npx wrangler d1 execute signoff-db --remote --command \
 
 ## 8. 安全
 
-鉴权分层与 [03 §8](./03-Web模块模板.md) / bat 一致：browser Access、machine 白名单 + Pipeline Token、本地 `isLocalhost` 旁路。
+鉴权分层与 [03 §8](./03-Web模块模板.md) / [05 §5.6](./05-管线铺垫与Ingest实现.md) 一致。
 
-| 通道 | 认证 |
-|:-----|:-----|
-| 浏览器 `GET/PUT /api/settings` | Cloudflare Access（`accessAuthenticated`；**不**用 Pipeline Token） |
-| CLI `GET /api/pipeline/bootstrap` | machine host 或本机 loopback + `Authorization: Bearer`（read/write scope 见 03） |
-| CLI 写 ingest | 同上 write token；machine 白名单 path |
+| 通道 | Pipeline write | Pipeline read（bootstrap） | 管理 API（settings / CRUD） |
+|:-----|:------|:------|:------|
+| 浏览器 + Access JWT | ❌ 403 | ❌ 403 | ✅ |
+| Machine host + Write Token | ✅ | ✅ | ❌ 403 |
+| Machine host + Read Token | ❌ 403 | ✅ | ❌ 403 |
+| loopback / `*.dev.hexly.ai` | ✅ 跳过 token | ✅ 跳过 token | ✅ |
 
 - Pipeline Token **不**进入前端 bundle。  
 - Settings PUT **不**接受 token 提权改 version 为任意值（只能 +1 服务端逻辑）。  

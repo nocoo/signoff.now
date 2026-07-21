@@ -7,4 +7,7 @@ coveragePathIgnorePatterns = [
   "src/test/**",
   # Real JWKS network I/O only — injectable verifier covers access-auth
   "src/middleware/access-jose.ts",
+  # Workspace domain package has its own ≥95% suite
+  "**/packages/domain/**",
+  "../domain/**",
 ]

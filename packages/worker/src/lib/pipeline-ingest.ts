@@ -1,33 +1,58 @@
 /**
- * Ingest persistence is not implemented yet.
+ * Ingest gate for 05: auth (middleware) → payload size → zod → version → 501.
  * Never report success / accepted counts — CLI must not treat data as durable.
+ * Full write path is 06.
  */
 
+import { INGEST_MAX_PAYLOAD_BYTES, ingestBodySchema } from "@signoff/domain";
+
 export type IngestGateResult =
+	| { kind: "payload_too_large" }
 	| { kind: "bad_request"; error: string }
 	| { kind: "conflict"; currentVersion: number }
 	| { kind: "not_implemented"; currentVersion: number };
 
+/**
+ * Stream-aware size check: use actual body byte length when available.
+ * Content-Length alone is not trusted (may be missing or forged).
+ */
+export function checkPayloadSize(byteLength: number): boolean {
+	return byteLength <= INGEST_MAX_PAYLOAD_BYTES;
+}
+
 export function gatePipelineIngest(
-	body: Record<string, unknown> | null,
+	body: unknown,
 	currentVersion: number,
+	opts?: { rawByteLength?: number },
 ): IngestGateResult {
-	if (!body) {
+	if (
+		opts?.rawByteLength !== undefined &&
+		!checkPayloadSize(opts.rawByteLength)
+	) {
+		return { kind: "payload_too_large" };
+	}
+
+	if (body === null || typeof body !== "object" || Array.isArray(body)) {
 		return { kind: "bad_request", error: "Invalid payload" };
 	}
-	if (
-		typeof body.pipelineConfigVersion !== "number" ||
-		!Number.isInteger(body.pipelineConfigVersion)
-	) {
+
+	const parsed = ingestBodySchema.safeParse(body);
+	if (!parsed.success) {
+		const msg = parsed.error.issues
+			.slice(0, 3)
+			.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+			.join("; ");
 		return {
 			kind: "bad_request",
-			error: "pipelineConfigVersion required (integer)",
+			error: msg || "Body failed ingestBodySchema",
 		};
 	}
-	if (body.pipelineConfigVersion !== currentVersion) {
+
+	if (parsed.data.pipelineConfigVersion !== currentVersion) {
 		return { kind: "conflict", currentVersion };
 	}
-	// Valid request, but Activity/Score writes are not implemented.
+
+	// Valid request, but Activity/Score writes are not implemented (05).
 	return { kind: "not_implemented", currentVersion };
 }
 
