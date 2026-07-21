@@ -88,7 +88,8 @@ function parseRepoBody(body: unknown) {
 
 /**
  * Hard-reject inconsistent non-null project GUID under the same
- * (provider, org, project). Same GUID or null is allowed.
+ * (provider, org, project). Includes archived rows so archive→create→restore
+ * cannot introduce two GUIDs for one project (05 §3.1 / Codex review).
  */
 async function assertProjectGuidConsistent(
 	db: D1Database,
@@ -109,7 +110,6 @@ async function assertProjectGuidConsistent(
        WHERE provider = ? AND org = ? AND project = ?
          AND project_external_id IS NOT NULL
          AND project_external_id != ?
-         AND archived_at IS NULL
          ${opts.excludeId ? "AND id != ?" : ""}
        LIMIT 1`,
 		)
@@ -282,6 +282,29 @@ export async function reposArchiveRoute(c: Context<AppEnv>) {
 
 export async function reposRestoreRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
+	const existing = await c.env.DB.prepare(`SELECT * FROM repos WHERE id = ?`)
+		.bind(id)
+		.first<RepoRow>();
+	if (!existing || existing.archived_at === null) {
+		return c.json({ error: "Not found" }, 404);
+	}
+	const guidCheck = await assertProjectGuidConsistent(c.env.DB, {
+		provider: existing.provider,
+		org: existing.org,
+		project: existing.project,
+		projectExternalId: existing.project_external_id,
+		excludeId: id,
+	});
+	if (!guidCheck.ok) {
+		return c.json(
+			{
+				error: "Project GUID conflict",
+				message: `Cannot restore: existing project_external_id for this (provider, org, project) is ${guidCheck.existing}`,
+				existing: guidCheck.existing,
+			},
+			409,
+		);
+	}
 	try {
 		const r = await c.env.DB.prepare(
 			`UPDATE repos SET archived_at = NULL, updated_at = unixepoch()

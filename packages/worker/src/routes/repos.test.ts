@@ -41,9 +41,14 @@ function mount(db: D1Database) {
 
 describe("repos routes", () => {
 	test("list create patch archive restore", async () => {
+		const archived = { ...repo, archived_at: 99 as number | null };
 		const db = createMockD1({
 			allBySql: [{ match: "FROM repos", results: [repo] }],
-			firstBySql: [{ match: "FROM repos WHERE id", row: repo }],
+			firstBySql: [
+				// create GUID check + patch load + post-write load use active row
+				{ match: "project_external_id FROM repos", row: null },
+				{ match: "FROM repos WHERE id", row: repo },
+			],
 			runChanges: 1,
 		});
 		const app = mount(db);
@@ -84,9 +89,21 @@ describe("repos routes", () => {
 			(await app.request("http://x/api/repos/r1/archive", { method: "POST" }))
 				.status,
 		).toBe(200);
+
+		// Restore needs archived row + GUID consistent with siblings
+		const restoreDb = createMockD1({
+			firstBySql: [
+				{ match: "FROM repos WHERE id", row: archived },
+				{ match: "project_external_id FROM repos", row: null },
+			],
+			runChanges: 1,
+		});
 		expect(
-			(await app.request("http://x/api/repos/r1/restore", { method: "POST" }))
-				.status,
+			(
+				await mount(restoreDb).request("http://x/api/repos/r1/restore", {
+					method: "POST",
+				})
+			).status,
 		).toBe(200);
 	});
 
@@ -181,18 +198,25 @@ describe("repos routes", () => {
 	test("restore 404 and 409", async () => {
 		expect(
 			(
-				await mount(createMockD1({ runChanges: 0 })).request(
-					"http://x/api/repos/r1/restore",
-					{ method: "POST" },
-				)
+				await mount(
+					createMockD1({
+						firstBySql: [{ match: "FROM repos WHERE id", row: null }],
+					}),
+				).request("http://x/api/repos/r1/restore", { method: "POST" })
 			).status,
 		).toBe(404);
+		const archived = { ...repo, archived_at: 99 as number | null };
 		expect(
 			(
-				await mount(createMockD1({ runError: new Error("u") })).request(
-					"http://x/api/repos/r1/restore",
-					{ method: "POST" },
-				)
+				await mount(
+					createMockD1({
+						firstBySql: [
+							{ match: "FROM repos WHERE id", row: archived },
+							{ match: "project_external_id FROM repos", row: null },
+						],
+						runError: new Error("u"),
+					}),
+				).request("http://x/api/repos/r1/restore", { method: "POST" })
 			).status,
 		).toBe(409);
 	});
@@ -266,6 +290,53 @@ describe("repos routes", () => {
 			body: JSON.stringify({
 				externalId: "guid",
 				projectExternalId: "other-pg",
+			}),
+		});
+		expect(res.status).toBe(409);
+	});
+
+	test("restore conflicts when archived GUID differs from active sibling", async () => {
+		const archived = {
+			...repo,
+			id: "r-old",
+			project_external_id: "pg-old",
+			archived_at: 99,
+		};
+		const db = createMockD1({
+			firstBySql: [
+				{ match: "FROM repos WHERE id", row: archived },
+				{
+					match: "project_external_id FROM repos",
+					row: { project_external_id: "pg-new" },
+				},
+			],
+		});
+		const res = await mount(db).request("http://x/api/repos/r-old/restore", {
+			method: "POST",
+		});
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Project GUID conflict");
+	});
+
+	test("create rejects GUID that conflicts with archived sibling", async () => {
+		const db = createMockD1({
+			firstBySql: [
+				{
+					match: "project_external_id FROM repos",
+					row: { project_external_id: "pg-archived" },
+				},
+			],
+		});
+		const res = await mount(db).request("http://x/api/repos", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				org: "o",
+				project: "p",
+				name: "n2",
+				externalId: "guid2",
+				projectExternalId: "pg-new",
 			}),
 		});
 		expect(res.status).toBe(409);
