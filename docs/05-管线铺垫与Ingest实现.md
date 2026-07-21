@@ -1,6 +1,6 @@
 # 05 — 本机采集管线铺垫与 Ingest 契约
 
-> 状态：设计稿（**冻结契约 + 前置条件**，不是实施计划）
+> 状态：**已实施**（S1–S5 完成；ingest 仍 501，真写库属 06）
 > 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)、[03-Web模块模板](./03-Web模块模板.md)、[04-Settings设计](./04-Settings设计.md)
 > 范围：把仓库从「Web/Settings 已完成、`/api/pipeline/ingest` 仍 501」推进到「06 可以直接用本机 CLI 实现真实采集与写入」的**全部前置条件**与**冻结契约**
 > **不在本文（属 06 / 07）**：Activity/Score 真实写入、计分算法定稿、fixture 首次落库、真实 ADO REST 调用、raw JSON 逐字段 schema、Web 数据读回的真实实现
@@ -1020,61 +1020,61 @@ apps/collect/
 ## 12. 05 验收清单
 
 ### S1 Schema & Bootstrap
-- [ ] `packages/db/migrations/0004_repo_project_guid.sql` 落地并 remote apply
-- [ ] `repos` 表新增 `project_external_id TEXT`；索引若需要（06 可能加）留 TODO 注释
-- [ ] `GET /api/pipeline/bootstrap` 响应 `repos[].projectExternalId`
-- [ ] Web repos 页新增 project GUID 编辑字段；`POST/PUT /api/repos` 支持该字段
-- [ ] `POST/PUT /api/repos` **服务端**硬拒绝同 `(provider, org, project)` 下不一致的非空 GUID → 409
-- [ ] Worker 与 Web 单测通过
+- [x] `packages/db/migrations/0004_repo_project_guid.sql` 落地并 remote apply
+- [x] `repos` 表新增 `project_external_id TEXT`；索引若需要（06 可能加）留 TODO 注释
+- [x] `GET /api/pipeline/bootstrap` 响应 `repos[].projectExternalId`
+- [x] Web repos 页新增 project GUID 编辑字段；`POST/PUT /api/repos` 支持该字段
+- [x] `POST/PUT /api/repos` **服务端**硬拒绝同 `(provider, org, project)` 下不一致的非空 GUID → 409
+- [x] Worker 与 Web 单测通过
 
 ### S1a 权重收紧为非负整数（横跨 domain / Settings / Web / 兼容）
-- [ ] `packages/domain` 常量 `DEFAULT_WEIGHTS` 值全部整数（已覆盖）
-- [ ] `PUT /api/settings` 校验 `activityWeights[*]` 为 **z.number().int().nonnegative()**；小数或负数 → 400
-- [ ] Web `useSettingsViewModel` 校验一致；表单 UI 阻止输入小数/负数
-- [ ] 既有数据兼容：远端 D1 现有 `activity_weights` 若已有小数（曾人工写入），S1 落地前跑一次 `SELECT value FROM settings WHERE key='activity_weights'` 抽查；若存在，落一次一次性 fix migration（`0005_normalize_activity_weights.sql`：round + 非负 clamp），并在 05 收尾时同步补 04 §3.2 的校验规则
-- [ ] `packages/worker/lib/settings.ts` 单测覆盖：小数拒绝 / 负数拒绝 / 整数通过
+- [x] `packages/domain` 常量 `DEFAULT_WEIGHTS` 值全部整数（已覆盖）
+- [x] `PUT /api/settings` 校验 `activityWeights[*]` 为 **z.number().int().nonnegative()**；小数或负数 → 400
+- [x] Web `useSettingsViewModel` 校验一致；表单 UI 阻止输入小数/负数
+- [x] 既有数据兼容：远端 D1 现有 `activity_weights` 若已有小数（曾人工写入），S1 落地前跑一次 `SELECT value FROM settings WHERE key='activity_weights'` 抽查；若存在，落一次一次性 fix migration（`0005_normalize_activity_weights.sql`：round + 非负 clamp），并在 05 收尾时同步补 04 §3.2 的校验规则
+- [x] `packages/worker/lib/settings.ts` 单测覆盖：小数拒绝 / 负数拒绝 / 整数通过
 
 ### S2 Domain 契约包
-- [ ] `packages/domain` 建包 + tsconfig + bunfig
-- [ ] 导出 `ACTIVITY_TYPES` / `DEFAULT_WEIGHTS` / `activitySchema` / `ingestBodySchema` / `paths` 帮手 / 函数类型别名
-- [ ] **不**建 `identity.ts` / `day-key.ts` / `external-ref.ts` / `score.ts` 实现文件（留给 06）；仅在 `types.ts` 落函数类型别名
-- [ ] `parseUniqueName` **不存在**（明确删除，避免猜测剥前缀）
-- [ ] `bun test` 通过；已落项覆盖率 ≥95%（`include` 精确列出已落文件，避免"没实装"文件稀释门禁）
-- [ ] Worker 与 Web import `@signoff/domain` 无循环
+- [x] `packages/domain` 建包 + tsconfig + bunfig
+- [x] 导出 `ACTIVITY_TYPES` / `DEFAULT_WEIGHTS` / `activitySchema` / `ingestBodySchema` / `paths` 帮手 / 函数类型别名
+- [x] **不**建 `identity.ts` / `day-key.ts` / `external-ref.ts` / `score.ts` 实现文件（留给 06）；仅在 `types.ts` 落函数类型别名
+- [x] `parseUniqueName` **不存在**（明确删除，避免猜测剥前缀）
+- [x] `bun test` 通过；已落项覆盖率 ≥95%（`include` 精确列出已落文件，避免"没实装"文件稀释门禁）
+- [x] Worker 与 Web import `@signoff/domain` 无循环
 
 ### S3 CLI 骨架
-- [ ] `apps/collect` 建 app + vitest
-- [ ] `signoff doctor` 检 az / .data / bootstrap / token；每一项 pass/fail 打印
-- [ ] `signoff settings pull` 打通 bootstrap → 写 cache（含 `pipelineConfigVersion` + `fetchedAt`）
-- [ ] `signoff settings show` 读 cache 或 `--remote` 刷新
-- [ ] `signoff collect --dry-run` 打印计划（org/project/repo × PR/WI），**不调 ADO**
-- [ ] `signoff ingest fixture <file>` 读 JSON → `ingestBodySchema.parse` → 打印 body 摘要 → 退出 0，**不发 HTTP**
-- [ ] Pipeline client mock 测试覆盖 200/401/403/409/413/501
-- [ ] exit code 语义（§9.4）落地
-- [ ] Coverage ≥95%
+- [x] `apps/collect` 建 app + vitest
+- [x] `signoff doctor` 检 az / .data / bootstrap / token；每一项 pass/fail 打印
+- [x] `signoff settings pull` 打通 bootstrap → 写 cache（含 `pipelineConfigVersion` + `fetchedAt`）
+- [x] `signoff settings show` 读 cache 或 `--remote` 刷新
+- [x] `signoff collect --dry-run` 打印计划（org/project/repo × PR/WI），**不调 ADO**
+- [x] `signoff ingest fixture <file>` 读 JSON → `ingestBodySchema.parse` → 打印 body 摘要 → 退出 0，**不发 HTTP**
+- [x] Pipeline client mock 测试覆盖 200/401/403/409/413/501
+- [x] exit code 语义（§9.4）落地
+- [x] Coverage ≥95%
 
 ### S4 Ingest 契约冻结
-- [ ] §5 全部小节写完并 review 通过
-- [ ] `packages/worker/src/middleware/pipeline-auth.ts` 移除 `browser + Access → skip token` 对 pipeline write 的放行
-- [ ] 新测试：Access JWT + `POST /api/pipeline/ingest` → 403
-- [ ] `packages/worker/src/routes/pipeline.ts` 按 §5.8 强制预检：鉴权 401/403 → payload 413 → Zod 400 → version gate 409 → 全通过后返 501；引用完整性 422 留 06
-- [ ] 上述预检各写单测覆盖
-- [ ] `docs/03-Web模块模板.md` §8 鉴权表格与本文 §5.6 完全一致
-- [ ] `docs/04-Settings设计.md` §8 鉴权表格与本文 §5.6 完全一致
-- [ ] `docs/04-Settings设计.md` §6.7 recompute complete 契约按本文 §5.7 更新（新增 `runId` + `mode='full_rematch'` 三重 version 校验）
+- [x] §5 全部小节写完并 review 通过
+- [x] `packages/worker/src/middleware/pipeline-auth.ts` 移除 `browser + Access → skip token` 对 pipeline write 的放行
+- [x] 新测试：Access JWT + `POST /api/pipeline/ingest` → 403
+- [x] `packages/worker/src/routes/pipeline.ts` 按 §5.8 强制预检：鉴权 401/403 → payload 413 → Zod 400 → version gate 409 → 全通过后返 501；引用完整性 422 留 06
+- [x] 上述预检各写单测覆盖
+- [x] `docs/03-Web模块模板.md` §8 鉴权表格与本文 §5.6 完全一致
+- [x] `docs/04-Settings设计.md` §8 鉴权表格与本文 §5.6 完全一致
+- [x] `docs/04-Settings设计.md` §6.7 recompute complete 契约按本文 §5.7 更新（新增 `runId` + `mode='full_rematch'` 三重 version 校验）
 
 ### S5 本地闭环
-- [ ] `bun run dev:all` 起 web + worker + wrangler local D1，migrations apply
-- [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/bootstrap` 无 token 应 200
-- [ ] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/ingest -X POST ...` 应返 501（loopback 按 §5.6 冻结契约**始终**绕过鉴权，不涉及 401）
-- [ ] `signoff doctor` 全绿
-- [ ] `signoff settings pull` 写出 `.data/cache/bootstrap.json` 且 `pipelineConfigVersion` 与 Web 一致
-- [ ] `signoff ingest fixture ./fixtures/activities.sample.json` 打印 body 摘要，退出 0
+- [x] `bun run dev:all` 起 web + worker + wrangler local D1，migrations apply
+- [x] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/bootstrap` 无 token 应 200
+- [x] loopback 用例：`curl http://127.0.0.1:37042/api/pipeline/ingest -X POST ...` 应返 501（loopback 按 §5.6 冻结契约**始终**绕过鉴权，不涉及 401）
+- [x] `signoff doctor` 全绿
+- [x] `signoff settings pull` 写出 `.data/cache/bootstrap.json` 且 `pipelineConfigVersion` 与 Web 一致
+- [x] `signoff ingest fixture ./fixtures/activities.sample.json` 打印 body 摘要，退出 0
 
 ### 全阶段横切
-- [ ] 所有新增文件 Biome 0 warning
-- [ ] `.data/` 已在 `.gitignore`；本地 token 不进仓库
-- [ ] `docs/README.md` 索引指向 05；06 / 07 骨架已建（可为 stub）
+- [x] 所有新增文件 Biome 0 warning
+- [x] `.data/` 已在 `.gitignore`；本地 token 不进仓库
+- [x] `docs/README.md` 索引指向 05；06 / 07 骨架已建（可为 stub）
 
 **任何"D1 里出现 Activity/Score 行"都不是 05 验收信号 —— 那是 06。**
 
