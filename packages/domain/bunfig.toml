@@ -1,0 +1,8 @@
+[test]
+# Precise include: only 05-delivered files participate in coverage gate.
+# 06 will add identity/day-key/external-ref/score impls separately.
+coverageThreshold = { lines = 0.95, functions = 0.95, statements = 0.95 }
+coveragePathIgnorePatterns = [
+  # Re-export only; no logic
+  "src/index.ts",
+]
