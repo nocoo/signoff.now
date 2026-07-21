@@ -102,6 +102,24 @@ export async function createRepo(body: {
 	return parseRepo(raw);
 }
 
+export async function patchRepo(
+	id: string,
+	body: {
+		org?: string;
+		project?: string;
+		name?: string;
+		externalId?: string | null;
+		projectExternalId?: string | null;
+		enabled?: boolean;
+	},
+): Promise<Repo> {
+	const raw = await apiFetch<unknown>(`/api/repos/${id}`, {
+		method: "PATCH",
+		body: JSON.stringify(body),
+	});
+	return parseRepo(raw);
+}
+
 export async function archiveRepo(id: string): Promise<void> {
 	await apiFetch(`/api/repos/${id}/archive`, { method: "POST" });
 }

@@ -8,7 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Repo } from "@/models/entities";
-import { archiveRepo, createRepo, listRepos } from "@/models/entitiesApi";
+import {
+	archiveRepo,
+	createRepo,
+	listRepos,
+	patchRepo,
+} from "@/models/entitiesApi";
 
 export function ReposPage() {
 	const [items, setItems] = useState<Repo[]>([]);
@@ -19,10 +24,18 @@ export function ReposPage() {
 	const [projectExternalId, setProjectExternalId] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
+	/** Inline edit drafts for project GUID backfill (repo id → draft). */
+	const [guidDrafts, setGuidDrafts] = useState<Record<string, string>>({});
 
 	const reload = useCallback(async () => {
 		try {
-			setItems(await listRepos());
+			const list = await listRepos();
+			setItems(list);
+			const drafts: Record<string, string> = {};
+			for (const r of list) {
+				drafts[r.id] = r.projectExternalId ?? "";
+			}
+			setGuidDrafts(drafts);
 			setError(null);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Load failed");
@@ -138,36 +151,69 @@ export function ReposPage() {
 							</tr>
 						</thead>
 						<tbody>
-							{items.map((r) => (
-								<tr
-									key={r.id}
-									className="border-b border-border last:border-0 hover:bg-background/50"
-								>
-									<td className="px-4 py-3">
-										{r.org} / {r.project}
-									</td>
-									<td className="px-4 py-3 font-medium">{r.name}</td>
-									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-										{r.externalId ?? "—"}
-									</td>
-									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-										{r.projectExternalId ?? "—"}
-									</td>
-									<td className="px-4 py-3 text-right">
-										<Button
-											variant="destructive"
-											size="sm"
-											onClick={() =>
-												void archiveRepo(r.id)
-													.then(reload)
-													.catch((e: Error) => setError(e.message))
-											}
-										>
-											Archive
-										</Button>
-									</td>
-								</tr>
-							))}
+							{items.map((r) => {
+								const draft = guidDrafts[r.id] ?? "";
+								const saved = r.projectExternalId ?? "";
+								const dirty = draft.trim() !== saved;
+								return (
+									<tr
+										key={r.id}
+										className="border-b border-border last:border-0 hover:bg-background/50"
+									>
+										<td className="px-4 py-3">
+											{r.org} / {r.project}
+										</td>
+										<td className="px-4 py-3 font-medium">{r.name}</td>
+										<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+											{r.externalId ?? "—"}
+										</td>
+										<td className="px-4 py-3">
+											<div className="flex min-w-[14rem] items-center gap-2">
+												<Input
+													className="font-mono text-xs h-8"
+													value={draft}
+													onChange={(e) =>
+														setGuidDrafts((d) => ({
+															...d,
+															[r.id]: e.target.value,
+														}))
+													}
+													placeholder="Backfill project GUID"
+												/>
+												<Button
+													size="sm"
+													variant="secondary"
+													disabled={!dirty}
+													onClick={() =>
+														void patchRepo(r.id, {
+															projectExternalId: draft.trim() || null,
+															// keep externalId so ADO enabled check still holds
+															externalId: r.externalId,
+														})
+															.then(reload)
+															.catch((e: Error) => setError(e.message))
+													}
+												>
+													Save
+												</Button>
+											</div>
+										</td>
+										<td className="px-4 py-3 text-right">
+											<Button
+												variant="destructive"
+												size="sm"
+												onClick={() =>
+													void archiveRepo(r.id)
+														.then(reload)
+														.catch((e: Error) => setError(e.message))
+												}
+											>
+												Archive
+											</Button>
+										</td>
+									</tr>
+								);
+							})}
 						</tbody>
 					</table>
 				</div>
