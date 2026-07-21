@@ -20,22 +20,74 @@ export async function readJsonBody(c: {
 }
 
 /**
- * Read raw body text + parse JSON, reporting actual byte length for 413 checks.
- * Prefer this for pipeline ingest (§5.2).
+ * Read raw body with hard byte cap (§5.2).
+ * Streams chunks until limit; aborts early so oversized payloads never parse.
+ * Note: Workers still buffer under the hood for `req.arrayBuffer`/`text`; this
+ * rejects before JSON parse / Settings load when Content-Length or streamed
+ * bytes exceed the cap.
  */
-export async function readJsonBodyWithSize(c: {
-	req: {
-		text: () => Promise<string>;
-	};
-}): Promise<
+export async function readJsonBodyWithSize(
+	c: {
+		req: {
+			raw: Request;
+			header: (name: string) => string | undefined;
+		};
+	},
+	maxBytes: number,
+): Promise<
 	| { ok: true; value: unknown; byteLength: number }
 	| { ok: false; error: "invalid_json"; byteLength: number }
+	| { ok: false; error: "payload_too_large"; byteLength: number }
 > {
-	const text = await c.req.text();
-	const byteLength = new TextEncoder().encode(text).length;
+	const cl = c.req.header("content-length");
+	if (cl) {
+		const n = Number(cl);
+		if (Number.isFinite(n) && n > maxBytes) {
+			return { ok: false, error: "payload_too_large", byteLength: n };
+		}
+	}
+
+	const reader = c.req.raw.body?.getReader();
+	if (!reader) {
+		// Empty body
+		return { ok: false, error: "invalid_json", byteLength: 0 };
+	}
+
+	const chunks: Uint8Array[] = [];
+	let total = 0;
 	try {
-		return { ok: true, value: JSON.parse(text) as unknown, byteLength };
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			if (value) {
+				total += value.byteLength;
+				if (total > maxBytes) {
+					await reader.cancel();
+					return {
+						ok: false,
+						error: "payload_too_large",
+						byteLength: total,
+					};
+				}
+				chunks.push(value);
+			}
+		}
 	} catch {
-		return { ok: false, error: "invalid_json", byteLength };
+		return { ok: false, error: "invalid_json", byteLength: total };
+	}
+
+	const merged = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		merged.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	const text = new TextDecoder().decode(merged);
+	try {
+		return { ok: true, value: JSON.parse(text) as unknown, byteLength: total };
+	} catch {
+		return { ok: false, error: "invalid_json", byteLength: total };
 	}
 }

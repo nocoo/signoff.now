@@ -86,9 +86,10 @@ export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
  * Precheck order (§5.8): payload 413 → Zod 400 → version gate 409 → 501.
  */
 export async function pipelineIngestRoute(c: Context<AppEnv>) {
-	const raw = await readJsonBodyWithSize(c);
+	// Size gate first — never touch Settings/D1 for oversized bodies (§5.2 / §5.8).
+	const raw = await readJsonBodyWithSize(c, INGEST_MAX_PAYLOAD_BYTES);
 	if (!raw.ok) {
-		if (raw.byteLength > INGEST_MAX_PAYLOAD_BYTES) {
+		if (raw.error === "payload_too_large") {
 			return c.json({ error: "Payload too large" }, 413);
 		}
 		return c.json({ error: "Invalid JSON body" }, 400);
