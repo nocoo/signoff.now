@@ -29,18 +29,30 @@ export async function reposListRoute(c: Context<AppEnv>) {
 	return c.json({ items: (res.results ?? []).map(mapRepo) });
 }
 
-function parseProjectExternalId(value: unknown): string | null | undefined {
-	if (value === undefined) {
-		return;
+/**
+ * Parse projectExternalId: missing → undefined, null/"" → null, string → trim,
+ * non-string → error (never silently coerce to null).
+ */
+function parseProjectExternalId(
+	value: unknown,
+	keyPresent: boolean,
+):
+	| { ok: true; value: string | null | undefined }
+	| { ok: false; error: string } {
+	if (!keyPresent) {
+		return { ok: true, value: undefined };
 	}
 	if (value === null) {
-		return null;
+		return { ok: true, value: null };
 	}
 	if (typeof value !== "string") {
-		return;
+		return {
+			ok: false,
+			error: "projectExternalId must be a string or null",
+		};
 	}
 	const t = value.trim();
-	return t.length > 0 ? t : null;
+	return { ok: true, value: t.length > 0 ? t : null };
 }
 
 function parseRepoBody(body: unknown) {
@@ -66,10 +78,15 @@ function parseRepoBody(body: unknown) {
 		typeof b.externalId === "string" && b.externalId.trim()
 			? b.externalId.trim()
 			: null;
-	const projectExternalId = parseProjectExternalId(b.projectExternalId);
+	const pe = parseProjectExternalId(
+		b.projectExternalId,
+		Object.hasOwn(b, "projectExternalId"),
+	);
+	if (!pe.ok) {
+		return { error: pe.error };
+	}
 	// Missing key → null on create; patch merges before parse
-	const resolvedProjectExternalId =
-		projectExternalId === undefined ? null : projectExternalId;
+	const resolvedProjectExternalId = pe.value === undefined ? null : pe.value;
 	const enabled = b.enabled === false ? 0 : 1;
 	if (provider === "ado" && enabled === 1 && !externalId) {
 		return { error: "ADO enabled repos require externalId (repository GUID)" };
@@ -87,49 +104,22 @@ function parseRepoBody(body: unknown) {
 }
 
 /**
- * Hard-reject inconsistent non-null project GUID under the same
- * (provider, org, project). Includes archived rows so archive→create→restore
- * cannot introduce two GUIDs for one project (05 §3.1 / Codex review).
+ * Atomic project GUID consistency: no sibling (incl. archived) may hold a
+ * different non-null project_external_id under the same (provider, org, project).
+ * Enforced in the same SQL statement as write to close TOCTOU races.
  */
-async function assertProjectGuidConsistent(
-	db: D1Database,
-	opts: {
-		provider: string;
-		org: string;
-		project: string;
-		projectExternalId: string | null;
-		excludeId?: string;
-	},
-): Promise<{ ok: true } | { ok: false; existing: string }> {
-	if (!opts.projectExternalId) {
-		return { ok: true };
-	}
-	const row = await db
-		.prepare(
-			`SELECT project_external_id FROM repos
-       WHERE provider = ? AND org = ? AND project = ?
-         AND project_external_id IS NOT NULL
-         AND project_external_id != ?
-         ${opts.excludeId ? "AND id != ?" : ""}
-       LIMIT 1`,
-		)
-		.bind(
-			...(opts.excludeId
-				? [
-						opts.provider,
-						opts.org,
-						opts.project,
-						opts.projectExternalId,
-						opts.excludeId,
-					]
-				: [opts.provider, opts.org, opts.project, opts.projectExternalId]),
-		)
-		.first<{ project_external_id: string }>();
-	if (row?.project_external_id) {
-		return { ok: false, existing: row.project_external_id };
-	}
-	return { ok: true };
-}
+const GUID_OK = `(
+  ? IS NULL
+  OR NOT EXISTS (
+    SELECT 1 FROM repos AS sibling
+    WHERE sibling.provider = ?
+      AND sibling.org = ?
+      AND sibling.project = ?
+      AND sibling.project_external_id IS NOT NULL
+      AND sibling.project_external_id != ?
+      AND sibling.id != ?
+  )
+)`;
 
 export async function reposCreateRoute(c: Context<AppEnv>) {
 	const raw = await readJsonBody(c);
@@ -143,27 +133,12 @@ export async function reposCreateRoute(c: Context<AppEnv>) {
 			400,
 		);
 	}
-	const guidCheck = await assertProjectGuidConsistent(c.env.DB, {
-		provider: parsed.provider,
-		org: parsed.org,
-		project: parsed.project,
-		projectExternalId: parsed.projectExternalId,
-	});
-	if (!guidCheck.ok) {
-		return c.json(
-			{
-				error: "Project GUID conflict",
-				message: `Existing project_external_id for this (provider, org, project) is ${guidCheck.existing}`,
-				existing: guidCheck.existing,
-			},
-			409,
-		);
-	}
 	const id = newId();
 	try {
-		await c.env.DB.prepare(
+		const r = await c.env.DB.prepare(
 			`INSERT INTO repos (id, provider, org, project, name, remote_url, external_id, project_external_id, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()
+       WHERE ${GUID_OK}`,
 		)
 			.bind(
 				id,
@@ -175,8 +150,25 @@ export async function reposCreateRoute(c: Context<AppEnv>) {
 				parsed.externalId,
 				parsed.projectExternalId,
 				parsed.enabled,
+				// GUID_OK binds: newGuid, provider, org, project, newGuid, excludeId
+				parsed.projectExternalId,
+				parsed.provider,
+				parsed.org,
+				parsed.project,
+				parsed.projectExternalId,
+				id,
 			)
 			.run();
+		if (!r.meta.changes) {
+			return c.json(
+				{
+					error: "Project GUID conflict",
+					message:
+						"Another repo under this (provider, org, project) already has a different project_external_id",
+				},
+				409,
+			);
+		}
 	} catch {
 		return c.json({ error: "Conflict (name or external_id)" }, 409);
 	}
@@ -202,6 +194,13 @@ export async function reposPatchRoute(c: Context<AppEnv>) {
 	if (!b) {
 		return c.json({ error: "Invalid payload" }, 400);
 	}
+	if (
+		Object.hasOwn(b, "projectExternalId") &&
+		b.projectExternalId !== null &&
+		typeof b.projectExternalId !== "string"
+	) {
+		return c.json({ error: "projectExternalId must be a string or null" }, 400);
+	}
 	const merged = {
 		provider: typeof b.provider === "string" ? b.provider : existing.provider,
 		org: b.org !== undefined ? b.org : existing.org,
@@ -223,27 +222,11 @@ export async function reposPatchRoute(c: Context<AppEnv>) {
 			400,
 		);
 	}
-	const guidCheck = await assertProjectGuidConsistent(c.env.DB, {
-		provider: parsed.provider,
-		org: parsed.org,
-		project: parsed.project,
-		projectExternalId: parsed.projectExternalId,
-		excludeId: id,
-	});
-	if (!guidCheck.ok) {
-		return c.json(
-			{
-				error: "Project GUID conflict",
-				message: `Existing project_external_id for this (provider, org, project) is ${guidCheck.existing}`,
-				existing: guidCheck.existing,
-			},
-			409,
-		);
-	}
 	try {
-		await c.env.DB.prepare(
+		const r = await c.env.DB.prepare(
 			`UPDATE repos SET provider = ?, org = ?, project = ?, name = ?, remote_url = ?, external_id = ?, project_external_id = ?, enabled = ?, updated_at = unixepoch()
-       WHERE id = ? AND archived_at IS NULL`,
+       WHERE id = ? AND archived_at IS NULL
+         AND ${GUID_OK}`,
 		)
 			.bind(
 				parsed.provider,
@@ -255,8 +238,25 @@ export async function reposPatchRoute(c: Context<AppEnv>) {
 				parsed.projectExternalId,
 				parsed.enabled,
 				id,
+				// GUID_OK
+				parsed.projectExternalId,
+				parsed.provider,
+				parsed.org,
+				parsed.project,
+				parsed.projectExternalId,
+				id,
 			)
 			.run();
+		if (!r.meta.changes) {
+			return c.json(
+				{
+					error: "Project GUID conflict",
+					message:
+						"Another repo under this (provider, org, project) already has a different project_external_id",
+				},
+				409,
+			);
+		}
 	} catch {
 		return c.json({ error: "Conflict (name or external_id)" }, 409);
 	}
@@ -288,32 +288,35 @@ export async function reposRestoreRoute(c: Context<AppEnv>) {
 	if (!existing || existing.archived_at === null) {
 		return c.json({ error: "Not found" }, 404);
 	}
-	const guidCheck = await assertProjectGuidConsistent(c.env.DB, {
-		provider: existing.provider,
-		org: existing.org,
-		project: existing.project,
-		projectExternalId: existing.project_external_id,
-		excludeId: id,
-	});
-	if (!guidCheck.ok) {
-		return c.json(
-			{
-				error: "Project GUID conflict",
-				message: `Cannot restore: existing project_external_id for this (provider, org, project) is ${guidCheck.existing}`,
-				existing: guidCheck.existing,
-			},
-			409,
-		);
-	}
 	try {
+		// Atomic: only clear archived_at if no sibling holds a different GUID.
 		const r = await c.env.DB.prepare(
 			`UPDATE repos SET archived_at = NULL, updated_at = unixepoch()
-       WHERE id = ? AND archived_at IS NOT NULL`,
+       WHERE id = ? AND archived_at IS NOT NULL
+         AND (
+           project_external_id IS NULL
+           OR NOT EXISTS (
+             SELECT 1 FROM repos AS sibling
+             WHERE sibling.provider = repos.provider
+               AND sibling.org = repos.org
+               AND sibling.project = repos.project
+               AND sibling.id != repos.id
+               AND sibling.project_external_id IS NOT NULL
+               AND sibling.project_external_id != repos.project_external_id
+           )
+         )`,
 		)
 			.bind(id)
 			.run();
 		if (!r.meta.changes) {
-			return c.json({ error: "Not found" }, 404);
+			return c.json(
+				{
+					error: "Project GUID conflict",
+					message:
+						"Cannot restore: another repo under this (provider, org, project) has a different project_external_id",
+				},
+				409,
+			);
 		}
 	} catch {
 		return c.json({ error: "Conflict restoring repo" }, 409);

@@ -44,11 +44,7 @@ describe("repos routes", () => {
 		const archived = { ...repo, archived_at: 99 as number | null };
 		const db = createMockD1({
 			allBySql: [{ match: "FROM repos", results: [repo] }],
-			firstBySql: [
-				// create GUID check + patch load + post-write load use active row
-				{ match: "project_external_id FROM repos", row: null },
-				{ match: "FROM repos WHERE id", row: repo },
-			],
+			firstBySql: [{ match: "FROM repos WHERE id", row: repo }],
 			runChanges: 1,
 		});
 		const app = mount(db);
@@ -90,12 +86,8 @@ describe("repos routes", () => {
 				.status,
 		).toBe(200);
 
-		// Restore needs archived row + GUID consistent with siblings
 		const restoreDb = createMockD1({
-			firstBySql: [
-				{ match: "FROM repos WHERE id", row: archived },
-				{ match: "project_external_id FROM repos", row: null },
-			],
+			firstBySql: [{ match: "FROM repos WHERE id", row: archived }],
 			runChanges: 1,
 		});
 		expect(
@@ -210,10 +202,7 @@ describe("repos routes", () => {
 			(
 				await mount(
 					createMockD1({
-						firstBySql: [
-							{ match: "FROM repos WHERE id", row: archived },
-							{ match: "project_external_id FROM repos", row: null },
-						],
+						firstBySql: [{ match: "FROM repos WHERE id", row: archived }],
 						runError: new Error("u"),
 					}),
 				).request("http://x/api/repos/r1/restore", { method: "POST" })
@@ -221,15 +210,8 @@ describe("repos routes", () => {
 		).toBe(409);
 	});
 
-	test("project GUID conflict → 409 on create", async () => {
-		const db = createMockD1({
-			firstBySql: [
-				{
-					match: "project_external_id FROM repos",
-					row: { project_external_id: "existing-pg" },
-				},
-			],
-		});
+	test("project GUID conflict → 409 on create (atomic WHERE)", async () => {
+		const db = createMockD1({ runChanges: 0 });
 		const res = await mount(db).request("http://x/api/repos", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -252,10 +234,7 @@ describe("repos routes", () => {
 			project_external_id: "pg-1",
 		};
 		const db = createMockD1({
-			firstBySql: [
-				{ match: "project_external_id FROM repos", row: null },
-				{ match: "FROM repos WHERE id", row: created },
-			],
+			firstBySql: [{ match: "FROM repos WHERE id", row: created }],
 			runChanges: 1,
 		});
 		const res = await mount(db).request("http://x/api/repos", {
@@ -276,13 +255,8 @@ describe("repos routes", () => {
 
 	test("patch project GUID conflict → 409", async () => {
 		const db = createMockD1({
-			firstBySql: [
-				{ match: "FROM repos WHERE id", row: repo },
-				{
-					match: "project_external_id FROM repos",
-					row: { project_external_id: "existing-pg" },
-				},
-			],
+			firstBySql: [{ match: "FROM repos WHERE id", row: repo }],
+			runChanges: 0,
 		});
 		const res = await mount(db).request("http://x/api/repos/r1", {
 			method: "PATCH",
@@ -295,7 +269,7 @@ describe("repos routes", () => {
 		expect(res.status).toBe(409);
 	});
 
-	test("restore conflicts when archived GUID differs from active sibling", async () => {
+	test("restore conflicts when GUID gate fails (atomic)", async () => {
 		const archived = {
 			...repo,
 			id: "r-old",
@@ -303,13 +277,8 @@ describe("repos routes", () => {
 			archived_at: 99,
 		};
 		const db = createMockD1({
-			firstBySql: [
-				{ match: "FROM repos WHERE id", row: archived },
-				{
-					match: "project_external_id FROM repos",
-					row: { project_external_id: "pg-new" },
-				},
-			],
+			firstBySql: [{ match: "FROM repos WHERE id", row: archived }],
+			runChanges: 0,
 		});
 		const res = await mount(db).request("http://x/api/repos/r-old/restore", {
 			method: "POST",
@@ -319,26 +288,33 @@ describe("repos routes", () => {
 		expect(body.error).toBe("Project GUID conflict");
 	});
 
-	test("create rejects GUID that conflicts with archived sibling", async () => {
-		const db = createMockD1({
-			firstBySql: [
-				{
-					match: "project_external_id FROM repos",
-					row: { project_external_id: "pg-archived" },
-				},
-			],
-		});
-		const res = await mount(db).request("http://x/api/repos", {
+	test("rejects non-string projectExternalId with 400", async () => {
+		const res = await mount(createMockD1()).request("http://x/api/repos", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
 				org: "o",
 				project: "p",
-				name: "n2",
-				externalId: "guid2",
-				projectExternalId: "pg-new",
+				name: "n",
+				externalId: "guid",
+				projectExternalId: 123,
 			}),
 		});
-		expect(res.status).toBe(409);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toMatch(/string or null/);
+	});
+
+	test("patch rejects non-string projectExternalId without clearing", async () => {
+		const withGuid = { ...repo, project_external_id: "pg-keep" };
+		const db = createMockD1({
+			firstBySql: [{ match: "FROM repos WHERE id", row: withGuid }],
+		});
+		const res = await mount(db).request("http://x/api/repos/r1", {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ projectExternalId: 123, externalId: "guid" }),
+		});
+		expect(res.status).toBe(400);
 	});
 });
