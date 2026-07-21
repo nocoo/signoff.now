@@ -10,6 +10,8 @@ export type FsLike = {
 	writeFile: (path: string, data: string) => Promise<void>;
 	readFile: (path: string) => Promise<string>;
 	stat: (path: string) => Promise<{ isDirectory: boolean } | null>;
+	/** Optional; used to clean doctor write probes. */
+	unlink?: (path: string) => Promise<void>;
 };
 
 export function bootstrapCachePath(dataDir: string): string {

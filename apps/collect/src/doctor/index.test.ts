@@ -21,6 +21,7 @@ function okFs(): FsLike {
 		async stat() {
 			return null;
 		},
+		async unlink() {},
 	};
 }
 
@@ -126,6 +127,23 @@ describe("runDoctor", () => {
 		expect(r.checks.find((c) => c.name === ".data writable")?.detail).toMatch(
 			/EROFS/,
 		);
+	});
+
+	test("cleans write-probe after success", async () => {
+		const unlinked: string[] = [];
+		const r = await runDoctor({
+			env: loopbackEnv,
+			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			fs: {
+				...okFs(),
+				async unlink(p) {
+					unlinked.push(p);
+				},
+			},
+			client: okClient(),
+		});
+		expect(r.checks.find((c) => c.name === ".data writable")?.ok).toBe(true);
+		expect(unlinked.some((p) => p.endsWith(".write-probe"))).toBe(true);
 	});
 
 	test("bootstrap unreachable", async () => {

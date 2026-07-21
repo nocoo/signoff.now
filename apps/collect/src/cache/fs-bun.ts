@@ -20,5 +20,9 @@ export function createBunFs(): FsLike {
 			}
 			return { isDirectory: false };
 		},
+		async unlink(path) {
+			const { unlink } = await import("node:fs/promises");
+			await unlink(path);
+		},
 	};
 }
