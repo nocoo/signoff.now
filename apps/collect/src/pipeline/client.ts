@@ -40,68 +40,84 @@ export type FetchLike = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
+/** Shared request helper (module-level for coverage). */
+export async function pipelineRequest(
+	opts: {
+		apiBase: string;
+		writeToken?: string | null;
+		fetchImpl: FetchLike;
+		timeoutMs: number;
+	},
+	method: string,
+	path: string,
+	body?: unknown,
+): Promise<unknown> {
+	const headers: Record<string, string> = {
+		accept: "application/json",
+	};
+	if (opts.writeToken) {
+		headers.authorization = `Bearer ${opts.writeToken}`;
+	}
+	if (body !== undefined) {
+		headers["content-type"] = "application/json";
+	}
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+	try {
+		const res = await opts.fetchImpl(`${opts.apiBase}${path}`, {
+			method,
+			headers,
+			body: body === undefined ? undefined : JSON.stringify(body),
+			signal: controller.signal,
+		});
+		let parsed: unknown = null;
+		const text = await res.text();
+		if (text) {
+			try {
+				parsed = JSON.parse(text) as unknown;
+			} catch {
+				parsed = text;
+			}
+		}
+		if (!res.ok) {
+			const err: PipelineClientError = {
+				status: res.status,
+				body: parsed,
+				message: `HTTP ${res.status} ${path}`,
+			};
+			throw err;
+		}
+		return parsed;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 export function createPipelineClient(opts: {
 	apiBase: string;
 	writeToken?: string | null;
 	fetchImpl?: FetchLike;
 	timeoutMs?: number;
 }): PipelineClient {
-	const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
-	const timeoutMs = opts.timeoutMs ?? 15_000;
-
-	async function request(
-		method: string,
-		path: string,
-		body?: unknown,
-	): Promise<unknown> {
-		const headers: Record<string, string> = {
-			accept: "application/json",
-		};
-		if (opts.writeToken) {
-			headers.authorization = `Bearer ${opts.writeToken}`;
-		}
-		if (body !== undefined) {
-			headers["content-type"] = "application/json";
-		}
-
-		const controller = new AbortController();
-		const timer = setTimeout(() => controller.abort(), timeoutMs);
-		try {
-			const res = await fetchImpl(`${opts.apiBase}${path}`, {
-				method,
-				headers,
-				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: controller.signal,
-			});
-			let parsed: unknown = null;
-			const text = await res.text();
-			if (text) {
-				try {
-					parsed = JSON.parse(text) as unknown;
-				} catch {
-					parsed = text;
-				}
-			}
-			if (!res.ok) {
-				const err: PipelineClientError = {
-					status: res.status,
-					body: parsed,
-					message: `HTTP ${res.status} ${path}`,
-				};
-				throw err;
-			}
-			return parsed;
-		} finally {
-			clearTimeout(timer);
-		}
-	}
+	const cfg = {
+		apiBase: opts.apiBase,
+		writeToken: opts.writeToken,
+		fetchImpl: opts.fetchImpl ?? globalThis.fetch.bind(globalThis),
+		timeoutMs: opts.timeoutMs ?? 15_000,
+	};
 
 	return {
 		bootstrap: () =>
-			request("GET", "/api/pipeline/bootstrap") as Promise<BootstrapSnapshot>,
-		ingest: (body) => request("POST", "/api/pipeline/ingest", body),
+			pipelineRequest(
+				cfg,
+				"GET",
+				"/api/pipeline/bootstrap",
+			) as Promise<BootstrapSnapshot>,
+		ingest: (body) =>
+			pipelineRequest(cfg, "POST", "/api/pipeline/ingest", body),
 		recomputeComplete: (body) =>
-			request("POST", "/api/pipeline/recompute/complete", body),
+			pipelineRequest(cfg, "POST", "/api/pipeline/recompute/complete", body),
 	};
 }
 

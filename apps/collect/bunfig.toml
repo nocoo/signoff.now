@@ -1,10 +1,12 @@
 [test]
-# Note: do not set coverageThreshold here — bun applies it per-file and also
-# includes workspace @signoff/domain sources (paths.ts) pulled via imports,
-# which falsely fails the gate. Domain package has its own ≥95% suite.
-# Collect local files are ≥97% lines in practice (see test:coverage report).
+# Lines ≥95% for all collect modules.
+# Functions floor 0.85: pipeline client return-object methods sit at 87.5% under
+# bun's function metric despite 100% line coverage (domain gated separately).
+coverageThreshold = { lines = 0.95, functions = 0.85 }
 coveragePathIgnorePatterns = [
   "src/main.ts",
   "src/cache/fs-bun.ts",
   "src/doctor/exec-bun.ts",
+  "src/logger.ts",
+  "**/packages/domain/**",
 ]

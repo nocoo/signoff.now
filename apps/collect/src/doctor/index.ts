@@ -31,6 +31,9 @@ export async function runDoctor(opts: {
 
 	try {
 		await ensureDataDirs(opts.fs, opts.env.dataDir);
+		// Probe a real write — mkdir alone is a false PASS on read-only trees.
+		const probe = `${opts.env.dataDir.replace(/\/+$/, "")}/.write-probe`;
+		await opts.fs.writeFile(probe, "ok\n");
 		checks.push({
 			name: ".data writable",
 			ok: true,

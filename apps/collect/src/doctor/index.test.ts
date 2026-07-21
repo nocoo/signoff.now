@@ -110,6 +110,24 @@ describe("runDoctor", () => {
 		expect(r.checks.find((c) => c.name === ".data writable")?.ok).toBe(false);
 	});
 
+	test("data dir write probe failure after mkdir", async () => {
+		const r = await runDoctor({
+			env: loopbackEnv,
+			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			fs: {
+				...okFs(),
+				async writeFile() {
+					throw new Error("EROFS");
+				},
+			},
+			client: okClient(),
+		});
+		expect(r.checks.find((c) => c.name === ".data writable")?.ok).toBe(false);
+		expect(r.checks.find((c) => c.name === ".data writable")?.detail).toMatch(
+			/EROFS/,
+		);
+	});
+
 	test("bootstrap unreachable", async () => {
 		const r = await runDoctor({
 			env: loopbackEnv,

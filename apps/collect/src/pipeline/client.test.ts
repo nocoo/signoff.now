@@ -102,6 +102,39 @@ describe("createPipelineClient", () => {
 			expect(isPipelineClientError(e)).toBe(true);
 		}
 	});
+
+	test("empty 200 body", async () => {
+		const client = createPipelineClient({
+			apiBase: "http://x",
+			fetchImpl: async () => new Response("", { status: 200 }),
+		});
+		const r = await client.bootstrap();
+		expect(r).toBeNull();
+	});
+
+	test("200 non-json body returns text", async () => {
+		const client = createPipelineClient({
+			apiBase: "http://x",
+			fetchImpl: async () => new Response("not-json", { status: 200 }),
+		});
+		const r = await client.ingest({});
+		expect(r).toBe("not-json");
+	});
+
+	test("uses globalThis.fetch when fetchImpl omitted", async () => {
+		const original = globalThis.fetch;
+		globalThis.fetch = (async () =>
+			new Response(JSON.stringify({ ok: true }), {
+				status: 200,
+			})) as unknown as typeof fetch;
+		try {
+			const client = createPipelineClient({ apiBase: "http://x" });
+			const r = await client.recomputeComplete({ a: 1 });
+			expect(r).toEqual({ ok: true });
+		} finally {
+			globalThis.fetch = original;
+		}
+	});
 });
 
 describe("isPipelineClientError", () => {

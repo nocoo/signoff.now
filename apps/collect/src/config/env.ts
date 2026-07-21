@@ -36,13 +36,17 @@ export function loadEnv(
 		/\/+$/,
 		"",
 	);
-	const writeToken = env.SIGNOFF_PIPELINE_WRITE_TOKEN?.trim() || null;
+	const loopback = isLoopbackBase(apiBase);
+	// Never attach production tokens to loopback requests (Codex review P2).
+	const writeToken = loopback
+		? null
+		: env.SIGNOFF_PIPELINE_WRITE_TOKEN?.trim() || null;
 	const dataDir = env.SIGNOFF_DATA_DIR?.trim() || `${cwd}/.data`;
 	return {
 		apiBase,
 		writeToken,
 		dataDir,
-		isLoopback: isLoopbackBase(apiBase),
+		isLoopback: loopback,
 	};
 }
 

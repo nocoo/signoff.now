@@ -37,6 +37,15 @@ describe("loadEnv", () => {
 		expect(e.dataDir).toBe("/var/data");
 		expect(e.isLoopback).toBe(false);
 	});
+
+	test("strips write token on loopback even if env set", () => {
+		const e = loadEnv({
+			SIGNOFF_API_BASE: "http://127.0.0.1:37042",
+			SIGNOFF_PIPELINE_WRITE_TOKEN: "prod-secret",
+		});
+		expect(e.isLoopback).toBe(true);
+		expect(e.writeToken).toBeNull();
+	});
 });
 
 describe("requireWriteToken", () => {
