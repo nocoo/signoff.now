@@ -165,7 +165,7 @@
 | **S2** Domain 契约包 | 3.2 全表 | `packages/domain` 建包；导出 DTO/zod/常量/**函数类型别名**（不含 impl 文件）；被 worker 与 web 单测 import 不报错；`bun test` 覆盖率 ≥95%（仅测常量/zod/paths） |
 | **S3** CLI 骨架 | 3.3 全表 | `signoff doctor` / `settings pull` / `settings show` / `collect --dry-run` 全部可跑；`ingest fixture` 打印 body 但不发送；单测 ≥95% |
 | **S4** Ingest 契约冻结 | 3.4 全表 + 同步修 03 §8 与 04 §8 鉴权表述 | §5 全部小节写完；`pipeline-auth.ts` 若与新契约冲突则同步修正测试（Access 浏览器打 pipeline write → 403） |
-| **S5** 本地闭环实测 | 3.5 全表 | 手动跑通：`bun run dev:all` → `signoff doctor` 全绿 → `signoff settings pull` 写 cache → `signoff ingest fixture ./fixture.json` 打印 body 摘要并退出 0（**不发 HTTP**）；另用 `curl -X POST http://127.0.0.1:37042/api/pipeline/ingest -d '{}'` 独立验证 worker 返 501 |
+| **S5** 本地闭环实测 | 3.5 全表 | 手动跑通：`bun run dev:all` → `signoff doctor` 全绿 → `signoff settings pull` 写 cache → `signoff ingest fixture ./fixture.json` 打印 body 摘要并退出 0（**不发 HTTP**）；另用合法 fixture body `curl -X POST .../ingest` 验证 worker 返 **501**（空 `{}` 在 zod 预检阶段返 **400**，不到 501） |
 
 **05 完成 = S1..S5 全绿**。任何"Activity/Score 在 D1 出现"都不是 05 验收信号——**留给 06**。
 
