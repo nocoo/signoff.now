@@ -61,7 +61,7 @@
 
 ```
 fixtures/activities.sample.json
-        │  zod (ingestBodySchema)
+        │  fixtureFileSchema → 切 chunk → 每块 ingestBodySchema
         ▼
 signoff ingest fixture <file>     # 真 POST；可多 chunk
         │  Authorization: Bearer write token（非 loopback）
@@ -183,7 +183,20 @@ dayKey(occurredAtSec, timeZone) -> "YYYY-MM-DD"
 
 - `occurredAtSec`：UTC unix **秒**（与 Activity 一致）。  
 - `timeZone`：IANA，来自当前 Settings（默认 `Asia/Shanghai`）。  
-- 实现：**冻结**为 `Intl.DateTimeFormat(timeZone, { timeZone, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date(occurredAtSec * 1000))` 拼 `YYYY-MM-DD`（Workers / Bun 均可用）。**禁止** `Temporal` polyfill、禁止依赖 host local TZ、禁止第三方时区库（除非实测 `Intl` 在目标 runtime 失败再开修订）。  
+- 实现：**冻结**为（**locale 与 timeZone 不得对调**；Bun 实测 `new Intl.DateTimeFormat("Asia/Shanghai", …)` → `RangeError: invalid language tag`）：
+
+```ts
+const parts = new Intl.DateTimeFormat("en-CA", {
+  timeZone, // IANA，如 "Asia/Shanghai"
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).formatToParts(new Date(occurredAtSec * 1000));
+// 从 parts 取 year/month/day → "YYYY-MM-DD"
+// en-CA 倾向 YYYY-MM-DD 部件顺序，仍以 type 取值，勿依赖 format() 整串
+```
+
+- **禁止**把 IANA 时区当作 locale 第一参；**禁止** `Temporal` polyfill / host local TZ / 第三方时区库（除非 `Intl` 在目标 runtime 失败再开修订）。  
 - 非法 timeZone → 抛错；Worker 在 Phase 0 将此映射为 **500**（配置损坏），不静默回退 UTC。  
 - 跨日边界用例必须进单测（例：UTC `2026-07-01T16:00:00Z` + `Asia/Shanghai` → `2026-07-02`）。
 
@@ -299,18 +312,19 @@ packages/domain/src/
 
 #### 5.2.1 可执行空表守卫（普通 SELECT 不会 abort）
 
-SQLite / D1 的 `SELECT COUNT(*) ...` **不会**让 migration 失败。必须用 **INSERT 进带 CHECK 的守卫表** 把非空变成 statement 错误：
+SQLite / D1 的 `SELECT COUNT(*) ...` **不会**让 migration 失败。必须用 **INSERT 进带 CHECK 的守卫表** 把非空变成 statement 错误。  
+**同时**断言 `ingest_runs` **与** `activities` 均为 0（重建 activities 无回填路径；有行则必须人工处理）：
 
 ```sql
 -- 0006 文件开头（示意）
 CREATE TABLE _mig_0006_guard (n INTEGER NOT NULL CHECK (n = 0));
-INSERT INTO _mig_0006_guard (n)
-  SELECT COUNT(*) FROM ingest_runs;
--- 若 COUNT>0 → CHECK 失败 → 整份 migration 中止，需人工处理后再跑
+INSERT INTO _mig_0006_guard (n) SELECT COUNT(*) FROM ingest_runs;
+INSERT INTO _mig_0006_guard (n) SELECT COUNT(*) FROM activities;
+-- 任一 COUNT>0 → CHECK 失败 → 整份 migration 中止
 DROP TABLE _mig_0006_guard;
 ```
 
-当前 501 保证 `ingest_runs` 为空；远端已核对 0 行。守卫失败时**禁止**盲目改 CHECK 或跳过。
+当前 501 + 远端已核对两表 0 行。守卫失败时**禁止**盲目改 CHECK、跳过或 `DEFAULT '{}'` 糊弄。
 
 #### 5.2.2 表变更顺序
 
@@ -322,19 +336,28 @@ DROP TABLE _mig_0006_guard;
    - `status` ∈ `prepared|completed`  
    - `digest` TEXT NOT NULL — **Worker 对请求 body 计算的** SHA-256（协议**不**传客户端 digest）  
    - `dev_day_union_json` TEXT NOT NULL  
-5. **`activities` 增列**（空表或 0 行业务数据时直接 ALTER 即可；若未来有行必须回填，06 上线前远端 activities=0）：
+5. **`activities` 重建**（**禁止** `ALTER ... ADD COLUMN ... DEFAULT '{}'`——漏写列会静默落毒数据 `{}`，Phase 2 必 500；有存量时 DEFAULT 会整表回填无效 JSON）：
 
 ```sql
-ALTER TABLE activities ADD COLUMN source_ids_json TEXT
-  NOT NULL DEFAULT '{}' CHECK (json_valid(source_ids_json));
--- 06 实现：UPSERT 时写入 JSON.stringify(sourceIds)；禁止 DEFAULT 长期依赖。
--- 空对象 '{}' 仅作列约束占位；业务 UPSERT 必须写真实 sourceIds。
--- 不要塞进 meta_json（meta 是展示/审计可选字段，折叠键必须一等公民）。
+-- 示意：复制 0003 activities DDL，增加无默认值的 source_ids_json
+CREATE TABLE activities_new (
+  -- …既有列与 0003 一致…
+  source_ids_json TEXT NOT NULL CHECK (json_valid(source_ids_json)),
+  -- 无 DEFAULT；INSERT/UPSERT 必须显式提供真实 sourceIds JSON
+  …
+);
+-- 因守卫保证 activities 为空：无需 INSERT…SELECT
+DROP TABLE activities;
+ALTER TABLE activities_new RENAME TO activities;
+-- 重建 0003 全部 activities 相关索引 / FK 语义
 ```
 
-6. 重建必要索引；本地 + **remote** apply 列入验收。  
+- UPSERT 时 **必须** `source_ids_json = JSON.stringify(sourceIds)`。  
+- **不要**塞进 `meta_json`（meta 仅展示/审计；折叠键一等公民）。  
 
-**编号**：0005 已用于 weights 规范化；本 migration **必须是 0006**。同步修订 **02 §6.5**（`source_ids_json`）。
+6. 本地 + **remote** apply 列入验收；`packages/db` 的 `DB_SCHEMA_VERSION` → **6**。  
+
+**编号**：0005 已用于 weights 规范化；本 migration **必须是 0006**。同步修订 **02 §6.5**（`source_ids_json`，无 DEFAULT）。
 
 #### 5.2.3 `failed` 状态口径
 
@@ -365,21 +388,35 @@ ALTER TABLE activities ADD COLUMN source_ids_json TEXT
 
 **external_ref 跨 developer 冲突口径**：
 
-- UPSERT 前 SELECT 已有行：若 `external_ref` 命中且 `developer_id` ≠ 请求 → **422**（05 §5.3 约束 6），**除非**本 run 的 **库内** `mode = 'full_rematch'`（见 §5.3.1）。  
-- **禁止**用「当前请求 body 的 `runMeta.mode`」做权限判断——必须用 **`ingest_runs.mode`（首 chunk 冻结）**。  
+- UPSERT 前 SELECT 已有行：若 `external_ref` 命中且 `developer_id` ≠ 请求 → **422**（05 §5.3 约束 6），**除非** `effectiveMode = 'full_rematch'`（定义见 §5.3.1）。  
 - `incremental` 下跨 developer 抢 ref → 422。  
 - 写入时仍按 05：Phase 0 收集旧 dev-day（不过滤 config_version）∪ 新 dev-day。
 
-#### 5.3.1 跨 chunk 冻结 `runMeta`（P1）
+#### 5.3.1 `effectiveMode` 与跨 chunk 冻结 `runMeta`（P1）
 
-chunk digest **只**约束单次请求体，**不能**防止后续 chunk 把 `mode` 从 `incremental` 改成 `full_rematch`。
+**问题**：新 run 的 `chunkIndex=0` 在 Phase 0 **尚无** `ingest_runs` 行（INSERT 在 Phase 1），不能「一律只读库内 mode」。
+
+**`effectiveMode` 规则**：
+
+| 情形 | `effectiveMode` | 说明 |
+|:-----|:----------------|:-----|
+| **新 run**（无 `ingest_runs` 行）且 `chunkIndex=0` | `parsedBody.runMeta.mode` | 完成全部校验后，在 **同一 Phase 1 batch** 写入 `ingest_runs.mode` + `run_meta_json` + 首 chunk，**固化** |
+| **已存在** `ingest_runs` 行 | **仅** `ingest_runs.mode` | 请求 `runMeta` 必须与 `run_meta_json` **逐字段相等**；`runMeta.mode` ≠ 库内 mode → **409**；**禁止**再用 body mode 提权 |
+| 换 developer 权限 | `effectiveMode === 'full_rematch'` | 按上表取值，不是「永远读库」也不是「永远读 body」 |
+
+**并发两个「首 chunk」**（同一 `runId`，违反单写者但仍须定义）：
+
+1. 两者 Phase 0 均视为新 run，`effectiveMode` 暂取各自 body（应相同）。  
+2. Phase 1 `INSERT ingest_runs`：**仅一人成功**；失败者得唯一约束/冲突 → 重试同 chunk。  
+3. 重试进入「已存在 run」分支：**只认库内** `mode` / `run_meta_json`；body 不一致 → 409。
+
+chunk digest **只**约束单次请求体；跨 chunk 的 mode 漂移靠 **`run_meta_json` 精确比对** 防住。
 
 | 规则 | 行为 |
 |:-----|:-----|
-| 新 run + `chunkIndex=0` | 写入 `ingest_runs.mode`、`config_version`、**`run_meta_json` = 规范序列化后的完整 `runMeta`** |
-| 同 run 后续 chunk | 请求 `runMeta` 必须与 `run_meta_json` **逐字段相等**（`startedAt/source/windowFrom/windowTo/mode`）；不等 → **409** |
-| 请求 `runMeta.mode` ≠ `ingest_runs.mode` | **409**（冗余校验） |
-| 换 developer 权限 | **仅**当 `ingest_runs.mode === 'full_rematch'` |
+| 新 run + chunk 0 成功 Phase 1 | 固化 `mode`、`config_version`、`run_meta_json` |
+| 同 run 后续 chunk | `runMeta` ≡ `run_meta_json`；否则 **409** |
+| 换 developer | **仅** `effectiveMode === 'full_rematch'` |
 
 `pipelineConfigVersion` 仍走既有三重 version 校验（05 §5.3 约束 8）。
 
@@ -446,9 +483,9 @@ Score 写入：
 
 | 类 | 内容 |
 |:---|:-----|
-| 单测 mock D1 | Phase 分派、422/409、digest、runMeta 冻结、finalized |
-| stmt 计数 | mock 记录 prepare 次数 ≤ 80（05 最坏明细 71） |
-| **本地 D1 集成（门禁，非可选）** | wrangler local + 真实 D1：seed → fixture chunk → `SELECT` activities/scores 断言；缺此门禁不得标 06 完成 |
+| 单测 mock D1 | Phase 分派、422/409、digest、runMeta 冻结、finalized、chunk0 effectiveMode |
+| stmt 计数 | 统计实际执行的 **`.first` / `.all` / `.run` 次数 + 每个 `batch([...])` 的 `statements.length` 之和** ≤ 80（05 最坏明细 71）；**禁止**只数 `prepare()` 调用 |
+| **本地 D1 集成（门禁，非可选）** | `wrangler dev --local`（或等价 local Worker）+ 已 apply 的 local D1：seed → fixture → `SELECT` activities/scores；缺此门禁不得标 06 完成 |
 
 ---
 
@@ -464,11 +501,13 @@ Score 写入：
 
 ```ts
 // 概念形状；键与 ingest body 对齐，但数组上限放大
+// fixture 代表「完整逻辑 run」：文件内 isFinalChunk 必须为 true（表示逻辑上会收尾），
+// CLI 发出时仅最后物理 chunk 带 true，中间 chunk 覆写为 false。
 fixtureFileSchema = z.object({
   pipelineConfigVersion: z.number().int().positive(),
   runId: /* 同 ingest：ULID|UUID */,
-  chunkIndex: z.literal(0),           // 文件内必须从 0；CLI 重写发出的 chunkIndex
-  isFinalChunk: z.boolean(),          // 文件内可 true；发出时仅最后一块 true
+  chunkIndex: z.literal(0),           // 文件内必须 0；CLI 重写发出的 chunkIndex
+  isFinalChunk: z.literal(true),      // 禁止 false 后又静默覆盖；语义=本文件是完整 run
   runMeta: /* 同 ingestBodySchema.runMeta */,
   activities: z.array(activitySchema).max(5000),          // 文件级上限；防误塞全库
   unmatchedIdentities: z.array(...).max(5000),
@@ -513,15 +552,16 @@ fixtureFileSchema = z.object({
 06 完成定义 **必须**包含一条自动化或脚本化路径：
 
 ```text
-1. wrangler d1 migrations apply --local（含 0006）
-2. seed：1 developer + 1 repo（project GUID）+ 已知 pipelineConfigVersion
-3. 注入 fixture 的 developerId / repoId / org / project / GUID
-4. signoff ingest fixture <file> → exit 0
-5. 断言 D1：activities ≥ 1 AND scores ≥ 1
-6. GET /api/activity/heatmap → scoresStale=false 且 rows 非空
+1. wrangler d1 migrations apply signoff-db --local（含 0006）
+2. 启动 Worker：wrangler dev --local --port 37042（或文档规定端口；必须在 seed/ingest 前就绪）
+3. seed：1 developer + 1 repo（project GUID）+ 已知 pipelineConfigVersion
+4. 注入 fixture 的 developerId / repoId / org / project / GUID
+5. SIGNOFF_API_BASE=http://127.0.0.1:37042 signoff ingest fixture <file> → exit 0
+6. 断言 D1（local）：activities ≥ 1 AND scores ≥ 1
+7. GET http://127.0.0.1:37042/api/activity/heatmap?... → scoresStale=false 且 rows 非空
 ```
 
-缺步骤 5–6 不得勾选「06 已实施」。
+缺步骤 2 / 6–7 不得勾选「06 已实施」。
 
 ### 6.6 明确不做（CLI）
 
@@ -578,10 +618,10 @@ fixtureFileSchema = z.object({
 |:---|:---|
 | CLI 从 raw 重算 Activity | ❌ 07 / 后续 |
 | CLI POST `mode=full_rematch` 的 fixture body | ✅ 允许（手工构造） |
-| Worker 接受 mode；**首 chunk 冻结** `run.mode` + `run_meta_json` | ✅ |
+| Worker：chunk0 用 body mode，固化后仅库内 mode（`effectiveMode`） | ✅ |
 | 后续 chunk runMeta 漂移 → 409 | ✅ |
 | Phase 0 旧 dev-day 并集 + Score DELETE | ✅ |
-| 换 developer 仅看 **库内** `mode=full_rematch` | ✅ |
+| 换 developer 仅 `effectiveMode=full_rematch` | ✅ |
 | `recompute/complete` 清 stale | ✅ 接线验证 |
 | Settings 变更自动触发 rematch | ❌（仍靠人跑管线；Web 只置 stale） |
 
@@ -683,14 +723,15 @@ fixtureFileSchema = z.object({
 - [x] 05 §7.4 全部拍板（§3.1）  
 - [x] 边界样例表 B1–B16  
 - [x] domain 文件列表与门禁  
-- [x] migration 0006：**可执行**空表守卫 + `source_ids_json` + `run_meta_json`  
-- [x] Phase 0 422；rematch 仅用**库内** mode  
-- [x] CLI `fixtureFileSchema` 先切块再 `ingestBodySchema`  
-- [x] digest 仅 Worker；单写者；failed 预留  
-- [x] local E2E 门禁（非可选）+ 发布顺序  
+- [x] migration 0006：**双表**空守卫 + activities **重建**（`source_ids_json` 无 DEFAULT）+ `run_meta_json`  
+- [x] Phase 0 422；`effectiveMode`（chunk0 body / 其后库内）  
+- [x] dayKey：`en-CA` locale + `timeZone` option（非 IANA-as-locale）  
+- [x] CLI `fixtureFileSchema`（`isFinalChunk: true`）→ 切块 → `ingestBodySchema`  
+- [x] digest 仅 Worker；stmt 计 `.first/.all/.run`+batch.length；单写者；failed 预留  
+- [x] local E2E 含 `wrangler dev --local` + 发布顺序  
 - [x] Web API + UI 最小集  
 - [x] P1–P5 实施切片  
-- [x] Codex review 阻断项已回写（本轮）  
+- [x] Codex 第二轮阻断项已回写  
 - [ ] **人工终审通过**（你）  
 
 ### 实施后（实装阶段再勾）
@@ -709,8 +750,8 @@ fixtureFileSchema = z.object({
 |:---|:-----|:-----|
 | D7 | `created > active`（无终态时只计 created） | **通过** |
 | B14 | breakdown 省略 0 权 type 键 | **通过** |
-| rematch | 仅库内 `full_rematch` 允许换 developer_id | **通过**（须 §5.3.1） |
-| dayKey | `Intl.DateTimeFormat` + `formatToParts`；无 Temporal | **通过** |
+| rematch | 仅 `effectiveMode=full_rematch`（chunk0=body，其后=库内） | **通过**（§5.3.1） |
+| dayKey | `Intl.DateTimeFormat("en-CA", { timeZone, … })` + `formatToParts`；无 Temporal | **通过**（locale≠IANA） |
 | 格式 B | 06 不做 | **通过** |
 | stmt 上限 | 单 chunk ≤ 80（05 最坏 71） | **通过** |
 | 时区默认 | `Asia/Shanghai` | **通过** |
