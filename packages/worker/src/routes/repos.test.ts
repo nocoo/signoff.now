@@ -211,7 +211,13 @@ describe("repos routes", () => {
 	});
 
 	test("project GUID conflict → 409 on create (atomic WHERE)", async () => {
-		const db = createMockD1({ runChanges: 0 });
+		const sqls: string[] = [];
+		const db = createMockD1({
+			onRun: (sql) => {
+				sqls.push(sql);
+				return { changes: 0 };
+			},
+		});
 		const res = await mount(db).request("http://x/api/repos", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -226,6 +232,9 @@ describe("repos routes", () => {
 		expect(res.status).toBe(409);
 		const body = (await res.json()) as { error: string };
 		expect(body.error).toBe("Project GUID conflict");
+		// Assert conditional write (not pre-SELECT then bare INSERT)
+		expect(sqls.some((s) => s.includes("NOT EXISTS"))).toBe(true);
+		expect(sqls.some((s) => s.includes("INSERT INTO repos"))).toBe(true);
 	});
 
 	test("create with projectExternalId succeeds when consistent", async () => {
@@ -254,9 +263,13 @@ describe("repos routes", () => {
 	});
 
 	test("patch project GUID conflict → 409", async () => {
+		const sqls: string[] = [];
 		const db = createMockD1({
 			firstBySql: [{ match: "FROM repos WHERE id", row: repo }],
-			runChanges: 0,
+			onRun: (sql) => {
+				sqls.push(sql);
+				return { changes: 0 };
+			},
 		});
 		const res = await mount(db).request("http://x/api/repos/r1", {
 			method: "PATCH",
@@ -267,6 +280,8 @@ describe("repos routes", () => {
 			}),
 		});
 		expect(res.status).toBe(409);
+		expect(sqls.some((s) => s.includes("NOT EXISTS"))).toBe(true);
+		expect(sqls.some((s) => s.includes("UPDATE repos SET"))).toBe(true);
 	});
 
 	test("restore conflicts when GUID gate fails (atomic)", async () => {
@@ -276,9 +291,13 @@ describe("repos routes", () => {
 			project_external_id: "pg-old",
 			archived_at: 99,
 		};
+		const sqls: string[] = [];
 		const db = createMockD1({
 			firstBySql: [{ match: "FROM repos WHERE id", row: archived }],
-			runChanges: 0,
+			onRun: (sql) => {
+				sqls.push(sql);
+				return { changes: 0 };
+			},
 		});
 		const res = await mount(db).request("http://x/api/repos/r-old/restore", {
 			method: "POST",
@@ -286,6 +305,8 @@ describe("repos routes", () => {
 		expect(res.status).toBe(409);
 		const body = (await res.json()) as { error: string };
 		expect(body.error).toBe("Project GUID conflict");
+		expect(sqls.some((s) => s.includes("NOT EXISTS"))).toBe(true);
+		expect(sqls.some((s) => s.includes("archived_at = NULL"))).toBe(true);
 	});
 
 	test("rejects non-string projectExternalId with 400", async () => {
