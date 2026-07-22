@@ -1,6 +1,6 @@
 # 06 — Activity 重建与 Score 算法
 
-> 状态：**设计稿（待 review / 未实施）**  
+> 状态：**设计稿（Codex 阻断项已回写；待人工终审 / 未实施）**  
 > 依赖：[05-管线铺垫与Ingest实现](./05-管线铺垫与Ingest实现.md)（**契约冻结**）、[01](./01-项目定位.md)、[02](./02-数据结构与D1.md)、[04](./04-Settings设计.md)  
 > **不含**：真实 ADO / `az` REST 采集、raw 逐字段 schema、增量游标（属 **07**）  
 > **前提**：05 S1–S5 已落地；`/api/pipeline/ingest` 预检后仍 **501**；domain 仅有 DTO / 类型别名
@@ -183,7 +183,7 @@ dayKey(occurredAtSec, timeZone) -> "YYYY-MM-DD"
 
 - `occurredAtSec`：UTC unix **秒**（与 Activity 一致）。  
 - `timeZone`：IANA，来自当前 Settings（默认 `Asia/Shanghai`）。  
-- 实现：**必须**用明确的时区日历换算（推荐 `Temporal` 若运行时可用；否则经审计的轻量库或自研 **仅日期** 换算，禁止依赖 host local TZ）。  
+- 实现：**冻结**为 `Intl.DateTimeFormat(timeZone, { timeZone, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date(occurredAtSec * 1000))` 拼 `YYYY-MM-DD`（Workers / Bun 均可用）。**禁止** `Temporal` polyfill、禁止依赖 host local TZ、禁止第三方时区库（除非实测 `Intl` 在目标 runtime 失败再开修订）。  
 - 非法 timeZone → 抛错；Worker 在 Phase 0 将此映射为 **500**（配置损坏），不静默回退 UTC。  
 - 跨日边界用例必须进单测（例：UTC `2026-07-01T16:00:00Z` + `Asia/Shanghai` → `2026-07-02`）。
 
@@ -295,16 +295,58 @@ packages/domain/src/
 
 ### 5.2 Migration `0006_ingest_run_states.sql`
 
-严格按 05 §5.4：
+严格按 05 §5.4，并补 06 缺口（sourceIds 落库）：
 
-0. **前置断言**：`SELECT COUNT(*) FROM ingest_runs` 必须为 0；否则 **migration 失败**（abort）。当前 501 保证表空。  
-1. 建 `ingest_runs_new`（新 CHECK：`chunked|finalized|failed` + `config_version` / `mode` / `finished_at` 等）。  
-2. 无数据迁移。  
-3. 建 `ingest_chunks`（PK `(run_id, chunk_index)`，`status` prepared|completed，`digest`，`dev_day_union_json`，…）。  
-4. Drop/rename；重建必要索引。  
-5. 本地 + remote apply 列入验收。  
+#### 5.2.1 可执行空表守卫（普通 SELECT 不会 abort）
 
-**编号**：0005 已用于 weights 规范化；本 migration **必须是 0006**。
+SQLite / D1 的 `SELECT COUNT(*) ...` **不会**让 migration 失败。必须用 **INSERT 进带 CHECK 的守卫表** 把非空变成 statement 错误：
+
+```sql
+-- 0006 文件开头（示意）
+CREATE TABLE _mig_0006_guard (n INTEGER NOT NULL CHECK (n = 0));
+INSERT INTO _mig_0006_guard (n)
+  SELECT COUNT(*) FROM ingest_runs;
+-- 若 COUNT>0 → CHECK 失败 → 整份 migration 中止，需人工处理后再跑
+DROP TABLE _mig_0006_guard;
+```
+
+当前 501 保证 `ingest_runs` 为空；远端已核对 0 行。守卫失败时**禁止**盲目改 CHECK 或跳过。
+
+#### 5.2.2 表变更顺序
+
+1. 守卫通过后：建 `ingest_runs_new`（新 CHECK：`chunked|finalized|failed` + 列 `config_version NOT NULL`、`mode NOT NULL`、`finished_at`、**`run_meta_json NOT NULL`**（首 chunk 冻结的完整 `runMeta` 规范 JSON，见 §5.3.1）等）。  
+2. 无旧行可迁（表空）。  
+3. **`DROP TABLE ingest_runs; ALTER TABLE ingest_runs_new RENAME TO ingest_runs;`**（先 rename 到最终名）。  
+4. **再**建 `ingest_chunks`，FK 引用**最终** `ingest_runs(id)`（勿在 rename 前建 FK 到 `_new` 表名残留）。  
+   - PK `(run_id, chunk_index)`  
+   - `status` ∈ `prepared|completed`  
+   - `digest` TEXT NOT NULL — **Worker 对请求 body 计算的** SHA-256（协议**不**传客户端 digest）  
+   - `dev_day_union_json` TEXT NOT NULL  
+5. **`activities` 增列**（空表或 0 行业务数据时直接 ALTER 即可；若未来有行必须回填，06 上线前远端 activities=0）：
+
+```sql
+ALTER TABLE activities ADD COLUMN source_ids_json TEXT
+  NOT NULL DEFAULT '{}' CHECK (json_valid(source_ids_json));
+-- 06 实现：UPSERT 时写入 JSON.stringify(sourceIds)；禁止 DEFAULT 长期依赖。
+-- 空对象 '{}' 仅作列约束占位；业务 UPSERT 必须写真实 sourceIds。
+-- 不要塞进 meta_json（meta 是展示/审计可选字段，折叠键必须一等公民）。
+```
+
+6. 重建必要索引；本地 + **remote** apply 列入验收。  
+
+**编号**：0005 已用于 weights 规范化；本 migration **必须是 0006**。同步修订 **02 §6.5**（`source_ids_json`）。
+
+#### 5.2.3 `failed` 状态口径
+
+`ingest_runs.status` CHECK 含 `failed`，但 **06 正常重试路径不写入 `failed`**：
+
+| 场景 | 状态 |
+|:-----|:-----|
+| Phase 1/3 中途失败 | 保持 `chunked` + chunk `prepared` 或无行；CLI 重试同 chunk |
+| 版本冲突 / digest 冲突 | HTTP 409；run **不**标 failed |
+| 人工/运维废除 run（预留） | 可 UPDATE `failed` + `error_message`；**06 不实现**该 API |
+
+文档与代码注释标明：`failed` = **预留**，避免把可重试失败误终结。
 
 ### 5.3 Phase 0 增补（相对 05 的 422 落地）
 
@@ -323,31 +365,61 @@ packages/domain/src/
 
 **external_ref 跨 developer 冲突口径**：
 
-- UPSERT 前 SELECT 已有行：若 `external_ref` 命中且 `developer_id` ≠ 请求 → **422**（05 §5.3 约束 6）。  
-- rematch **允许** 同 ref 换 developer（full_rematch 场景）——仅当请求 `runMeta.mode === 'full_rematch'` 时允许覆盖 developer_id / day_key；`incremental` 下仍 422。  
-  - **理由**：incremental 重放不应静默「抢」别人的事件；full_rematch 是配置变更后的权威重写。  
-  - 写入时仍按 05：Phase 0 收集旧 dev-day（不过滤 config_version）∪ 新 dev-day。
+- UPSERT 前 SELECT 已有行：若 `external_ref` 命中且 `developer_id` ≠ 请求 → **422**（05 §5.3 约束 6），**除非**本 run 的 **库内** `mode = 'full_rematch'`（见 §5.3.1）。  
+- **禁止**用「当前请求 body 的 `runMeta.mode`」做权限判断——必须用 **`ingest_runs.mode`（首 chunk 冻结）**。  
+- `incremental` 下跨 developer 抢 ref → 422。  
+- 写入时仍按 05：Phase 0 收集旧 dev-day（不过滤 config_version）∪ 新 dev-day。
+
+#### 5.3.1 跨 chunk 冻结 `runMeta`（P1）
+
+chunk digest **只**约束单次请求体，**不能**防止后续 chunk 把 `mode` 从 `incremental` 改成 `full_rematch`。
+
+| 规则 | 行为 |
+|:-----|:-----|
+| 新 run + `chunkIndex=0` | 写入 `ingest_runs.mode`、`config_version`、**`run_meta_json` = 规范序列化后的完整 `runMeta`** |
+| 同 run 后续 chunk | 请求 `runMeta` 必须与 `run_meta_json` **逐字段相等**（`startedAt/source/windowFrom/windowTo/mode`）；不等 → **409** |
+| 请求 `runMeta.mode` ≠ `ingest_runs.mode` | **409**（冗余校验） |
+| 换 developer 权限 | **仅**当 `ingest_runs.mode === 'full_rematch'` |
+
+`pipelineConfigVersion` 仍走既有三重 version 校验（05 §5.3 约束 8）。
 
 **服务端派生字段**（写库用）：
 
 | 字段 | 来源 |
 |:-----|:-----|
 | `external_ref` | `buildExternalRef(type, sourceIds)` |
+| `source_ids_json` | `JSON.stringify(activities[].sourceIds)`（**必须落库**，见 §5.2.2 / §5.5） |
 | `day_key` | `dayKey(occurredAt, settings.timezone)` |
 | `config_version` | 当前 `pipeline_config_version` |
 | `id` | 已存在 ref 则复用；否则新建 ULID/UUID |
 
 客户端若带 `id` / `externalRef` / `dayKey` / `config_version` → 已在 zod **400**（05）。
 
-### 5.4 digest 与幂等
+### 5.4 digest 与幂等（仅 Worker）
 
-- `digest = SHA-256(canonical JSON of body)`：建议对 body 做 **稳定序列化**（键排序）后哈希，避免空格差异误伤；**同一 CLI 实现**与 Worker 必须一致。  
-- 文档约定：使用 `JSON.stringify` 对 **已 parse 的对象** 按键名递归 sort 后序列化（实现放 `packages/domain` 或 worker `lib/stable-json.ts`，单测固定向量）。  
-- Phase 0 分派表：完整复制 05 §5.4，测试矩阵至少覆盖：新 chunk / prepared 续跑 / completed no-op / completed+final 补 Phase4 / digest 冲突 409 / 跳号 400 / 已 finalized 再写 409。
+- **协议不传 digest**；客户端**不得**也不需要计算 digest。  
+- Worker：`digest = SHA-256(stableStringify(parsedBody))`，`stableStringify` = 对象键名递归排序后 `JSON.stringify`（实现放 worker `lib/stable-json.ts` 或 domain，**单测固定向量**）。  
+- 首次 INSERT `ingest_chunks` 时写入 digest；重试同 chunk：digest 相同才续跑 / no-op；不同 → **409**。  
+- Phase 0 分派表：完整复制 05 §5.4，测试矩阵至少覆盖：新 chunk / prepared 续跑 / completed no-op / completed+final 补 Phase4 / digest 冲突 409 / 跳号 400 / 已 finalized 再写 409 / **runMeta 漂移 409**。
 
-### 5.5 Score 写入
+### 5.5 Phase 2 读回与 Score 写入
 
-- `breakdown_json`：`JSON.stringify(breakdown)`，键顺序不要求稳定；读回时 parse。  
+**为什么必须 `source_ids_json`**：`aggregateScores` 的折叠键来自 `sourceIds`（`prRepoGuid`/`prId`/`projectGuid`/`wiId`…）。Phase 2 从 D1 重读受影响 dev-day 的 **全部** 当前版本 Activity 时，若只有 `external_ref` 字符串，**无法**稳定还原结构化 `sourceIds` 而不写易碎 parser。  
+**禁止**从 `meta_json` 取折叠键。
+
+Phase 2 映射：
+
+```
+row → Activity-shaped input for aggregateScores:
+  type, occurredAt, provider, org, project, developerId,
+  matchedUniqueName, repoId, sourceIds: JSON.parse(source_ids_json)
+```
+
+parse 失败或与 `type` 不匹配 → **500**（数据损坏；正常 UPSERT 路径不应出现）。
+
+Score 写入：
+
+- `breakdown_json`：`JSON.stringify(breakdown)`；读回时 parse。  
 - `activity_count` ← ScoreRow.activityCount。  
 - `computed_at` ← unix 秒。  
 - UPSERT 主键 `(developer_id, day_key)`；写入 `config_version = expected`。  
@@ -359,58 +431,104 @@ packages/domain/src/
 - 06 验收：`full_rematch` run finalized 后，CLI 调 complete → `scores_stale=false`。  
 - `incremental` fixture E2E **不要求**调 complete（stale 未置位时）。
 
-### 5.7 测试策略（Worker）
+### 5.7 并发与单写者
+
+多阶段读写对 **不同 `runId` 并发** 不安全：后完成的旧聚合可能覆盖新 Score（同一 `(developer_id, day_key)`）。
+
+| 约束 | 口径 |
+|:-----|:-----|
+| **单写者** | 一期运维约定：**同一时刻仅一个** ingest 逻辑写者（单 CLI 进程 / 单操作者） |
+| 并发同 run | 不允许；第二写者对同一 `runId` 乱序 chunk → 400/409 |
+| 并发不同 run | **不支持**；文档 + CLI 帮助声明；不引入分布式锁（超出 06） |
+| 检测（可选，非必须） | 若 `ingest_runs` 存在 `status=chunked` 且 `started_at` 过新，可 409 拒绝新 run——**P2 可选**，默认靠单写者约定 |
+
+### 5.8 测试策略（Worker）
 
 | 类 | 内容 |
 |:---|:-----|
-| 单测 mock D1 | Phase 分派、422/409、digest、finalized |
-| stmt 计数 | mock 记录 prepare 次数 ≤ 80 |
-| 集成（可选本地） | wrangler local + 真实 D1 文件：一条 fixture chunk → SELECT scores |
+| 单测 mock D1 | Phase 分派、422/409、digest、runMeta 冻结、finalized |
+| stmt 计数 | mock 记录 prepare 次数 ≤ 80（05 最坏明细 71） |
+| **本地 D1 集成（门禁，非可选）** | wrangler local + 真实 D1：seed → fixture chunk → `SELECT` activities/scores 断言；缺此门禁不得标 06 完成 |
 
 ---
 
 ## 6. CLI 实装规格（仅 fixture 真写）
 
-### 6.1 `signoff ingest fixture <file>`
+### 6.1 为何不能先跑 `ingestBodySchema`
+
+正式 `ingestBodySchema` 硬限制 `activities.length ≤ 10`（及 unmatched ≤ 10）。若 fixture 文件先 `ingestBodySchema.parse`，**大于 10 条永远到不了自动分 chunk**。
+
+因此 CLI 使用 **专用宽松 schema** → 切块 → **每块再** `ingestBodySchema` 复验。
+
+### 6.2 `fixtureFileSchema`（CLI only，domain 可导出）
+
+```ts
+// 概念形状；键与 ingest body 对齐，但数组上限放大
+fixtureFileSchema = z.object({
+  pipelineConfigVersion: z.number().int().positive(),
+  runId: /* 同 ingest：ULID|UUID */,
+  chunkIndex: z.literal(0),           // 文件内必须从 0；CLI 重写发出的 chunkIndex
+  isFinalChunk: z.boolean(),          // 文件内可 true；发出时仅最后一块 true
+  runMeta: /* 同 ingestBodySchema.runMeta */,
+  activities: z.array(activitySchema).max(5000),          // 文件级上限；防误塞全库
+  unmatchedIdentities: z.array(...).max(5000),
+}).strict();
+```
+
+**切块规则**（activities 与 unmatched **并行**按索引窗切片，窗长 10）：
+
+1. 令 `n = max(ceil(activities.length/10), ceil(unmatched.length/10), 1)`。  
+2. chunk `i`（`i=0..n-1`）：  
+   - `activities = activities.slice(i*10, (i+1)*10)`  
+   - `unmatchedIdentities = unmatched.slice(i*10, (i+1)*10)`  
+   - `runId` / `pipelineConfigVersion` / **`runMeta` 全文复制（禁止改 mode）**  
+   - `chunkIndex = i`  
+   - `isFinalChunk = (i === n-1)`  
+3. 每个 chunk 对象再 `ingestBodySchema.parse`；失败 → 本地 exit 3，不发 HTTP。  
+4. **06 不做** 多 chunk 数组格式 B（`{ chunks: [...] }`）。
+
+### 6.3 `signoff ingest fixture <file>` 步骤
 
 | 步骤 | 行为 |
 |:-----|:-----|
-| 1 | 读文件 → `JSON.parse` → `ingestBodySchema`（或 **数组/多 chunk 文件格式** 见 §6.2） |
-| 2 | 校验 `pipelineConfigVersion` 与本地 cache / 可选 `--pull` 先 bootstrap |
-| 3 | 按 ≤10 activities 切 chunk；生成或保留 `runId`；`chunkIndex` 单调 |
+| 1 | 读文件 → `JSON.parse` → **`fixtureFileSchema`**（不是直接 ingestBodySchema） |
+| 2 | 校验 `pipelineConfigVersion` 与本地 cache；支持 `--pull` 先 bootstrap |
+| 3 | 按 §6.2 切 chunk；顺序发送 |
 | 4 | `pipelineClient.ingest(body)` **真 HTTP** |
-| 5 | 200：打印 upsert 摘要；5xx：同 chunk 重试（有限次）；409：中止并提示 pull / 新 runId |
-| 6 | 全部 chunk 成功且需清 stale 时：可选 `--complete-rematch` 调 recompute complete |
+| 5 | **200**：`ingestSuccessSchema`（05 成功响应形）校验通过后才发下一块；打印摘要 |
+| 6 | **可重试**（同 `(runId, chunkIndex)`，有限次 + 退避）：HTTP **5xx**、网络断开、超时、fetch 失败；**不可**对 4xx 盲重试 |
+| 7 | **409**：中止后续 chunk；提示 `settings pull` / 新 `runId`；exit 3 |
+| 8 | **400/401/403/413/422**：中止；映射 exit code；不重试 |
+| 9 | 全部成功且 `mode=full_rematch` 需清 stale 时：`--complete-rematch` 调 recompute complete |
 
-**退出码**：沿用 05 §9.4（0 成功；3 契约/409；4 5xx 耗尽等）。
+**退出码**：沿用 05 §9.4（0 成功；3 契约/409；4 5xx/网络耗尽等）。
 
-### 6.2 Fixture 文件形态
+### 6.4 Fixture 文件与 sample
 
-**06 主推两种**（实现至少支持 A）：
+- 形态 **仅 A**：单 fixture 对象（`fixtureFileSchema`）；CLI 负责分 chunk。  
+- `packages/domain/fixtures/activities.sample.json`：更新为可跑 E2E 的 shape；**id 由 seed 脚本注入**或文档要求先 seed 再 sed 替换。  
 
-| 形态 | 说明 |
-|:-----|:-----|
-| **A. 单 body** | 即一个 `ingestBodySchema` 对象；activities 可 ≤10；>10 时 CLI **自动切 chunk**（复制 runMeta / runId，改 chunkIndex / isFinalChunk / 切片 activities） |
-| **B. 多 chunk 数组** | `{ "chunks": [ body0, body1, ... ] }` 可选；06 若时间紧可只做 A |
+### 6.5 E2E 门禁（必做，非可选）
 
-仓库内 `fixtures/activities.sample.json`：更新为 **可真实 POST** 的 body（developerId/repoId 用环境说明：E2E 脚本先 CRUD 或文档写明「先 seed」）。
-
-### 6.3 E2E 推荐脚本（文档级，可后补 package script）
+06 完成定义 **必须**包含一条自动化或脚本化路径：
 
 ```text
-1. wrangler dev --local + migrate
-2. seed：1 developer + 1 repo（含 project GUID）+ settings 版本已知
-3. 改写 fixture 中的 developerId / repoId / org / project / GUID 与 seed 一致
-4. signoff ingest fixture ./fixtures/activities.sample.json
-5. 断言 D1：activities ≥ 1, scores ≥ 1
-6. curl heatmap → rows 非空
+1. wrangler d1 migrations apply --local（含 0006）
+2. seed：1 developer + 1 repo（project GUID）+ 已知 pipelineConfigVersion
+3. 注入 fixture 的 developerId / repoId / org / project / GUID
+4. signoff ingest fixture <file> → exit 0
+5. 断言 D1：activities ≥ 1 AND scores ≥ 1
+6. GET /api/activity/heatmap → scoresStale=false 且 rows 非空
 ```
 
-### 6.4 明确不做（CLI）
+缺步骤 5–6 不得勾选「06 已实施」。
+
+### 6.6 明确不做（CLI）
 
 - `signoff collect` 真拉 ADO  
 - raw 落盘 / transform  
-- 改 doctor 语义（可加「ingest 连通性」探测，非必须）  
+- 格式 B 多 chunk 文件  
+- 客户端计算 / 上传 digest  
 
 ---
 
@@ -460,48 +578,64 @@ packages/domain/src/
 |:---|:---|
 | CLI 从 raw 重算 Activity | ❌ 07 / 后续 |
 | CLI POST `mode=full_rematch` 的 fixture body | ✅ 允许（手工构造） |
-| Worker 接受 mode、绑定 run.config_version | ✅ |
+| Worker 接受 mode；**首 chunk 冻结** `run.mode` + `run_meta_json` | ✅ |
+| 后续 chunk runMeta 漂移 → 409 | ✅ |
 | Phase 0 旧 dev-day 并集 + Score DELETE | ✅ |
+| 换 developer 仅看 **库内** `mode=full_rematch` | ✅ |
 | `recompute/complete` 清 stale | ✅ 接线验证 |
 | Settings 变更自动触发 rematch | ❌（仍靠人跑管线；Web 只置 stale） |
 
 ---
 
-## 9. 实施阶段（建议 commit / PR 切片）
+## 9. 实施阶段与发布顺序
 
 > 设计评审通过后，**按序**实装；每阶段可独立合并且测试绿。
 
+### 9.1 发布顺序（运维硬约束）
+
+```
+1) 0006 remote migration apply
+2) Worker deploy（含 ingest 真写 + heatmap API）
+3) CLI 版本发布 / 本机升级后 smoke（fixture E2E）
+```
+
+**禁止**先发 CLI 真 POST 再迁 0006（会写进旧 schema / 无 `ingest_chunks`）。  
+**禁止**先 deploy Worker 真写再迁 0006。
+
+### 9.2 代码切片
+
 ### P1 — domain 算法
 
-- [ ] `identity` / `day-key` / `external-ref` / `score` + §3.8 测试  
+- [ ] `identity` / `day-key`（Intl） / `external-ref` / `score` + §3.8 测试  
+- [ ] `fixtureFileSchema` + 切块纯函数（可单测）  
 - [ ] coverage 门禁  
 - [ ] **验收**：纯函数单测全绿；无 Worker 行为变化  
 
 ### P2 — migration + ingest 真写
 
-- [ ] `0006_ingest_run_states.sql` 本地 + remote  
-- [ ] Phase 0–4；422/409 矩阵；stmt ≤ 80 断言  
+- [ ] `0006`：守卫 + ingest_runs/chunks + `source_ids_json` + `run_meta_json`；本地 + remote  
+- [ ] Phase 0–4；422/409/runMeta 矩阵；stmt ≤ 80  
 - [ ] 501 移除  
-- [ ] **验收**：mock/local 下 fixture body → activities + scores 行存在  
+- [ ] **验收**：local D1 集成门禁通过（§5.8）  
 
 ### P3 — CLI fixture 真 POST
 
-- [ ] 自动分 chunk；重试；错误码映射  
-- [ ] sample fixture 可跑通 local E2E（文档或 script）  
-- [ ] **验收**：`signoff ingest fixture` exit 0 且 D1 有数据  
+- [ ] fixtureFileSchema → 切块 → 真 POST；5xx/网络重试；200 schema  
+- [ ] sample + seed 脚本  
+- [ ] **验收**：§6.5 全链路 exit 0  
 
 ### P4 — Web heatmap / timeline
 
 - [ ] 两 API + MVVM + 替换占位页  
 - [ ] stale 横幅  
-- [ ] **验收**：浏览器（或组件测）可见与 D1 一致的 total  
+- [ ] **验收**：heatmap 与 D1 total 一致（含在 §6.5 步骤 6）  
 
 ### P5 — 横切
 
 - [ ] `bun run lint/typecheck/test/test:coverage/security`  
-- [ ] 更新 `docs/README.md` 状态为「已实施」  
-- [ ] 05 文首/§1 进度表如需可回写「ingest 已非 501」（实施后）  
-- [ ] Retrospective：若算法决策有偏差记一笔  
+- [ ] 按 §9.1 发布  
+- [ ] `docs/README.md` → 已实施；05 进度表回写 ingest 非 501  
+- [ ] Retrospective：若算法有偏差记一笔  
 
 ---
 
@@ -509,18 +643,21 @@ packages/domain/src/
 
 | 风险 | 缓解 |
 |:-----|:-----|
-| D1 多阶段非原子 | 05 状态机 + CLI 重试；测试 prepared 续跑 |
-| dayKey 库在 Workers 不可用 | 选型时验证 Workers runtime；必要时自研日期换算 |
-| fixture 与 seed id 耦合 | E2E 文档强制 seed 步骤；不把真实 id 写死进仓库 |
-| 放大 chunk 上限诱惑 | 06 **不**改 10 条上限；优化 SQL 后另开 05 修订 |
-| 范围膨胀进 07 | 任何 `az`/REST 代码 → 拒收，挪 07 |
+| D1 多阶段非原子 | 05 状态机 + CLI 同 chunk 重试；prepared 续跑测试 |
+| 多 run 并发写 Score | **单写者**约定（§5.7） |
+| dayKey | 冻结 `Intl.DateTimeFormat` + formatToParts |
+| fixture 与 seed id 耦合 | §6.5 强制 seed；仓库不写死生产 id |
+| 放大 chunk 上限诱惑 | 06 **不**改 HTTP 10 条上限 |
+| 范围膨胀进 07 | 任何 `az`/REST → 拒收 |
 
 **禁止**：
 
 - 单 batch 写完 Activity+读+聚合+Score（05 已否决）  
 - Web 手工改 Activity/Score  
 - 服务端信任客户端 externalRef/dayKey  
-- 用 `ChangedDate` 伪造 wi.updated（07 采集约束，transform 时遵守 01）  
+- 用 body `runMeta.mode` 而非库内 mode 授权 rematch  
+- 把 sourceIds 只放在 `meta_json`  
+- 用 `ChangedDate` 伪造 wi.updated（07 采集约束）  
 
 ---
 
@@ -546,36 +683,39 @@ packages/domain/src/
 - [x] 05 §7.4 全部拍板（§3.1）  
 - [x] 边界样例表 B1–B16  
 - [x] domain 文件列表与门禁  
-- [x] migration 0006 步骤与空表断言  
-- [x] Phase 0 422 / full_rematch 覆盖口径  
-- [x] CLI fixture 真 POST 行为  
+- [x] migration 0006：**可执行**空表守卫 + `source_ids_json` + `run_meta_json`  
+- [x] Phase 0 422；rematch 仅用**库内** mode  
+- [x] CLI `fixtureFileSchema` 先切块再 `ingestBodySchema`  
+- [x] digest 仅 Worker；单写者；failed 预留  
+- [x] local E2E 门禁（非可选）+ 发布顺序  
 - [x] Web API + UI 最小集  
 - [x] P1–P5 实施切片  
-- [ ] **人工 review 通过**（你）  
+- [x] Codex review 阻断项已回写（本轮）  
+- [ ] **人工终审通过**（你）  
 
 ### 实施后（实装阶段再勾）
 
 - [ ] P1–P4 代码 + 测试  
-- [ ] local E2E：fixture → D1 → heatmap  
-- [ ] remote migration 0006  
+- [ ] §6.5 local E2E：fixture → D1 → heatmap  
+- [ ] remote migration 0006 → Worker deploy → CLI smoke（§9.1）  
 - [ ] security / coverage 全绿  
 - [ ] README：06 标为已实施  
 
 ---
 
-## 13. 开放问题（希望 review 拍板或确认）
+## 13. 已拍板（Codex review + 默认）
 
-下列已在正文给了默认；若你不同意请在 review 直接改决策号：
+| ID | 决策 | 状态 |
+|:---|:-----|:-----|
+| D7 | `created > active`（无终态时只计 created） | **通过** |
+| B14 | breakdown 省略 0 权 type 键 | **通过** |
+| rematch | 仅库内 `full_rematch` 允许换 developer_id | **通过**（须 §5.3.1） |
+| dayKey | `Intl.DateTimeFormat` + `formatToParts`；无 Temporal | **通过** |
+| 格式 B | 06 不做 | **通过** |
+| stmt 上限 | 单 chunk ≤ 80（05 最坏 71） | **通过** |
+| 时区默认 | `Asia/Shanghai` | **通过** |
 
-| ID | 默认 | 可讨论点 |
-|:---|:-----|:---------|
-| D7 | created > active | 是否改为「无终态时 created 与 active **都计分**」 |
-| B14 | 省略 0 权 type 键 | 是否保留键值为 0 |
-| rematch 覆盖 | 仅 `full_rematch` 允许换 developer_id | incremental 是否也允许（更易误伤） |
-| dayKey 实现 | Workers 可用方案待 P1 选型 | 是否强制 `Temporal` polyfill |
-| 多 chunk fixture 格式 B | P3 可只做 A | 是否要在 06 支持 chunks 数组 |
-
-**非开放（冻结）**：activities≤10、Paid only、501 退役、不采 ADO、不改 05 HTTP 错误码表。
+**非开放（冻结）**：HTTP `activities≤10`、Paid only、501 退役、不采 ADO、不改 05 HTTP 错误码表、单写者、sourceIds 一等列。
 
 ---
 
