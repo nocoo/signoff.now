@@ -1,7 +1,7 @@
 [test]
-# Documented ≥95% for lines/functions/statements (05 §9.3).
-# pipeline/client.ts is ignored: bun's function metric plateaus at ~87.5% on
-# object-literal methods despite 100% line coverage; client is fully unit-tested.
+# 05 §9.3: Bun metrics only — lines / functions / statements ≥95% (no branches).
+# Exception: pipeline/client.ts excluded (object-literal methods under-count funcs
+# in bun despite 100% lines + full unit tests). See docs/05 §9.3.
 coverageThreshold = { lines = 0.95, functions = 0.95, statements = 0.95 }
 coveragePathIgnorePatterns = [
   "src/main.ts",

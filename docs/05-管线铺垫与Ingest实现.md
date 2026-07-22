@@ -923,14 +923,16 @@ apps/collect/
 
 ### 9.3 质量门
 
-对齐 gitinfo/pulse：
+对齐 gitinfo/pulse；覆盖率按 **Bun 原生支持的三项**（Bun 无 branch coverage 指标，不承诺 branches）：
 
 | 项 | 阈值 |
 |:---|:-----|
-| Coverage stmts/branches/funcs/lines | ≥ 95% |
+| Coverage **lines / functions / statements** | ≥ 95% |
 | Biome | 0 warning |
 | Typecheck | 0 error |
 | 网络测试 | mock 强制；无真实网络 |
+
+**例外（`apps/collect`）**：`src/pipeline/client.ts` 因 Bun function 计数在 object-literal 方法上虚低（lines 已 100%，单测全覆盖），从 coveragePathIgnore 排除；其余 collect 源文件仍 ≥95%。domain 包单独门禁 100%。
 
 ### 9.4 exit code
 
