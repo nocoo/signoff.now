@@ -39,6 +39,30 @@ export type IngestWriteResult =
 
 type DevDay = { developerId: string; dayKey: string };
 
+/**
+ * Worst-case D1 statement count for one ingest chunk (05 §5.2 ≤80 hard gate).
+ * Counts Phase 0 reads + Phase 1 batch + Phase 3 reads/writes (not network).
+ */
+export function estimateIngestStmtBudget(opts: {
+	activityCount: number;
+	unmatchedCount: number;
+	/** Distinct old+new dev-days after union (≤ 2 * activityCount). */
+	unionSize: number;
+}): number {
+	const a = opts.activityCount;
+	const u = opts.unmatchedCount;
+	const d = opts.unionSize;
+	// Phase 0: run, chunk, max chunkIndex, devs, repos, ref owners, old days ≈ 7
+	const phase0 = 7;
+	// Phase 1 batch: run CAS/insert + activities + unmatched + chunk
+	const phase1 = 1 + a + u + 1;
+	// Phase 3: version recheck, union SELECT, score UPSERT/DELETE each, chunk CAS, version after
+	const phase3 = 1 + 1 + d + 1 + 1;
+	return phase0 + phase1 + phase3;
+}
+
+export const INGEST_STMT_BUDGET_MAX = 80;
+
 function runMetaEqual(
 	a: IngestBody["runMeta"],
 	b: IngestBody["runMeta"],
@@ -366,30 +390,36 @@ export async function processIngestChunk(
 	const union = [...unionMap.values()];
 	const unionJson = JSON.stringify(union);
 
-	// --- Phase 1: CAS existing run first (must observe changes), then write batch ---
-	if (run) {
-		const cas = await db
-			.prepare(
-				`UPDATE ingest_runs SET stats_json = stats_json
-         WHERE id = ? AND config_version = ? AND mode = ? AND status = 'chunked'`,
-			)
-			.bind(body.runId, version, run.mode)
-			.run();
-		if ((cas.meta?.changes ?? 0) !== 1) {
-			return {
-				kind: "conflict",
-				error: "Run CAS failed (status/version/mode mismatch)",
-			};
-		}
+	const stmtBudget = estimateIngestStmtBudget({
+		activityCount: prepared.length,
+		unmatchedCount: body.unmatchedIdentities.length,
+		unionSize: union.length,
+	});
+	if (stmtBudget > INGEST_STMT_BUDGET_MAX) {
+		return {
+			kind: "unprocessable",
+			error: `Ingest stmt budget ${stmtBudget} exceeds ${INGEST_STMT_BUDGET_MAX}`,
+		};
 	}
 
+	// --- Phase 1: single batch — CAS/run insert + conditional writes (no TOCTOU window) ---
+	// Activity/chunk mutations only succeed while run is still chunked and settings
+	// version matches (INSERT SELECT / UPDATE WHERE); observe changes after batch.
 	const stmts: D1PreparedStatement[] = [];
+	const settingsVersionOk = `(SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version') = ?`;
+	const runStillChunked = `EXISTS (
+    SELECT 1 FROM ingest_runs
+    WHERE id = ? AND status = 'chunked' AND config_version = ? AND mode = ?
+  )`;
+
 	if (!run) {
+		// Gate new run on current settings version so INSERT is not a silent drift.
 		stmts.push(
 			db
 				.prepare(
 					`INSERT INTO ingest_runs (id, started_at, finished_at, status, config_version, mode, run_meta_json, stats_json)
-           VALUES (?, ?, NULL, 'chunked', ?, ?, ?, NULL)`,
+           SELECT ?, ?, NULL, 'chunked', ?, ?, ?, NULL
+           WHERE ${settingsVersionOk}`,
 				)
 				.bind(
 					body.runId,
@@ -397,7 +427,18 @@ export async function processIngestChunk(
 					version,
 					body.runMeta.mode,
 					JSON.stringify(body.runMeta),
+					version,
 				),
+		);
+	} else {
+		stmts.push(
+			db
+				.prepare(
+					`UPDATE ingest_runs SET stats_json = stats_json
+           WHERE id = ? AND config_version = ? AND mode = ? AND status = 'chunked'
+             AND ${settingsVersionOk}`,
+				)
+				.bind(body.runId, version, run.mode, version),
 		);
 	}
 
@@ -410,7 +451,9 @@ export async function processIngestChunk(
             id, developer_id, type, occurred_at, day_key, config_version,
             provider, org, project, repo_id, external_ref, matched_unique_name,
             source_ids_json, meta_json, ingested_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+          )
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()
+          WHERE ${runStillChunked} AND ${settingsVersionOk}
           ON CONFLICT(external_ref) DO UPDATE SET
             developer_id = excluded.developer_id,
             type = excluded.type,
@@ -424,7 +467,10 @@ export async function processIngestChunk(
             matched_unique_name = excluded.matched_unique_name,
             source_ids_json = excluded.source_ids_json,
             meta_json = excluded.meta_json,
-            ingested_at = unixepoch()`,
+            ingested_at = unixepoch()
+          WHERE ${runStillChunked}
+            AND (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version')
+                = excluded.config_version`,
 				)
 				.bind(
 					newId(),
@@ -441,6 +487,13 @@ export async function processIngestChunk(
 					p.activity.matchedUniqueName,
 					p.sourceIdsJson,
 					p.metaJson,
+					body.runId,
+					version,
+					effectiveMode,
+					version,
+					body.runId,
+					version,
+					effectiveMode,
 				),
 		);
 	}
@@ -450,19 +503,29 @@ export async function processIngestChunk(
 			db
 				.prepare(
 					`INSERT INTO unmatched_identities (unique_name, last_seen_at, seen_count, sample_org, sample_project, sample_context)
-           VALUES (?, unixepoch(), 1, ?, ?, ?)
+           SELECT ?, unixepoch(), 1, ?, ?, ?
+           WHERE ${runStillChunked} AND ${settingsVersionOk}
            ON CONFLICT(unique_name) DO UPDATE SET
              last_seen_at = unixepoch(),
              seen_count = seen_count + 1,
              sample_org = excluded.sample_org,
              sample_project = excluded.sample_project,
-             sample_context = excluded.sample_context`,
+             sample_context = excluded.sample_context
+           WHERE ${runStillChunked} AND ${settingsVersionOk}`,
 				)
 				.bind(
 					u.uniqueName,
 					u.sampleOrg ?? null,
 					u.sampleProject ?? null,
 					u.sampleContext ?? null,
+					body.runId,
+					version,
+					effectiveMode,
+					version,
+					body.runId,
+					version,
+					effectiveMode,
+					version,
 				),
 		);
 	}
@@ -471,13 +534,35 @@ export async function processIngestChunk(
 		db
 			.prepare(
 				`INSERT INTO ingest_chunks (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
-         VALUES (?, ?, 'prepared', ?, ?, NULL)`,
+         SELECT ?, ?, 'prepared', ?, ?, NULL
+         WHERE ${runStillChunked} AND ${settingsVersionOk}`,
 			)
-			.bind(body.runId, body.chunkIndex, digest, unionJson),
+			.bind(
+				body.runId,
+				body.chunkIndex,
+				digest,
+				unionJson,
+				body.runId,
+				version,
+				effectiveMode,
+				version,
+			),
 	);
 
 	try {
-		await db.batch(stmts);
+		const phase1Results = await db.batch(stmts);
+		const headChanges =
+			(phase1Results[0] as D1Result | undefined)?.meta?.changes ?? 0;
+		const chunkChanges =
+			(phase1Results[phase1Results.length - 1] as D1Result | undefined)?.meta
+				?.changes ?? 0;
+		if (headChanges !== 1 || chunkChanges !== 1) {
+			return {
+				kind: "conflict",
+				error:
+					"Phase 1 CAS/write failed (run status, settings version, or race)",
+			};
+		}
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		// Concurrent INSERT ingest_runs → unique constraint → whole batch rolls back
@@ -595,13 +680,17 @@ async function recomputeScoresAndComplete(
 			scores.map((s) => `${s.developerId}\0${s.dayKey}`),
 		);
 
-		// UPSERT scores only while settings version still equals expected (05 triple check).
+		// INSERT SELECT gates first insert; ON CONFLICT WHERE gates updates (SQLite
+		// WHERE on UPSERT only applies to DO UPDATE — bare VALUES INSERT is unguarded).
 		for (const s of scores) {
 			scoreStmts.push(
 				db
 					.prepare(
 						`INSERT INTO scores (developer_id, day_key, config_version, total, breakdown_json, activity_count, computed_at)
-             VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+             SELECT ?, ?, ?, ?, ?, ?, unixepoch()
+             WHERE (
+               SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version'
+             ) = ?
              ON CONFLICT(developer_id, day_key) DO UPDATE SET
                config_version = excluded.config_version,
                total = excluded.total,
@@ -619,6 +708,7 @@ async function recomputeScoresAndComplete(
 						s.total,
 						JSON.stringify(s.breakdown),
 						s.activityCount,
+						version,
 					),
 			);
 			recomputed++;
@@ -644,14 +734,18 @@ async function recomputeScoresAndComplete(
 		}
 	}
 
-	// Score writes first, then chunk complete CAS (must observe changes=1).
+	// Chunk complete only while still prepared AND settings version matches expected.
+	// Version drift → changes=0 → keep prepared for CLI retry (do not finalize mid-drift).
 	scoreStmts.push(
 		db
 			.prepare(
 				`UPDATE ingest_chunks SET status = 'completed', finished_at = unixepoch()
-         WHERE run_id = ? AND chunk_index = ? AND status = 'prepared'`,
+         WHERE run_id = ? AND chunk_index = ? AND status = 'prepared'
+           AND (
+             SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version'
+           ) = ?`,
 			)
-			.bind(body.runId, body.chunkIndex),
+			.bind(body.runId, body.chunkIndex, version),
 	);
 
 	try {
