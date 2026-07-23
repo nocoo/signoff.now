@@ -422,7 +422,7 @@ chunk digest **只**约束单次请求体；跨 chunk 的 mode 漂移靠 **`run_
 
 | 情形 | SQL 语义 | 硬约束 |
 |:-----|:---------|:-------|
-| **新 run**（Phase 0 无行） | **`INSERT INTO ingest_runs (...)`**（**禁止** `ON CONFLICT DO UPDATE`） | PK 冲突 → **整个 Phase 1 batch 失败回滚**；返回 5xx 或映射为可重试错误，CLI 同 `(runId, chunkIndex)` 重试 |
+| **新 run**（Phase 0 无行） | **`INSERT INTO ingest_runs (...)`**（**禁止** `ON CONFLICT DO UPDATE`） | PK 冲突 → **整个 Phase 1 batch 失败回滚**；HTTP **500**（CLI 仅重试 5xx/网络，见 06 §6.3；同 `(runId, chunkIndex)` 重试后 Phase 0 见已有 run） |
 | **已有 run**（后续 chunk 或重试后的 chunk 0） | **`UPDATE ingest_runs SET stats_json=…, … WHERE id=? AND config_version=? AND mode=? AND status='chunked'`** 一类 **CAS** | **绝不**更新 `config_version`、`mode`、`run_meta_json`、`started_at`；`changes=0` → 按版本/状态冲突处理（通常 409） |
 | `ingest_chunks` | 新 chunk 用 **INSERT**（PK 冲突 + digest 分支见 05 §5.4） | 与 runs 同一 batch 时，runs INSERT 失败必须拖垮 chunks |
 
