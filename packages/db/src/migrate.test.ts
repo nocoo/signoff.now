@@ -17,6 +17,7 @@ describe("D1 migrations", () => {
 		expect(files).toContain("0003_repo_guid_and_score_index.sql");
 		expect(files).toContain("0004_repo_project_guid.sql");
 		expect(files).toContain("0005_normalize_activity_weights.sql");
+		expect(files).toContain("0006_ingest_run_states.sql");
 		expect(files).toEqual([...files].sort((a, b) => a.localeCompare(b)));
 	});
 
@@ -116,10 +117,11 @@ describe("D1 migrations", () => {
 		db.query(
 			`INSERT INTO activities (
 				id, developer_id, type, occurred_at, day_key, config_version,
-				provider, org, project, external_ref
+				provider, org, project, external_ref, source_ids_json
 			) VALUES (
 				'a1', 'd2', 'pr.created', 1, '2026-01-01', 1,
-				'ado', 'org', 'proj', 'ado:pr:repoguid:1:created'
+				'ado', 'org', 'proj', 'ado:pr:repoguid:1:created',
+				'{"prRepoGuid":"11111111-1111-4111-8111-111111111111","prId":1}'
 			)`,
 		).run();
 
@@ -142,10 +144,11 @@ describe("D1 migrations", () => {
 		db.query(
 			`INSERT INTO activities (
 				id, developer_id, type, occurred_at, day_key, config_version,
-				provider, org, project, repo_id, external_ref
+				provider, org, project, repo_id, external_ref, source_ids_json
 			) VALUES (
 				'a1', 'd1', 'pr.created', 1, '2026-01-01', 1,
-				'ado', 'org', 'proj', 'r1', 'ado:pr:repo-guid-1:1:created'
+				'ado', 'org', 'proj', 'r1', 'ado:pr:repo-guid-1:1:created',
+				'{"prRepoGuid":"11111111-1111-4111-8111-111111111111","prId":1}'
 			)`,
 		).run();
 
