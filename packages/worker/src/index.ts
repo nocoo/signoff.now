@@ -3,6 +3,10 @@ import { accessAuth } from "./middleware/access-auth.js";
 import { entryControl } from "./middleware/entry-control.js";
 import { pipelineAuth } from "./middleware/pipeline-auth.js";
 import {
+	activityHeatmapRoute,
+	activityTimelineRoute,
+} from "./routes/activity.js";
+import {
 	developersArchiveRoute,
 	developersCreateRoute,
 	developersListRoute,
@@ -56,6 +60,9 @@ app.put("/api/settings", settingsPutRoute);
 app.get("/api/pipeline/bootstrap", pipelineBootstrapRoute);
 app.post("/api/pipeline/ingest", pipelineIngestRoute);
 app.post("/api/pipeline/recompute/complete", pipelineRecomputeCompleteRoute);
+
+app.get("/api/activity/heatmap", activityHeatmapRoute);
+app.get("/api/activity/timeline", activityTimelineRoute);
 
 app.get("/api/developers", developersListRoute);
 app.post("/api/developers", developersCreateRoute);

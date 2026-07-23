@@ -12,10 +12,8 @@ import {
 	readJsonBody,
 	readJsonBodyWithSize,
 } from "../lib/http-body.js";
-import {
-	gatePipelineIngest,
-	ingestNotImplementedBody,
-} from "../lib/pipeline-ingest.js";
+import { gatePipelineIngest } from "../lib/pipeline-ingest.js";
+import { processIngestChunk } from "../lib/pipeline-ingest-write.js";
 import { rowsToAppSettings, type SettingsRow } from "../lib/settings.js";
 import type { AppEnv } from "../types.js";
 import { loadSettings } from "./settings.js";
@@ -82,8 +80,8 @@ export async function pipelineBootstrapRoute(c: Context<AppEnv>) {
 }
 
 /**
- * POST /api/pipeline/ingest — 05: precheck then 501 (no Activity/Score writes).
- * Precheck order (§5.8): payload 413 → Zod 400 → version gate 409 → 501.
+ * POST /api/pipeline/ingest — 06: precheck then multi-phase write.
+ * Precheck: payload 413 → Zod 400 → version gate 409 → write (422/409/500/200).
  */
 export async function pipelineIngestRoute(c: Context<AppEnv>) {
 	// Size gate first — never touch Settings/D1 for oversized bodies (§5.2 / §5.8).
@@ -116,13 +114,25 @@ export async function pipelineIngestRoute(c: Context<AppEnv>) {
 		);
 	}
 
-	return c.json(ingestNotImplementedBody(gate.currentVersion), 501);
+	const result = await processIngestChunk(c.env.DB, gate.body, settings);
+	if (result.kind === "ok") {
+		return c.json(result.body, 200);
+	}
+	if (result.kind === "conflict") {
+		return c.json({ error: result.error }, 409);
+	}
+	if (result.kind === "unprocessable") {
+		return c.json({ error: result.error }, 422);
+	}
+	if (result.kind === "bad_request") {
+		return c.json({ error: result.error }, 400);
+	}
+	return c.json({ error: result.error }, 500);
 }
 
 /**
  * POST /api/pipeline/recompute/complete — clear stale with version CAS.
- * 05 §5.7: body must include runId + pipelineConfigVersion + ok:true.
- * Full run-status / mode checks land in 06 with ingest_runs rebuild.
+ * 05 §5.7 / 06: run must be finalized + full_rematch; triple version check.
  */
 export async function pipelineRecomputeCompleteRoute(c: Context<AppEnv>) {
 	const raw = await readJsonBody(c);
@@ -147,6 +157,37 @@ export async function pipelineRecomputeCompleteRoute(c: Context<AppEnv>) {
 	}
 
 	const expected = body.pipelineConfigVersion;
+	const run = await c.env.DB.prepare(
+		"SELECT status, mode, config_version FROM ingest_runs WHERE id = ?",
+	)
+		.bind(body.runId)
+		.first<{ status: string; mode: string; config_version: number }>();
+
+	if (
+		run?.status !== "finalized" ||
+		run.mode !== "full_rematch" ||
+		run.config_version !== expected
+	) {
+		return c.json(
+			{
+				error:
+					"Run must be finalized full_rematch with matching pipelineConfigVersion",
+			},
+			409,
+		);
+	}
+
+	const settingsNow = await loadSettings(c.env.DB);
+	if (settingsNow.pipelineConfigVersion !== expected) {
+		return c.json(
+			{
+				error: "Version conflict",
+				currentVersion: settingsNow.pipelineConfigVersion,
+			},
+			409,
+		);
+	}
+
 	const results = await c.env.DB.batch(
 		clearStaleCasStatements(c.env.DB, expected),
 	);

@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { INGEST_MAX_PAYLOAD_BYTES } from "@signoff/domain";
-import {
-	checkPayloadSize,
-	gatePipelineIngest,
-	ingestNotImplementedBody,
-} from "./pipeline-ingest.js";
+import { checkPayloadSize, gatePipelineIngest } from "./pipeline-ingest.js";
 
 const validBody = {
 	pipelineConfigVersion: 1,
@@ -69,15 +65,12 @@ describe("gatePipelineIngest", () => {
 		expect(r.kind).toBe("payload_too_large");
 	});
 
-	test("never reports success — not_implemented for valid body", () => {
+	test("ok for valid body", () => {
 		const r = gatePipelineIngest(validBody, 1);
-		expect(r.kind).toBe("not_implemented");
-		if (r.kind === "not_implemented") {
+		expect(r.kind).toBe("ok");
+		if (r.kind === "ok") {
+			expect(r.body.runId).toBe(validBody.runId);
 			expect(r.currentVersion).toBe(1);
 		}
-		const body = ingestNotImplementedBody(1);
-		expect(body).not.toHaveProperty("ok", true);
-		expect(body).not.toHaveProperty("accepted");
-		expect(body.error).toBe("Not Implemented");
 	});
 });

@@ -1,16 +1,18 @@
 /**
- * Ingest gate for 05: auth (middleware) → payload size → zod → version → 501.
- * Never report success / accepted counts — CLI must not treat data as durable.
- * Full write path is 06.
+ * Ingest gate: payload size → zod → version → ok (write path is processIngestChunk).
  */
 
-import { INGEST_MAX_PAYLOAD_BYTES, ingestBodySchema } from "@signoff/domain";
+import {
+	INGEST_MAX_PAYLOAD_BYTES,
+	type IngestBody,
+	ingestBodySchema,
+} from "@signoff/domain";
 
 export type IngestGateResult =
 	| { kind: "payload_too_large" }
 	| { kind: "bad_request"; error: string }
 	| { kind: "conflict"; currentVersion: number }
-	| { kind: "not_implemented"; currentVersion: number };
+	| { kind: "ok"; body: IngestBody; currentVersion: number };
 
 /**
  * Stream-aware size check: use actual body byte length when available.
@@ -52,15 +54,9 @@ export function gatePipelineIngest(
 		return { kind: "conflict", currentVersion };
 	}
 
-	// Valid request, but Activity/Score writes are not implemented (05).
-	return { kind: "not_implemented", currentVersion };
-}
-
-export function ingestNotImplementedBody(currentVersion: number) {
 	return {
-		error: "Not Implemented",
-		message:
-			"Activity/Score ingest is not implemented; nothing was written to D1.",
-		pipelineConfigVersion: currentVersion,
+		kind: "ok",
+		body: parsed.data,
+		currentVersion,
 	};
 }
