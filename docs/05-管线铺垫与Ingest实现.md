@@ -289,7 +289,7 @@ D1 官方限制（截至 2026-07；实施前**必须**用 workers-best-practices
 | Phase 0 | 引用完整性 SELECT (developers + repos ≤ 10 × 2) | ≤ 20 |
 | Phase 1 batch | UPSERT activities × 10 | 10 |
 | Phase 1 batch | UPSERT unmatched_identities × 10 | 10 |
-| Phase 1 batch | UPSERT ingest_runs | 1 |
+| Phase 1 batch | **新 run：INSERT** ingest_runs；**已有 run：CAS UPDATE**（stats 等，不改 mode/run_meta/config_version）— 见 06 §5.3.2；**禁止** ON CONFLICT DO UPDATE 覆写元数据 | 1 |
 | Phase 1 batch | INSERT ingest_chunks | 1 |
 | Phase 2 | SELECT activities 聚合(受影响 ≤ 20 dev-day) | 1 |
 | Phase 3 | SELECT current Settings version 重读(§5.3 约束 8) | 1 |
