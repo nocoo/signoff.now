@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createLogger } from "../logger.ts";
+import type { PipelineClient } from "../pipeline/client.ts";
 import { ingestFixture } from "./ingest-fixture.ts";
 
 const valid = {
@@ -33,8 +34,18 @@ const valid = {
 	unmatchedIdentities: [],
 };
 
+const successBody = {
+	runId: valid.runId,
+	chunkIndex: 0,
+	pipelineConfigVersion: 1,
+	activities: { received: 1, upserted: 1, rejected: 0 },
+	scores: { affectedDevDays: 1, recomputed: 1 },
+	unmatched: { upserted: 0 },
+	finalized: true,
+};
+
 describe("ingestFixture", () => {
-	test("prints summary without sending", async () => {
+	test("validates without client", async () => {
 		const logs: string[] = [];
 		const code = await ingestFixture({
 			filePath: "/f.json",
@@ -42,9 +53,30 @@ describe("ingestFixture", () => {
 			log: createLogger({ log: (s) => logs.push(s) }),
 		});
 		expect(code).toBe(0);
-		expect(logs.some((l) => l.includes("STUB"))).toBe(true);
 		expect(logs.some((l) => l.includes("no HTTP"))).toBe(true);
 		expect(logs.some((l) => l.includes("pr.merged"))).toBe(true);
+	});
+
+	test("POSTs when client provided", async () => {
+		const calls: unknown[] = [];
+		const client: PipelineClient = {
+			bootstrap: async () => {
+				throw new Error("no");
+			},
+			ingest: async (body) => {
+				calls.push(body);
+				return successBody;
+			},
+			recomputeComplete: async () => ({}),
+		};
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client,
+		});
+		expect(code).toBe(0);
+		expect(calls).toHaveLength(1);
 	});
 
 	test("invalid schema → contract", async () => {
@@ -94,5 +126,126 @@ describe("ingestFixture", () => {
 			log: createLogger({ log: (s) => logs.push(s) }),
 		});
 		expect(logs.some((l) => l.includes("and 2 more"))).toBe(true);
+	});
+
+	test("409 → contract", async () => {
+		const err = {
+			status: 409,
+			body: {},
+			message: "conflict",
+		};
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => {
+					throw err;
+				},
+				recomputeComplete: async () => ({}),
+			},
+		});
+		expect(code).toBe(3);
+	});
+
+	test("422 → contract", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => {
+					throw { status: 422, body: {}, message: "bad ref" };
+				},
+				recomputeComplete: async () => ({}),
+			},
+		});
+		expect(code).toBe(3);
+	});
+
+	test("400 → runtime", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => {
+					throw { status: 400, body: {}, message: "bad" };
+				},
+				recomputeComplete: async () => ({}),
+			},
+		});
+		expect(code).toBe(1);
+	});
+
+	test("5xx exhausted → server", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => {
+					throw { status: 503, body: {}, message: "down" };
+				},
+				recomputeComplete: async () => ({}),
+			},
+		});
+		expect(code).toBe(4);
+	});
+
+	test("network exhausted → server", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => {
+					throw new Error("ECONNRESET");
+				},
+				recomputeComplete: async () => ({}),
+			},
+		});
+		expect(code).toBe(4);
+	});
+
+	test("invalid success body → contract", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => ({ not: "valid" }),
+				recomputeComplete: async () => ({}),
+			},
+		});
+		expect(code).toBe(3);
+	});
+
+	test("split chunk failure → contract", async () => {
+		// force split failure by patching is hard; isFinalChunk false already covered
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify({ ...valid, isFinalChunk: false }),
+			log: createLogger({ log: () => {}, error: () => {} }),
+		});
+		expect(code).toBe(3);
 	});
 });

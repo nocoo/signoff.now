@@ -107,15 +107,22 @@ async function main(): Promise<void> {
 
 	ingest
 		.command("fixture")
-		.argument("<file>", "Path to fixture JSON (ingestBodySchema)")
-		.description(
-			"STUB: validate fixture and print body summary (does not POST)",
-		)
-		.action(async (file: string) => {
+		.argument("<file>", "Path to fixture JSON (fixtureFileSchema)")
+		.option("--dry-validate", "Validate only; do not POST", false)
+		.description("Validate fixture, chunk, and POST /api/pipeline/ingest")
+		.action(async (file: string, opts: { dryValidate?: boolean }) => {
+			const env = loadEnv();
 			const code = await ingestFixture({
 				filePath: file,
 				readFile: async (p) => Bun.file(p).text(),
 				log,
+				client: opts.dryValidate
+					? undefined
+					: createPipelineClient({
+							apiBase: env.apiBase,
+							writeToken: env.writeToken,
+						}),
+				send: !opts.dryValidate,
 			});
 			process.exit(code);
 		});
