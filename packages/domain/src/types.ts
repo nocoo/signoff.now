@@ -27,7 +27,10 @@ export type ScoreRow = {
 	activityCount: number;
 };
 
+/** Activity with server-attached dayKey (not on wire Activity DTO). */
+export type ActivityWithDayKey = Activity & { dayKey: string };
+
 export type AggregateScores = (
-	activities: readonly Activity[],
+	activities: readonly ActivityWithDayKey[],
 	weights: Readonly<Record<ActivityType, number>>,
 ) => ScoreRow[];
