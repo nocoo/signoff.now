@@ -624,6 +624,7 @@ async function recomputeScoresAndComplete(
 			recomputed++;
 		}
 
+		// Empty aggregation: DELETE residual scores; still counts as recomputed (05 §5.3 #7).
 		for (const dd of union) {
 			const k = `${dd.developerId}\0${dd.dayKey}`;
 			if (!scoredKeys.has(k)) {
@@ -638,6 +639,7 @@ async function recomputeScoresAndComplete(
 						)
 						.bind(dd.developerId, dd.dayKey, version, version),
 				);
+				recomputed++;
 			}
 		}
 	}
