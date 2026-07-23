@@ -9,7 +9,7 @@
 | 03 | [Web 模块模板](./03-Web模块模板.md) | 设计稿（**basalt 模板**；Access / pipeline 鉴权见 §8，与 05 §5.6 对齐） |
 | 04 | [Settings 设计](./04-Settings设计.md) | 设计稿（DB / Web CRUD / CLI 读 D1；recompute 见 §6.7） |
 | 05 | [管线铺垫与 Ingest 契约](./05-管线铺垫与Ingest实现.md) | **已实施**（S1–S5；ingest 仍 501；**要求 Cloudflare Workers Paid plan**） |
-| 06 | [Activity 重建与 Score 算法](./06-Activity重建与Score算法.md) | **设计稿**（待 review；未实施；fixture→D1→heatmap） |
+| 06 | [Activity 重建与 Score 算法](./06-Activity重建与Score算法.md) | **已实施**（domain/worker/CLI/Web；local E2E 与 remote 0006 待你跑） |
 | 07 | [CLI 命令矩阵与 ADO 落盘](./07-CLI命令矩阵与ADO落盘.md) | 大纲（06 完成后展开） |
 
 ## 归档

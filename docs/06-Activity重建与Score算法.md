@@ -1,6 +1,6 @@
 # 06 — Activity 重建与 Score 算法
 
-> 状态：**设计稿（Codex 阻断项已回写；待人工终审 / 未实施）**
+> 状态：**已实施（P1–P4 代码已合入 main；remote migration / full local E2E 待运维执行）**
 > 依赖：[05-管线铺垫与Ingest实现](./05-管线铺垫与Ingest实现.md)（**契约冻结**）、[01](./01-项目定位.md)、[02](./02-数据结构与D1.md)、[04](./04-Settings设计.md)
 > **不含**：真实 ADO / `az` REST 采集、raw 逐字段 schema、增量游标（属 **07**）
 > **前提**：05 S1–S5 已落地；`/api/pipeline/ingest` 预检后仍 **501**；domain 仅有 DTO / 类型别名
