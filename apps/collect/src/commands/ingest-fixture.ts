@@ -13,6 +13,10 @@ import {
 
 const MAX_RETRIES = 3;
 
+function sleep(ms: number): Promise<void> {
+	return new Promise((r) => setTimeout(r, ms));
+}
+
 async function postChunk(
 	client: PipelineClient,
 	chunk: IngestBody,
@@ -48,14 +52,22 @@ async function postChunk(
 					log.error(`ingest 5xx exhausted: ${e.message}`);
 					return ExitCode.SERVER;
 				}
-				log.info(`retry chunk ${chunk.chunkIndex} attempt ${attempt}`);
+				const backoff = 100 * 2 ** (attempt - 1);
+				log.info(
+					`retry chunk ${chunk.chunkIndex} attempt ${attempt} backoff=${backoff}ms`,
+				);
+				await sleep(backoff);
 				continue;
 			}
 			if (attempt >= MAX_RETRIES) {
 				log.error(e instanceof Error ? e.message : "ingest network failed");
 				return ExitCode.SERVER;
 			}
-			log.info(`retry network chunk ${chunk.chunkIndex} attempt ${attempt}`);
+			const backoff = 100 * 2 ** (attempt - 1);
+			log.info(
+				`retry network chunk ${chunk.chunkIndex} attempt ${attempt} backoff=${backoff}ms`,
+			);
+			await sleep(backoff);
 		}
 	}
 }
@@ -70,6 +82,8 @@ export async function ingestFixture(opts: {
 	client?: PipelineClient;
 	/** When false, only validate + print (no HTTP). Default true if client provided. */
 	send?: boolean;
+	/** After successful full_rematch run, call recompute/complete to clear stale. */
+	completeRematch?: boolean;
 }): Promise<number> {
 	let raw: string;
 	try {
@@ -125,6 +139,33 @@ export async function ingestFixture(opts: {
 		if (err !== null) {
 			return err;
 		}
+	}
+
+	if (opts.completeRematch && parsed.data.runMeta.mode === "full_rematch") {
+		try {
+			await opts.client.recomputeComplete({
+				runId: parsed.data.runId,
+				pipelineConfigVersion: parsed.data.pipelineConfigVersion,
+				ok: true,
+			});
+			opts.log.info("recompute/complete ok — scores_stale cleared");
+		} catch (e) {
+			if (isPipelineClientError(e)) {
+				opts.log.error(`recompute/complete HTTP ${e.status}: ${e.message}`);
+				return e.status === 409 ? ExitCode.CONTRACT : ExitCode.RUNTIME;
+			}
+			opts.log.error(
+				e instanceof Error ? e.message : "recompute/complete failed",
+			);
+			return ExitCode.SERVER;
+		}
+	} else if (
+		opts.completeRematch &&
+		parsed.data.runMeta.mode !== "full_rematch"
+	) {
+		opts.log.info(
+			"--complete-rematch ignored (runMeta.mode is not full_rematch)",
+		);
 	}
 
 	opts.log.info("ingest fixture complete");

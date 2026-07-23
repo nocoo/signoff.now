@@ -248,4 +248,71 @@ describe("ingestFixture", () => {
 		});
 		expect(code).toBe(3);
 	});
+
+	test("completeRematch calls recomputeComplete", async () => {
+		const calls: unknown[] = [];
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async (body) => {
+					calls.push(body);
+					return { ok: true };
+				},
+			},
+			completeRematch: true,
+		});
+		expect(code).toBe(0);
+		expect(calls).toHaveLength(1);
+	});
+
+	test("completeRematch ignored for incremental", async () => {
+		const body = {
+			...valid,
+			runMeta: { ...valid.runMeta, mode: "incremental" as const },
+		};
+		const calls: unknown[] = [];
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(body),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => ({ ...successBody, finalized: true }),
+				recomputeComplete: async (b) => {
+					calls.push(b);
+					return { ok: true };
+				},
+			},
+			completeRematch: true,
+		});
+		expect(code).toBe(0);
+		expect(calls).toHaveLength(0);
+	});
+
+	test("completeRematch http 409 → contract", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => {
+					throw { status: 409, body: {}, message: "no" };
+				},
+			},
+			completeRematch: true,
+		});
+		expect(code).toBe(3);
+	});
 });

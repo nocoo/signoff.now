@@ -109,23 +109,34 @@ async function main(): Promise<void> {
 		.command("fixture")
 		.argument("<file>", "Path to fixture JSON (fixtureFileSchema)")
 		.option("--dry-validate", "Validate only; do not POST", false)
+		.option(
+			"--complete-rematch",
+			"After full_rematch ingest, call recompute/complete to clear stale",
+			false,
+		)
 		.description("Validate fixture, chunk, and POST /api/pipeline/ingest")
-		.action(async (file: string, opts: { dryValidate?: boolean }) => {
-			const env = loadEnv();
-			const code = await ingestFixture({
-				filePath: file,
-				readFile: async (p) => Bun.file(p).text(),
-				log,
-				client: opts.dryValidate
-					? undefined
-					: createPipelineClient({
-							apiBase: env.apiBase,
-							writeToken: env.writeToken,
-						}),
-				send: !opts.dryValidate,
-			});
-			process.exit(code);
-		});
+		.action(
+			async (
+				file: string,
+				opts: { dryValidate?: boolean; completeRematch?: boolean },
+			) => {
+				const env = loadEnv();
+				const code = await ingestFixture({
+					filePath: file,
+					readFile: async (p) => Bun.file(p).text(),
+					log,
+					client: opts.dryValidate
+						? undefined
+						: createPipelineClient({
+								apiBase: env.apiBase,
+								writeToken: env.writeToken,
+							}),
+					send: !opts.dryValidate,
+					completeRematch: Boolean(opts.completeRematch),
+				});
+				process.exit(code);
+			},
+		);
 
 	await program.parseAsync(process.argv);
 }
