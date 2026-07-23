@@ -328,14 +328,14 @@ DROP TABLE _mig_0006_guard;
 
 #### 5.2.2 表变更顺序
 
-1. 守卫通过后：建 `ingest_runs_new`（新 CHECK：`chunked|finalized|failed` + 列 `config_version NOT NULL`、`mode NOT NULL`、`finished_at`、**`run_meta_json NOT NULL`**（首 chunk 冻结的完整 `runMeta` 规范 JSON，见 §5.3.1）等）。
+1. 守卫通过后：建 `ingest_runs_new`（新 CHECK：`chunked|finalized|failed` + 列 `config_version NOT NULL`、`mode NOT NULL`、`finished_at`、**`run_meta_json TEXT NOT NULL CHECK (json_valid(run_meta_json))`**（首 chunk 冻结的完整 `runMeta` 规范 JSON，见 §5.3.1）等）。
 2. 无旧行可迁（表空）。
 3. **`DROP TABLE ingest_runs; ALTER TABLE ingest_runs_new RENAME TO ingest_runs;`**（先 rename 到最终名）。
 4. **再**建 `ingest_chunks`，FK 引用**最终** `ingest_runs(id)`（勿在 rename 前建 FK 到 `_new` 表名残留）。
    - PK `(run_id, chunk_index)`
    - `status` ∈ `prepared|completed`
    - `digest` TEXT NOT NULL — **Worker 对请求 body 计算的** SHA-256（协议**不**传客户端 digest）
-   - `dev_day_union_json` TEXT NOT NULL
+   - `dev_day_union_json TEXT NOT NULL CHECK (json_valid(dev_day_union_json))`
 5. **`activities` 重建**（**禁止** `ALTER ... ADD COLUMN ... DEFAULT '{}'`——漏写列会静默落毒数据 `{}`，Phase 2 必 500；有存量时 DEFAULT 会整表回填无效 JSON）：
 
 ```sql
@@ -384,7 +384,7 @@ ALTER TABLE activities_new RENAME TO activities;
 | wi projectGuid ∈ 同 org/project 下 repos.project_external_id | 422 |
 | org/project/provider 与 repo 行一致 | 422 |
 | matchedUniqueName 与 alias×suffixes 交叉校验 | 422 |
-| 同 external_ref 已存在且 developer_id 不同（当前版本或任意？） | 422 |
+| 同 external_ref 已存在且 `developer_id` 不同 | 422（`incremental`）；`full_rematch` 见下 |
 
 **external_ref 跨 developer 冲突口径**：
 
@@ -400,25 +400,39 @@ ALTER TABLE activities_new RENAME TO activities;
 
 | 情形 | `effectiveMode` | 说明 |
 |:-----|:----------------|:-----|
-| **新 run**（无 `ingest_runs` 行）且 `chunkIndex=0` | `parsedBody.runMeta.mode` | 完成全部校验后，在 **同一 Phase 1 batch** 写入 `ingest_runs.mode` + `run_meta_json` + 首 chunk，**固化** |
+| **新 run**（无 `ingest_runs` 行）且 `chunkIndex=0` | `parsedBody.runMeta.mode` | 完成全部校验后，在 **同一 Phase 1 batch** 用 **普通 INSERT** 固化 `mode` + `run_meta_json` + 首 chunk（§5.3.2） |
 | **已存在** `ingest_runs` 行 | **仅** `ingest_runs.mode` | 请求 `runMeta` 必须与 `run_meta_json` **逐字段相等**；`runMeta.mode` ≠ 库内 mode → **409**；**禁止**再用 body mode 提权 |
 | 换 developer 权限 | `effectiveMode === 'full_rematch'` | 按上表取值，不是「永远读库」也不是「永远读 body」 |
-
-**并发两个「首 chunk」**（同一 `runId`，违反单写者但仍须定义）：
-
-1. 两者 Phase 0 均视为新 run，`effectiveMode` 暂取各自 body（应相同）。
-2. Phase 1 `INSERT ingest_runs`：**仅一人成功**；失败者得唯一约束/冲突 → 重试同 chunk。
-3. 重试进入「已存在 run」分支：**只认库内** `mode` / `run_meta_json`；body 不一致 → 409。
 
 chunk digest **只**约束单次请求体；跨 chunk 的 mode 漂移靠 **`run_meta_json` 精确比对** 防住。
 
 | 规则 | 行为 |
 |:-----|:-----|
-| 新 run + chunk 0 成功 Phase 1 | 固化 `mode`、`config_version`、`run_meta_json` |
+| 新 run + chunk 0 成功 Phase 1 | 固化 `mode`、`config_version`、`run_meta_json`（此后不可改） |
 | 同 run 后续 chunk | `runMeta` ≡ `run_meta_json`；否则 **409** |
 | 换 developer | **仅** `effectiveMode === 'full_rematch'` |
 
 `pipelineConfigVersion` 仍走既有三重 version 校验（05 §5.3 约束 8）。
+
+#### 5.3.2 `ingest_runs` 写入：INSERT 新 run / CAS 更新已有（P1）
+
+05 原文 Phase 1 写「UPSERT ingest_runs」。若实现为 `ON CONFLICT DO UPDATE`，**两个并发 chunk 0 都可能成功**，后者还能 **覆盖** 已固化的 `mode` / `run_meta_json` / `config_version`。这与 §5.3.1 冻结语义冲突。
+
+**06 冻结（并回写 05 §5.3 Phase 1 SQL 描述；HTTP 契约不变）**：
+
+| 情形 | SQL 语义 | 硬约束 |
+|:-----|:---------|:-------|
+| **新 run**（Phase 0 无行） | **`INSERT INTO ingest_runs (...)`**（**禁止** `ON CONFLICT DO UPDATE`） | PK 冲突 → **整个 Phase 1 batch 失败回滚**；返回 5xx 或映射为可重试错误，CLI 同 `(runId, chunkIndex)` 重试 |
+| **已有 run**（后续 chunk 或重试后的 chunk 0） | **`UPDATE ingest_runs SET stats_json=…, … WHERE id=? AND config_version=? AND mode=? AND status='chunked'`** 一类 **CAS** | **绝不**更新 `config_version`、`mode`、`run_meta_json`、`started_at`；`changes=0` → 按版本/状态冲突处理（通常 409） |
+| `ingest_chunks` | 新 chunk 用 **INSERT**（PK 冲突 + digest 分支见 05 §5.4） | 与 runs 同一 batch 时，runs INSERT 失败必须拖垮 chunks |
+
+**并发两个 chunk 0、不同 `runMeta`**（违反单写者，仍须可测）：
+
+1. 两者 Phase 0 均视为新 run，`effectiveMode` 暂取各自 body。
+2. Phase 1 仅 **INSERT** `ingest_runs`：一人成功；另一人 PK 冲突 → **整 batch 回滚**（activities/unmatched 不得半提交）。
+3. 失败者重试 → Phase 0 见已有 run → `effectiveMode`/授权 **只认库内**；`runMeta` 与库不一致 → **409**（后到的不同 mode **不能**覆盖先到者）。
+
+**必测**：两个并发 chunk 0、`runMeta.mode` 不同（或 `windowFrom` 不同）→ 恰好一个 Phase 1 batch 完整生效；库内 `run_meta_json` 等于胜者；败者重试得 409 或按库内 mode 继续（同 meta 时）。
 
 **服务端派生字段**（写库用）：
 
@@ -655,6 +669,7 @@ fixtureFileSchema = z.object({
 
 - [ ] `0006`：守卫 + ingest_runs/chunks + `source_ids_json` + `run_meta_json`；本地 + remote
 - [ ] Phase 0–4；422/409/runMeta 矩阵；stmt ≤ 80
+- [ ] **并发 chunk 0**：不同 `runMeta` 仅一 batch 生效（§5.3.2）
 - [ ] 501 移除
 - [ ] **验收**：local D1 集成门禁通过（§5.8）
 
@@ -668,7 +683,7 @@ fixtureFileSchema = z.object({
 
 - [ ] 两 API + MVVM + 替换占位页
 - [ ] stale 横幅
-- [ ] **验收**：heatmap 与 D1 total 一致（含在 §6.5 步骤 6）
+- [ ] **验收**：heatmap 与 D1 total 一致（含在 §6.5 **步骤 7**）
 
 ### P5 — 横切
 
@@ -695,7 +710,8 @@ fixtureFileSchema = z.object({
 - 单 batch 写完 Activity+读+聚合+Score（05 已否决）
 - Web 手工改 Activity/Score
 - 服务端信任客户端 externalRef/dayKey
-- 用 body `runMeta.mode` 而非库内 mode 授权 rematch
+- **已有 run** 时用 body `runMeta.mode` 提权（新 run/chunk 0 允许用 body 作为 `effectiveMode`，见 §5.3.1；固化后仅库内）
+- 对 `ingest_runs` 使用 `ON CONFLICT DO UPDATE` 覆盖 `mode` / `run_meta_json` / `config_version`
 - 把 sourceIds 只放在 `meta_json`
 - 用 `ChangedDate` 伪造 wi.updated（07 采集约束）
 
@@ -732,6 +748,7 @@ fixtureFileSchema = z.object({
 - [x] Web API + UI 最小集
 - [x] P1–P5 实施切片
 - [x] Codex 第二轮阻断项已回写
+- [x] Codex 第三轮：ingest_runs **INSERT/CAS**（非 UPSERT 覆写）+ 05 Phase 1 同步
 - [ ] **人工终审通过**（你）
 
 ### 实施后（实装阶段再勾）
