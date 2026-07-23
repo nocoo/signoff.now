@@ -2,6 +2,7 @@
 # 06 local E2E gate: migrate → seed → ingest fixture → heatmap non-empty.
 # Requires: wrangler, bun; Worker not required if using wrangler d1 execute only for seed —
 # ingest needs a running local Worker (dev:worker on 37042).
+# Idempotent: cleans prior e2e rows before re-seed (FK-safe order).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -17,10 +18,19 @@ PROJ_GUID="22222222-2222-4222-8222-222222222222"
 echo "==> migrate local"
 bunx wrangler d1 migrations apply signoff-db --local
 
+echo "==> clean prior e2e rows (idempotent re-run)"
+bunx wrangler d1 execute signoff-db --local --command \
+  "DELETE FROM ingest_chunks WHERE run_id = '${RUN_ID}';
+   DELETE FROM ingest_runs WHERE id = '${RUN_ID}';
+   DELETE FROM scores WHERE developer_id = '${DEV_ID}';
+   DELETE FROM activities WHERE developer_id = '${DEV_ID}' OR repo_id = '${REPO_ID}';
+   DELETE FROM repos WHERE id = '${REPO_ID}';
+   DELETE FROM developers WHERE id = '${DEV_ID}';"
+
 echo "==> seed developer + repo"
 bunx wrangler d1 execute signoff-db --local --command \
-  "INSERT OR REPLACE INTO developers (id,name,alias) VALUES ('${DEV_ID}','E2E Dev','e2e');
-   INSERT OR REPLACE INTO repos (id,provider,org,project,name,external_id,project_external_id,enabled)
+  "INSERT INTO developers (id,name,alias) VALUES ('${DEV_ID}','E2E Dev','e2e');
+   INSERT INTO repos (id,provider,org,project,name,external_id,project_external_id,enabled)
    VALUES ('${REPO_ID}','ado','e2e-org','E2E Project','e2e-repo','${REPO_GUID}','${PROJ_GUID}',1);"
 
 mkdir -p .data
@@ -61,6 +71,9 @@ if ! curl -fsS "${API}/api/live" >/dev/null; then
   echo "Worker not reachable at ${API}. Start: bun run dev:worker" >&2
   exit 1
 fi
+
+echo "==> ensure bootstrap cache (version precheck)"
+SIGNOFF_API_BASE="${API}" bun run signoff -- settings pull
 
 echo "==> ingest fixture"
 SIGNOFF_API_BASE="${API}" bun run signoff -- ingest fixture "$FIXTURE"
