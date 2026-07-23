@@ -345,7 +345,14 @@ Paid 上限 1000,单 chunk 71 有 14 倍余量;若 06 用 batch 多行 `VALUES` 
 │  一次 batch(新 chunk):                                       │
 │    UPSERT activities (ON CONFLICT external_ref DO UPDATE)   │
 │    UPSERT unmatched_identities(首次执行才 seen_count += 1)  │
-│    UPSERT ingest_runs (status='chunked')                    │
+│    ingest_runs（**禁止**用 ON CONFLICT DO UPDATE 覆盖元数据）│
+│      · 新 run：INSERT ingest_runs (id, status='chunked',    │
+│          config_version, mode, run_meta_json, …)            │
+│          -- PK 冲突 → **整 batch 回滚**（防并发 chunk0 覆写）│
+│      · 已有 run：CAS UPDATE 仅 stats 等可变列               │
+│          WHERE id=? AND config_version=? AND mode=?         │
+│            AND status='chunked'                             │
+│          -- **绝不**改 config_version / mode / run_meta_json│
 │    INSERT ingest_chunks (runId, chunkIndex, status='prepared',│
 │                          digest, dev_day_union_json)         │
 │      -- dev_day_union_json 来自 Phase 0 计算结果            │
@@ -353,6 +360,7 @@ Paid 上限 1000,单 chunk 71 有 14 倍余量;若 06 用 batch 多行 `VALUES` 
 │    Phase 0 重新执行,并集重算,输出相同结果)                  │
 │  prepared 续跑:跳过整个 batch,直接从 Phase 0 读回的         │
 │    dev_day_union_json 进入 Phase 2                          │
+│  细则与并发测试见 06 §5.3.2（本表 HTTP 契约不变）            │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼  查询受影响 dev-day
