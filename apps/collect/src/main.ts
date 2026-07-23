@@ -114,11 +114,16 @@ async function main(): Promise<void> {
 			"After full_rematch ingest, call recompute/complete to clear stale",
 			false,
 		)
+		.option("--pull", "Pull bootstrap cache before version precheck", false)
 		.description("Validate fixture, chunk, and POST /api/pipeline/ingest")
 		.action(
 			async (
 				file: string,
-				opts: { dryValidate?: boolean; completeRematch?: boolean },
+				opts: {
+					dryValidate?: boolean;
+					completeRematch?: boolean;
+					pull?: boolean;
+				},
 			) => {
 				const env = loadEnv();
 				const code = await ingestFixture({
@@ -133,6 +138,9 @@ async function main(): Promise<void> {
 							}),
 					send: !opts.dryValidate,
 					completeRematch: Boolean(opts.completeRematch),
+					pull: Boolean(opts.pull),
+					dataDir: env.dataDir,
+					fs: createBunFs(),
 				});
 				process.exit(code);
 			},

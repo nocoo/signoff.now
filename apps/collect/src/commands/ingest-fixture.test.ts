@@ -315,4 +315,240 @@ describe("ingestFixture", () => {
 		});
 		expect(code).toBe(3);
 	});
+
+	test("cache version mismatch → contract", async () => {
+		const files = new Map<string, string>();
+		const fs = {
+			mkdir: async () => {},
+			writeFile: async (p: string, d: string) => {
+				files.set(p, d);
+			},
+			readFile: async (p: string) => {
+				const v = files.get(p);
+				if (v === undefined) {
+					throw new Error("ENOENT");
+				}
+				return v;
+			},
+			stat: async () => null,
+		};
+		files.set(
+			"/data/cache/bootstrap.json",
+			JSON.stringify({
+				fetchedAt: "t",
+				settings: {
+					timezone: "UTC",
+					emailSuffixes: [],
+					activityWeights: {},
+					pipelineConfigVersion: 99,
+					scoresStale: false,
+					scoresStaleReason: null,
+				},
+				developers: [],
+				repos: [],
+				cachedAt: "t",
+			}),
+		);
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => ({}),
+			},
+			fs,
+			dataDir: "/data",
+		});
+		expect(code).toBe(3);
+	});
+
+	test("missing cache → contract", async () => {
+		const fs = {
+			mkdir: async () => {},
+			writeFile: async () => {},
+			readFile: async () => {
+				throw new Error("ENOENT");
+			},
+			stat: async () => null,
+		};
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => ({}),
+			},
+			fs,
+			dataDir: "/data",
+		});
+		expect(code).toBe(3);
+	});
+
+	test("--pull refreshes cache then posts", async () => {
+		const files = new Map<string, string>();
+		const fs = {
+			mkdir: async () => {},
+			writeFile: async (p: string, d: string) => {
+				files.set(p, d);
+			},
+			readFile: async (p: string) => {
+				const v = files.get(p);
+				if (v === undefined) {
+					throw new Error("ENOENT");
+				}
+				return v;
+			},
+			stat: async () => null,
+		};
+		const snap = {
+			fetchedAt: "t",
+			settings: {
+				timezone: "UTC",
+				emailSuffixes: ["example.com"],
+				activityWeights: {},
+				pipelineConfigVersion: 1,
+				scoresStale: false,
+				scoresStaleReason: null,
+			},
+			developers: [],
+			repos: [],
+		};
+		const calls: unknown[] = [];
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => snap,
+				ingest: async (body) => {
+					calls.push(body);
+					return successBody;
+				},
+				recomputeComplete: async () => ({}),
+			},
+			pull: true,
+			fs,
+			dataDir: "/data",
+		});
+		expect(code).toBe(0);
+		expect(calls).toHaveLength(1);
+		expect(files.has("/data/cache/bootstrap.json")).toBe(true);
+	});
+
+	test("--pull without dataDir → runtime", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => ({}),
+			},
+			pull: true,
+		});
+		expect(code).toBe(1);
+	});
+
+	test("--pull bootstrap 5xx → server", async () => {
+		const fs = {
+			mkdir: async () => {},
+			writeFile: async () => {},
+			readFile: async () => {
+				throw new Error("ENOENT");
+			},
+			stat: async () => null,
+		};
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw { status: 503, body: {}, message: "down" };
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => ({}),
+			},
+			pull: true,
+			fs,
+			dataDir: "/data",
+		});
+		expect(code).toBe(4);
+	});
+
+	test("--pull bootstrap non-http error → server", async () => {
+		const fs = {
+			mkdir: async () => {},
+			writeFile: async () => {},
+			readFile: async () => {
+				throw new Error("ENOENT");
+			},
+			stat: async () => null,
+		};
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("network");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => ({}),
+			},
+			pull: true,
+			fs,
+			dataDir: "/data",
+		});
+		expect(code).toBe(4);
+	});
+
+	test("completeRematch non-409 http → runtime", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => {
+					throw { status: 400, body: {}, message: "bad" };
+				},
+			},
+			completeRematch: true,
+		});
+		expect(code).toBe(1);
+	});
+
+	test("completeRematch network error → server", async () => {
+		const code = await ingestFixture({
+			filePath: "/f.json",
+			readFile: async () => JSON.stringify(valid),
+			log: createLogger({ log: () => {}, error: () => {} }),
+			client: {
+				bootstrap: async () => {
+					throw new Error("no");
+				},
+				ingest: async () => successBody,
+				recomputeComplete: async () => {
+					throw new Error("ECONNRESET");
+				},
+			},
+			completeRematch: true,
+		});
+		expect(code).toBe(4);
+	});
 });
