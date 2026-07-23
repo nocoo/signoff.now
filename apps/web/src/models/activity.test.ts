@@ -53,24 +53,48 @@ describe("parseHeatmapResponse", () => {
 		expect(() => parseHeatmapResponse("x")).toThrow(/Invalid heatmap/);
 	});
 
-	it("defaults missing rows and maps staleReason", () => {
+	it("rejects coerced types (no silent Boolean/Number)", () => {
+		expect(() =>
+			parseHeatmapResponse({
+				pipelineConfigVersion: 1,
+				scoresStale: "false",
+				staleReason: null,
+				rows: [],
+			}),
+		).toThrow(/scoresStale/);
+		expect(() =>
+			parseHeatmapResponse({
+				pipelineConfigVersion: "1",
+				scoresStale: false,
+				staleReason: null,
+				rows: [],
+			}),
+		).toThrow(/pipelineConfigVersion/);
+	});
+
+	it("rejects missing rows array", () => {
+		expect(() =>
+			parseHeatmapResponse({
+				pipelineConfigVersion: 1,
+				scoresStale: true,
+				staleReason: "weights",
+			}),
+		).toThrow(/rows/);
+	});
+
+	it("accepts empty rows with stale string reason", () => {
 		const res = parseHeatmapResponse({
 			pipelineConfigVersion: 1,
 			scoresStale: true,
 			staleReason: "weights",
+			rows: [],
 		});
 		expect(res.rows).toEqual([]);
 		expect(res.staleReason).toBe("weights");
 	});
 
-	it("defaults missing numeric fields on rows", () => {
-		const row = parseHeatmapRow({});
-		expect(row).toEqual({
-			developerId: "",
-			dayKey: "",
-			total: 0,
-			activityCount: 0,
-		});
+	it("rejects incomplete heatmap row", () => {
+		expect(() => parseHeatmapRow({})).toThrow(/developerId/);
 	});
 });
 
@@ -99,40 +123,79 @@ describe("parseTimelineResponse", () => {
 		expect(res.nextCursor).toBe("abc");
 	});
 
-	it("nulls missing nextCursor and empty items", () => {
+	it("requires items array and null nextCursor", () => {
 		const res = parseTimelineResponse({
 			pipelineConfigVersion: 1,
 			scoresStale: false,
+			staleReason: null,
 			items: [],
+			nextCursor: null,
 		});
 		expect(res.nextCursor).toBeNull();
 		expect(res.items).toEqual([]);
-		expect(res.staleReason).toBeNull();
+	});
+
+	it("rejects missing items", () => {
+		expect(() =>
+			parseTimelineResponse({
+				pipelineConfigVersion: 1,
+				scoresStale: false,
+				staleReason: null,
+				nextCursor: null,
+			}),
+		).toThrow(/items/);
 	});
 
 	it("rejects non-object timeline", () => {
 		expect(() => parseTimelineResponse(undefined)).toThrow(/Invalid timeline/);
 	});
 
-	it("defaults timeline item fields and null repoId", () => {
-		const item = parseTimelineItem({ repoId: null });
-		expect(item.id).toBe("");
-		expect(item.type).toBe("");
-		expect(item.occurredAt).toBe(0);
-		expect(item.repoId).toBeNull();
-		expect(item.meta).toEqual({});
-
-		const withRepo = parseTimelineItem({
+	it("parses timeline item with null repoId", () => {
+		const item = parseTimelineItem({
 			id: "x",
 			type: "pr.created",
 			occurredAt: 1,
 			dayKey: "2026-01-01",
 			org: "o",
 			project: "p",
-			repoId: "r",
+			repoId: null,
 			meta: { a: 1 },
 		});
-		expect(withRepo.repoId).toBe("r");
-		expect(withRepo.meta).toEqual({ a: 1 });
+		expect(item.repoId).toBeNull();
+		expect(item.meta).toEqual({ a: 1 });
+	});
+
+	it("rejects bad repoId type", () => {
+		expect(() =>
+			parseTimelineItem({
+				id: "x",
+				type: "t",
+				occurredAt: 1,
+				dayKey: "d",
+				org: "o",
+				project: "p",
+				repoId: 1,
+			}),
+		).toThrow(/repoId/);
+	});
+
+	it("rejects non-string staleReason and nextCursor", () => {
+		expect(() =>
+			parseHeatmapResponse({
+				pipelineConfigVersion: 1,
+				scoresStale: false,
+				staleReason: 1,
+				rows: [],
+			}),
+		).toThrow(/staleReason/);
+		expect(() =>
+			parseTimelineResponse({
+				pipelineConfigVersion: 1,
+				scoresStale: false,
+				staleReason: null,
+				items: [],
+				nextCursor: 1,
+			}),
+		).toThrow(/nextCursor/);
 	});
 });
