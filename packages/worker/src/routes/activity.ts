@@ -135,20 +135,13 @@ export async function activityTimelineRoute(c: Context<AppEnv>) {
 		}
 	}
 
-	const fromSec = Math.floor(Date.parse(`${from}T00:00:00Z`) / 1000);
-	const toSec = Math.floor(Date.parse(`${to}T23:59:59Z`) / 1000);
-
+	// Date window is settings-timezone day_key semantics (05 §8 / 06), not UTC epoch bounds.
 	let sql = `SELECT id, type, occurred_at, day_key, org, project, repo_id, meta_json
     FROM activities
     WHERE developer_id = ?
       AND config_version = ?
-      AND occurred_at BETWEEN ? AND ?`;
-	const binds: unknown[] = [
-		dev,
-		settings.pipelineConfigVersion,
-		fromSec,
-		toSec,
-	];
+      AND day_key BETWEEN ? AND ?`;
+	const binds: unknown[] = [dev, settings.pipelineConfigVersion, from, to];
 	if (cursorOccurred !== null && cursorId) {
 		sql += ` AND (occurred_at < ? OR (occurred_at = ? AND id < ?))`;
 		binds.push(cursorOccurred, cursorOccurred, cursorId);

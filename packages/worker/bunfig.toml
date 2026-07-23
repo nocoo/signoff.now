@@ -7,11 +7,10 @@ coveragePathIgnorePatterns = [
   "src/test/**",
   # Real JWKS network I/O only — injectable verifier covers access-auth
   "src/middleware/access-jose.ts",
-  # Multi-phase D1 write path: mock D1 cannot exercise batches faithfully;
-  # covered by docs/06 local E2E (fixture → D1) and gate/route tests.
+  # Multi-phase D1 write path: mock D1 cannot exercise full batch/CAS faithfully;
+  # gate tests + scripts/e2e-06-local.sh cover the write path.
   "src/lib/pipeline-ingest-write.ts",
-  # Cursor/keyset + write status mapping; gate covered in pipeline-ingest.test.
-  "src/routes/activity.ts",
+  # Route status mapping for write errors; happy-path covered in pipeline.test.
   "src/routes/pipeline.ts",
   # Workspace domain package has its own ≥95% suite
   "**/packages/domain/**",

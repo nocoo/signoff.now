@@ -5,6 +5,7 @@
 import {
 	type Activity,
 	type ActivityWithDayKey,
+	activitySchema,
 	aggregateScores,
 	buildExternalRef,
 	dayKey,
@@ -157,7 +158,7 @@ export async function processIngestChunk(
 		);
 	}
 
-	// --- Phase 0: validate + compute external refs / day keys ---
+	// --- Phase 0: validate + compute external refs / day keys (batched reads) ---
 	const prepared: Array<{
 		activity: Activity;
 		externalRef: string;
@@ -167,27 +168,108 @@ export async function processIngestChunk(
 	}> = [];
 
 	for (const a of body.activities) {
-		const externalRef = buildExternalRef(a.type, a.sourceIds);
+		let externalRef: string;
 		let dk: string;
 		try {
+			externalRef = buildExternalRef(a.type, a.sourceIds);
 			dk = dayKey(a.occurredAt, settings.timezone);
 		} catch {
-			return { kind: "server_error", error: "Invalid timezone in settings" };
+			return { kind: "server_error", error: "Invalid timezone or sourceIds" };
 		}
+		prepared.push({
+			activity: a,
+			externalRef,
+			dayKey: dk,
+			metaJson: a.meta ? JSON.stringify(a.meta) : null,
+			sourceIdsJson: JSON.stringify(a.sourceIds),
+		});
+	}
 
-		const dev = await db
-			.prepare("SELECT id, alias, archived_at FROM developers WHERE id = ?")
-			.bind(a.developerId)
-			.first<{ id: string; alias: string; archived_at: number | null }>();
+	const devIds = [...new Set(body.activities.map((a) => a.developerId))];
+	const repoIds = [
+		...new Set(
+			body.activities
+				.map((a) => a.repoId)
+				.filter((id): id is string => typeof id === "string" && id.length > 0),
+		),
+	];
+
+	const devMap = new Map<
+		string,
+		{ id: string; alias: string; archived_at: number | null }
+	>();
+	if (devIds.length > 0) {
+		const ph = devIds.map(() => "?").join(",");
+		const devRows = await db
+			.prepare(
+				`SELECT id, alias, archived_at FROM developers WHERE id IN (${ph})`,
+			)
+			.bind(...devIds)
+			.all<{ id: string; alias: string; archived_at: number | null }>();
+		for (const d of devRows.results ?? []) {
+			devMap.set(d.id, d);
+		}
+	}
+
+	const repoMap = new Map<
+		string,
+		{
+			id: string;
+			provider: string;
+			org: string;
+			project: string;
+			external_id: string | null;
+			enabled: number;
+			archived_at: number | null;
+		}
+	>();
+	if (repoIds.length > 0) {
+		const ph = repoIds.map(() => "?").join(",");
+		const repoRows = await db
+			.prepare(
+				`SELECT id, provider, org, project, external_id, enabled, archived_at
+         FROM repos WHERE id IN (${ph})`,
+			)
+			.bind(...repoIds)
+			.all<{
+				id: string;
+				provider: string;
+				org: string;
+				project: string;
+				external_id: string | null;
+				enabled: number;
+				archived_at: number | null;
+			}>();
+		for (const r of repoRows.results ?? []) {
+			repoMap.set(r.id, r);
+		}
+	}
+
+	const refOwner = new Map<string, string>();
+	if (prepared.length > 0) {
+		const refs = prepared.map((p) => p.externalRef);
+		const ph = refs.map(() => "?").join(",");
+		const existing = await db
+			.prepare(
+				`SELECT external_ref, developer_id FROM activities WHERE external_ref IN (${ph})`,
+			)
+			.bind(...refs)
+			.all<{ external_ref: string; developer_id: string }>();
+		for (const row of existing.results ?? []) {
+			refOwner.set(row.external_ref, row.developer_id);
+		}
+	}
+
+	for (const p of prepared) {
+		const a = p.activity;
+		const dev = devMap.get(a.developerId);
 		if (!dev || dev.archived_at !== null) {
 			return {
 				kind: "unprocessable",
 				error: `developerId not found or archived: ${a.developerId}`,
 			};
 		}
-
-		const suffixes = settings.emailSuffixes;
-		const expectedNames = suffixes.map((s) =>
+		const expectedNames = settings.emailSuffixes.map((s) =>
 			`${dev.alias}@${s}`.toLowerCase(),
 		);
 		if (!expectedNames.includes(a.matchedUniqueName.toLowerCase())) {
@@ -201,20 +283,7 @@ export async function processIngestChunk(
 			if (!a.repoId) {
 				return { kind: "unprocessable", error: "pr.* requires repoId" };
 			}
-			const repo = await db
-				.prepare(
-					"SELECT id, provider, org, project, external_id, enabled, archived_at FROM repos WHERE id = ?",
-				)
-				.bind(a.repoId)
-				.first<{
-					id: string;
-					provider: string;
-					org: string;
-					project: string;
-					external_id: string | null;
-					enabled: number;
-					archived_at: number | null;
-				}>();
+			const repo = repoMap.get(a.repoId);
 			if (!repo || repo.archived_at !== null || repo.enabled !== 1) {
 				return {
 					kind: "unprocessable",
@@ -261,31 +330,16 @@ export async function processIngestChunk(
 			}
 		}
 
-		const existing = await db
-			.prepare("SELECT developer_id FROM activities WHERE external_ref = ?")
-			.bind(externalRef)
-			.first<{ developer_id: string }>();
-		if (
-			existing &&
-			existing.developer_id !== a.developerId &&
-			effectiveMode !== "full_rematch"
-		) {
+		const owner = refOwner.get(p.externalRef);
+		if (owner && owner !== a.developerId && effectiveMode !== "full_rematch") {
 			return {
 				kind: "unprocessable",
 				error: "external_ref owned by another developer",
 			};
 		}
-
-		prepared.push({
-			activity: a,
-			externalRef,
-			dayKey: dk,
-			metaJson: a.meta ? JSON.stringify(a.meta) : null,
-			sourceIdsJson: JSON.stringify(a.sourceIds),
-		});
 	}
 
-	// Old dev-days for rematch (no config_version filter)
+	// Old dev-days for rematch (no config_version filter); reuse refOwner query shape
 	const oldDevDays: DevDay[] = [];
 	if (prepared.length > 0) {
 		const refs = prepared.map((p) => p.externalRef);
@@ -312,9 +366,24 @@ export async function processIngestChunk(
 	const union = [...unionMap.values()];
 	const unionJson = JSON.stringify(union);
 
-	// --- Phase 1 batch ---
-	const stmts: D1PreparedStatement[] = [];
+	// --- Phase 1: CAS existing run first (must observe changes), then write batch ---
+	if (run) {
+		const cas = await db
+			.prepare(
+				`UPDATE ingest_runs SET stats_json = stats_json
+         WHERE id = ? AND config_version = ? AND mode = ? AND status = 'chunked'`,
+			)
+			.bind(body.runId, version, run.mode)
+			.run();
+		if ((cas.meta?.changes ?? 0) !== 1) {
+			return {
+				kind: "conflict",
+				error: "Run CAS failed (status/version/mode mismatch)",
+			};
+		}
+	}
 
+	const stmts: D1PreparedStatement[] = [];
 	if (!run) {
 		stmts.push(
 			db
@@ -330,23 +399,10 @@ export async function processIngestChunk(
 					JSON.stringify(body.runMeta),
 				),
 		);
-	} else {
-		stmts.push(
-			db
-				.prepare(
-					`UPDATE ingest_runs SET stats_json = stats_json
-           WHERE id = ? AND config_version = ? AND mode = ? AND status = 'chunked'`,
-				)
-				.bind(body.runId, version, run.mode),
-		);
 	}
 
+	// Always mint id on INSERT; ON CONFLICT keeps existing row id (id not in UPDATE set).
 	for (const p of prepared) {
-		const existingId = await db
-			.prepare("SELECT id FROM activities WHERE external_ref = ?")
-			.bind(p.externalRef)
-			.first<{ id: string }>();
-		const id = existingId?.id ?? newId();
 		stmts.push(
 			db
 				.prepare(
@@ -371,7 +427,7 @@ export async function processIngestChunk(
             ingested_at = unixepoch()`,
 				)
 				.bind(
-					id,
+					newId(),
 					p.activity.developerId,
 					p.activity.type,
 					p.activity.occurredAt,
@@ -424,7 +480,7 @@ export async function processIngestChunk(
 		await db.batch(stmts);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
-		// Concurrent INSERT ingest_runs → unique constraint
+		// Concurrent INSERT ingest_runs → unique constraint → whole batch rolls back
 		if (/UNIQUE|constraint|already exists/i.test(msg)) {
 			return {
 				kind: "server_error",
@@ -466,54 +522,69 @@ async function recomputeScoresAndComplete(
 
 	const scoreStmts: D1PreparedStatement[] = [];
 	let recomputed = 0;
+	const affectedDevDays = union.length;
 
 	if (union.length > 0) {
-		// Load all activities for each dev-day at current version
-		const enriched: ActivityWithDayKey[] = [];
+		// Single SELECT for all affected dev-days (≤20 pairs) — stmt budget.
+		const pairClauses = union
+			.map(() => "(developer_id = ? AND day_key = ?)")
+			.join(" OR ");
+		const binds: unknown[] = [version];
 		for (const dd of union) {
-			const res = await db
-				.prepare(
-					`SELECT type, occurred_at, provider, org, project, repo_id, developer_id,
-                  matched_unique_name, source_ids_json, day_key
-           FROM activities
-           WHERE developer_id = ? AND day_key = ? AND config_version = ?`,
-				)
-				.bind(dd.developerId, dd.dayKey, version)
-				.all<{
-					type: string;
-					occurred_at: number;
-					provider: string;
-					org: string;
-					project: string;
-					repo_id: string | null;
-					developer_id: string;
-					matched_unique_name: string | null;
-					source_ids_json: string;
-					day_key: string;
-				}>();
-			for (const row of res.results ?? []) {
-				let sourceIds: unknown;
-				try {
-					sourceIds = JSON.parse(row.source_ids_json);
-				} catch {
-					return {
-						kind: "server_error",
-						error: "Corrupt source_ids_json",
-					};
-				}
-				enriched.push({
-					type: row.type as Activity["type"],
-					occurredAt: row.occurred_at,
-					provider: row.provider as "ado",
-					org: row.org,
-					project: row.project,
-					repoId: row.repo_id as Activity["repoId"],
-					developerId: row.developer_id,
-					matchedUniqueName: row.matched_unique_name ?? "",
-					sourceIds: sourceIds as Activity["sourceIds"],
-					dayKey: row.day_key,
-				} as ActivityWithDayKey);
+			binds.push(dd.developerId, dd.dayKey);
+		}
+		const res = await db
+			.prepare(
+				`SELECT type, occurred_at, provider, org, project, repo_id, developer_id,
+                matched_unique_name, source_ids_json, day_key
+         FROM activities
+         WHERE config_version = ?
+           AND (${pairClauses})`,
+			)
+			.bind(...binds)
+			.all<{
+				type: string;
+				occurred_at: number;
+				provider: string;
+				org: string;
+				project: string;
+				repo_id: string | null;
+				developer_id: string;
+				matched_unique_name: string | null;
+				source_ids_json: string;
+				day_key: string;
+			}>();
+
+		const enriched: ActivityWithDayKey[] = [];
+		for (const row of res.results ?? []) {
+			let sourceIds: unknown;
+			try {
+				sourceIds = JSON.parse(row.source_ids_json);
+			} catch {
+				return {
+					kind: "server_error",
+					error: "Corrupt source_ids_json",
+				};
 			}
+			const candidate = {
+				type: row.type,
+				occurredAt: row.occurred_at,
+				provider: row.provider,
+				org: row.org,
+				project: row.project,
+				repoId: row.repo_id,
+				developerId: row.developer_id,
+				matchedUniqueName: row.matched_unique_name ?? "",
+				sourceIds,
+			};
+			const parsed = activitySchema.safeParse(candidate);
+			if (!parsed.success) {
+				return {
+					kind: "server_error",
+					error: `source_ids_json shape mismatch for type=${row.type}`,
+				};
+			}
+			enriched.push({ ...parsed.data, dayKey: row.day_key });
 		}
 
 		const scores = aggregateScores(
@@ -524,6 +595,7 @@ async function recomputeScoresAndComplete(
 			scores.map((s) => `${s.developerId}\0${s.dayKey}`),
 		);
 
+		// UPSERT scores only while settings version still equals expected (05 triple check).
 		for (const s of scores) {
 			scoreStmts.push(
 				db
@@ -535,7 +607,10 @@ async function recomputeScoresAndComplete(
                total = excluded.total,
                breakdown_json = excluded.breakdown_json,
                activity_count = excluded.activity_count,
-               computed_at = unixepoch()`,
+               computed_at = unixepoch()
+             WHERE (
+               SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version'
+             ) = excluded.config_version`,
 					)
 					.bind(
 						s.developerId,
@@ -556,14 +631,18 @@ async function recomputeScoresAndComplete(
 					db
 						.prepare(
 							`DELETE FROM scores
-               WHERE developer_id = ? AND day_key = ? AND config_version = ?`,
+               WHERE developer_id = ? AND day_key = ? AND config_version = ?
+                 AND (
+                   SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version'
+                 ) = ?`,
 						)
-						.bind(dd.developerId, dd.dayKey, version),
+						.bind(dd.developerId, dd.dayKey, version, version),
 				);
 			}
 		}
 	}
 
+	// Score writes first, then chunk complete CAS (must observe changes=1).
 	scoreStmts.push(
 		db
 			.prepare(
@@ -574,8 +653,15 @@ async function recomputeScoresAndComplete(
 	);
 
 	try {
-		if (scoreStmts.length > 0) {
-			await db.batch(scoreStmts);
+		const results = await db.batch(scoreStmts);
+		const completeRes = results[results.length - 1];
+		const completeChanges =
+			(completeRes as D1Result | undefined)?.meta?.changes ?? 0;
+		if (completeChanges !== 1) {
+			return {
+				kind: "conflict",
+				error: "Chunk complete CAS failed (not prepared or raced)",
+			};
 		}
 	} catch (e) {
 		return {
@@ -584,13 +670,22 @@ async function recomputeScoresAndComplete(
 		};
 	}
 
+	// Re-read settings version after score mutations
+	const verAfter = await db
+		.prepare(
+			"SELECT CAST(value AS INTEGER) AS v FROM settings WHERE key = 'pipeline_config_version'",
+		)
+		.first<{ v: number }>();
+	if (verAfter?.v !== version) {
+		return { kind: "conflict", error: "Version changed during score write" };
+	}
+
 	let finalized = false;
 	if (body.isFinalChunk) {
 		const fin = await finalizeRun(db, body.runId, version);
 		if (fin.kind === "ok") {
 			finalized = true;
 		} else if (fin.kind === "conflict") {
-			// already finalized is ok
 			const st = await db
 				.prepare("SELECT status FROM ingest_runs WHERE id = ?")
 				.bind(body.runId)
@@ -611,6 +706,7 @@ async function recomputeScoresAndComplete(
 		recomputed,
 		unmatchedUpserted,
 		finalized,
+		affectedDevDays,
 	);
 }
 
@@ -648,6 +744,7 @@ function successBody(
 	recomputed: number,
 	unmatchedUpserted: number,
 	finalized: boolean,
+	affectedDevDays = 0,
 ): IngestWriteResult {
 	return {
 		kind: "ok",
@@ -661,7 +758,7 @@ function successBody(
 				rejected: 0,
 			},
 			scores: {
-				affectedDevDays: recomputed,
+				affectedDevDays,
 				recomputed,
 			},
 			unmatched: { upserted: unmatchedUpserted },
