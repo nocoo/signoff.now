@@ -205,7 +205,7 @@ export function DashboardPage() {
 								to="/activity"
 								className="inline-flex text-sm text-primary hover:underline"
 							>
-								View activity status →
+								View activity →
 							</Link>
 						</div>
 					</div>

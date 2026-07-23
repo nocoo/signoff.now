@@ -1,5 +1,10 @@
 import { apiFetch } from "@/lib/api";
-import type { HeatmapResponse, TimelineResponse } from "./activity";
+import {
+	type HeatmapResponse,
+	parseHeatmapResponse,
+	parseTimelineResponse,
+	type TimelineResponse,
+} from "./activity";
 
 export async function fetchHeatmap(opts: {
 	devs: string[];
@@ -11,7 +16,8 @@ export async function fetchHeatmap(opts: {
 		from: opts.from,
 		to: opts.to,
 	});
-	return apiFetch<HeatmapResponse>(`/api/activity/heatmap?${q}`);
+	const raw = await apiFetch<unknown>(`/api/activity/heatmap?${q}`);
+	return parseHeatmapResponse(raw);
 }
 
 export async function fetchTimeline(opts: {
@@ -28,5 +34,6 @@ export async function fetchTimeline(opts: {
 	if (opts.cursor) {
 		q.set("cursor", opts.cursor);
 	}
-	return apiFetch<TimelineResponse>(`/api/activity/timeline?${q}`);
+	const raw = await apiFetch<unknown>(`/api/activity/timeline?${q}`);
+	return parseTimelineResponse(raw);
 }
