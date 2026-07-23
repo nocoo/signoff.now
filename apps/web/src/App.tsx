@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
-import { ActivityPlaceholder } from "@/views/activity/ActivityPlaceholder";
+import { ActivityPage } from "@/views/activity/ActivityPage";
 import { DashboardPage } from "@/views/DashboardPage";
 import { DevelopersPage } from "@/views/developers/DevelopersPage";
 import { ReposPage } from "@/views/repos/ReposPage";
@@ -19,7 +19,7 @@ export default function App() {
 					<Route path="/teams" element={<TeamsPage />} />
 					<Route path="/tags" element={<TagsPage />} />
 					<Route path="/repos" element={<ReposPage />} />
-					<Route path="/activity" element={<ActivityPlaceholder />} />
+					<Route path="/activity" element={<ActivityPage />} />
 					<Route path="*" element={<Navigate to="/" replace />} />
 				</Route>
 			</Routes>
