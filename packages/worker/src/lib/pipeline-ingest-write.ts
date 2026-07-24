@@ -41,7 +41,7 @@ type DevDay = { developerId: string; dayKey: string };
 
 /**
  * Worst-case D1 statement count for one ingest request (05 §5.2 ≤80 hard gate).
- * Includes route loadSettings, Phase 0–3, WI per-row projectGuid lookups, finalize.
+ * Includes route loadSettings (always), Phase 0–3, WI per-row projectGuid, finalize.
  */
 export function estimateIngestStmtBudget(opts: {
 	activityCount: number;
@@ -50,8 +50,10 @@ export function estimateIngestStmtBudget(opts: {
 	unionSize: number;
 	/** wi.* activities issue one projectGuid SELECT each (worst = activityCount). */
 	wiActivityCount?: number;
-	/** Route loadSettings (1) + finalize UPDATE (+ optional status SELECT). Default true. */
-	includeRouteAndFinalize?: boolean;
+	/** Route always runs loadSettings once (default true). */
+	includeLoadSettings?: boolean;
+	/** Final chunk runs finalize UPDATE (+ optional status SELECT). Default true. */
+	includeFinalize?: boolean;
 }): number {
 	const a = opts.activityCount;
 	const u = opts.unmatchedCount;
@@ -63,11 +65,9 @@ export function estimateIngestStmtBudget(opts: {
 	const phase1 = 1 + a + u + 1;
 	// Phase 3: version recheck, union SELECT, score UPSERT/DELETE each, chunk CAS, version after
 	const phase3 = 1 + 1 + d + 1 + 1;
-	const routeFin =
-		opts.includeRouteAndFinalize === false
-			? 0
-			: 1 /* loadSettings */ + 2; /* finalize UPDATE + status SELECT worst */
-	return phase0 + phase1 + phase3 + routeFin;
+	const loadSettings = opts.includeLoadSettings === false ? 0 : 1;
+	const finalize = opts.includeFinalize === false ? 0 : 2;
+	return phase0 + phase1 + phase3 + loadSettings + finalize;
 }
 
 export const INGEST_STMT_BUDGET_MAX = 80;
@@ -407,8 +407,9 @@ export async function processIngestChunk(
 		unmatchedCount: body.unmatchedIdentities.length,
 		unionSize: union.length,
 		wiActivityCount: wiCount,
-		// processIngestChunk is post-loadSettings; still reserve finalize on final chunk.
-		includeRouteAndFinalize: body.isFinalChunk,
+		// Full request: loadSettings always; finalize only on final chunk.
+		includeLoadSettings: true,
+		includeFinalize: body.isFinalChunk,
 	});
 	if (stmtBudget > INGEST_STMT_BUDGET_MAX) {
 		return {

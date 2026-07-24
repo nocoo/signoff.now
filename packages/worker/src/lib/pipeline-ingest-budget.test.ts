@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createMockD1, DEFAULT_SETTINGS_ROWS } from "../test/mock-d1.js";
+import { createMockD1 } from "../test/mock-d1.js";
 import {
 	estimateIngestStmtBudget,
 	finalizeRun,
@@ -51,6 +51,135 @@ function withStmtCounter(db: D1Database): {
 	return { db: counting, count: () => n };
 }
 
+/**
+ * Stateful mock that completes a full new-run ingest (phase 0–finalize) with
+ * kind=ok. Injects 10 synthetic old dev-days so union reaches 20 under 10 WI.
+ */
+function createWorstCaseOkMock(): D1Database {
+	const settingsV = 1;
+	const oldDevDays = Array.from({ length: 10 }, (_, i) => ({
+		developer_id: "dev-1",
+		day_key: `2026-05-${String(i + 1).padStart(2, "0")}`,
+	}));
+
+	const makeStmt = (
+		sql: string,
+		_args: unknown[] = [],
+	): D1PreparedStatement => {
+		const stmt = {
+			bind(...a: unknown[]) {
+				return makeStmt(sql, a);
+			},
+			async first<T>() {
+				const s = sql;
+				if (s.includes("FROM ingest_runs") && s.includes("SELECT status")) {
+					return {
+						status: "finalized",
+						config_version: settingsV,
+						settings_v: settingsV,
+					} as T;
+				}
+				if (
+					s.includes("SELECT * FROM ingest_runs") ||
+					s.includes("FROM ingest_runs WHERE id")
+				) {
+					// Initial lookup: no run yet. Post-phase finalize status uses SELECT status.
+					if (s.includes("SELECT status, config_version")) {
+						return {
+							status: "finalized",
+							config_version: settingsV,
+							settings_v: settingsV,
+						} as T;
+					}
+					if (s.includes("SELECT status FROM ingest_runs")) {
+						return { status: "finalized" } as T;
+					}
+					if (
+						s.includes("SELECT * FROM ingest_runs") ||
+						s.trimStart().startsWith("SELECT *")
+					) {
+						return null;
+					}
+					// generic ingest_runs without status → null for first look
+					if (!s.includes("status")) {
+						return null;
+					}
+				}
+				if (s.includes("FROM ingest_chunks")) {
+					return null;
+				}
+				if (s.includes("MAX(chunk_index)")) {
+					return { m: null } as T;
+				}
+				if (s.includes("pipeline_config_version") && s.includes("CAST")) {
+					return { v: settingsV } as T;
+				}
+				if (s.includes("project_external_id")) {
+					return { id: "repo-proj" } as T;
+				}
+				return null;
+			},
+			async all<T>() {
+				const s = sql;
+				const empty = {
+					success: true,
+					results: [] as T[],
+					meta: { changes: 0 },
+				} as unknown as D1Result<T>;
+				if (s.includes("FROM developers")) {
+					return {
+						success: true,
+						results: [{ id: "dev-1", alias: "ada", archived_at: null }],
+						meta: { changes: 0 },
+					} as unknown as D1Result<T>;
+				}
+				// Phase 0 ownership probe
+				if (s.includes("external_ref, developer_id")) {
+					return empty;
+				}
+				// Old dev-days (rematch union padding → 20 with 10 new)
+				if (s.includes("developer_id, day_key") && s.includes("external_ref")) {
+					return {
+						success: true,
+						results: oldDevDays as T[],
+						meta: { changes: 0 },
+					} as unknown as D1Result<T>;
+				}
+				// Phase 2 score rebuild SELECT
+				if (
+					s.includes("source_ids_json") ||
+					s.includes("SELECT type, occurred_at")
+				) {
+					return empty;
+				}
+				return empty;
+			},
+			async run() {
+				return {
+					success: true,
+					meta: { changes: 1 },
+				} as unknown as D1Result;
+			},
+		};
+		return stmt as unknown as D1PreparedStatement;
+	};
+
+	return {
+		prepare(sql: string) {
+			return makeStmt(sql);
+		},
+		async batch(statements: D1PreparedStatement[]) {
+			return statements.map(
+				() =>
+					({
+						success: true,
+						meta: { changes: 1 },
+					}) as unknown as D1Result,
+			);
+		},
+	} as unknown as D1Database;
+}
+
 const settings: AppSettings = {
 	timezone: "UTC",
 	emailSuffixes: ["example.com"],
@@ -70,131 +199,98 @@ const settings: AppSettings = {
 	updatedAt: {},
 };
 
-const body = {
-	pipelineConfigVersion: 1,
-	runId: "01JAY7B4HXTMRP0VQZ0FKZH5S8",
-	chunkIndex: 0,
-	isFinalChunk: true,
-	runMeta: {
-		startedAt: 1720000000,
-		source: "fixture" as const,
-		windowFrom: "2026-06-01",
-		windowTo: "2026-07-01",
-		mode: "incremental" as const,
-	},
-	activities: [
-		{
-			type: "pr.merged" as const,
-			occurredAt: 1720000123,
-			provider: "ado" as const,
-			org: "acme",
-			project: "Alpha",
-			repoId: "repo-1",
-			developerId: "dev-1",
-			matchedUniqueName: "ada@example.com",
-			sourceIds: {
-				prRepoGuid: "11111111-1111-4111-8111-111111111111",
-				prId: 1001,
-			},
+function worstCaseBody() {
+	const activities = Array.from({ length: 10 }, (_, i) => ({
+		type: "wi.created" as const,
+		occurredAt: 1720000000 + i * 86400,
+		provider: "ado" as const,
+		org: "acme",
+		project: "Alpha",
+		repoId: null as null,
+		developerId: "dev-1",
+		matchedUniqueName: "ada@example.com",
+		sourceIds: {
+			projectGuid: "22222222-2222-4222-8222-222222222222",
+			wiId: 1000 + i,
 		},
-	],
-	unmatchedIdentities: [] as [],
-};
+	}));
+	const unmatchedIdentities = Array.from({ length: 10 }, (_, i) => ({
+		uniqueName: `ghost${i}@example.com`,
+		sampleOrg: "acme",
+		sampleProject: "Alpha",
+	}));
+	return {
+		pipelineConfigVersion: 1,
+		runId: "01JAY7B4HXTMRP0VQZ0FKZH5S8",
+		chunkIndex: 0,
+		isFinalChunk: true,
+		runMeta: {
+			startedAt: 1720000000,
+			source: "fixture" as const,
+			windowFrom: "2026-06-01",
+			windowTo: "2026-07-01",
+			mode: "incremental" as const,
+		},
+		activities,
+		unmatchedIdentities,
+	};
+}
 
 describe("estimateIngestStmtBudget", () => {
-	test("worst-case 10 WI + 10 unmatched + 20 dev-days + route/finalize ≤ 80", () => {
+	test("worst-case 10 WI + 10 unmatched + 20 dev-days + loadSettings + finalize ≤ 80", () => {
 		const n = estimateIngestStmtBudget({
 			activityCount: 10,
 			unmatchedCount: 10,
 			unionSize: 20,
 			wiActivityCount: 10,
-			includeRouteAndFinalize: true,
+			includeLoadSettings: true,
+			includeFinalize: true,
 		});
-		// phase0=7+10=17, phase1=22, phase3=24, routeFin=3 → 66
+		// phase0=17, phase1=22, phase3=24, load=1, fin=2 → 66
 		expect(n).toBe(66);
 		expect(n).toBeLessThanOrEqual(INGEST_STMT_BUDGET_MAX);
 	});
 
-	test("PR-only path without route still under budget", () => {
+	test("non-final chunk still counts loadSettings", () => {
 		const n = estimateIngestStmtBudget({
 			activityCount: 10,
-			unmatchedCount: 10,
-			unionSize: 20,
+			unmatchedCount: 0,
+			unionSize: 10,
 			wiActivityCount: 0,
-			includeRouteAndFinalize: false,
+			includeLoadSettings: true,
+			includeFinalize: false,
 		});
-		// 7+0 + 22 + 24 = 53
-		expect(n).toBe(53);
-		expect(n).toBeLessThanOrEqual(INGEST_STMT_BUDGET_MAX);
+		// 7+0 + 12 + 14 + 1 + 0 = 34
+		expect(n).toBe(34);
+		expect(n).toBeGreaterThan(
+			estimateIngestStmtBudget({
+				activityCount: 10,
+				unmatchedCount: 0,
+				unionSize: 10,
+				wiActivityCount: 0,
+				includeLoadSettings: false,
+				includeFinalize: false,
+			}),
+		);
 	});
 });
 
 describe("processIngestChunk actual stmt count", () => {
-	test("happy-path new run counts .first/.all/.run + batch lengths ≤ 80", async () => {
-		const base = createMockD1({
-			allBySql: [
-				{ match: "FROM settings", results: DEFAULT_SETTINGS_ROWS },
-				{
-					match: "FROM developers",
-					results: [{ id: "dev-1", alias: "ada", archived_at: null }],
-				},
-				{
-					match: "FROM repos WHERE id",
-					results: [
-						{
-							id: "repo-1",
-							provider: "ado",
-							org: "acme",
-							project: "Alpha",
-							external_id: "11111111-1111-4111-8111-111111111111",
-							enabled: 1,
-							archived_at: null,
-						},
-					],
-				},
-				{ match: "FROM activities WHERE external_ref", results: [] },
-				{ match: "FROM activities", results: [] },
-				{
-					match: "SELECT type, occurred_at",
-					results: [],
-				},
-			],
-			firstBySql: [
-				{ match: "FROM ingest_runs", row: null },
-				{ match: "FROM ingest_chunks", row: null },
-				{ match: "MAX(chunk_index)", row: { m: null } },
-				{
-					match: "pipeline_config_version",
-					row: { v: 1 },
-				},
-				{
-					match: "FROM developers WHERE id",
-					row: { id: "dev-1", alias: "ada", archived_at: null },
-				},
-				{
-					match: "FROM repos WHERE id",
-					row: {
-						id: "repo-1",
-						provider: "ado",
-						org: "acme",
-						project: "Alpha",
-						external_id: "11111111-1111-4111-8111-111111111111",
-						enabled: 1,
-						archived_at: null,
-					},
-				},
-			],
-			runChanges: 1,
-		});
+	test("worst-case 10 WI + 10 unmatched completes ok and stays ≤ 80 stmts", async () => {
+		const base = createWorstCaseOkMock();
 		const { db, count } = withStmtCounter(base);
-		const result = await processIngestChunk(db, body, settings);
-		// Mock may not complete full score fold; still measure observed D1 traffic.
-		expect(["ok", "conflict", "server_error", "unprocessable"]).toContain(
-			result.kind,
-		);
-		const observed = count();
-		expect(observed).toBeGreaterThan(0);
-		expect(observed).toBeLessThanOrEqual(INGEST_STMT_BUDGET_MAX);
+		// Route loadSettings is outside processIngestChunk; add +1 for full-request budget.
+		const result = await processIngestChunk(db, worstCaseBody(), settings);
+		expect(result.kind).toBe("ok");
+		if (result.kind === "ok") {
+			expect(result.body.finalized).toBe(true);
+			expect(result.body.unmatched.upserted).toBe(10);
+			expect(result.body.activities.upserted).toBe(10);
+		}
+		const observedInProcess = count();
+		const fullRequest = observedInProcess + 1; // loadSettings
+		expect(observedInProcess).toBeGreaterThan(20);
+		expect(fullRequest).toBeLessThanOrEqual(INGEST_STMT_BUDGET_MAX);
 	});
 
 	test("finalizeRun rejects when settings version drifts", async () => {
