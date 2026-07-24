@@ -40,25 +40,34 @@ export type IngestWriteResult =
 type DevDay = { developerId: string; dayKey: string };
 
 /**
- * Worst-case D1 statement count for one ingest chunk (05 §5.2 ≤80 hard gate).
- * Counts Phase 0 reads + Phase 1 batch + Phase 3 reads/writes (not network).
+ * Worst-case D1 statement count for one ingest request (05 §5.2 ≤80 hard gate).
+ * Includes route loadSettings, Phase 0–3, WI per-row projectGuid lookups, finalize.
  */
 export function estimateIngestStmtBudget(opts: {
 	activityCount: number;
 	unmatchedCount: number;
 	/** Distinct old+new dev-days after union (≤ 2 * activityCount). */
 	unionSize: number;
+	/** wi.* activities issue one projectGuid SELECT each (worst = activityCount). */
+	wiActivityCount?: number;
+	/** Route loadSettings (1) + finalize UPDATE (+ optional status SELECT). Default true. */
+	includeRouteAndFinalize?: boolean;
 }): number {
 	const a = opts.activityCount;
 	const u = opts.unmatchedCount;
 	const d = opts.unionSize;
-	// Phase 0: run, chunk, max chunkIndex, devs, repos, ref owners, old days ≈ 7
-	const phase0 = 7;
+	const wi = opts.wiActivityCount ?? a;
+	// Phase 0: run, chunk, maxIdx, devs, repos, ref owners, old days + per-WI projectGuid
+	const phase0 = 7 + wi;
 	// Phase 1 batch: run CAS/insert + activities + unmatched + chunk
 	const phase1 = 1 + a + u + 1;
 	// Phase 3: version recheck, union SELECT, score UPSERT/DELETE each, chunk CAS, version after
 	const phase3 = 1 + 1 + d + 1 + 1;
-	return phase0 + phase1 + phase3;
+	const routeFin =
+		opts.includeRouteAndFinalize === false
+			? 0
+			: 1 /* loadSettings */ + 2; /* finalize UPDATE + status SELECT worst */
+	return phase0 + phase1 + phase3 + routeFin;
 }
 
 export const INGEST_STMT_BUDGET_MAX = 80;
@@ -390,10 +399,16 @@ export async function processIngestChunk(
 	const union = [...unionMap.values()];
 	const unionJson = JSON.stringify(union);
 
+	const wiCount = prepared.filter((p) =>
+		p.activity.type.startsWith("wi."),
+	).length;
 	const stmtBudget = estimateIngestStmtBudget({
 		activityCount: prepared.length,
 		unmatchedCount: body.unmatchedIdentities.length,
 		unionSize: union.length,
+		wiActivityCount: wiCount,
+		// processIngestChunk is post-loadSettings; still reserve finalize on final chunk.
+		includeRouteAndFinalize: body.isFinalChunk,
 	});
 	if (stmtBudget > INGEST_STMT_BUDGET_MAX) {
 		return {
@@ -781,16 +796,9 @@ async function recomputeScoresAndComplete(
 		const fin = await finalizeRun(db, body.runId, version);
 		if (fin.kind === "ok") {
 			finalized = true;
-		} else if (fin.kind === "conflict") {
-			const st = await db
-				.prepare("SELECT status FROM ingest_runs WHERE id = ?")
-				.bind(body.runId)
-				.first<{ status: string }>();
-			finalized = st?.status === "finalized";
-			if (!finalized) {
-				return fin;
-			}
 		} else {
+			// Do not soft-succeed on "already finalized" without settings version —
+			// finalizeRun already gates both paths on current Settings version.
 			return fin;
 		}
 	}
@@ -806,31 +814,53 @@ async function recomputeScoresAndComplete(
 	);
 }
 
-async function finalizeRun(
+/**
+ * Finalize run only while run.config_version AND current Settings version
+ * both equal expected (05 triple version check). Idempotent "already finalized"
+ * requires the same triple match — settings bump after finalize → 409.
+ */
+export async function finalizeRun(
 	db: D1Database,
 	runId: string,
 	version: number,
 ): Promise<IngestWriteResult | { kind: "ok" }> {
+	const settingsVersionOk = `(SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version') = ?`;
 	const res = await db
 		.prepare(
 			`UPDATE ingest_runs
        SET status = 'finalized', finished_at = unixepoch()
-       WHERE id = ? AND status = 'chunked' AND config_version = ?`,
+       WHERE id = ? AND status = 'chunked' AND config_version = ?
+         AND ${settingsVersionOk}`,
 		)
-		.bind(runId, version)
+		.bind(runId, version, version)
 		.run();
 	const changes = res.meta?.changes ?? 0;
-	if (changes === 0) {
-		const st = await db
-			.prepare("SELECT status FROM ingest_runs WHERE id = ?")
-			.bind(runId)
-			.first<{ status: string }>();
-		if (st?.status === "finalized") {
-			return { kind: "ok" };
-		}
-		return { kind: "conflict", error: "Cannot finalize run" };
+	if (changes === 1) {
+		return { kind: "ok" };
 	}
-	return { kind: "ok" };
+	const row = await db
+		.prepare(
+			`SELECT status, config_version,
+        (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version') AS settings_v
+       FROM ingest_runs WHERE id = ?`,
+		)
+		.bind(runId)
+		.first<{
+			status: string;
+			config_version: number;
+			settings_v: number;
+		}>();
+	if (
+		row?.status === "finalized" &&
+		row.config_version === version &&
+		row.settings_v === version
+	) {
+		return { kind: "ok" };
+	}
+	return {
+		kind: "conflict",
+		error: "Cannot finalize run (status or settings version mismatch)",
+	};
 }
 
 function successBody(
