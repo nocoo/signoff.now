@@ -6,6 +6,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { IngestBody } from "@signoff/domain";
+import { hasUpsert, isInsertInto } from "../test/sql-shape.ts";
 import {
 	createConcurrentSqliteD1,
 	createSqliteD1,
@@ -277,27 +278,56 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
-	// The digest guard must hold at every index, not just the first few. Driving
-	// several indices makes an `index < N` regression visible wherever N sits.
-	for (const target of [1, 2, 3]) {
-		test(`digest drift on chunk index ${target} → 409`, async () => {
-			const chunkAt = (index: number, occurredAt: number) =>
-				body({
-					chunkIndex: index,
-					activities: [
-						{
-							type: "pr.created",
-							occurredAt,
-							provider: "ado",
-							org: ORG,
-							project: PROJECT,
-							repoId: REPO,
-							developerId: DEV,
-							matchedUniqueName: "integ@example.com",
-							sourceIds: { prRepoGuid: REPO_GUID, prId: 2000 + index },
-						},
-					],
-				} as Partial<IngestBody>);
+	/**
+	 * Property: the digest guard holds at EVERY chunk index. Enumerating a few
+	 * indices only ever proves `index < N` for the largest N tested — an
+	 * index-limited regression just moves past it. Sampling indices spread
+	 * across the range kills the whole class instead of one constant.
+	 *
+	 * Deterministic PRNG so a failure is reproducible from the seed.
+	 */
+	test("digest drift is rejected at arbitrary chunk indices", async () => {
+		let seed = 0x5eed_1234;
+		const nextInt = (bound: number) => {
+			seed = (seed * 1_103_515_245 + 12_345) & 0x7fff_ffff;
+			return seed % bound;
+		};
+
+		const chunkAt = (index: number, occurredAt: number) =>
+			body({
+				chunkIndex: index,
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "integ@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 2000 + index },
+					},
+				],
+			} as Partial<IngestBody>);
+
+		// Sample one index per band so no single `index < N` bound can hide.
+		const targets = [1 + nextInt(2), 3 + nextInt(3), 6 + nextInt(4)];
+
+		for (const target of targets) {
+			// Fresh database per target keeps the runs independent.
+			sqlite.close();
+			sqlite = createSqliteD1();
+			seedDevAndRepo(sqlite, {
+				developerId: DEV,
+				alias: "integ",
+				repoId: REPO,
+				org: ORG,
+				project: PROJECT,
+				repoName: "integ-repo",
+				repoGuid: REPO_GUID,
+				projectGuid: PROJ_GUID,
+			});
 
 			await processIngestChunk(sqlite.db, body(), settings);
 			for (let i = 1; i <= target; i++) {
@@ -306,7 +336,7 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 					chunkAt(i, 1_784_737_900 + i),
 					settings,
 				);
-				expect(r.kind).toBe("ok");
+				expect(`index ${i}: ${r.kind}`).toBe(`index ${i}: ok`);
 			}
 			const before = snapshot();
 
@@ -317,10 +347,10 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 				settings,
 			);
 
-			expect(res.kind).toBe("conflict");
+			expect(`index ${target}: ${res.kind}`).toBe(`index ${target}: conflict`);
 			expect(snapshot()).toBe(before);
-		});
-	}
+		}
+	});
 
 	test("chunk index gap → 400", async () => {
 		const first = await processIngestChunk(sqlite.db, body(), settings);
@@ -417,76 +447,65 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(countRows("unmatched_identities")).toBe(1);
 	});
 
-	test("a distinct chunk seeing the same identity increments seen_count", async () => {
-		// The positive half of the contract: `seen_count + 1` must actually fire
-		// for genuinely new sightings, or the unmatched report is useless.
+	/**
+	 * Property: each new chunk bumps `seen_count` by exactly one, whatever the
+	 * current value. Asserting a fixed total lets a `MIN(seen_count + 1, N)`
+	 * cap hide as long as N sits above the number the test happens to reach —
+	 * so assert the DELTA, sampled from values on both sides of any plausible
+	 * cap, instead of an absolute.
+	 */
+	test("each new chunk increments seen_count by exactly one", async () => {
 		const ghost = { uniqueName: "ghost@example.com", sampleOrg: ORG };
+		const readCount = () =>
+			sqlite.raw
+				.query<{ seen_count: number }, []>(
+					"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
+				)
+				.get()?.seen_count ?? 0;
+
+		const chunkAt = (at: number) =>
+			body({
+				chunkIndex: at,
+				unmatchedIdentities: [ghost],
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt: 1_784_737_900 + at,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "integ@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 3000 + at },
+					},
+				],
+			} as Partial<IngestBody>);
 
 		await processIngestChunk(
 			sqlite.db,
 			body({ unmatchedIdentities: [ghost] } as Partial<IngestBody>),
 			settings,
 		);
-		await processIngestChunk(
-			sqlite.db,
-			body({
-				chunkIndex: 1,
-				unmatchedIdentities: [ghost],
-				activities: [
-					{
-						type: "pr.created",
-						occurredAt: 1_784_737_900,
-						provider: "ado",
-						org: ORG,
-						project: PROJECT,
-						repoId: REPO,
-						developerId: DEV,
-						matchedUniqueName: "integ@example.com",
-						sourceIds: { prRepoGuid: REPO_GUID, prId: 1002 },
-					},
-				],
-			} as Partial<IngestBody>),
-			settings,
-		);
+		expect(readCount()).toBe(1);
 
-		// Seed a high count: any cap (MIN(seen_count + 1, N)) becomes visible,
-		// and the assertion below pins "exactly one increment per new chunk"
-		// rather than a small absolute number a cap could coincide with.
-		sqlite.raw
-			.query(
-				"UPDATE unmatched_identities SET seen_count = 41 WHERE unique_name = 'ghost@example.com'",
-			)
-			.run();
+		// Straddle small, medium and large starting values: a cap anywhere in
+		// that spread stops the delta from being 1.
+		let index = 1;
+		for (const seedCount of [2, 99, 5000]) {
+			sqlite.raw
+				.query(
+					"UPDATE unmatched_identities SET seen_count = ? WHERE unique_name = 'ghost@example.com'",
+				)
+				.run(seedCount);
 
-		// A third distinct chunk.
-		await processIngestChunk(
-			sqlite.db,
-			body({
-				chunkIndex: 2,
-				unmatchedIdentities: [ghost],
-				activities: [
-					{
-						type: "pr.created",
-						occurredAt: 1_784_738_000,
-						provider: "ado",
-						org: ORG,
-						project: PROJECT,
-						repoId: REPO,
-						developerId: DEV,
-						matchedUniqueName: "integ@example.com",
-						sourceIds: { prRepoGuid: REPO_GUID, prId: 1003 },
-					},
-				],
-			} as Partial<IngestBody>),
-			settings,
-		);
-
-		const row = sqlite.raw
-			.query<{ seen_count: number }, []>(
-				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
-			)
-			.get();
-		expect(row?.seen_count).toBe(42);
+			const res = await processIngestChunk(sqlite.db, chunkAt(index), settings);
+			expect(res.kind).toBe("ok");
+			expect(`from ${seedCount} → ${readCount()}`).toBe(
+				`from ${seedCount} → ${seedCount + 1}`,
+			);
+			index++;
+		}
 		expect(countRows("unmatched_identities")).toBe(1);
 	});
 
@@ -608,10 +627,8 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		);
 		expect(res.kind).toBe("ok");
 
-		const isRunInsert = (sql: string) =>
-			/INSERT\s+INTO\s+ingest_runs/i.test(sql);
-		const isChunkInsert = (sql: string) =>
-			/INSERT\s+INTO\s+ingest_chunks/i.test(sql);
+		const isRunInsert = (sql: string) => isInsertInto(sql, "ingest_runs");
+		const isChunkInsert = (sql: string) => isInsertInto(sql, "ingest_chunks");
 
 		const phase1 = batches.find((b) => b.some(isRunInsert));
 		expect(phase1).toBeDefined();
@@ -622,15 +639,12 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		expect(batches.filter((b) => b.some(isChunkInsert))).toHaveLength(1);
 
 		// 06 forbids upserting `ingest_runs`: a loser must never rewrite the
-		// winner's mode / runMeta. Strip comments before matching so
-		// `ON /*x*/ CONFLICT` cannot slip through.
-		const runInsert = (phase1 ?? [])
-			.find(isRunInsert)
-			?.replace(/\/\*[\s\S]*?\*\//g, " ")
-			.replace(/--[^\n]*/g, " ");
+		// winner's mode / runMeta. Checked with a tokenizer, not a regex — a
+		// comment marker inside a string literal must not erase real code, and
+		// `ON /*x*/ CONFLICT` must not slip through. See test/sql-shape.ts.
+		const runInsert = (phase1 ?? []).find(isRunInsert);
 		expect(runInsert).toBeDefined();
-		expect(runInsert).not.toMatch(/ON\s+CONFLICT/i);
-		expect(runInsert).not.toMatch(/INSERT\s+OR\s+(REPLACE|IGNORE)/i);
+		expect(hasUpsert(runInsert ?? "")).toBe(false);
 	});
 
 	test("a committed winner leaves a stale loser no way in", async () => {

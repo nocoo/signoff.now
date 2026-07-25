@@ -419,9 +419,10 @@ describe("write path defensive failures", () => {
 		}
 	});
 
-	test("chunk-complete CAS fails when the settings version moves before Phase 3", async () => {
-		// Same guard, other predicate: a version bump between Phase 1 and Phase 3
-		// must stop the chunk being marked completed under a stale config.
+	test("chunk-complete CAS fails when the version moves before the Phase 3 write", async () => {
+		// The hook fires after Phase 3 has re-read the version and computed the
+		// scores, immediately before its write batch — the narrow window the CAS
+		// exists to close. A bump there must stop the chunk being completed.
 		sqlite.beforeBatch("SET status = 'completed'", () => {
 			sqlite.raw
 				.query(
