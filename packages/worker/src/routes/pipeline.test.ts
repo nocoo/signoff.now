@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { createMockD1, DEFAULT_SETTINGS_ROWS } from "../test/mock-d1.js";
+import { createSqliteD1, seedDevAndRepo } from "../test/sqlite-d1.js";
 import type { AppEnv } from "../types.js";
 import {
 	pipelineBootstrapRoute,
@@ -93,57 +94,51 @@ describe("pipelineBootstrapRoute", () => {
 });
 
 describe("pipelineIngestRoute", () => {
-	test("200 writes path when refs resolve", async () => {
-		const db = createMockD1({
-			allBySql: [
-				{ match: "FROM settings", results: DEFAULT_SETTINGS_ROWS },
-				{ match: "FROM activities", results: [] },
-			],
-			firstBySql: [
-				{ match: "FROM ingest_runs", row: null },
-				{ match: "FROM ingest_chunks", row: null },
-				{
-					match: "FROM developers",
-					row: { id: "dev-1", alias: "ada", archived_at: null },
-				},
-				{
-					match: "FROM repos WHERE id",
-					row: {
-						id: "repo-1",
-						provider: "ado",
-						org: "acme",
-						project: "Alpha",
-						external_id: "11111111-1111-4111-8111-111111111111",
-						enabled: 1,
-						archived_at: null,
-					},
-				},
-				{ match: "FROM activities WHERE external_ref", row: null },
-				{ match: "SELECT id FROM activities", row: null },
-				{ match: "MAX(chunk_index)", row: { m: null } },
-				{
-					match: "pipeline_config_version",
-					row: { v: 1 },
-				},
-				{
-					match: "SELECT status FROM ingest_runs",
-					row: { status: "finalized" },
-				},
-			],
-			runChanges: 1,
+	test("200 writes activities and scores through the real schema", async () => {
+		const sqlite = createSqliteD1();
+		seedDevAndRepo(sqlite, {
+			developerId: "dev-1",
+			alias: "ada",
+			repoId: "repo-1",
+			org: "acme",
+			project: "Alpha",
+			repoName: "alpha-repo",
+			repoGuid: "11111111-1111-4111-8111-111111111111",
+			projectGuid: "22222222-2222-4222-8222-222222222222",
 		});
-		const app = mount(db);
+
+		const app = mount(sqlite.db);
 		const res = await app.request("http://x/api/pipeline/ingest", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(validIngest),
 		});
-		// Mock D1 may not fully simulate multi-phase; accept 200 or 422/500 from incomplete mock
-		expect([200, 422, 500]).toContain(res.status);
-		if (res.status === 200) {
-			const body = (await res.json()) as { runId: string; finalized: boolean };
-			expect(body.runId).toBe(validIngest.runId);
-		}
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			runId: string;
+			finalized: boolean;
+			activities: { upserted: number; rejected: number };
+			scores: { recomputed: number };
+		};
+		expect(body.runId).toBe(validIngest.runId);
+		expect(body.finalized).toBe(true);
+		expect(body.activities.upserted).toBe(1);
+		expect(body.activities.rejected).toBe(0);
+		expect(body.scores.recomputed).toBe(1);
+
+		const score = sqlite.raw
+			.query<{ total: number; day_key: string }, []>(
+				"SELECT total, day_key FROM scores",
+			)
+			.get();
+		expect(score?.total).toBe(10);
+
+		const run = sqlite.raw
+			.query<{ status: string }, []>("SELECT status FROM ingest_runs")
+			.get();
+		expect(run?.status).toBe("finalized");
+		sqlite.close();
 	});
 
 	test("409 on version conflict", async () => {
@@ -311,5 +306,171 @@ describe("pipelineRecomputeCompleteRoute", () => {
 			},
 		);
 		expect(res.status).toBe(400);
+	});
+});
+
+describe("ingest route status mapping (real schema)", () => {
+	function seeded() {
+		const sqlite = createSqliteD1();
+		seedDevAndRepo(sqlite, {
+			developerId: "dev-1",
+			alias: "ada",
+			repoId: "repo-1",
+			org: "acme",
+			project: "Alpha",
+			repoName: "alpha-repo",
+			repoGuid: "11111111-1111-4111-8111-111111111111",
+			projectGuid: "22222222-2222-4222-8222-222222222222",
+		});
+		return sqlite;
+	}
+
+	async function post(db: D1Database, body: unknown) {
+		return mount(db).request("http://x/api/pipeline/ingest", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	test("422 when the developer does not exist", async () => {
+		const sqlite = seeded();
+		const bad = structuredClone(validIngest);
+		bad.activities[0]!.developerId = "dev-missing";
+		const res = await post(sqlite.db, bad);
+		expect(res.status).toBe(422);
+		sqlite.close();
+	});
+
+	test("400 on chunk index skip", async () => {
+		const sqlite = seeded();
+		await post(sqlite.db, { ...validIngest, isFinalChunk: false });
+		const res = await post(sqlite.db, {
+			...validIngest,
+			chunkIndex: 3,
+			isFinalChunk: false,
+		});
+		expect(res.status).toBe(400);
+		sqlite.close();
+	});
+
+	test("409 when replaying a chunk index with a different digest", async () => {
+		const sqlite = seeded();
+		await post(sqlite.db, { ...validIngest, isFinalChunk: false });
+		const drifted = structuredClone(validIngest);
+		drifted.isFinalChunk = false;
+		drifted.activities[0]!.occurredAt = 1720009999;
+		const res = await post(sqlite.db, drifted);
+		expect(res.status).toBe(409);
+		sqlite.close();
+	});
+
+	test("recompute complete clears stale after a finalized full_rematch", async () => {
+		const sqlite = seeded();
+		sqlite.raw
+			.query("UPDATE settings SET value = 'true' WHERE key = 'scores_stale'")
+			.run();
+
+		const ingested = await post(sqlite.db, validIngest);
+		expect(ingested.status).toBe(200);
+
+		const res = await mount(sqlite.db).request(
+			"http://x/api/pipeline/recompute/complete",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					runId: validIngest.runId,
+					pipelineConfigVersion: 1,
+					ok: true,
+				}),
+			},
+		);
+		expect(res.status).toBe(200);
+
+		const stale = sqlite.raw
+			.query<{ value: string }, []>(
+				"SELECT value FROM settings WHERE key = 'scores_stale'",
+			)
+			.get();
+		expect(stale?.value).toBe("false");
+		sqlite.close();
+	});
+
+	test("409 when completing a run that is not full_rematch", async () => {
+		const sqlite = seeded();
+		await post(sqlite.db, {
+			...validIngest,
+			runMeta: { ...validIngest.runMeta, mode: "incremental" },
+		});
+
+		const res = await mount(sqlite.db).request(
+			"http://x/api/pipeline/recompute/complete",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					runId: validIngest.runId,
+					pipelineConfigVersion: 1,
+					ok: true,
+				}),
+			},
+		);
+		expect(res.status).toBe(409);
+		sqlite.close();
+	});
+
+	test("413 when the raw body exceeds the ingest payload cap", async () => {
+		const sqlite = seeded();
+		const huge = structuredClone(validIngest) as typeof validIngest & {
+			activities: { meta?: Record<string, unknown> }[];
+		};
+		huge.activities[0]!.meta = { blob: "x".repeat(600_000) };
+
+		const res = await post(sqlite.db, huge);
+		expect(res.status).toBe(413);
+		sqlite.close();
+	});
+
+	test("500 when a stored activity has an unusable source_ids_json", async () => {
+		const sqlite = seeded();
+		await post(sqlite.db, { ...validIngest, isFinalChunk: false });
+		sqlite.raw
+			.query(`UPDATE activities SET source_ids_json = '"broken"'`)
+			.run();
+
+		const second = structuredClone(validIngest);
+		second.chunkIndex = 1;
+		second.isFinalChunk = false;
+		second.activities[0]!.sourceIds.prId = 1002;
+		const res = await post(sqlite.db, second);
+
+		expect(res.status).toBe(500);
+		sqlite.close();
+	});
+
+	test("409 when settings version moves before recompute complete", async () => {
+		const sqlite = seeded();
+		await post(sqlite.db, validIngest);
+		sqlite.raw
+			.query(
+				"UPDATE settings SET value = '2' WHERE key = 'pipeline_config_version'",
+			)
+			.run();
+
+		const res = await mount(sqlite.db).request(
+			"http://x/api/pipeline/recompute/complete",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					runId: validIngest.runId,
+					pipelineConfigVersion: 1,
+					ok: true,
+				}),
+			},
+		);
+		expect(res.status).toBe(409);
+		sqlite.close();
 	});
 });

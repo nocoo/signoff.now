@@ -53,6 +53,7 @@ describe("D1 migrations", () => {
 			"scores",
 			"unmatched_identities",
 			"ingest_runs",
+			"ingest_chunks",
 			"schema_migrations",
 		]) {
 			expect(tables).toContain(required);

@@ -7,12 +7,12 @@ coveragePathIgnorePatterns = [
   "src/test/**",
   # Real JWKS network I/O only — injectable verifier covers access-auth
   "src/middleware/access-jose.ts",
-  # Multi-phase D1 write path: mock D1 cannot exercise full batch/CAS faithfully;
-  # gate tests + scripts/e2e-06-local.sh cover the write path.
-  "src/lib/pipeline-ingest-write.ts",
-  # Route status mapping for write errors; happy-path covered in pipeline.test.
-  "src/routes/pipeline.ts",
   # Workspace domain package has its own ≥95% suite
   "**/packages/domain/**",
   "../domain/**",
 ]
+# pipeline-ingest-write.ts and routes/pipeline.ts are NO LONGER excluded: the
+# real-SQLite harness in src/test/sqlite-d1.ts exercises the multi-phase write
+# path for real (06 §5.4 dispatch matrix, 05 §5.5 rejection matrix). Remaining
+# uncovered lines there are defensive 500 paths (corrupt source_ids_json, batch
+# UNIQUE races) that cannot be triggered without faking D1 failure injection.
