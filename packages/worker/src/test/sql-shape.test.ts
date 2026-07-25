@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { hasUpsert, isInsertInto, sqlShape } from "./sql-shape.ts";
+import {
+	hasUpsert,
+	isInsertInto,
+	isWriteInto,
+	setExpression,
+	sqlShape,
+} from "./sql-shape.ts";
 
 describe("sqlShape", () => {
 	test("strips line and block comments", () => {
@@ -84,5 +90,97 @@ describe("hasUpsert", () => {
 		expect(
 			hasUpsert("INSERT INTO t (note) VALUES ('ON CONFLICT DO UPDATE')"),
 		).toBe(false);
+	});
+});
+
+describe("quoted identifier evasions", () => {
+	test("backtick alias containing a comment opener does not start a comment", () => {
+		const sql =
+			"INSERT INTO ingest_runs (id) SELECT ?, NULL AS `/*` " +
+			"WHERE 1 ON CONFLICT(id) DO UPDATE SET run_meta_json = NULL " +
+			"RETURNING id AS `*/`";
+		expect(hasUpsert(sql)).toBe(true);
+		expect(isWriteInto(sql, "ingest_runs")).toBe(true);
+	});
+
+	test("double-quoted and bracketed aliases hiding markers", () => {
+		expect(
+			hasUpsert('INSERT INTO t SELECT 1 AS "/*" ON CONFLICT DO NOTHING'),
+		).toBe(true);
+		expect(
+			hasUpsert("INSERT INTO t SELECT 1 AS [/*] ON CONFLICT DO NOTHING"),
+		).toBe(true);
+	});
+
+	test("escaped quotes inside identifiers do not end them early", () => {
+		expect(sqlShape('SELECT 1 AS "a""b" FROM t').code).toBe(
+			'SELECT 1 AS "" FROM t',
+		);
+		expect(sqlShape("SELECT 1 AS `a``b` FROM t").code).toBe(
+			'SELECT 1 AS "" FROM t',
+		);
+	});
+});
+
+describe("isWriteInto", () => {
+	test("recognises quoted and bracketed targets", () => {
+		expect(
+			isWriteInto('INSERT INTO "ingest_runs" (id) VALUES (1)', "ingest_runs"),
+		).toBe(true);
+		expect(
+			isWriteInto("INSERT INTO [ingest_runs] (id) VALUES (1)", "ingest_runs"),
+		).toBe(true);
+		expect(
+			isWriteInto("INSERT INTO `ingest_runs` (id) VALUES (1)", "ingest_runs"),
+		).toBe(true);
+	});
+
+	test("recognises schema-qualified and REPLACE forms", () => {
+		expect(
+			isWriteInto(
+				"INSERT INTO main.ingest_runs (id) VALUES (1)",
+				"ingest_runs",
+			),
+		).toBe(true);
+		expect(
+			isWriteInto("REPLACE INTO ingest_runs (id) VALUES (1)", "ingest_runs"),
+		).toBe(true);
+		expect(
+			isWriteInto(
+				"INSERT OR REPLACE INTO ingest_runs (id) VALUES (1)",
+				"ingest_runs",
+			),
+		).toBe(true);
+	});
+
+	test("still rejects other tables", () => {
+		expect(
+			isWriteInto("INSERT INTO ingest_chunks (id) VALUES (1)", "ingest_runs"),
+		).toBe(false);
+		expect(isInsertInto("SELECT * FROM ingest_runs", "ingest_runs")).toBe(
+			false,
+		);
+	});
+});
+
+describe("setExpression", () => {
+	test("extracts the exact right-hand side", () => {
+		const sql =
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT(a) DO UPDATE SET " +
+			"seen_count = seen_count + 1, last_seen_at = unixepoch() WHERE x = 1";
+		expect(setExpression(sql, "seen_count")).toBe("seen_count + 1");
+		expect(setExpression(sql, "last_seen_at")).toBe("unixepoch()");
+	});
+
+	test("sees through a cap or modulo", () => {
+		const capped =
+			"ON CONFLICT(a) DO UPDATE SET seen_count = MIN(seen_count + 1, 100), x = 1";
+		expect(setExpression(capped, "seen_count")).toBe(
+			"MIN(seen_count + 1, 100)",
+		);
+	});
+
+	test("returns null when the column is not assigned", () => {
+		expect(setExpression("UPDATE t SET a = 1", "seen_count")).toBeNull();
 	});
 });
