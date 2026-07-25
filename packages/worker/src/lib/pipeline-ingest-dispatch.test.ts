@@ -277,51 +277,50 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
-	test("digest drift on a later chunk index → 409", async () => {
-		// The digest guard must apply to every index, not only chunk 0.
-		await processIngestChunk(sqlite.db, body(), settings);
-		const second = body({
-			chunkIndex: 1,
-			activities: [
-				{
-					type: "pr.created",
-					occurredAt: 1_784_737_900,
-					provider: "ado",
-					org: ORG,
-					project: PROJECT,
-					repoId: REPO,
-					developerId: DEV,
-					matchedUniqueName: "integ@example.com",
-					sourceIds: { prRepoGuid: REPO_GUID, prId: 1002 },
-				},
-			],
-		} as Partial<IngestBody>);
-		expect((await processIngestChunk(sqlite.db, second, settings)).kind).toBe(
-			"ok",
-		);
-		const before = snapshot();
+	// The digest guard must hold at every index, not just the first few. Driving
+	// several indices makes an `index < N` regression visible wherever N sits.
+	for (const target of [1, 2, 3]) {
+		test(`digest drift on chunk index ${target} → 409`, async () => {
+			const chunkAt = (index: number, occurredAt: number) =>
+				body({
+					chunkIndex: index,
+					activities: [
+						{
+							type: "pr.created",
+							occurredAt,
+							provider: "ado",
+							org: ORG,
+							project: PROJECT,
+							repoId: REPO,
+							developerId: DEV,
+							matchedUniqueName: "integ@example.com",
+							sourceIds: { prRepoGuid: REPO_GUID, prId: 2000 + index },
+						},
+					],
+				} as Partial<IngestBody>);
 
-		const drifted = body({
-			chunkIndex: 1,
-			activities: [
-				{
-					type: "pr.created",
-					occurredAt: 1_784_999_999,
-					provider: "ado",
-					org: ORG,
-					project: PROJECT,
-					repoId: REPO,
-					developerId: DEV,
-					matchedUniqueName: "integ@example.com",
-					sourceIds: { prRepoGuid: REPO_GUID, prId: 1002 },
-				},
-			],
-		} as Partial<IngestBody>);
-		const res = await processIngestChunk(sqlite.db, drifted, settings);
+			await processIngestChunk(sqlite.db, body(), settings);
+			for (let i = 1; i <= target; i++) {
+				const r = await processIngestChunk(
+					sqlite.db,
+					chunkAt(i, 1_784_737_900 + i),
+					settings,
+				);
+				expect(r.kind).toBe("ok");
+			}
+			const before = snapshot();
 
-		expect(res.kind).toBe("conflict");
-		expect(snapshot()).toBe(before);
-	});
+			// Same index, different payload → different digest.
+			const res = await processIngestChunk(
+				sqlite.db,
+				chunkAt(target, 1_784_999_000 + target),
+				settings,
+			);
+
+			expect(res.kind).toBe("conflict");
+			expect(snapshot()).toBe(before);
+		});
+	}
 
 	test("chunk index gap → 400", async () => {
 		const first = await processIngestChunk(sqlite.db, body(), settings);
@@ -450,7 +449,16 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 			settings,
 		);
 
-		// A third distinct chunk: `excluded.seen_count + 1` would cap at 2 here.
+		// Seed a high count: any cap (MIN(seen_count + 1, N)) becomes visible,
+		// and the assertion below pins "exactly one increment per new chunk"
+		// rather than a small absolute number a cap could coincide with.
+		sqlite.raw
+			.query(
+				"UPDATE unmatched_identities SET seen_count = 41 WHERE unique_name = 'ghost@example.com'",
+			)
+			.run();
+
+		// A third distinct chunk.
 		await processIngestChunk(
 			sqlite.db,
 			body({
@@ -478,7 +486,7 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
 			)
 			.get();
-		expect(row?.seen_count).toBe(3);
+		expect(row?.seen_count).toBe(42);
 		expect(countRows("unmatched_identities")).toBe(1);
 	});
 
@@ -574,16 +582,19 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 	 * upsert. That makes the ban unobservable at runtime, and an unobservable
 	 * rule is exactly the kind that rots. Reading the SQL is the honest check.
 	 */
-	test("the ingest_runs INSERT never upserts", async () => {
-		// Run a genuine ingest against real SQLite while recording every SQL
-		// string the write path prepares.
-		const seen: string[] = [];
+	test("run and chunk 0 are inserted by one batch, and the run never upserts", async () => {
+		// Record actual batch membership, not just which statements were prepared:
+		// splitting Phase 1 across two batches would break the atomic co-commit
+		// that makes the upsert ban enforceable at all.
+		const batches: string[][] = [];
 		const recording = new Proxy(sqlite.db, {
 			get(target, prop, receiver) {
-				if (prop === "prepare") {
-					return (sql: string) => {
-						seen.push(sql);
-						return target.prepare(sql);
+				if (prop === "batch") {
+					return async (stmts: { sql?: string }[]) => {
+						batches.push(stmts.map((st) => st.sql ?? ""));
+						return (target.batch as (s: unknown[]) => Promise<D1Result[]>)(
+							stmts,
+						);
 					};
 				}
 				return Reflect.get(target, prop, receiver);
@@ -597,18 +608,29 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		);
 		expect(res.kind).toBe("ok");
 
-		const runInsert = seen.find((sql) =>
-			/INSERT\s+INTO\s+ingest_runs/i.test(sql),
-		);
+		const isRunInsert = (sql: string) =>
+			/INSERT\s+INTO\s+ingest_runs/i.test(sql);
+		const isChunkInsert = (sql: string) =>
+			/INSERT\s+INTO\s+ingest_chunks/i.test(sql);
+
+		const phase1 = batches.find((b) => b.some(isRunInsert));
+		expect(phase1).toBeDefined();
+		// Same batch → a stale loser hits the chunk primary key and rolls back.
+		expect(phase1?.some(isChunkInsert)).toBe(true);
+		// And nothing else may insert either row in a separate batch.
+		expect(batches.filter((b) => b.some(isRunInsert))).toHaveLength(1);
+		expect(batches.filter((b) => b.some(isChunkInsert))).toHaveLength(1);
+
+		// 06 forbids upserting `ingest_runs`: a loser must never rewrite the
+		// winner's mode / runMeta. Strip comments before matching so
+		// `ON /*x*/ CONFLICT` cannot slip through.
+		const runInsert = (phase1 ?? [])
+			.find(isRunInsert)
+			?.replace(/\/\*[\s\S]*?\*\//g, " ")
+			.replace(/--[^\n]*/g, " ");
 		expect(runInsert).toBeDefined();
 		expect(runInsert).not.toMatch(/ON\s+CONFLICT/i);
 		expect(runInsert).not.toMatch(/INSERT\s+OR\s+(REPLACE|IGNORE)/i);
-
-		// The same Phase 1 batch must carry the chunk insert — that co-location
-		// is what makes a stale loser hit the chunk primary key and roll back.
-		expect(seen.some((sql) => /INSERT\s+INTO\s+ingest_chunks/i.test(sql))).toBe(
-			true,
-		);
 	});
 
 	test("a committed winner leaves a stale loser no way in", async () => {

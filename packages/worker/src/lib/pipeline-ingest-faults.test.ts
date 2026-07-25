@@ -178,10 +178,11 @@ describe("write path defensive failures", () => {
 		}
 	});
 
-	test("duplicate run insert rolls the whole Phase 1 batch back", async () => {
-		// Simulate the loser of a chunk-0 race: the row appears between Phase 0's
-		// read and the Phase 1 batch, so the INSERT hits the primary key. The
-		// batch also carries the activity/chunk writes, none of which may survive.
+	test("a pre-existing run id rolls the whole Phase 1 batch back", async () => {
+		// NOT a race model: a real winner commits run AND chunk 0 in one batch,
+		// so a stale loser never sees a run without its chunk. This injects an
+		// orphaned run row — reachable only via manual repair or a restore — to
+		// prove the batch is all-or-nothing when its first statement fails.
 		sqlite.beforeBatch("INSERT INTO ingest_runs", () => {
 			sqlite.raw
 				.query(
@@ -265,9 +266,13 @@ describe("write path defensive failures", () => {
 		expect(scores?.n).toBe(0);
 	});
 
-	test("version drift blocks the score conflict-UPDATE path", async () => {
-		// Land a score first, then drive a second chunk for the same dev-day so
-		// Phase 3 takes the ON CONFLICT DO UPDATE branch under drift.
+	test("version drift leaves an existing score untouched", async () => {
+		// A second chunk for an already-scored dev-day. Under drift the statement
+		// is rejected by the INSERT's own WHERE, so the DO UPDATE clause is never
+		// reached — its inner version predicate is unreachable redundancy (its
+		// `excluded.config_version` is bound to the same `version` the outer
+		// predicate tests). What this pins down is the outcome that matters: the
+		// previously stored score must not be rewritten under a stale config.
 		await processIngestChunk(sqlite.db, body(), settings);
 		const before = sqlite.raw
 			.query<{ total: number; config_version: number }, []>(
