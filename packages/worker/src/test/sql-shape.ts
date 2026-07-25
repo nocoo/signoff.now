@@ -112,7 +112,9 @@ export function isWriteInto(sql: string, table: string): boolean {
 		return false;
 	}
 	const after = tokens.slice((m.index ?? 0) + m[0].length);
-	return after.startsWith(T) || (quoted && after.startsWith('""'));
+	// Identifier boundary: `ingest_runs_archive` must not match `ingest_runs`.
+	const bare = new RegExp(`^${T}(?![A-Z0-9_])`).test(after);
+	return bare || (quoted && after.startsWith('""'));
 }
 
 /** Back-compat alias: reads better at call sites that only ever see INSERT. */
@@ -135,70 +137,141 @@ export function hasUpsert(sql: string): boolean {
  * the sampled range, but reading the SQL can.
  */
 export function setExpression(sql: string, column: string): string | null {
-	const { code } = sqlShape(sql);
-	const setIdx = code.search(/\bSET\b/i);
-	if (setIdx === -1) {
+	const assignments = setAssignments(sql);
+	const hits = assignments.filter(
+		(a) => a.column.toUpperCase() === column.toUpperCase(),
+	);
+	// More than one assignment to the same column: SQLite keeps the last, so
+	// reporting the first would describe behaviour that never happens. Refuse
+	// to answer rather than mislead the caller.
+	if (hits.length !== 1) {
 		return null;
 	}
-	const re = new RegExp(`\\b${column}\\s*=\\s*`, "i");
-	const m = re.exec(code.slice(setIdx));
-	if (!m) {
-		return null;
-	}
-
-	// Scan to the assignment's end, tracking nesting so a comma inside a call
-	// like MIN(x, 100) does not look like the next assignment.
-	let i = setIdx + (m.index ?? 0) + m[0].length;
-	const start = i;
-	let depth = 0;
-	while (i < code.length) {
-		const ch = code[i] as string;
-		if (ch === "(") {
-			depth++;
-		} else if (ch === ")") {
-			if (depth === 0) {
-				break;
-			}
-			depth--;
-		} else if (depth === 0) {
-			if (ch === ",") {
-				break;
-			}
-			if (/\s/.test(ch) && /^\s+(WHERE|RETURNING)\b/i.test(code.slice(i))) {
-				break;
-			}
-		}
-		i++;
-	}
-	const expr = code.slice(start, i).trim();
-	return expr.length > 0 ? expr : null;
+	return hits[0]?.expr ?? null;
 }
 
 /**
- * Extract the full parenthesised condition of the `if` whose head contains
- * `needle`, brace-matched across newlines.
+ * All top-level `col = expr` pairs in the statement's SET list, in order.
  *
- * Grepping a single line is not enough: reformatting the same condition across
- * several lines moves an added term onto a line the grep never inspects, and
- * the check silently passes. Returning the whole condition removes that
- * degree of freedom. Returns null when no such `if` exists, so a caller that
- * asserts on the result fails closed if the code is restructured.
+ * Parsed rather than pattern-matched: a `seen_count = seen_count + 1` sitting
+ * in a WHERE clause, or a second assignment to the same column later in the
+ * list, both make a naive search report an expression that does not govern the
+ * write. Nested parens and quoted spans are skipped via `sqlShape`.
  */
-export function ifConditionContaining(
+export function setAssignments(
+	sql: string,
+): { column: string; expr: string }[] {
+	const { code } = sqlShape(sql);
+	const setIdx = code.search(/\bSET\b/i);
+	if (setIdx === -1) {
+		return [];
+	}
+
+	const out: { column: string; expr: string }[] = [];
+	let i = setIdx + 3;
+	while (i < code.length) {
+		const rest = code.slice(i);
+		const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/.exec(rest);
+		if (!m) {
+			break;
+		}
+		i += m[0].length;
+		const start = i;
+		let depth = 0;
+		while (i < code.length) {
+			const ch = code[i] as string;
+			if (ch === "(") {
+				depth++;
+			} else if (ch === ")") {
+				if (depth === 0) {
+					break;
+				}
+				depth--;
+			} else if (depth === 0) {
+				if (ch === ",") {
+					break;
+				}
+				if (/^\s+(WHERE|RETURNING|FROM)\b/i.test(code.slice(i))) {
+					break;
+				}
+			}
+			i++;
+		}
+		out.push({ column: m[1] as string, expr: code.slice(start, i).trim() });
+		if (code[i] !== ",") {
+			break;
+		}
+		i++;
+	}
+	return out;
+}
+
+/**
+ * Condition of the `if` whose body contains `bodyMarker`.
+ *
+ * Anchoring on the guard's OUTCOME rather than on its condition text is what
+ * makes this honest: a decoy `if` mentioning the same comparison, or an index
+ * hidden behind a local alias, cannot redirect the check. The returned
+ * condition is expanded so single-token aliases assigned from a property read
+ * (`const i = body.chunkIndex`) are visible as their source expression.
+ *
+ * Returns null when no such `if` is found, so callers fail closed.
+ */
+export function guardConditionFor(
 	source: string,
-	needle: string,
+	bodyMarker: string,
 ): string | null {
-	const at = source.indexOf(needle);
+	const at = source.indexOf(bodyMarker);
 	if (at === -1) {
 		return null;
 	}
-	// Walk back to the nearest `if (` that opens before the needle.
-	const head = source.lastIndexOf("if (", at);
-	if (head === -1) {
+
+	// Walk back over `if (...) {` heads, choosing the innermost one whose body
+	// still contains the marker.
+	let best: string | null = null;
+	let searchFrom = 0;
+	while (true) {
+		const head = source.indexOf("if (", searchFrom);
+		if (head === -1 || head > at) {
+			break;
+		}
+		const cond = readParenSpan(source, head + 2);
+		if (cond) {
+			const braceOpen = source.indexOf("{", cond.end);
+			if (braceOpen !== -1) {
+				const braceClose = matchBrace(source, braceOpen);
+				if (braceOpen < at && at < braceClose) {
+					best = cond.text;
+				}
+			}
+		}
+		searchFrom = head + 1;
+	}
+	if (best === null) {
 		return null;
 	}
 
-	let i = head + "if ".length;
+	// Inline single-assignment aliases so `const i = body.chunkIndex; ... i < 2`
+	// is not mistaken for an index-free condition.
+	let expanded = best;
+	for (const m of source.matchAll(
+		/\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\n]+);/g,
+	)) {
+		const name = m[1] as string;
+		const value = (m[2] as string).trim();
+		expanded = expanded.replace(new RegExp(`\\b${name}\\b`, "g"), `(${value})`);
+	}
+	return expanded.replace(/\s+/g, " ").trim();
+}
+
+function readParenSpan(
+	source: string,
+	openIdx: number,
+): { text: string; end: number } | null {
+	let i = openIdx;
+	while (i < source.length && source[i] !== "(") {
+		i++;
+	}
 	let depth = 0;
 	const start = i;
 	while (i < source.length) {
@@ -208,12 +281,31 @@ export function ifConditionContaining(
 		} else if (ch === ")") {
 			depth--;
 			if (depth === 0) {
-				const cond = source.slice(start + 1, i);
-				// The needle must be inside this condition, not after it.
-				return cond.includes(needle) ? cond.replace(/\s+/g, " ").trim() : null;
+				return {
+					text: source
+						.slice(start + 1, i)
+						.replace(/\s+/g, " ")
+						.trim(),
+					end: i + 1,
+				};
 			}
 		}
 		i++;
 	}
 	return null;
+}
+
+function matchBrace(source: string, openIdx: number): number {
+	let depth = 0;
+	for (let i = openIdx; i < source.length; i++) {
+		if (source[i] === "{") {
+			depth++;
+		} else if (source[i] === "}") {
+			depth--;
+			if (depth === 0) {
+				return i;
+			}
+		}
+	}
+	return source.length;
 }

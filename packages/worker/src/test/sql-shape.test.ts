@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+	guardConditionFor,
 	hasUpsert,
-	ifConditionContaining,
 	isInsertInto,
 	isWriteInto,
+	setAssignments,
 	setExpression,
 	sqlShape,
 } from "./sql-shape.ts";
@@ -186,29 +187,58 @@ describe("setExpression", () => {
 	});
 });
 
-describe("ifConditionContaining", () => {
+describe("guardConditionFor", () => {
 	test("returns the whole condition regardless of line breaks", () => {
-		const single = "if (a && b.digest !== digest) {\n  return;\n}";
-		expect(ifConditionContaining(single, "b.digest !== digest")).toBe(
-			"a && b.digest !== digest",
-		);
+		const single = 'if (a && b.digest !== d) {\n  return "boom";\n}';
+		expect(guardConditionFor(single, '"boom"')).toBe("a && b.digest !== d");
 
 		const multi =
-			"if (\n  a &&\n  idx < 7 &&\n  b.digest !== digest\n) {\n  return;\n}";
-		expect(ifConditionContaining(multi, "b.digest !== digest")).toBe(
-			"a && idx < 7 && b.digest !== digest",
+			'if (\n  a &&\n  idx < 7 &&\n  b.digest !== d\n) {\n  return "boom";\n}';
+		expect(guardConditionFor(multi, '"boom"')).toBe(
+			"a && idx < 7 && b.digest !== d",
 		);
 	});
 
-	test("handles nested parentheses in the condition", () => {
-		const src = "if (a && (b || c(1, 2)) && d !== e) {}";
-		expect(ifConditionContaining(src, "d !== e")).toBe(
-			"a && (b || c(1, 2)) && d !== e",
+	test("ignores a decoy if that never produces the outcome", () => {
+		const src =
+			'if (false && b.digest !== d) {\n  throw new Error("x");\n}\n' +
+			'if (a && idx < 2 && b.digest !== d) {\n  return "boom";\n}';
+		expect(guardConditionFor(src, '"boom"')).toBe(
+			"a && idx < 2 && b.digest !== d",
 		);
 	});
 
-	test("returns null when the needle is outside any if condition", () => {
-		expect(ifConditionContaining("const x = a !== b;", "a !== b")).toBeNull();
-		expect(ifConditionContaining("if (p) { q !== r; }", "q !== r")).toBeNull();
+	test("expands a local alias so a hidden index term is visible", () => {
+		const src =
+			'const i = body.chunkIndex;\nif (a && i < 2) {\n  return "boom";\n}';
+		expect(guardConditionFor(src, '"boom"')).toMatch(/chunkIndex/);
+	});
+
+	test("returns null when the outcome is not inside any if", () => {
+		expect(guardConditionFor('return "boom";', '"boom"')).toBeNull();
+		expect(guardConditionFor("if (p) { q; }", '"boom"')).toBeNull();
+	});
+});
+
+describe("setAssignments", () => {
+	test("parses top-level assignments only", () => {
+		const sql =
+			"UPDATE t SET a = 1, b = MIN(x, 2) WHERE seen_count = seen_count + 1";
+		expect(setAssignments(sql)).toEqual([
+			{ column: "a", expr: "1" },
+			{ column: "b", expr: "MIN(x, 2)" },
+		]);
+		// The WHERE clause must not be mistaken for an assignment.
+		expect(setExpression(sql, "seen_count")).toBeNull();
+	});
+
+	test("a duplicated column returns null rather than the first value", () => {
+		const sql = "UPDATE t SET seen_count = seen_count + 1, seen_count = 100";
+		expect(setExpression(sql, "seen_count")).toBeNull();
+	});
+
+	test("FROM terminates the expression span", () => {
+		const sql = "UPDATE t SET a = x FROM other WHERE 1";
+		expect(setExpression(sql, "a")).toBe("x");
 	});
 });

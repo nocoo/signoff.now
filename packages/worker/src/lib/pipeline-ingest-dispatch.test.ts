@@ -7,8 +7,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { IngestBody } from "@signoff/domain";
 import {
+	guardConditionFor,
 	hasUpsert,
-	ifConditionContaining,
 	isInsertInto,
 	setExpression,
 } from "../test/sql-shape.ts";
@@ -295,11 +295,10 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 			new URL("./pipeline-ingest-write.ts", import.meta.url).pathname,
 		).text();
 
-		// Read the entire `if (...)` condition, not one line of it: the same
-		// condition spread over several lines would otherwise hide an added
-		// index term on a line a per-line grep never sees.
-		const cond = ifConditionContaining(src, "chunk.digest !== digest");
-		expect(cond).toBeDefined();
+		// Anchor on the guard's OUTCOME, not on its condition text: a decoy `if`
+		// mentioning the same comparison cannot redirect the check, and local
+		// aliases are expanded so an index hidden behind one is still visible.
+		const cond = guardConditionFor(src, '"Chunk digest conflict"');
 		expect(cond).not.toBeNull();
 		// Any index term here bounds the guard to a prefix of the chunks.
 		expect(cond).not.toMatch(/chunkIndex/);
@@ -655,9 +654,11 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		// winner's mode / runMeta. Checked with a tokenizer, not a regex — a
 		// comment marker inside a string literal must not erase real code, and
 		// `ON /*x*/ CONFLICT` must not slip through. See test/sql-shape.ts.
-		const runInsert = (phase1 ?? []).find(isRunInsert);
-		expect(runInsert).toBeDefined();
-		expect(hasUpsert(runInsert ?? "")).toBe(false);
+		const runInserts = (phase1 ?? []).filter(isRunInsert);
+		expect(runInserts).toHaveLength(1);
+		for (const sql of runInserts) {
+			expect(hasUpsert(sql)).toBe(false);
+		}
 	});
 
 	test("a committed winner leaves a stale loser no way in", async () => {
