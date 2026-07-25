@@ -227,12 +227,48 @@ describe("write path defensive failures", () => {
 		const res = await processIngestChunk(sqlite.db, body(), settings);
 
 		// Every Phase 1 statement binds the settings version, so the batch writes
-		// nothing rather than landing activities under a stale config.
+		// nothing rather than landing rows under a stale config. `ingest_runs`
+		// matters most: a run row committed here would be stranded in `chunked`
+		// with no chunks and no way to finalize.
 		expect(res.kind).toBe("conflict");
-		const rows = sqlite.raw
-			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM activities")
+		for (const table of [
+			"activities",
+			"scores",
+			"ingest_runs",
+			"ingest_chunks",
+			"unmatched_identities",
+		]) {
+			const row = sqlite.raw
+				.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${table}`)
+				.get();
+			expect(`${table}=${row?.n}`).toBe(`${table}=0`);
+		}
+	});
+
+	test("a batch that fails midway leaves none of its earlier statements behind", async () => {
+		// Guards the harness itself: if batch() stopped being transactional, the
+		// rollback assertions elsewhere in this file would silently become
+		// vacuous. Statement 1 succeeds, statement 2 violates a constraint.
+		const before = sqlite.raw
+			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM developers")
 			.get();
-		expect(rows?.n).toBe(0);
+
+		await expect(
+			sqlite.db.batch([
+				sqlite.db
+					.prepare("INSERT INTO developers (id, name, alias) VALUES (?,?,?)")
+					.bind("01K0MIDBATCH0000000000000000", "Mid", "mid"),
+				// Duplicate primary key: fails after the first insert applied.
+				sqlite.db
+					.prepare("INSERT INTO developers (id, name, alias) VALUES (?,?,?)")
+					.bind(DEV, "Dup", "dup"),
+			]),
+		).rejects.toThrow();
+
+		const after = sqlite.raw
+			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM developers")
+			.get();
+		expect(after?.n).toBe(before?.n as number);
 	});
 
 	test("pr.* activity with a null repoId is rejected before any write", async () => {

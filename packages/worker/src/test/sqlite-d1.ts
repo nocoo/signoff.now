@@ -29,8 +29,10 @@ function migrationsDir(): string {
 }
 
 /**
- * Statements that return rows rather than mutating. `WITH` is only read-only
- * when it is not a CTE wrapping INSERT/UPDATE/DELETE, so check the tail too.
+ * Statements that return rows rather than mutating. `WITH` needs a real check:
+ * a CTE can wrap INSERT/UPDATE/DELETE. This stays a lexical heuristic (it does
+ * not strip comments or string literals), which is fine because it only ever
+ * sees this repo's own statements — do not reuse it as a general classifier.
  */
 function isSelect(sql: string): boolean {
 	if (/^\s*SELECT/i.test(sql)) {
@@ -39,7 +41,7 @@ function isSelect(sql: string): boolean {
 	if (!/^\s*WITH/i.test(sql)) {
 		return false;
 	}
-	return !/\b(INSERT|UPDATE|DELETE)\b/i.test(sql);
+	return !/\b(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql);
 }
 
 /**

@@ -339,6 +339,57 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
+	test("prepared resume does not double-count unmatched seen_count", async () => {
+		// `seen_count = seen_count + 1` is the one genuinely non-idempotent write
+		// in Phase 1, so a resume that re-runs it corrupts the tally silently.
+		const withUnmatched = body({
+			unmatchedIdentities: [
+				{ uniqueName: "ghost@example.com", sampleOrg: ORG },
+			],
+		} as Partial<IngestBody>);
+
+		await processIngestChunk(sqlite.db, withUnmatched, settings);
+		const first = sqlite.raw
+			.query<{ seen_count: number }, []>(
+				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
+			)
+			.get();
+		expect(first?.seen_count).toBe(1);
+
+		// Interrupt after Phase 1, then resume the same chunk.
+		sqlite.raw
+			.query("UPDATE ingest_chunks SET status = 'prepared', finished_at = NULL")
+			.run();
+		const res = await processIngestChunk(sqlite.db, withUnmatched, settings);
+		expect(res.kind).toBe("ok");
+
+		const after = sqlite.raw
+			.query<{ seen_count: number }, []>(
+				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
+			)
+			.get();
+		expect(after?.seen_count).toBe(1);
+		expect(countRows("unmatched_identities")).toBe(1);
+	});
+
+	test("replaying a completed chunk does not double-count unmatched seen_count", async () => {
+		const withUnmatched = body({
+			unmatchedIdentities: [
+				{ uniqueName: "ghost@example.com", sampleOrg: ORG },
+			],
+		} as Partial<IngestBody>);
+
+		await processIngestChunk(sqlite.db, withUnmatched, settings);
+		await processIngestChunk(sqlite.db, withUnmatched, settings);
+
+		const row = sqlite.raw
+			.query<{ seen_count: number }, []>(
+				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
+			)
+			.get();
+		expect(row?.seen_count).toBe(1);
+	});
+
 	test("unknown run with a non-zero chunkIndex → 400", async () => {
 		const res = await processIngestChunk(
 			sqlite.db,
@@ -386,93 +437,118 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 });
 
 describe("06 §5.3.2 concurrent chunk 0", () => {
-	test("two writers held past Phase 0: one run row wins, its runMeta is not blended", async () => {
-		const cx = createConcurrentSqliteD1(2);
-		seedRaw(cx.raw, {
-			developerId: DEV,
-			alias: "integ",
-			repoId: REPO,
-			org: ORG,
-			project: PROJECT,
-			repoName: "integ-repo",
-			repoGuid: REPO_GUID,
-			projectGuid: PROJ_GUID,
+	/**
+	 * Model the loser of a chunk-0 race deterministically: it finishes Phase 0
+	 * seeing no run, then the winner's row lands before its own Phase 1 batch.
+	 * Injecting the row (rather than relying on a real lock) is what forces the
+	 * loser to actually execute its INSERT — a lock-blocked writer never reaches
+	 * the statement, so an `ON CONFLICT DO UPDATE` regression would slip past.
+	 */
+	function raceLoser(winnerMeta: IngestBody["runMeta"]) {
+		sqlite.beforeBatch("INSERT INTO ingest_runs", () => {
+			sqlite.raw
+				.query(
+					`INSERT INTO ingest_runs
+             (id, started_at, finished_at, status, config_version, mode, run_meta_json, stats_json)
+           VALUES (?, ?, NULL, 'chunked', 1, ?, ?, NULL)`,
+				)
+				.run(
+					RUN,
+					winnerMeta.startedAt,
+					winnerMeta.mode,
+					JSON.stringify(winnerMeta),
+				);
 		});
+	}
 
-		const a = body({
-			runMeta: {
-				startedAt: 1_784_737_800,
-				source: "fixture",
-				windowFrom: "2026-07-01",
-				windowTo: "2026-07-23",
-				mode: "incremental",
-			},
-		});
-		const b = body({
-			runMeta: {
-				startedAt: 1_784_737_999,
-				source: "fixture",
-				windowFrom: "2026-07-02",
-				windowTo: "2026-07-24",
-				mode: "full_rematch",
-			},
-		});
+	const WINNER_META: IngestBody["runMeta"] = {
+		startedAt: 1_784_737_800,
+		source: "fixture",
+		windowFrom: "2026-07-01",
+		windowTo: "2026-07-23",
+		mode: "incremental",
+	};
 
-		// Neither Phase 1 batch may commit until both have finished Phase 0, so
-		// both genuinely believe they are creating the run.
-		cx.barrierBeforeBatch("INSERT INTO ingest_runs", 2);
+	const LOSER_META: IngestBody["runMeta"] = {
+		startedAt: 1_784_737_999,
+		source: "ado",
+		windowFrom: "2026-07-02",
+		windowTo: "2026-07-24",
+		mode: "full_rematch",
+	};
 
-		const [ra, rb] = await Promise.all([
-			processIngestChunk(cx.connections[0] as D1Database, a, settings),
-			processIngestChunk(cx.connections[1] as D1Database, b, settings),
-		]);
+	test("the loser must not overwrite the winner's run row", async () => {
+		raceLoser(WINNER_META);
 
-		const runs = cx.raw
-			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM ingest_runs")
-			.get();
-		expect(runs?.n).toBe(1);
+		const res = await processIngestChunk(
+			sqlite.db,
+			body({ runMeta: LOSER_META }),
+			settings,
+		);
 
-		const run = cx.raw
-			.query<{ mode: string; run_meta_json: string; started_at: number }, []>(
-				"SELECT mode, run_meta_json, started_at FROM ingest_runs",
+		// The loser is rejected outright — no partial adoption of the run.
+		expect(res.kind).not.toBe("ok");
+
+		expect(countRows("ingest_runs")).toBe(1);
+		const run = sqlite.raw
+			.query<
+				{
+					mode: string;
+					run_meta_json: string;
+					started_at: number;
+					config_version: number;
+					status: string;
+				},
+				[]
+			>(
+				"SELECT mode, run_meta_json, started_at, config_version, status FROM ingest_runs",
 			)
 			.get();
-		const meta = JSON.parse(run?.run_meta_json ?? "{}") as {
-			startedAt: number;
-			windowFrom: string;
-			windowTo: string;
-			mode: string;
-		};
 
-		// The stored runMeta must be exactly one input, never a mix of both.
-		const winner = meta.mode === a.runMeta.mode ? a : b;
-		expect(meta.startedAt).toBe(winner.runMeta.startedAt);
-		expect(meta.windowFrom).toBe(winner.runMeta.windowFrom);
-		expect(meta.windowTo).toBe(winner.runMeta.windowTo);
-		expect(run?.mode).toBe(winner.runMeta.mode);
-		expect(run?.started_at).toBe(winner.runMeta.startedAt);
+		// Every field must still be the winner's, byte for byte. An
+		// `ON CONFLICT(id) DO UPDATE` would rewrite mode/run_meta_json here.
+		expect(run?.mode).toBe(WINNER_META.mode);
+		expect(run?.started_at).toBe(WINNER_META.startedAt);
+		expect(run?.status).toBe("chunked");
+		expect(run?.config_version).toBe(1);
+		expect(JSON.parse(run?.run_meta_json ?? "{}")).toEqual(WINNER_META);
 
-		// Exactly one writer may claim success; the loser must be told to retry
-		// rather than having silently written under the winner's run.
-		const kinds = [ra.kind, rb.kind];
-		expect(kinds.filter((k) => k === "ok")).toHaveLength(1);
-		const loser = kinds.find((k) => k !== "ok");
-		expect(["conflict", "server_error"]).toContain(loser as string);
-
-		// Only the winner's chunk 0 exists, holding only the winner's activity.
-		const chunks = cx.raw
-			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM ingest_chunks")
-			.get();
-		expect(chunks?.n).toBe(1);
-		const activities = cx.raw
-			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM activities")
-			.get();
-		expect(activities?.n).toBe(1);
-
-		cx.close();
+		// And nothing of the loser's payload may have been committed.
+		expect(countRows("activities")).toBe(0);
+		expect(countRows("scores")).toBe(0);
+		expect(countRows("ingest_chunks")).toBe(0);
 	});
 
-	test("the losing writer succeeds on retry under the winner's frozen runMeta", async () => {
+	test("the loser retrying the same chunk under the winner's runMeta succeeds", async () => {
+		raceLoser(WINNER_META);
+		const rejected = await processIngestChunk(
+			sqlite.db,
+			body({ runMeta: LOSER_META }),
+			settings,
+		);
+		expect(rejected.kind).not.toBe("ok");
+
+		// Same chunkIndex 0 — a genuine retry of the failed request, now aligned
+		// with the frozen runMeta the winner established.
+		const retry = await processIngestChunk(
+			sqlite.db,
+			body({ runMeta: WINNER_META }),
+			settings,
+		);
+
+		expect(retry.kind).toBe("ok");
+		expect(countRows("ingest_runs")).toBe(1);
+		expect(countRows("ingest_chunks")).toBe(1);
+		expect(countRows("activities")).toBe(1);
+		const run = sqlite.raw
+			.query<{ run_meta_json: string }, []>(
+				"SELECT run_meta_json FROM ingest_runs",
+			)
+			.get();
+		expect(JSON.parse(run?.run_meta_json ?? "{}")).toEqual(WINNER_META);
+	});
+
+	test("two writers held past Phase 0 on independent connections", async () => {
 		const cx = createConcurrentSqliteD1(2);
 		seedRaw(cx.raw, {
 			developerId: DEV,
@@ -485,77 +561,39 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 			projectGuid: PROJ_GUID,
 		});
 
-		const a = body();
-		const b = body({
-			runMeta: {
-				startedAt: 1_784_737_999,
-				source: "fixture",
-				windowFrom: "2026-07-02",
-				windowTo: "2026-07-24",
-				mode: "full_rematch",
-			},
-		});
-		cx.barrierBeforeBatch("INSERT INTO ingest_runs", 2);
-		const [ra, rb] = await Promise.all([
-			processIngestChunk(cx.connections[0] as D1Database, a, settings),
-			processIngestChunk(cx.connections[1] as D1Database, b, settings),
-		]);
+		try {
+			cx.barrierBeforeBatch("INSERT INTO ingest_runs", 2);
+			const [ra, rb] = await Promise.all([
+				processIngestChunk(
+					cx.connections[0] as D1Database,
+					body({ runMeta: WINNER_META }),
+					settings,
+				),
+				processIngestChunk(
+					cx.connections[1] as D1Database,
+					body({ runMeta: LOSER_META }),
+					settings,
+				),
+			]);
 
-		expect([ra.kind, rb.kind].filter((k) => k === "ok")).toHaveLength(1);
-		const loserConn = (
-			ra.kind === "ok" ? cx.connections[1] : cx.connections[0]
-		) as D1Database;
+			expect([ra.kind, rb.kind].filter((k) => k === "ok")).toHaveLength(1);
 
-		const stored = cx.raw
-			.query<{ mode: string; run_meta_json: string }, []>(
-				"SELECT mode, run_meta_json FROM ingest_runs",
-			)
-			.get();
-		const winnerMeta = JSON.parse(stored?.run_meta_json ?? "{}") as {
-			mode: string;
-		};
-		expect(stored?.mode).toBe(winnerMeta.mode);
+			const runs = cx.raw
+				.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM ingest_runs")
+				.get();
+			expect(runs?.n).toBe(1);
 
-		// Retrying with the loser's own runMeta stays rejected: the run is frozen
-		// to whatever chunk 0 established.
-		const loserBody = ra.kind === "ok" ? b : a;
-		const retryOwnMeta = await processIngestChunk(
-			loserConn,
-			{ ...loserBody, chunkIndex: 1 } as IngestBody,
-			settings,
-		);
-		expect(retryOwnMeta.kind).toBe("conflict");
-
-		// Retrying under the winner's frozen runMeta succeeds.
-		const retry = await processIngestChunk(
-			loserConn,
-			body({
-				chunkIndex: 1,
-				runMeta: winnerMeta as IngestBody["runMeta"],
-				activities: [
-					{
-						type: "pr.created",
-						occurredAt: 1_784_737_850,
-						provider: "ado",
-						org: ORG,
-						project: PROJECT,
-						repoId: REPO,
-						developerId: DEV,
-						matchedUniqueName: "integ@example.com",
-						sourceIds: { prRepoGuid: REPO_GUID, prId: 2002 },
-					},
-				],
-			} as Partial<IngestBody>),
-			settings,
-		);
-		expect(retry.kind).toBe("ok");
-
-		// Both chunks now belong to the single winning run.
-		const chunks = cx.raw
-			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM ingest_chunks")
-			.get();
-		expect(chunks?.n).toBe(2);
-
-		cx.close();
+			const stored = JSON.parse(
+				cx.raw
+					.query<{ run_meta_json: string }, []>(
+						"SELECT run_meta_json FROM ingest_runs",
+					)
+					.get()?.run_meta_json ?? "{}",
+			);
+			// Whole-object equality: no field may come from the other racer.
+			expect([WINNER_META, LOSER_META]).toContainEqual(stored);
+		} finally {
+			cx.close();
+		}
 	});
 });
