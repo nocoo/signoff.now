@@ -106,15 +106,24 @@ const wiCreated = (over: Record<string, unknown> = {}): ActivityInput =>
 		...over,
 	}) as ActivityInput;
 
+/**
+ * Nothing at all may be persisted by a rejected chunk — not just activities and
+ * scores, but run/chunk bookkeeping and unmatched identities too. A partial
+ * write here would strand a run in `chunked` forever.
+ */
 function nothingWritten(): void {
-	const a = sqlite.raw
-		.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM activities")
-		.get();
-	const s = sqlite.raw
-		.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM scores")
-		.get();
-	expect(a?.n).toBe(0);
-	expect(s?.n).toBe(0);
+	for (const table of [
+		"activities",
+		"scores",
+		"ingest_runs",
+		"ingest_chunks",
+		"unmatched_identities",
+	]) {
+		const row = sqlite.raw
+			.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${table}`)
+			.get();
+		expect(`${table}=${row?.n}`).toBe(`${table}=0`);
+	}
 }
 
 describe("05 §5.5 server-side rejection matrix", () => {
@@ -231,6 +240,46 @@ describe("05 §5.5 server-side rejection matrix", () => {
 		nothingWritten();
 	});
 
+	test("provider mismatch against the repo row → 422", async () => {
+		const res = await processIngestChunk(
+			sqlite.db,
+			withActivity(prMerged({ provider: "github" })),
+			settings,
+		);
+		expect(res.kind).toBe("unprocessable");
+		nothingWritten();
+	});
+
+	test("wi.* org mismatch → 422", async () => {
+		const res = await processIngestChunk(
+			sqlite.db,
+			withActivity(wiCreated({ org: "other-org" })),
+			settings,
+		);
+		expect(res.kind).toBe("unprocessable");
+		nothingWritten();
+	});
+
+	test("wi.* project mismatch → 422", async () => {
+		const res = await processIngestChunk(
+			sqlite.db,
+			withActivity(wiCreated({ project: "Other Project" })),
+			settings,
+		);
+		expect(res.kind).toBe("unprocessable");
+		nothingWritten();
+	});
+
+	test("wi.* provider mismatch → 422", async () => {
+		const res = await processIngestChunk(
+			sqlite.db,
+			withActivity(wiCreated({ provider: "github" })),
+			settings,
+		);
+		expect(res.kind).toBe("unprocessable");
+		nothingWritten();
+	});
+
 	test("wi.* projectGuid unknown for org/project → 422", async () => {
 		const res = await processIngestChunk(
 			sqlite.db,
@@ -311,13 +360,24 @@ describe("05 §5.5 server-side rejection matrix", () => {
 		);
 		expect(res.kind).toBe("ok");
 
-		// The activity moved: the original owner keeps no score for that day.
-		const owner = sqlite.raw
-			.query<{ developer_id: string }, []>(
-				"SELECT developer_id FROM activities",
+		// The activity moved...
+		const rows = sqlite.raw
+			.query<{ developer_id: string; n: number }, []>(
+				"SELECT developer_id, COUNT(*) AS n FROM activities GROUP BY developer_id",
 			)
-			.get();
-		expect(owner?.developer_id).toBe(other);
+			.all();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.developer_id).toBe(other);
+
+		// ...and the original owner must not keep a stale score for that day.
+		const scores = sqlite.raw
+			.query<{ developer_id: string; total: number }, []>(
+				"SELECT developer_id, total FROM scores ORDER BY developer_id",
+			)
+			.all();
+		expect(scores).toHaveLength(1);
+		expect(scores[0]?.developer_id).toBe(other);
+		expect(scores[0]?.total).toBe(10);
 	});
 
 	test("request version not equal to settings version → 409", async () => {

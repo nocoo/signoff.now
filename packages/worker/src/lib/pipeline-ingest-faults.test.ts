@@ -178,9 +178,10 @@ describe("write path defensive failures", () => {
 		}
 	});
 
-	test("duplicate run insert racing the same chunk 0 → 500 race report", async () => {
+	test("duplicate run insert rolls the whole Phase 1 batch back", async () => {
 		// Simulate the loser of a chunk-0 race: the row appears between Phase 0's
-		// read and the Phase 1 batch, so the INSERT hits the primary key.
+		// read and the Phase 1 batch, so the INSERT hits the primary key. The
+		// batch also carries the activity/chunk writes, none of which may survive.
 		sqlite.beforeBatch("INSERT INTO ingest_runs", () => {
 			sqlite.raw
 				.query(
@@ -196,6 +197,21 @@ describe("write path defensive failures", () => {
 		expect(res.kind).toBe("server_error");
 		if (res.kind === "server_error") {
 			expect(res.error).toBe("Concurrent run insert race");
+		}
+
+		// Only the injected row exists; the batch's own writes rolled back.
+		const runs = sqlite.raw
+			.query<{ run_meta_json: string; n: number }, []>(
+				"SELECT run_meta_json, COUNT(*) AS n FROM ingest_runs",
+			)
+			.get();
+		expect(runs?.n).toBe(1);
+		expect(runs?.run_meta_json).toBe("{}");
+		for (const table of ["activities", "scores", "ingest_chunks"]) {
+			const row = sqlite.raw
+				.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${table}`)
+				.get();
+			expect(`${table}=${row?.n}`).toBe(`${table}=0`);
 		}
 	});
 

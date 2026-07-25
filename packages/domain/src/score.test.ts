@@ -74,8 +74,10 @@ describe("aggregateScores boundary table", () => {
 			),
 			DEFAULT_WEIGHTS,
 		);
+		expect(rows).toHaveLength(1);
 		expect(rows[0]!.total).toBe(2);
 		expect(rows[0]!.activityCount).toBe(3);
+		expect(rows[0]!.breakdown).toEqual({ "pr.active": 2 });
 	});
 
 	test("B6: wi.updated ×4 fold", () => {
@@ -89,8 +91,10 @@ describe("aggregateScores boundary table", () => {
 			),
 			DEFAULT_WEIGHTS,
 		);
+		expect(rows).toHaveLength(1);
 		expect(rows[0]!.total).toBe(1);
 		expect(rows[0]!.activityCount).toBe(4);
+		expect(rows[0]!.breakdown).toEqual({ "wi.updated": 1 });
 	});
 
 	test("B8: pr.vote ×2 no fold", () => {
@@ -121,8 +125,10 @@ describe("aggregateScores boundary table", () => {
 			],
 			DEFAULT_WEIGHTS,
 		);
+		expect(rows).toHaveLength(1);
 		expect(rows[0]!.total).toBe(6);
 		expect(rows[0]!.activityCount).toBe(2);
+		expect(rows[0]!.breakdown).toEqual({ "pr.vote": 6 });
 	});
 
 	test("B9: merged + vote same PR", () => {
@@ -147,7 +153,10 @@ describe("aggregateScores boundary table", () => {
 			],
 			DEFAULT_WEIGHTS,
 		);
+		expect(rows).toHaveLength(1);
 		expect(rows[0]!.total).toBe(13);
+		expect(rows[0]!.activityCount).toBe(2);
+		expect(rows[0]!.breakdown).toEqual({ "pr.merged": 10, "pr.vote": 3 });
 	});
 
 	test("B11: empty", () => {
@@ -167,8 +176,14 @@ describe("aggregateScores boundary table", () => {
 		});
 		const r1 = aggregateScores([a, b], DEFAULT_WEIGHTS);
 		const r2 = aggregateScores([b, a], DEFAULT_WEIGHTS);
-		expect(r1[0]!.total).toBe(r2[0]!.total);
-		expect(r1[0]!.breakdown).toEqual(r2[0]!.breakdown);
+		// Pin to B2's expected values, not just to each other: two identically
+		// wrong results must not pass.
+		for (const rows of [r1, r2]) {
+			expect(rows).toHaveLength(1);
+			expect(rows[0]!.total).toBe(10);
+			expect(rows[0]!.activityCount).toBe(2);
+			expect(rows[0]!.breakdown).toEqual({ "pr.merged": 10 });
+		}
 	});
 
 	test("B14: zero weights omit breakdown keys", () => {
