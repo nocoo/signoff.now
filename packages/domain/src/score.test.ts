@@ -9,7 +9,8 @@ const D1 = "dev-1";
 const DAY = "2026-07-01";
 
 function base(
-	partial: Partial<Activity> & Pick<Activity, "type" | "sourceIds" | "repoId">,
+	partial: Partial<ActivityWithDayKey> &
+		Pick<Activity, "type" | "sourceIds" | "repoId">,
 ): ActivityWithDayKey {
 	return {
 		occurredAt: 1_720_000_000,
@@ -213,5 +214,121 @@ describe("aggregateScores boundary table", () => {
 		expect(rows[0]!.total).toBe(2);
 		expect(rows[0]!.activityCount).toBe(3);
 		expect(rows[0]!.breakdown).toEqual({ "pr.created": 2 });
+	});
+
+	test("B3: closed + merged same PR → only merged", () => {
+		const rows = aggregateScores(
+			[
+				base({
+					type: "pr.closed",
+					repoId: "r1",
+					sourceIds: { prRepoGuid: repo, prId: 1 },
+				}),
+				base({
+					type: "pr.merged",
+					repoId: "r1",
+					sourceIds: { prRepoGuid: repo, prId: 1 },
+				}),
+			],
+			DEFAULT_WEIGHTS,
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]!.total).toBe(10);
+		expect(rows[0]!.activityCount).toBe(2);
+		expect(rows[0]!.breakdown).toEqual({ "pr.merged": 10 });
+	});
+
+	test("B7: wi.created + wi.updated×2 same WI", () => {
+		const rows = aggregateScores(
+			[
+				base({
+					type: "wi.created",
+					repoId: null,
+					sourceIds: { projectGuid: proj, wiId: 7 },
+				}),
+				base({
+					type: "wi.updated",
+					repoId: null,
+					sourceIds: { projectGuid: proj, wiId: 7, revisionId: 1 },
+				}),
+				base({
+					type: "wi.updated",
+					repoId: null,
+					sourceIds: { projectGuid: proj, wiId: 7, revisionId: 2 },
+				}),
+			],
+			DEFAULT_WEIGHTS,
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]!.total).toBe(4);
+		expect(rows[0]!.activityCount).toBe(3);
+		expect(rows[0]!.breakdown).toEqual({ "wi.created": 3, "wi.updated": 1 });
+	});
+
+	test("B10: two distinct PRs each merged → no cross-PR fold", () => {
+		const rows = aggregateScores(
+			[1, 2].map((prId) =>
+				base({
+					type: "pr.merged",
+					repoId: "r1",
+					sourceIds: { prRepoGuid: repo, prId },
+				}),
+			),
+			DEFAULT_WEIGHTS,
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]!.total).toBe(20);
+		expect(rows[0]!.activityCount).toBe(2);
+		expect(rows[0]!.breakdown).toEqual({ "pr.merged": 20 });
+	});
+
+	test("B12: two developers → one ScoreRow each", () => {
+		const rows = aggregateScores(
+			[
+				base({
+					type: "pr.merged",
+					repoId: "r1",
+					sourceIds: { prRepoGuid: repo, prId: 1 },
+				}),
+				base({
+					type: "wi.closed",
+					repoId: null,
+					developerId: "dev-2",
+					sourceIds: { projectGuid: proj, wiId: 9 },
+				}),
+			],
+			DEFAULT_WEIGHTS,
+		);
+		expect(rows).toHaveLength(2);
+		const byDev = new Map(rows.map((r) => [r.developerId, r]));
+		expect(byDev.get(D1)!.total).toBe(10);
+		expect(byDev.get(D1)!.activityCount).toBe(1);
+		expect(byDev.get("dev-2")!.total).toBe(5);
+		expect(byDev.get("dev-2")!.activityCount).toBe(1);
+	});
+
+	test("B15: same PR across two dayKeys → two ScoreRows, no cross-day fold", () => {
+		const rows = aggregateScores(
+			[
+				base({
+					type: "pr.created",
+					repoId: "r1",
+					sourceIds: { prRepoGuid: repo, prId: 1 },
+				}),
+				base({
+					type: "pr.merged",
+					repoId: "r1",
+					dayKey: "2026-07-02",
+					sourceIds: { prRepoGuid: repo, prId: 1 },
+				}),
+			],
+			DEFAULT_WEIGHTS,
+		);
+		expect(rows).toHaveLength(2);
+		const byDay = new Map(rows.map((r) => [r.dayKey, r]));
+		expect(byDay.get(DAY)!.total).toBe(2);
+		expect(byDay.get(DAY)!.breakdown).toEqual({ "pr.created": 2 });
+		expect(byDay.get("2026-07-02")!.total).toBe(10);
+		expect(byDay.get("2026-07-02")!.breakdown).toEqual({ "pr.merged": 10 });
 	});
 });
