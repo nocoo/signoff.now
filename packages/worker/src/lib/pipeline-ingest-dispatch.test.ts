@@ -6,7 +6,12 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { IngestBody } from "@signoff/domain";
-import { hasUpsert, isInsertInto, setExpression } from "../test/sql-shape.ts";
+import {
+	hasUpsert,
+	ifConditionContaining,
+	isInsertInto,
+	setExpression,
+} from "../test/sql-shape.ts";
 import {
 	createConcurrentSqliteD1,
 	createSqliteD1,
@@ -290,15 +295,14 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 			new URL("./pipeline-ingest-write.ts", import.meta.url).pathname,
 		).text();
 
-		const line = src
-			.split("\n")
-			.find(
-				(l) =>
-					l.includes("digest !== digest") || /digest\s*!==\s*digest/.test(l),
-			);
-		expect(line).toBeDefined();
-		// Any index term here would bound the guard to a prefix of the chunks.
-		expect(line).not.toMatch(/chunkIndex/);
+		// Read the entire `if (...)` condition, not one line of it: the same
+		// condition spread over several lines would otherwise hide an added
+		// index term on a line a per-line grep never sees.
+		const cond = ifConditionContaining(src, "chunk.digest !== digest");
+		expect(cond).toBeDefined();
+		expect(cond).not.toBeNull();
+		// Any index term here bounds the guard to a prefix of the chunks.
+		expect(cond).not.toMatch(/chunkIndex/);
 	});
 
 	test("digest drift on a later chunk index → 409", async () => {
@@ -463,12 +467,17 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		);
 		expect(res.kind).toBe("ok");
 
-		const upsert = stmts.find((sql) =>
+		// Check EVERY statement that writes the table, not the first match: a
+		// compliant decoy prepared ahead of the real one would satisfy a
+		// `find()` while the real statement carried a cap.
+		const writes = stmts.filter((sql) =>
 			isInsertInto(sql, "unmatched_identities"),
 		);
-		expect(upsert).toBeDefined();
-		// MIN(...), a modulo, or any other transform fails this outright.
-		expect(setExpression(upsert ?? "", "seen_count")).toBe("seen_count + 1");
+		expect(writes.length).toBeGreaterThan(0);
+		for (const sql of writes) {
+			// MIN(...), a modulo, or any other transform fails this outright.
+			expect(setExpression(sql, "seen_count")).toBe("seen_count + 1");
+		}
 	});
 
 	test("each new chunk increments seen_count by exactly one", async () => {

@@ -173,3 +173,47 @@ export function setExpression(sql: string, column: string): string | null {
 	const expr = code.slice(start, i).trim();
 	return expr.length > 0 ? expr : null;
 }
+
+/**
+ * Extract the full parenthesised condition of the `if` whose head contains
+ * `needle`, brace-matched across newlines.
+ *
+ * Grepping a single line is not enough: reformatting the same condition across
+ * several lines moves an added term onto a line the grep never inspects, and
+ * the check silently passes. Returning the whole condition removes that
+ * degree of freedom. Returns null when no such `if` exists, so a caller that
+ * asserts on the result fails closed if the code is restructured.
+ */
+export function ifConditionContaining(
+	source: string,
+	needle: string,
+): string | null {
+	const at = source.indexOf(needle);
+	if (at === -1) {
+		return null;
+	}
+	// Walk back to the nearest `if (` that opens before the needle.
+	const head = source.lastIndexOf("if (", at);
+	if (head === -1) {
+		return null;
+	}
+
+	let i = head + "if ".length;
+	let depth = 0;
+	const start = i;
+	while (i < source.length) {
+		const ch = source[i];
+		if (ch === "(") {
+			depth++;
+		} else if (ch === ")") {
+			depth--;
+			if (depth === 0) {
+				const cond = source.slice(start + 1, i);
+				// The needle must be inside this condition, not after it.
+				return cond.includes(needle) ? cond.replace(/\s+/g, " ").trim() : null;
+			}
+		}
+		i++;
+	}
+	return null;
+}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	hasUpsert,
+	ifConditionContaining,
 	isInsertInto,
 	isWriteInto,
 	setExpression,
@@ -182,5 +183,32 @@ describe("setExpression", () => {
 
 	test("returns null when the column is not assigned", () => {
 		expect(setExpression("UPDATE t SET a = 1", "seen_count")).toBeNull();
+	});
+});
+
+describe("ifConditionContaining", () => {
+	test("returns the whole condition regardless of line breaks", () => {
+		const single = "if (a && b.digest !== digest) {\n  return;\n}";
+		expect(ifConditionContaining(single, "b.digest !== digest")).toBe(
+			"a && b.digest !== digest",
+		);
+
+		const multi =
+			"if (\n  a &&\n  idx < 7 &&\n  b.digest !== digest\n) {\n  return;\n}";
+		expect(ifConditionContaining(multi, "b.digest !== digest")).toBe(
+			"a && idx < 7 && b.digest !== digest",
+		);
+	});
+
+	test("handles nested parentheses in the condition", () => {
+		const src = "if (a && (b || c(1, 2)) && d !== e) {}";
+		expect(ifConditionContaining(src, "d !== e")).toBe(
+			"a && (b || c(1, 2)) && d !== e",
+		);
+	});
+
+	test("returns null when the needle is outside any if condition", () => {
+		expect(ifConditionContaining("const x = a !== b;", "a !== b")).toBeNull();
+		expect(ifConditionContaining("if (p) { q !== r; }", "q !== r")).toBeNull();
 	});
 });
