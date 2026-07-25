@@ -372,6 +372,47 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(countRows("unmatched_identities")).toBe(1);
 	});
 
+	test("a distinct chunk seeing the same identity increments seen_count", async () => {
+		// The positive half of the contract: `seen_count + 1` must actually fire
+		// for genuinely new sightings, or the unmatched report is useless.
+		const ghost = { uniqueName: "ghost@example.com", sampleOrg: ORG };
+
+		await processIngestChunk(
+			sqlite.db,
+			body({ unmatchedIdentities: [ghost] } as Partial<IngestBody>),
+			settings,
+		);
+		await processIngestChunk(
+			sqlite.db,
+			body({
+				chunkIndex: 1,
+				unmatchedIdentities: [ghost],
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt: 1_784_737_900,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "integ@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 1002 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+
+		const row = sqlite.raw
+			.query<{ seen_count: number }, []>(
+				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
+			)
+			.get();
+		expect(row?.seen_count).toBe(2);
+		expect(countRows("unmatched_identities")).toBe(1);
+	});
+
 	test("replaying a completed chunk does not double-count unmatched seen_count", async () => {
 		const withUnmatched = body({
 			unmatchedIdentities: [
@@ -443,6 +484,13 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 	 * Injecting the row (rather than relying on a real lock) is what forces the
 	 * loser to actually execute its INSERT — a lock-blocked writer never reaches
 	 * the statement, so an `ON CONFLICT DO UPDATE` regression would slip past.
+	 *
+	 * Two windows exist and both are covered below, because they are guarded by
+	 * different code:
+	 *   - run row only: the winner's Phase 1 batch has committed the run but the
+	 *     loser already read Phase 0 state. The run INSERT is what must reject.
+	 *   - run + chunk 0: the winner is fully committed, so the loser's Phase 0
+	 *     digest check rejects it before Phase 1 ever runs.
 	 */
 	function raceLoser(winnerMeta: IngestBody["runMeta"]) {
 		sqlite.beforeBatch("INSERT INTO ingest_runs", () => {
@@ -519,6 +567,34 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		expect(countRows("ingest_chunks")).toBe(0);
 	});
 
+	test("a fully committed winner rejects the loser at the Phase 0 digest guard", async () => {
+		// The winner really lands run + chunk 0 atomically. The loser arrives
+		// afterwards with a different payload for the same index.
+		const winner = await processIngestChunk(
+			sqlite.db,
+			body({ runMeta: WINNER_META }),
+			settings,
+		);
+		expect(winner.kind).toBe("ok");
+		const before = snapshot();
+
+		const res = await processIngestChunk(
+			sqlite.db,
+			body({ runMeta: LOSER_META }),
+			settings,
+		);
+
+		expect(res.kind).toBe("conflict");
+		// Nothing of the winner's committed state may shift.
+		expect(snapshot()).toBe(before);
+		const run = sqlite.raw
+			.query<{ run_meta_json: string }, []>(
+				"SELECT run_meta_json FROM ingest_runs",
+			)
+			.get();
+		expect(JSON.parse(run?.run_meta_json ?? "{}")).toEqual(WINNER_META);
+	});
+
 	test("the loser retrying the same chunk under the winner's runMeta succeeds", async () => {
 		raceLoser(WINNER_META);
 		const rejected = await processIngestChunk(
@@ -575,6 +651,10 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 					settings,
 				),
 			]);
+
+			// Self-check: if the barrier ever stops holding both writers, this
+			// test silently degrades into two sequential calls.
+			expect(cx.barrierArrivals()).toBe(2);
 
 			expect([ra.kind, rb.kind].filter((k) => k === "ok")).toHaveLength(1);
 

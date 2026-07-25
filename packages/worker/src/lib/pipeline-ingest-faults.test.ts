@@ -271,6 +271,42 @@ describe("write path defensive failures", () => {
 		expect(after?.n).toBe(before?.n as number);
 	});
 
+	test("chunk-complete CAS fails when the chunk left `prepared` mid-flight", async () => {
+		// Phase 3 may only complete a chunk it still owns. Flip the row out from
+		// under it just before the score batch: the CAS must report 0 changes.
+		sqlite.beforeBatch("SET status = 'completed'", () => {
+			sqlite.raw.query("UPDATE ingest_chunks SET status = 'completed'").run();
+		});
+
+		const res = await processIngestChunk(sqlite.db, body(), settings);
+
+		expect(res.kind).toBe("conflict");
+		if (res.kind === "conflict") {
+			expect(res.error).toContain("Chunk complete CAS");
+		}
+	});
+
+	test("chunk-complete CAS fails when the settings version moves before Phase 3", async () => {
+		// Same guard, other predicate: a version bump between Phase 1 and Phase 3
+		// must stop the chunk being marked completed under a stale config.
+		sqlite.beforeBatch("SET status = 'completed'", () => {
+			sqlite.raw
+				.query(
+					"UPDATE settings SET value = '2' WHERE key = 'pipeline_config_version'",
+				)
+				.run();
+		});
+
+		const res = await processIngestChunk(sqlite.db, body(), settings);
+
+		expect(res.kind).toBe("conflict");
+		// The chunk stays prepared so the CLI can retry once versions agree.
+		const chunk = sqlite.raw
+			.query<{ status: string }, []>("SELECT status FROM ingest_chunks")
+			.get();
+		expect(chunk?.status).toBe("prepared");
+	});
+
 	test("pr.* activity with a null repoId is rejected before any write", async () => {
 		// zod normally blocks this; the write path keeps its own guard because the
 		// route is not the only caller. Cast through unknown: the shape is

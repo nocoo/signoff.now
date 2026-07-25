@@ -199,6 +199,12 @@ export type ConcurrentSqliteD1 = {
 	 * interleaving 06 §5.3.2 is actually about.
 	 */
 	barrierBeforeBatch: (match: string, count: number) => void;
+	/**
+	 * How many connections the most recent barrier actually held. Tests assert
+	 * this so a barrier that silently stopped working cannot leave the race
+	 * looking green.
+	 */
+	barrierArrivals: () => number;
 };
 
 /**
@@ -221,6 +227,7 @@ export function createConcurrentSqliteD1(count = 2): ConcurrentSqliteD1 {
 	}
 
 	const handles: Database[] = [];
+	let arrivals = 0;
 	let barrier: {
 		match: string;
 		needed: number;
@@ -246,6 +253,7 @@ export function createConcurrentSqliteD1(count = 2): ConcurrentSqliteD1 {
 				if (barrier && joined.includes(barrier.match)) {
 					const current = barrier;
 					current.arrived++;
+					arrivals = current.arrived;
 					if (current.arrived >= current.needed) {
 						// Disarm before releasing: the barrier is one-shot, and later
 						// batches (including retries) must not block on it.
@@ -291,8 +299,10 @@ export function createConcurrentSqliteD1(count = 2): ConcurrentSqliteD1 {
 			const gate = new Promise<void>((resolve) => {
 				release = resolve;
 			});
+			arrivals = 0;
 			barrier = { match, needed, arrived: 0, release, gate };
 		},
+		barrierArrivals: () => arrivals,
 	};
 }
 
