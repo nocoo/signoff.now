@@ -37,6 +37,21 @@ export const CHART_TOKENS = [
 	"chart-8",
 ] as const;
 
+export const HEATMAP_HUES = ["green", "red", "blue", "orange"] as const;
+
+export type HeatmapHue = (typeof HEATMAP_HUES)[number];
+
+/**
+ * Level 0 has no token (empty day) and falls back to --muted; levels 1..4 map
+ * onto the `--heatmap-{hue}-{1..4}` scale defined in index.css.
+ */
+export function heatmapColor(level: number, hue: HeatmapHue = "green"): string {
+	if (!Number.isInteger(level) || level < 1 || level > 4) {
+		return v("muted");
+	}
+	return v(`heatmap-${hue}-${level}`);
+}
+
 export const chartAxis = v("chart-axis");
 export const chartPositive = chart.green;
 export const chartNegative = v("destructive");

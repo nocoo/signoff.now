@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/PageHeader";
+import { heatmapColor } from "@/lib/palette";
 import { useActivityHeatmapViewModel } from "@/viewmodels/useActivityHeatmapViewModel";
 
 export function ActivityPage() {
@@ -114,9 +115,7 @@ export function ActivityPage() {
 									<td className="px-3 py-2">
 										<span
 											className="inline-block h-4 w-4 rounded-sm"
-											style={{
-												background: `var(--heatmap-${r.level}, hsl(var(--muted)))`,
-											}}
+											style={{ background: heatmapColor(r.level) }}
 											title={`level ${r.level}`}
 										/>
 									</td>
