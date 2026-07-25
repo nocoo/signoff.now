@@ -277,6 +277,52 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
+	test("digest drift on a later chunk index → 409", async () => {
+		// The digest guard must apply to every index, not only chunk 0.
+		await processIngestChunk(sqlite.db, body(), settings);
+		const second = body({
+			chunkIndex: 1,
+			activities: [
+				{
+					type: "pr.created",
+					occurredAt: 1_784_737_900,
+					provider: "ado",
+					org: ORG,
+					project: PROJECT,
+					repoId: REPO,
+					developerId: DEV,
+					matchedUniqueName: "integ@example.com",
+					sourceIds: { prRepoGuid: REPO_GUID, prId: 1002 },
+				},
+			],
+		} as Partial<IngestBody>);
+		expect((await processIngestChunk(sqlite.db, second, settings)).kind).toBe(
+			"ok",
+		);
+		const before = snapshot();
+
+		const drifted = body({
+			chunkIndex: 1,
+			activities: [
+				{
+					type: "pr.created",
+					occurredAt: 1_784_999_999,
+					provider: "ado",
+					org: ORG,
+					project: PROJECT,
+					repoId: REPO,
+					developerId: DEV,
+					matchedUniqueName: "integ@example.com",
+					sourceIds: { prRepoGuid: REPO_GUID, prId: 1002 },
+				},
+			],
+		} as Partial<IngestBody>);
+		const res = await processIngestChunk(sqlite.db, drifted, settings);
+
+		expect(res.kind).toBe("conflict");
+		expect(snapshot()).toBe(before);
+	});
+
 	test("chunk index gap → 400", async () => {
 		const first = await processIngestChunk(sqlite.db, body(), settings);
 		expect(first.kind).toBe("ok");
@@ -404,12 +450,35 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 			settings,
 		);
 
+		// A third distinct chunk: `excluded.seen_count + 1` would cap at 2 here.
+		await processIngestChunk(
+			sqlite.db,
+			body({
+				chunkIndex: 2,
+				unmatchedIdentities: [ghost],
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt: 1_784_738_000,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "integ@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 1003 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+
 		const row = sqlite.raw
 			.query<{ seen_count: number }, []>(
 				"SELECT seen_count FROM unmatched_identities WHERE unique_name = 'ghost@example.com'",
 			)
 			.get();
-		expect(row?.seen_count).toBe(2);
+		expect(row?.seen_count).toBe(3);
 		expect(countRows("unmatched_identities")).toBe(1);
 	});
 
@@ -478,37 +547,6 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 });
 
 describe("06 §5.3.2 concurrent chunk 0", () => {
-	/**
-	 * Model the loser of a chunk-0 race deterministically: it finishes Phase 0
-	 * seeing no run, then the winner's row lands before its own Phase 1 batch.
-	 * Injecting the row (rather than relying on a real lock) is what forces the
-	 * loser to actually execute its INSERT — a lock-blocked writer never reaches
-	 * the statement, so an `ON CONFLICT DO UPDATE` regression would slip past.
-	 *
-	 * Two windows exist and both are covered below, because they are guarded by
-	 * different code:
-	 *   - run row only: the winner's Phase 1 batch has committed the run but the
-	 *     loser already read Phase 0 state. The run INSERT is what must reject.
-	 *   - run + chunk 0: the winner is fully committed, so the loser's Phase 0
-	 *     digest check rejects it before Phase 1 ever runs.
-	 */
-	function raceLoser(winnerMeta: IngestBody["runMeta"]) {
-		sqlite.beforeBatch("INSERT INTO ingest_runs", () => {
-			sqlite.raw
-				.query(
-					`INSERT INTO ingest_runs
-             (id, started_at, finished_at, status, config_version, mode, run_meta_json, stats_json)
-           VALUES (?, ?, NULL, 'chunked', 1, ?, ?, NULL)`,
-				)
-				.run(
-					RUN,
-					winnerMeta.startedAt,
-					winnerMeta.mode,
-					JSON.stringify(winnerMeta),
-				);
-		});
-	}
-
 	const WINNER_META: IngestBody["runMeta"] = {
 		startedAt: 1_784_737_800,
 		source: "fixture",
@@ -525,51 +563,58 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		mode: "full_rematch",
 	};
 
-	test("the loser must not overwrite the winner's run row", async () => {
-		raceLoser(WINNER_META);
+	/**
+	 * 06 forbids `ON CONFLICT DO UPDATE` on `ingest_runs`: a losing writer must
+	 * never rewrite the winner's mode / runMeta / config_version.
+	 *
+	 * This is asserted structurally rather than behaviourally on purpose. The
+	 * run INSERT and the chunk-0 INSERT ride the same Phase 1 batch, so a stale
+	 * loser always finds BOTH rows committed — the duplicate chunk key would
+	 * roll its batch back even if the run statement had been weakened to an
+	 * upsert. That makes the ban unobservable at runtime, and an unobservable
+	 * rule is exactly the kind that rots. Reading the SQL is the honest check.
+	 */
+	test("the ingest_runs INSERT never upserts", async () => {
+		// Run a genuine ingest against real SQLite while recording every SQL
+		// string the write path prepares.
+		const seen: string[] = [];
+		const recording = new Proxy(sqlite.db, {
+			get(target, prop, receiver) {
+				if (prop === "prepare") {
+					return (sql: string) => {
+						seen.push(sql);
+						return target.prepare(sql);
+					};
+				}
+				return Reflect.get(target, prop, receiver);
+			},
+		});
 
 		const res = await processIngestChunk(
-			sqlite.db,
-			body({ runMeta: LOSER_META }),
+			recording as D1Database,
+			body({ runMeta: WINNER_META }),
 			settings,
 		);
+		expect(res.kind).toBe("ok");
 
-		// The loser is rejected outright — no partial adoption of the run.
-		expect(res.kind).not.toBe("ok");
+		const runInsert = seen.find((sql) =>
+			/INSERT\s+INTO\s+ingest_runs/i.test(sql),
+		);
+		expect(runInsert).toBeDefined();
+		expect(runInsert).not.toMatch(/ON\s+CONFLICT/i);
+		expect(runInsert).not.toMatch(/INSERT\s+OR\s+(REPLACE|IGNORE)/i);
 
-		expect(countRows("ingest_runs")).toBe(1);
-		const run = sqlite.raw
-			.query<
-				{
-					mode: string;
-					run_meta_json: string;
-					started_at: number;
-					config_version: number;
-					status: string;
-				},
-				[]
-			>(
-				"SELECT mode, run_meta_json, started_at, config_version, status FROM ingest_runs",
-			)
-			.get();
-
-		// Every field must still be the winner's, byte for byte. An
-		// `ON CONFLICT(id) DO UPDATE` would rewrite mode/run_meta_json here.
-		expect(run?.mode).toBe(WINNER_META.mode);
-		expect(run?.started_at).toBe(WINNER_META.startedAt);
-		expect(run?.status).toBe("chunked");
-		expect(run?.config_version).toBe(1);
-		expect(JSON.parse(run?.run_meta_json ?? "{}")).toEqual(WINNER_META);
-
-		// And nothing of the loser's payload may have been committed.
-		expect(countRows("activities")).toBe(0);
-		expect(countRows("scores")).toBe(0);
-		expect(countRows("ingest_chunks")).toBe(0);
+		// The same Phase 1 batch must carry the chunk insert — that co-location
+		// is what makes a stale loser hit the chunk primary key and roll back.
+		expect(seen.some((sql) => /INSERT\s+INTO\s+ingest_chunks/i.test(sql))).toBe(
+			true,
+		);
 	});
 
-	test("a fully committed winner rejects the loser at the Phase 0 digest guard", async () => {
-		// The winner really lands run + chunk 0 atomically. The loser arrives
-		// afterwards with a different payload for the same index.
+	test("a committed winner leaves a stale loser no way in", async () => {
+		// The realistic race outcome: the winner's Phase 1 batch committed run
+		// AND chunk 0 atomically, so whatever the loser does next, it must not
+		// disturb any of it.
 		const winner = await processIngestChunk(
 			sqlite.db,
 			body({ runMeta: WINNER_META }),
@@ -585,43 +630,34 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		);
 
 		expect(res.kind).toBe("conflict");
-		// Nothing of the winner's committed state may shift.
 		expect(snapshot()).toBe(before);
 		const run = sqlite.raw
-			.query<{ run_meta_json: string }, []>(
-				"SELECT run_meta_json FROM ingest_runs",
+			.query<{ run_meta_json: string; mode: string }, []>(
+				"SELECT run_meta_json, mode FROM ingest_runs",
 			)
 			.get();
 		expect(JSON.parse(run?.run_meta_json ?? "{}")).toEqual(WINNER_META);
+		expect(run?.mode).toBe(WINNER_META.mode);
 	});
 
-	test("the loser retrying the same chunk under the winner's runMeta succeeds", async () => {
-		raceLoser(WINNER_META);
-		const rejected = await processIngestChunk(
+	test("a loser matching the winner's payload is absorbed idempotently", async () => {
+		// Same digest, same runMeta: the second writer is a duplicate delivery,
+		// not a conflict, and must not double-write.
+		await processIngestChunk(
 			sqlite.db,
-			body({ runMeta: LOSER_META }),
+			body({ runMeta: WINNER_META }),
 			settings,
 		);
-		expect(rejected.kind).not.toBe("ok");
+		const before = snapshot();
 
-		// Same chunkIndex 0 — a genuine retry of the failed request, now aligned
-		// with the frozen runMeta the winner established.
-		const retry = await processIngestChunk(
+		const res = await processIngestChunk(
 			sqlite.db,
 			body({ runMeta: WINNER_META }),
 			settings,
 		);
 
-		expect(retry.kind).toBe("ok");
-		expect(countRows("ingest_runs")).toBe(1);
-		expect(countRows("ingest_chunks")).toBe(1);
-		expect(countRows("activities")).toBe(1);
-		const run = sqlite.raw
-			.query<{ run_meta_json: string }, []>(
-				"SELECT run_meta_json FROM ingest_runs",
-			)
-			.get();
-		expect(JSON.parse(run?.run_meta_json ?? "{}")).toEqual(WINNER_META);
+		expect(res.kind).toBe("ok");
+		expect(snapshot()).toBe(before);
 	});
 
 	test("two writers held past Phase 0 on independent connections", async () => {
@@ -655,13 +691,16 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 			// Self-check: if the barrier ever stops holding both writers, this
 			// test silently degrades into two sequential calls.
 			expect(cx.barrierArrivals()).toBe(2);
-
 			expect([ra.kind, rb.kind].filter((k) => k === "ok")).toHaveLength(1);
 
 			const runs = cx.raw
 				.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM ingest_runs")
 				.get();
 			expect(runs?.n).toBe(1);
+			const chunks = cx.raw
+				.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM ingest_chunks")
+				.get();
+			expect(chunks?.n).toBe(1);
 
 			const stored = JSON.parse(
 				cx.raw

@@ -245,6 +245,134 @@ describe("write path defensive failures", () => {
 		}
 	});
 
+	test("version drift blocks the score INSERT, not just the chunk CAS", async () => {
+		// Fresh dev-day: Phase 3 would INSERT a brand new scores row. Under drift
+		// nothing may land, or the score exists under a config nobody asked for.
+		sqlite.beforeBatch("INSERT INTO scores", () => {
+			sqlite.raw
+				.query(
+					"UPDATE settings SET value = '2' WHERE key = 'pipeline_config_version'",
+				)
+				.run();
+		});
+
+		const res = await processIngestChunk(sqlite.db, body(), settings);
+
+		expect(res.kind).toBe("conflict");
+		const scores = sqlite.raw
+			.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM scores")
+			.get();
+		expect(scores?.n).toBe(0);
+	});
+
+	test("version drift blocks the score conflict-UPDATE path", async () => {
+		// Land a score first, then drive a second chunk for the same dev-day so
+		// Phase 3 takes the ON CONFLICT DO UPDATE branch under drift.
+		await processIngestChunk(sqlite.db, body(), settings);
+		const before = sqlite.raw
+			.query<{ total: number; config_version: number }, []>(
+				"SELECT total, config_version FROM scores",
+			)
+			.get();
+		expect(before?.total).toBe(10);
+
+		sqlite.beforeBatch("INSERT INTO scores", () => {
+			sqlite.raw
+				.query(
+					"UPDATE settings SET value = '2' WHERE key = 'pipeline_config_version'",
+				)
+				.run();
+		});
+
+		const res = await processIngestChunk(
+			sqlite.db,
+			body({
+				chunkIndex: 1,
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt: 1_784_737_900,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "fault@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 2 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+
+		expect(res.kind).toBe("conflict");
+		const after = sqlite.raw
+			.query<{ total: number; config_version: number }, []>(
+				"SELECT total, config_version FROM scores",
+			)
+			.get();
+		// The pre-drift score must be untouched, not overwritten with a total
+		// computed under the old config.
+		expect(after?.total).toBe(before?.total as number);
+		expect(after?.config_version).toBe(before?.config_version as number);
+	});
+
+	test("version drift blocks the residual score DELETE", async () => {
+		// Reassigning the activity to another developer under full_rematch empties
+		// the original dev-day, which drives the residual DELETE. Under drift the
+		// original score must survive rather than vanishing under a stale config.
+		await processIngestChunk(sqlite.db, body(), settings);
+		const other = "01K0FAULTOTHER00000000000000";
+		sqlite.raw
+			.query("INSERT INTO developers (id, name, alias) VALUES (?,?,?)")
+			.run(other, "Other", "other");
+
+		sqlite.beforeBatch("DELETE FROM scores", () => {
+			sqlite.raw
+				.query(
+					"UPDATE settings SET value = '2' WHERE key = 'pipeline_config_version'",
+				)
+				.run();
+		});
+
+		const res = await processIngestChunk(
+			sqlite.db,
+			body({
+				runId: "01JAY7B4HXTMRP0VQZ0FKZH5F2",
+				runMeta: {
+					startedAt: 1_784_737_800,
+					source: "fixture",
+					windowFrom: "2026-07-01",
+					windowTo: "2026-07-23",
+					mode: "full_rematch",
+				},
+				activities: [
+					{
+						type: "pr.merged",
+						occurredAt: 1_784_737_800,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: other,
+						matchedUniqueName: "other@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 1 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+
+		expect(res.kind).toBe("conflict");
+		const row = sqlite.raw
+			.query<{ developer_id: string; total: number }, []>(
+				"SELECT developer_id, total FROM scores",
+			)
+			.get();
+		expect(row?.developer_id).toBe(DEV);
+		expect(row?.total).toBe(10);
+	});
+
 	test("a batch that fails midway leaves none of its earlier statements behind", async () => {
 		// Guards the harness itself: if batch() stopped being transactional, the
 		// rollback assertions elsewhere in this file would silently become
