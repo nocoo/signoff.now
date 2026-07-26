@@ -242,3 +242,33 @@ describe("setAssignments", () => {
 		expect(setExpression(sql, "a")).toBe("x");
 	});
 });
+
+describe("helpers fail closed rather than reporting a partial answer", () => {
+	test("a transitive alias chain still exposes the hidden term", () => {
+		const src =
+			"const digestIndex = body.chunkIndex;\n" +
+			"const mustCheck = digestIndex <= 1;\n" +
+			'if (chunk && mustCheck && chunk.digest !== d) {\n  return "boom";\n}';
+		expect(guardConditionFor(src, '"boom"')).toMatch(/chunkIndex/);
+	});
+
+	test("alias order does not matter", () => {
+		const src =
+			"const mustCheck = digestIndex <= 1;\n" +
+			"const digestIndex = body.chunkIndex;\n" +
+			'if (chunk && mustCheck) {\n  return "boom";\n}';
+		expect(guardConditionFor(src, '"boom"')).toMatch(/chunkIndex/);
+	});
+
+	test("a quoted column in the SET list yields no assignments", () => {
+		// SQLite accepts it and would keep the LAST value; reporting the first
+		// unquoted assignment would describe behaviour that never happens.
+		const sql =
+			'UPDATE t SET seen_count = seen_count + 1, "seen_count" = MIN(seen_count + 1, 100)';
+		expect(setExpression(sql, "seen_count")).toBeNull();
+	});
+
+	test("a tuple assignment yields no assignments", () => {
+		expect(setAssignments("UPDATE t SET (a, b) = (1, 2)")).toEqual([]);
+	});
+});

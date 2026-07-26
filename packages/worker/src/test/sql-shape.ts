@@ -173,6 +173,12 @@ export function setAssignments(
 		const rest = code.slice(i);
 		const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/.exec(rest);
 		if (!m) {
+			// Unsupported SET syntax (quoted column, tuple assignment, …). A
+			// partial list would let a later assignment hide, so report none:
+			// callers assert an exact expression and so fail closed on null.
+			if (/^\s*["'`[(]/.test(rest)) {
+				return [];
+			}
 			break;
 		}
 		i += m[0].length;
@@ -252,14 +258,26 @@ export function guardConditionFor(
 	}
 
 	// Inline single-assignment aliases so `const i = body.chunkIndex; ... i < 2`
-	// is not mistaken for an index-free condition.
-	let expanded = best;
+	// is not mistaken for an index-free condition. Iterate to a fixed point: a
+	// chain (`const a = body.chunkIndex; const b = a <= 1;`) needs more than one
+	// pass, and a single pass is also sensitive to declaration order.
+	const aliases = new Map<string, string>();
 	for (const m of source.matchAll(
 		/\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\n]+);/g,
 	)) {
-		const name = m[1] as string;
-		const value = (m[2] as string).trim();
-		expanded = expanded.replace(new RegExp(`\\b${name}\\b`, "g"), `(${value})`);
+		aliases.set(m[1] as string, (m[2] as string).trim());
+	}
+
+	let expanded = best;
+	for (let pass = 0; pass < 8; pass++) {
+		let next = expanded;
+		for (const [name, value] of aliases) {
+			next = next.replace(new RegExp(`\\b${name}\\b`, "g"), `(${value})`);
+		}
+		if (next === expanded) {
+			break;
+		}
+		expanded = next;
 	}
 	return expanded.replace(/\s+/g, " ").trim();
 }
