@@ -1,10 +1,11 @@
 # 05 — 本机采集管线铺垫与 Ingest 契约
 
-> 状态：**已实施**（S1–S5 完成；ingest 仍 501，真写库属 06）
+> 状态：**已实施**（S1–S5 完成）
+> **时态提醒**：本文以「05 收尾时」的视角写成。文中所有「ingest 返 501」的表述描述的是那一刻的状态；06 已实装真实写库并退役 501。判断当前行为以代码与 [06](./06-Activity重建与Score算法.md) 为准。
 > 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)、[03-Web模块模板](./03-Web模块模板.md)、[04-Settings设计](./04-Settings设计.md)
 > 范围：把仓库从「Web/Settings 已完成、`/api/pipeline/ingest` 仍 501」推进到「06 可以直接用本机 CLI 实现真实采集与写入」的**全部前置条件**与**冻结契约**
 > **不在本文（属 06 / 07）**：Activity/Score 真实写入、计分算法定稿、fixture 首次落库、真实 ADO REST 调用、raw JSON 逐字段 schema、Web 数据读回的真实实现
-> **05 完成后**：`/api/pipeline/ingest` **仍返回 501**；`packages/domain` 只有 DTO/常量;CLI 能 doctor/settings-pull/dry-run，但**不写 D1**
+> **05 完成时**：`/api/pipeline/ingest` 返回 501；`packages/domain` 只有 DTO/常量;CLI 能 doctor/settings-pull/dry-run，但**不写 D1**。（**已被 06 取代**：ingest 现为真实多阶段写库。）
 
 ## 边界一句话
 
@@ -25,7 +26,7 @@
 | Worker 中间件（entry / Access / Pipeline auth） | ✅ |
 | Web CRUD 页 + Settings CAS PUT | ✅ |
 | `/api/pipeline/bootstrap` | ✅（返 settings + devs + repos） |
-| `/api/pipeline/ingest` | ❌ **返 501**，从未写过 Activity/Score |
+| `/api/pipeline/ingest` | ❌ **返 501**，从未写过 Activity/Score（05 时点；06 已实装） |
 | `/api/pipeline/recompute/complete` | ✅（仅清 stale） |
 | 身份匹配 / day_key / external_ref 生成 | ❌ 无实现 |
 | Score 聚合（权重 + 日折叠） | ❌ 无实现 |
@@ -256,7 +257,7 @@
 | 413 | payload 字节超上限 |
 | 422 | 引用完整性：`developerId`/`repoId` 归档、`repoId` 与 type 组合非法、`sourceIds` 缺项 |
 | 500 | 意外错误 |
-| 501 | **05 阶段服务端一律返 501**；06 上线后本码退役 |
+| 501 | **05 阶段服务端一律返 501**；06 上线后本码**已退役**，不再出现在响应中 |
 
 ### 5.2 D1 查询预算与 payload 上限（硬约束）
 

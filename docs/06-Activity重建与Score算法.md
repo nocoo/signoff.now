@@ -751,13 +751,19 @@ fixtureFileSchema = z.object({
 - [x] Codex 第三轮：ingest_runs **INSERT/CAS**（非 UPSERT 覆写）+ 05 Phase 1 同步
 - [ ] **人工终审通过**（你）
 
-### 实施后（实装阶段再勾）
+### 实施后
 
-- [ ] P1–P4 代码 + 测试
-- [ ] §6.5 local E2E：fixture → D1 → heatmap
-- [ ] remote migration 0006 → Worker deploy → CLI smoke（§9.1）
-- [ ] security / coverage 全绿
-- [ ] README：06 标为已实施
+- [x] P1–P4 代码 + 测试（§5.4 分派矩阵、§5.3.2 并发 chunk 0、§3.8 B1–B16、Phase 1/3 CAS、05 §5.5 拒绝矩阵全部落地）
+- [x] §6.5 local E2E：fixture → D1 → heatmap（`scripts/e2e-06-local.sh`，幂等可重跑）
+- [x] remote migration 0006 已应用（`wrangler d1 migrations list` 无待应用项）
+- [x] security / coverage 全绿（write path 与 `routes/pipeline.ts` 已纳入 ≥95% 门禁，不再排除）
+- [x] README：06 标为已实施
+- [ ] Worker deploy → 远端 CLI smoke（§9.1 第 2、3 步；07 真实采集前执行）
+
+> **测试加固说明**：§5.4/§5.3.2 的守卫以「结构化断言」验证——直接读生产 SQL 与 TS
+> 条件，而非采样取值。原因是取值断言只能证明「在采样点上成立」，一个 `MIN(x, N)`
+> 或 `index < N` 只要把 N 挪到采样范围外就能存活。相关工具见
+> `packages/worker/src/test/sql-shape.ts`（含 30 条自测）。
 
 ---
 
