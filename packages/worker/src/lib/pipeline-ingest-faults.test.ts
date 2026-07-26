@@ -109,6 +109,21 @@ function wiBody(over: Partial<IngestBody> = {}): IngestBody {
 	} as Partial<IngestBody>);
 }
 
+/**
+ * Everything an ingest can touch. A CAS conflict that still moved a row is the
+ * worst outcome available: the caller retries believing nothing happened.
+ */
+function snapshotAll(): string {
+	const dump = (sql: string) => JSON.stringify(sqlite.raw.query(sql).all());
+	return [
+		dump("SELECT * FROM activities ORDER BY external_ref"),
+		dump("SELECT * FROM scores ORDER BY developer_id, day_key"),
+		dump("SELECT * FROM ingest_runs ORDER BY id"),
+		dump("SELECT * FROM ingest_chunks ORDER BY run_id, chunk_index"),
+		dump("SELECT * FROM unmatched_identities ORDER BY unique_name"),
+	].join("|");
+}
+
 describe("write path defensive failures", () => {
 	test("source_ids_json holding a JSON scalar → 500 shape mismatch", async () => {
 		await processIngestChunk(sqlite.db, body(), settings);
@@ -376,6 +391,52 @@ describe("write path defensive failures", () => {
 			.get();
 		expect(row?.developer_id).toBe(DEV);
 		expect(row?.total).toBe(10);
+	});
+
+	test("existing run: version drift before Phase 1 commits nothing", async () => {
+		// The already-tested case is a NEW run, where the run INSERT itself
+		// carries the settings predicate. For an EXISTING run that statement is
+		// a CAS probe instead, so the activity/chunk/unmatched writes are the
+		// only thing standing between a drifted config and corrupt rows.
+		const first = await processIngestChunk(sqlite.db, body(), settings);
+		expect(first.kind).toBe("ok");
+		const before = snapshotAll();
+
+		sqlite.beforeBatch("INSERT INTO activities", () => {
+			sqlite.raw
+				.query(
+					"UPDATE settings SET value = '2' WHERE key = 'pipeline_config_version'",
+				)
+				.run();
+		});
+
+		const res = await processIngestChunk(
+			sqlite.db,
+			body({
+				chunkIndex: 1,
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt: 1_784_737_900,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "fault@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 77 },
+					},
+				],
+				unmatchedIdentities: [
+					{ uniqueName: "ghost@example.com", sampleOrg: ORG },
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+
+		expect(res.kind).toBe("conflict");
+		// A conflict response while rows landed is the failure this guards.
+		expect(snapshotAll()).toBe(before);
 	});
 
 	test("a batch that fails midway leaves none of its earlier statements behind", async () => {
