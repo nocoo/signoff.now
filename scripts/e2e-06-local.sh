@@ -18,20 +18,16 @@ PROJ_GUID="22222222-2222-4222-8222-222222222222"
 echo "==> migrate local"
 bunx wrangler d1 migrations apply signoff-db --local
 
-echo "==> clean prior e2e rows (idempotent re-run)"
+echo "==> seed developer + repo (idempotent)"
+bun run scripts/seed-fixture.ts \
+  --developer-id "${DEV_ID}" --repo-id "${REPO_ID}" \
+  --org e2e-org --project "E2E Project" \
+  --repo-guid "${REPO_GUID}" --project-guid "${PROJ_GUID}"
+
+echo "==> clean prior run rows"
 bunx wrangler d1 execute signoff-db --local --command \
   "DELETE FROM ingest_chunks WHERE run_id = '${RUN_ID}';
-   DELETE FROM ingest_runs WHERE id = '${RUN_ID}';
-   DELETE FROM scores WHERE developer_id = '${DEV_ID}';
-   DELETE FROM activities WHERE developer_id = '${DEV_ID}' OR repo_id = '${REPO_ID}';
-   DELETE FROM repos WHERE id = '${REPO_ID}';
-   DELETE FROM developers WHERE id = '${DEV_ID}';"
-
-echo "==> seed developer + repo"
-bunx wrangler d1 execute signoff-db --local --command \
-  "INSERT INTO developers (id,name,alias) VALUES ('${DEV_ID}','E2E Dev','e2e');
-   INSERT INTO repos (id,provider,org,project,name,external_id,project_external_id,enabled)
-   VALUES ('${REPO_ID}','ado','e2e-org','E2E Project','e2e-repo','${REPO_GUID}','${PROJ_GUID}',1);"
+   DELETE FROM ingest_runs WHERE id = '${RUN_ID}';"
 
 mkdir -p .data
 FIXTURE=".data/e2e-06-fixture.json"
