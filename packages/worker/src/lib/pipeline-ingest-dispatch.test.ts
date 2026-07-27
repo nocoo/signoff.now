@@ -372,11 +372,15 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 				],
 			} as Partial<IngestBody>);
 
-		// Lay down chunks 0..5 cleanly.
+		// Sampling 0..5 was not enough: a cap at `chunkIndex < 6` sat just past
+		// the range and passed. Chunks hold ≤10 activities and a fixture holds
+		// ≤5000, so index 499 is the real ceiling — walk the boundaries of the
+		// whole reachable range, not a prefix of it.
 		expect((await processIngestChunk(sqlite.db, body(), settings)).kind).toBe(
 			"ok",
 		);
-		for (let i = 1; i <= 5; i++) {
+		const INDICES = [1, 2, 5, 6, 10, 99, 100, 499];
+		for (let i = 1; i <= 499; i++) {
 			expect(
 				(
 					await processIngestChunk(
@@ -388,8 +392,9 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 			).toBe("ok");
 		}
 
-		// Now replay each one with different bytes. Every index must refuse.
-		for (let i = 0; i <= 5; i++) {
+		// Now replay each with different bytes. Every index must refuse — a cap
+		// anywhere in the range would let a later chunk overwrite a committed one.
+		for (const i of [0, ...INDICES]) {
 			const before = snapshot();
 			const replay =
 				i === 0
@@ -401,6 +406,42 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 				snapshot() === before ? `index ${i} rows` : `index ${i} MUTATED`,
 			);
 		}
+	});
+
+	test("digest drift is refused whatever the chunk's size", async () => {
+		// The index sweep above fixes one dimension; a cap can hide in another.
+		// `activities.length <= 1` passed the whole suite because every chunk
+		// there carries exactly one activity. Replay a MULTI-activity chunk too.
+		const many = (n: number, base: number) =>
+			body({
+				chunkIndex: 0,
+				activities: Array.from({ length: n }, (_, k) => ({
+					type: "pr.created",
+					occurredAt: base + k,
+					provider: "ado",
+					org: ORG,
+					project: PROJECT,
+					repoId: REPO,
+					developerId: DEV,
+					matchedUniqueName: "integ@example.com",
+					sourceIds: { prRepoGuid: REPO_GUID, prId: 7000 + k },
+				})),
+			} as Partial<IngestBody>);
+
+		expect(
+			(await processIngestChunk(sqlite.db, many(4, 1_784_737_900), settings))
+				.kind,
+		).toBe("ok");
+		const before = snapshot();
+
+		// Same index, four activities again, different bytes.
+		const res = await processIngestChunk(
+			sqlite.db,
+			many(4, 1_784_999_000),
+			settings,
+		);
+		expect(res.kind).toBe("conflict");
+		expect(snapshot()).toBe(before);
 	});
 
 	test("chunk index gap → 400", async () => {
