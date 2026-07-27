@@ -10,6 +10,7 @@ import {
 	guardConditionFor,
 	hasUpsert,
 	isInsertInto,
+	isWriteInto,
 	setExpression,
 } from "../test/sql-shape.ts";
 import {
@@ -659,6 +660,20 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 		for (const sql of runInserts) {
 			expect(hasUpsert(sql)).toBe(false);
 		}
+
+		// The rule is about the CONTENT, not the statement count: a loser may
+		// touch the row (the stats guard sets `stats_json = stats_json`, an
+		// identity used purely as an existence check) but must never assign
+		// `mode` or `run_meta_json`. Counting statements instead would either
+		// miss a real rewrite or trip over a harmless guard.
+		const runWrites = batches
+			.flat()
+			.filter((sql) => isWriteInto(sql, "ingest_runs"));
+		expect(runWrites.length).toBeGreaterThan(0);
+		for (const sql of runWrites) {
+			expect(setExpression(sql, "mode")).toBeNull();
+			expect(setExpression(sql, "run_meta_json")).toBeNull();
+		}
 	});
 
 	test("a committed winner leaves a stale loser no way in", async () => {
@@ -759,8 +774,15 @@ describe("06 §5.3.2 concurrent chunk 0", () => {
 					)
 					.get()?.run_meta_json ?? "{}",
 			);
-			// Whole-object equality: no field may come from the other racer.
-			expect([WINNER_META, LOSER_META]).toContainEqual(stored);
+			// Bind the row to the racer that actually SUCCEEDED. Asserting only
+			// "it is one of the two" would pass even if the loser's metadata were
+			// stored while the winner reported ok — precisely the corruption the
+			// single-insert rule exists to prevent.
+			const expected = ra.kind === "ok" ? WINNER_META : LOSER_META;
+			expect(stored).toEqual(expected);
+			// And the losing racer must be told it lost, not silently ignored.
+			const loser = ra.kind === "ok" ? rb : ra;
+			expect(loser.kind).not.toBe("ok");
 		} finally {
 			cx.close();
 		}
