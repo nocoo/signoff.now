@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { activitySchema } from "./activity.js";
+import { activitySchema, MAX_OCCURRED_AT } from "./activity.js";
 
 const prBase = {
 	occurredAt: 1720000123,
@@ -139,5 +139,38 @@ describe("activitySchema", () => {
 			meta: { title: "ok" },
 		});
 		expect(r.success).toBe(true);
+	});
+});
+
+describe("occurredAt bounds", () => {
+	const base = {
+		type: "pr.merged" as const,
+		provider: "ado" as const,
+		org: "o",
+		project: "p",
+		repoId: "01K0R00000000000000000000",
+		developerId: "01K0D00000000000000000000",
+		matchedUniqueName: "a@x.com",
+		sourceIds: {
+			prRepoGuid: "11111111-1111-4111-8111-111111111111",
+			prId: 1,
+		},
+	};
+
+	test("a timestamp past year 9999 is refused at the door", () => {
+		// Unbounded, it yields `10000-01-01`, which SQLite's `date()` rejects —
+		// the Dashboard's union guard then reads the entry as corrupt and blanks
+		// the window. Refusing here names the real problem: the timestamp.
+		expect(
+			activitySchema.safeParse({ ...base, occurredAt: MAX_OCCURRED_AT + 1 })
+				.success,
+		).toBe(false);
+	});
+
+	test("the last second of year 9999 is still accepted", () => {
+		expect(
+			activitySchema.safeParse({ ...base, occurredAt: MAX_OCCURRED_AT })
+				.success,
+		).toBe(true);
 	});
 });

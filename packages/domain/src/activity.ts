@@ -59,8 +59,22 @@ const metaSchema = z
 		}
 	});
 
+/**
+ * Last epoch second inside year 9999 — the range SQLite's `date()` accepts.
+ * `9999-12-31T23:59:59Z`.
+ */
+export const MAX_OCCURRED_AT = 253_402_300_799;
+
 const activityBase = {
-	occurredAt: z.number().int().positive(),
+	// Bounded above, not merely positive. An unbounded epoch second yields day
+	// keys outside SQLite's `date()` range (253402300800 → `10000-01-01`), and
+	// the Dashboard's union guard then reads that as a corrupt entry and blanks
+	// the window. Refusing it here says what is actually wrong: the timestamp.
+	occurredAt: z
+		.number()
+		.int()
+		.positive()
+		.max(MAX_OCCURRED_AT, "occurredAt is beyond year 9999"),
 	provider: z.literal("ado"),
 	org: z.string().min(1),
 	project: z.string().min(1),
