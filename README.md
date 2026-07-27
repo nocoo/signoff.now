@@ -99,8 +99,16 @@ bun run signoff -- ingest normalized <artifact> --manifest <manifest>
 
 ```bash
 bun run signoff -- collect --full              # 不可与 --repo / --no-wi 同用
-bun run signoff -- ingest normalized <artifact> --manifest <manifest>
+# collect 会打印 EVERY artifact —— 每个 repo scope 一个、每个 project scope 一个，
+# 超过 5000 条活动的再拆分。**逐个** ingest，一个都不能漏：
+bun run signoff -- ingest normalized <artifact-1> --manifest <manifest>
+bun run signoff -- ingest normalized <artifact-2> --manifest <manifest>
+# …直到最后一个
 ```
+
+`scores_stale` 只在 manifest 里**所有** scope 都落地后才清除。少 ingest 一个
+artifact，stale 就一直挂着 —— 这不是故障，是它在如实报告「还没算完」。
+`ingest` 的输出会告诉你还差几个：`full_rematch: N scope(s) still pending`。
 
 `--full` 与 `--repo` / `--no-wi` 同用会被直接拒绝：`scores_stale` 是**全局**
 标志，部分重算后清掉它，等于把没重算的仓也宣称为新鲜。
@@ -119,9 +127,10 @@ bun run signoff -- ingest normalized <同一个 artifact> --manifest <同一个 
 
 ### 生产环境 Access
 
-生产 `/api/*` 需要 `CF_ACCESS_TEAM_DOMAIN` 与 `CF_ACCESS_AUD`。**未配置时
-Worker 返回 500 而不是放行**（03 §8，fail-closed），所以线上首次部署后
-接口不通是预期行为，不是故障：
+生产的受保护接口需要 `CF_ACCESS_TEAM_DOMAIN` 与 `CF_ACCESS_AUD`。
+**未配置时 Worker 返回 500 而不是放行**（03 §8，fail-closed），所以线上首次
+部署后接口不通是预期行为，不是故障。
+（例外：`/api/live` 与 pipeline 机器端点走各自的鉴权，不经 Access。）
 
 1. Cloudflare Zero Trust → Access → Applications 建一个应用，指向 Worker 域名；
 2. 复制该应用的 **AUD**，与 team domain 一起配成 Worker 变量。

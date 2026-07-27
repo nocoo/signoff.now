@@ -340,7 +340,7 @@ README 的手册比这里多两节，都是实测/复审后补的：
 > **本地已全链路验收通过**（真实 ADO 仓 `domoreexp/Teamspace/workshop-v7`）：
 > `collect` → 50 条 Activity → `ingest normalized` → 5 chunk 入库 → 游标推进 →
 > `recompute/complete` 清 stale → Dashboard 与热力图数字一致（均为 26）。
-> §5.3 六条不变量全部成立；浏览器渲染 28 天零填充、4 天有色、无控制台错误。
+> §5.3 五条不变量全部成立（其中含跨端点一致那条）；浏览器渲染 28 天零填充、4 天有色、无控制台错误。
 > 采集过程中真实数据验证了：服务主体身份按 `non_email` 丢弃、未建档真人计入
 > `unmatched`、增量 ingest 清不掉 stale、部分完成的 rematch 拒绝清除全局标志。
 >
