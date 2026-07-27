@@ -10,7 +10,8 @@
 | 04 | [Settings 设计](./04-Settings设计.md) | 设计稿（DB / Web CRUD / CLI 读 D1；recompute 见 §6.7） |
 | 05 | [管线铺垫与 Ingest 契约](./05-管线铺垫与Ingest实现.md) | **已实施**（S1–S5；ingest 的 501 已由 06 退役，走真实写库；**要求 Cloudflare Workers Paid plan**） |
 | 06 | [Activity 重建与 Score 算法](./06-Activity重建与Score算法.md) | **已实施**（domain/worker/CLI/Web；local E2E 通过；remote 0006 已应用） |
-| 07 | [CLI 命令矩阵与 ADO 落盘](./07-CLI命令矩阵与ADO落盘.md) | 大纲（06 完成后展开） |
+| 07 | [真实 ADO 采集](./07-CLI命令矩阵与ADO落盘.md) | **实施中**（P1–P6 已落地；真实端到端待跑） |
+| 08 | [真实数据上线与 Dashboard 统计](./08-真实数据上线与Dashboard统计.md) | 设计稿（待 review） |
 
 ## 归档
 
