@@ -356,6 +356,35 @@ describe("discard rules (07 §6.4)", () => {
 		expect(r.skipped.vote_ambiguous).toBe(1);
 	});
 
+	test("a vote whose author has no stable id is discarded", () => {
+		// external_ref needs the identity GUID and activitySchema requires it to
+		// be non-empty; emitting a blank one would only fail at the server.
+		const r = transformPullRequests(
+			input({
+				prs: [pr()],
+				threadsByPr: new Map([
+					[
+						1001,
+						[
+							voteThread({
+								comments: [
+									{
+										id: 7,
+										commentType: "system",
+										publishedDate: "2026-07-02T09:00:00Z",
+										author: { uniqueName: "ada@example.com" },
+									},
+								],
+							}),
+						],
+					],
+				]),
+			}),
+		);
+		expect(r.activities.some((a) => a.type === "pr.vote")).toBe(false);
+		expect(r.skipped.vote_ambiguous).toBe(1);
+	});
+
 	test("an iteration without updatedDate is discarded", () => {
 		const r = transformPullRequests(
 			input({

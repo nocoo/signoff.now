@@ -114,12 +114,15 @@ repo 名可含 `/`、`..` 等字符，`paths.ts` 只去首尾斜杠，不防目�
 故**所有按实体落盘的 raw 一律追加快照**，不只是 PR/WI：
 
 ```text
-repos/{repo}/prs/{prId}/{fetchedAt}.json
-repos/{repo}/pr-threads/{prId}/{fetchedAt}.json
-repos/{repo}/pr-iterations/{prId}/{fetchedAt}.json
-workitems/{wiId}/{fetchedAt}.json
-workitem-updates/{wiId}/{fetchedAt}.json
+repos/{repo}/prs/{prId}/{fetchedAt}-{collectRunId}.json
+repos/{repo}/pr-threads/{prId}/{fetchedAt}-{collectRunId}.json
+repos/{repo}/pr-iterations/{prId}/{fetchedAt}-{collectRunId}.json
+workitems/{wiId}/{fetchedAt}-{collectRunId}.json
+workitem-updates/{wiId}/{fetchedAt}-{collectRunId}.json
 ```
+
+`fetchedAt` 是**整秒**，同一秒内两次抓取会撞名并覆盖，等于快照白留。
+故文件名带上 `collectRunId`（ULID，单调且唯一）。
 
 threads 同样会变（评论可编辑/删除、投票可撤销），覆盖同样破坏可重建性。
 `latest.json` 为指针文件（内容是最新快照的文件名，非软链，便于跨平台）。
@@ -249,8 +252,17 @@ type WiTransformInput = Common & {
 **同一个 ref**，服务端按 ref UPSERT，后写的会**静默覆盖**先写的，
 且最终留下哪条取决于 chunk 顺序 —— 同样的 raw 反复复算得到不同结果。
 
-规则：**按 rev 去重，保留 `revisedDate` 最早的那条**。排序键为
-`(rev, revisedDate)` 以保证「最早」有确定定义。
+规则（实测修订）：
+
+1. **传输层先按 `update.id` 去重** —— `id` 才是 update 的真实主键。
+2. 按 `rev` 分组后，**选有 `fields` 差异的那条**。
+3. 若同一 rev 有多条都带差异且**作者或时间不一致** → 记异常并阻塞 scope，**不猜**。
+4. 全是空壳记录时按 `id` 最小取，保证确定性。
+
+> **不要用 `revisedDate` 在同 rev 内挑选**。30 个真实 WI（372 条 update、
+> 10 组重复 rev）实测：**10/10** 的「最早」记录都是 `fields` 为空的占位记录，
+> 其中 5 组作者不同、5 组日期不同（最大偏差 4 个月）。按最早取会把修订
+> 归给错误的开发者、落在错误的 `dayKey`，进而污染热力图与分数。
 
 > 为什么不改用 `id` 做 ref：02 §5.2 的模板已冻结，且 06 已按此实装并上线远端
 > schema。改模板要重迁移；而按 rev 取最早在语义上也站得住 ——

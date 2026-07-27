@@ -102,6 +102,68 @@ export function isClosingRevision(
 	return !(oldCat && CLOSED_CATEGORIES.has(oldCat));
 }
 
+/** Group already-deduped update records by revision number, in rev order. */
+export function groupByRev(
+	updates: readonly RawWiUpdate[],
+): Map<number, RawWiUpdate[]> {
+	const out = new Map<number, RawWiUpdate[]>();
+	for (const u of updates) {
+		const list = out.get(u.rev);
+		if (list) {
+			list.push(u);
+		} else {
+			out.set(u.rev, [u]);
+		}
+	}
+	return new Map([...out.entries()].sort((a, b) => a[0] - b[0]));
+}
+
+export type RevisionChoice =
+	| { kind: "chosen"; update: RawWiUpdate }
+	| { kind: "ambiguous"; reason: string };
+
+/**
+ * Pick the one record that represents a revision.
+ *
+ * A record with no `fields` diff changed nothing observable; when a rev has
+ * both kinds, the substantive one is the revision. Timestamps must NOT decide
+ * this — on live data the placeholder is consistently the earlier record.
+ */
+export function chooseRevisionRecord(
+	group: readonly RawWiUpdate[],
+): RevisionChoice {
+	if (group.length === 1) {
+		return { kind: "chosen", update: group[0] as RawWiUpdate };
+	}
+	const substantive = group.filter(
+		(u) => Object.keys(u.fields ?? {}).length > 0,
+	);
+	if (substantive.length === 1) {
+		return { kind: "chosen", update: substantive[0] as RawWiUpdate };
+	}
+	if (substantive.length === 0) {
+		// All placeholders: nothing changed, so lowest id keeps it deterministic.
+		const byId = [...group].sort(
+			(a, b) => Number(a.id ?? 0) - Number(b.id ?? 0),
+		);
+		return { kind: "chosen", update: byId[0] as RawWiUpdate };
+	}
+	const authors = new Set(
+		substantive.map((u) => u.revisedBy?.uniqueName ?? ""),
+	);
+	const dates = new Set(substantive.map((u) => u.revisedDate ?? ""));
+	if (authors.size > 1 || dates.size > 1) {
+		return {
+			kind: "ambiguous",
+			reason: `${substantive.length} records with field diffs disagree on author or time`,
+		};
+	}
+	const byId = [...substantive].sort(
+		(a, b) => Number(a.id ?? 0) - Number(b.id ?? 0),
+	);
+	return { kind: "chosen", update: byId[0] as RawWiUpdate };
+}
+
 class WiCollector {
 	readonly result: TransformResult = {
 		activities: [],
@@ -152,6 +214,11 @@ class WiCollector {
 			sourceIds,
 		} as Activity);
 	}
+
+	/** Record an anomaly; the caller must block the scope from committing. */
+	anomaly(message: string): void {
+		this.result.anomalies.push(message);
+	}
 }
 
 export function transformWorkItems(input: WiTransformInput): TransformResult {
@@ -173,14 +240,12 @@ export function transformWorkItems(input: WiTransformInput): TransformResult {
 			core,
 		);
 
-		// Order by rev, then by revision time, so "the earliest record for a
-		// rev" is well defined regardless of the order the API returned them.
-		const updates = [...(input.updatesByWi.get(wiId) ?? [])].sort(
-			(a, b) =>
-				a.rev - b.rev ||
-				(Date.parse(a.revisedDate ?? "") || 0) -
-					(Date.parse(b.revisedDate ?? "") || 0),
-		);
+		// Transport-level dedupe first: `id` is the update's real primary key.
+		const byId = new Map<number | string, RawWiUpdate>();
+		for (const [i, u] of (input.updatesByWi.get(wiId) ?? []).entries()) {
+			byId.set(u.id ?? `idx-${i}`, u);
+		}
+		const updates = [...byId.values()].sort((a, b) => a.rev - b.rev);
 
 		// wi.closed — the EARLIEST qualifying revision wins. The frozen
 		// external_ref (`…:{wiId}:closed`) admits exactly one closure per work
@@ -197,26 +262,35 @@ export function transformWorkItems(input: WiTransformInput): TransformResult {
 			);
 		}
 
-		// wi.updated — one per revision NUMBER, not per update record.
+		// wi.updated — one per revision NUMBER, choosing the SUBSTANTIVE record.
 		//
-		// Live data contains several update records sharing a `rev` (the extras
-		// carry no field diff and appear to be link/relation updates). The frozen
-		// external_ref is `…:{wiId}:rev:{revisionId}`, so emitting both would
-		// produce two Activities with the same ref: the server UPSERTs by ref, so
-		// one would silently overwrite the other and the surviving row would
-		// depend on chunk ordering. Keep the earliest record for each rev —
-		// deterministic on replay (01 §6.2).
-		const seenRev = new Set<number>();
-		for (const u of updates) {
-			if (u.rev <= 1 || seenRev.has(u.rev)) {
+		// ADO returns several update records sharing a `rev`: one carries the
+		// actual field diff, the others are empty placeholders (link/relation
+		// updates). The frozen external_ref is `…:{wiId}:rev:{revisionId}`, so
+		// only one may be emitted per rev — and picking by timestamp picks wrong.
+		// Measured on live data: in every duplicated rev the earliest record was
+		// the EMPTY one, so "earliest" attributed the revision to the wrong
+		// developer with a date months off. Prefer the record that actually
+		// changed something (07 §6.2.3).
+		for (const [rev, group] of groupByRev(updates)) {
+			if (rev <= 1) {
+				// rev 1 is the creation itself, already emitted from the item's
+				// own fields; counting it again would double-count wi.created.
 				continue;
 			}
-			seenRev.add(u.rev);
+			const chosen = chooseRevisionRecord(group);
+			if (chosen.kind === "ambiguous") {
+				// Two records both claim to have changed this revision, and they
+				// disagree on who or when. Guessing would corrupt attribution
+				// silently, so surface it and let the scope block (01 §6.2).
+				c.anomaly(`WI ${wiId} rev ${rev}: ${chosen.reason}`);
+				continue;
+			}
 			c.emit(
 				"wi.updated",
-				toUnixSeconds(u.revisedDate),
-				resolveIdentity(u.revisedBy, input),
-				{ ...core, revisionId: u.rev },
+				toUnixSeconds(chosen.update.revisedDate),
+				resolveIdentity(chosen.update.revisedBy, input),
+				{ ...core, revisionId: rev },
 			);
 		}
 	}

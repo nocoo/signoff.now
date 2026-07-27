@@ -260,6 +260,14 @@ function collectVotes(pr: RawPr, input: PrTransformInput, c: Collector): void {
 			c.skip("vote_ambiguous");
 			continue;
 		}
+		// external_ref needs a stable voter id; `activitySchema` requires it to
+		// be non-empty. Emitting a blank one would pass the local cast and be
+		// rejected server-side, which is a far worse place to find out.
+		const voterIdentityId = comment.author?.id ?? "";
+		if (!voterIdentityId) {
+			c.skip("vote_ambiguous");
+			continue;
+		}
 		c.emit(
 			"pr.vote",
 			toUnixSeconds(comment.publishedDate),
@@ -267,7 +275,7 @@ function collectVotes(pr: RawPr, input: PrTransformInput, c: Collector): void {
 			{
 				prRepoGuid: input.repo.externalId,
 				prId: pr.pullRequestId,
-				voterIdentityId: comment.author?.id ?? "",
+				voterIdentityId,
 				threadId: thread.id,
 				commentId: comment.id,
 			},

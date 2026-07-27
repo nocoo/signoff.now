@@ -3,6 +3,8 @@ import { activitySchema } from "../activity.js";
 import { buildExternalRef } from "../external-ref.js";
 import type { RawWiUpdate, RawWorkItem } from "../raw.js";
 import {
+	chooseRevisionRecord,
+	groupByRev,
 	isClosingRevision,
 	transformWorkItems,
 	type WiTransformInput,
@@ -228,11 +230,13 @@ describe("work item activities", () => {
 		);
 	});
 
-	test("duplicate revision numbers collapse to the earliest record", () => {
-		// Live data really contains this: two update records share a `rev`, with
-		// different authors and times (the extra carries no field diff). Both
-		// would build the SAME external_ref, so the server would UPSERT one over
-		// the other and the winner would depend on chunk ordering.
+	test("duplicate revs resolve to the record that changed something", () => {
+		// Live data really contains this: several update records share a `rev`,
+		// one carrying the field diff and the others empty (link/relation
+		// updates). Both build the SAME external_ref, so only one may be
+		// emitted. Measured on real work items, the EARLIEST record was the
+		// empty one every time — so choosing by timestamp attributes the
+		// revision to the wrong developer with a date months off.
 		const r = transformWorkItems(
 			input({
 				workItems: [wi()],
@@ -241,14 +245,17 @@ describe("work item activities", () => {
 						4016916,
 						[
 							update({
+								id: 125,
 								rev: 23,
-								revisedDate: "2024-12-03T10:18:40.55Z",
+								revisedDate: "2026-07-16T10:00:00Z",
 								revisedBy: { uniqueName: "ada@example.com", id: "a" },
+								fields: { "System.State": { newValue: "Done" } },
 							}),
 							update({
+								id: 126,
 								rev: 23,
-								revisedDate: "2024-12-02T09:33:50.943Z",
-								revisedBy: { uniqueName: "ada@example.com", id: "b" },
+								revisedDate: "2026-03-25T09:00:00Z",
+								revisedBy: { uniqueName: "bob@example.com", id: "b" },
 							}),
 						],
 					],
@@ -257,13 +264,86 @@ describe("work item activities", () => {
 		);
 		const updates = r.activities.filter((a) => a.type === "wi.updated");
 		expect(updates).toHaveLength(1);
-		// The earliest record wins, so a replay picks the same one every time.
 		expect(updates[0]?.occurredAt).toBe(
-			Math.floor(Date.parse("2024-12-02T09:33:50.943Z") / 1000),
+			Math.floor(Date.parse("2026-07-16T10:00:00Z") / 1000),
 		);
+		expect(updates[0]?.developerId).toBe(DEV_ID);
 
 		const refs = r.activities.map((a) => buildExternalRef(a.type, a.sourceIds));
 		expect(new Set(refs).size).toBe(refs.length);
+	});
+
+	test("identical transport records are deduped by update id", () => {
+		const same = {
+			rev: 5,
+			revisedDate: "2026-07-16T10:00:00Z",
+			revisedBy: { uniqueName: "ada@example.com", id: "a" },
+			fields: { "System.State": { newValue: "Done" } },
+		};
+		const r = transformWorkItems(
+			input({
+				workItems: [wi()],
+				updatesByWi: new Map([
+					[4016916, [update({ id: 9, ...same }), update({ id: 9, ...same })]],
+				]),
+			}),
+		);
+		expect(r.activities.filter((a) => a.type === "wi.updated")).toHaveLength(1);
+	});
+
+	test("two substantive records disagreeing is an anomaly, not a guess", () => {
+		const r = transformWorkItems(
+			input({
+				workItems: [wi()],
+				updatesByWi: new Map([
+					[
+						4016916,
+						[
+							update({
+								id: 1,
+								rev: 7,
+								revisedDate: "2026-07-16T10:00:00Z",
+								revisedBy: { uniqueName: "ada@example.com", id: "a" },
+								fields: { "System.State": { newValue: "Done" } },
+							}),
+							update({
+								id: 2,
+								rev: 7,
+								revisedDate: "2026-07-17T10:00:00Z",
+								revisedBy: { uniqueName: "ada@example.com", id: "a" },
+								fields: { "System.Title": { newValue: "x" } },
+							}),
+						],
+					],
+				]),
+			}),
+		);
+		// Attributing one arbitrarily would be silent corruption.
+		expect(r.activities.filter((a) => a.type === "wi.updated")).toHaveLength(0);
+		expect(r.anomalies).toHaveLength(1);
+		expect(r.anomalies[0]).toContain("rev 7");
+	});
+
+	test("all-placeholder revs still emit deterministically by lowest id", () => {
+		const r = transformWorkItems(
+			input({
+				workItems: [wi()],
+				updatesByWi: new Map([
+					[
+						4016916,
+						[
+							update({ id: 20, rev: 8, revisedDate: "2026-07-18T00:00:00Z" }),
+							update({ id: 19, rev: 8, revisedDate: "2026-07-17T00:00:00Z" }),
+						],
+					],
+				]),
+			}),
+		);
+		const updates = r.activities.filter((a) => a.type === "wi.updated");
+		expect(updates).toHaveLength(1);
+		expect(updates[0]?.occurredAt).toBe(
+			Math.floor(Date.parse("2026-07-17T00:00:00Z") / 1000),
+		);
 	});
 
 	test("revisions are ordered by rev regardless of input order", () => {
@@ -399,5 +479,80 @@ describe("output validity", () => {
 		expect(r.activities).toEqual([]);
 		expect(r.unmatched).toEqual([]);
 		expect(Object.values(r.skipped).every((n) => n === 0)).toBe(true);
+	});
+});
+
+describe("revision grouping helpers", () => {
+	test("groupByRev returns revisions in ascending order", () => {
+		const g = groupByRev([
+			update({ id: 1, rev: 5 }),
+			update({ id: 2, rev: 2 }),
+			update({ id: 3, rev: 5 }),
+		]);
+		expect([...g.keys()]).toEqual([2, 5]);
+		expect(g.get(5)).toHaveLength(2);
+	});
+
+	test("a lone record is chosen as-is", () => {
+		const u = update({ id: 1, rev: 3 });
+		expect(chooseRevisionRecord([u])).toEqual({ kind: "chosen", update: u });
+	});
+
+	test("the record with a field diff wins over placeholders", () => {
+		const substantive = update({
+			id: 2,
+			fields: { "System.State": { newValue: "Done" } },
+		});
+		const placeholder = update({ id: 1 });
+		const r = chooseRevisionRecord([placeholder, substantive]);
+		expect(r).toEqual({ kind: "chosen", update: substantive });
+	});
+
+	test("agreeing substantive records collapse by lowest id", () => {
+		const shared = {
+			revisedDate: "2026-07-16T10:00:00Z",
+			revisedBy: { uniqueName: "ada@example.com", id: "a" },
+			fields: { "System.State": { newValue: "Done" } },
+		};
+		const r = chooseRevisionRecord([
+			update({ id: 9, ...shared }),
+			update({ id: 4, ...shared }),
+		]);
+		expect(r.kind).toBe("chosen");
+		if (r.kind === "chosen") {
+			expect(r.update.id).toBe(4);
+		}
+	});
+
+	test("disagreeing substantive records are ambiguous", () => {
+		const r = chooseRevisionRecord([
+			update({
+				id: 1,
+				revisedBy: { uniqueName: "ada@example.com", id: "a" },
+				fields: { a: { newValue: 1 } },
+			}),
+			update({
+				id: 2,
+				revisedBy: { uniqueName: "bob@example.com", id: "b" },
+				fields: { b: { newValue: 2 } },
+			}),
+		]);
+		expect(r.kind).toBe("ambiguous");
+	});
+
+	test("all placeholders resolve to the lowest id", () => {
+		const r = chooseRevisionRecord([update({ id: 7 }), update({ id: 3 })]);
+		expect(r.kind).toBe("chosen");
+		if (r.kind === "chosen") {
+			expect(r.update.id).toBe(3);
+		}
+	});
+
+	test("records without ids still resolve deterministically", () => {
+		const r = chooseRevisionRecord([
+			update({ id: undefined, rev: 4 }),
+			update({ id: undefined, rev: 4 }),
+		]);
+		expect(r.kind).toBe("chosen");
 	});
 });
