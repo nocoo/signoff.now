@@ -32,8 +32,20 @@ export function isLocalhost(host: string): boolean {
 	);
 }
 
+/**
+ * Hosts allowed to authenticate with a pipeline token instead of Access.
+ *
+ * The FIRST LABEL must be exactly `signoff-ingest`. A substring test also
+ * accepted `evil-signoff-ingest.attacker.com` and `attacker.com/signoff-ingest`
+ * — measured, not hypothetical.
+ *
+ * Cloudflare routes by SNI and answers 403 for a mismatched Host before the
+ * Worker runs, so the loose form was not exploitable today. But an auth
+ * boundary should not rest on someone else's routing behaviour.
+ */
 export function isMachineEndpoint(host: string): boolean {
-	return host.includes("signoff-ingest");
+	const name = (host.split(":")[0] ?? "").toLowerCase();
+	return name.split(".")[0] === "signoff-ingest";
 }
 
 function isAllowedMachineRoute(method: string, path: string): boolean {

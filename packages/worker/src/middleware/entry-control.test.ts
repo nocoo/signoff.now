@@ -75,3 +75,25 @@ describe("entryControl middleware", () => {
 		expect(res.status).toBe(200);
 	});
 });
+
+describe("isMachineEndpoint host spoofing", () => {
+	test("a lookalike domain does not get the token path", () => {
+		// A substring test accepted every one of these. Cloudflare's SNI routing
+		// happens to reject a mismatched Host at the edge today, but an auth
+		// boundary should not depend on someone else's routing.
+		expect(isMachineEndpoint("evil-signoff-ingest.attacker.com")).toBe(false);
+		expect(isMachineEndpoint("signoff-ingest-evil.attacker.com")).toBe(false);
+		expect(isMachineEndpoint("attacker.com/signoff-ingest")).toBe(false);
+		expect(isMachineEndpoint("x.signoff-ingest.hexly.ai")).toBe(false);
+	});
+
+	test("the real machine host still bypasses, port and case included", () => {
+		expect(isMachineEndpoint("signoff-ingest.hexly.ai")).toBe(true);
+		expect(isMachineEndpoint("SIGNOFF-INGEST.HEXLY.AI")).toBe(true);
+		expect(isMachineEndpoint("signoff-ingest.hexly.ai:443")).toBe(true);
+	});
+
+	test("the human domain never does", () => {
+		expect(isMachineEndpoint("signoff.hexly.ai")).toBe(false);
+	});
+});
