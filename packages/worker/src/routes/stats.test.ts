@@ -582,6 +582,51 @@ describe("statsSummaryRoute", () => {
 		expect(body.scoresStale).toBe(true);
 	});
 
+	test("every storable union shape has a defined verdict and never 500s", async () => {
+		// Enumerated against SQLite rather than reasoned about: `json_extract`
+		// on a scalar element raises "malformed JSON", which would surface as an
+		// error page where a withheld figure was intended.
+		const shapes: [string, string, boolean][] = [
+			["empty", "[]", false],
+			["match", '[{"dayKey":"2026-07-02"}]', true],
+			["snake_case key", '[{"day_key":"2026-07-02"}]', true],
+			["scalar entry", '["scalar"]', true],
+			["number entries", "[1,2]", true],
+			["object not array", '{"a":1}', true],
+			["json null", "null", true],
+			["nested array", '[[{"dayKey":"2026-07-02"}]]', true],
+			["null dayKey", '[{"dayKey":null}]', true],
+		];
+		for (const [name, union, shouldBlank] of shapes) {
+			sqlite = createSqliteD1();
+			activitySeq = 0;
+			seedDeveloper(DEV_A, "Ada", "ada");
+			seedScore({
+				developerId: DEV_A,
+				dayKey: "2026-07-02",
+				breakdown: { "pr.merged": 10 },
+				activityCount: 1,
+			});
+			sqlite.raw
+				.query(
+					`INSERT INTO ingest_runs
+             (id, started_at, status, config_version, mode, run_meta_json)
+           VALUES ('01JRUNSHAPE000000000000X', 1, 'chunked', 1, 'incremental', '{}')`,
+				)
+				.run();
+			sqlite.raw
+				.query(
+					`INSERT INTO ingest_chunks
+             (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
+           VALUES ('01JRUNSHAPE000000000000X', 0, 'prepared', 'd', ?, NULL)`,
+				)
+				.run(union);
+
+			const body = await summary("?from=2026-07-01&to=2026-07-10");
+			expect(`${name}: ${body.scoresStale}`).toBe(`${name}: ${shouldBlank}`);
+		}
+	});
+
 	test("a chunked run between chunks still publishes", async () => {
 		// A run is `chunked` for its whole life. Guarding on that would blank the
 		// Dashboard for the entire duration of a multi-chunk ingest, and forever
