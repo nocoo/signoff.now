@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	byTypeShares,
+	DEFAULT_PRESET,
 	dailyLevels,
 	emptyKind,
 	fillDailyGaps,
@@ -9,6 +10,7 @@ import {
 	presetWindow,
 	ratioLevel,
 	type StatsSummary,
+	WINDOW_PRESETS,
 } from "./stats";
 
 const raw = (over: Record<string, unknown> = {}) => ({
@@ -38,6 +40,32 @@ describe("parseStatsSummary", () => {
 		expect(s.byType[0]?.type).toBe("pr.merged");
 		expect(s.topDevelopers[0]?.name).toBe("Ada");
 		expect(s.lastIngestAt).toBe(1_784_700_000);
+	});
+
+	test("a malformed scoresStale is refused, not read as trustworthy", () => {
+		// This flag decides whether numbers get published at all. Every wrong
+		// value must fail loudly; silently resolving to `false` shows a manager
+		// figures the server explicitly refused to stand behind.
+		for (const bad of ["true", 1, 0, null, undefined, "yes", {}]) {
+			expect(() => parseStatsSummary(raw({ scoresStale: bad }))).toThrow(
+				/scoresStale/,
+			);
+		}
+		expect(parseStatsSummary(raw({ scoresStale: true })).scoresStale).toBe(
+			true,
+		);
+	});
+
+	test("a malformed staleReason or lastIngestAt is refused, but null is fine", () => {
+		expect(() => parseStatsSummary(raw({ staleReason: 42 }))).toThrow(
+			/staleReason/,
+		);
+		expect(() => parseStatsSummary(raw({ lastIngestAt: "nan" }))).toThrow(
+			/lastIngestAt/,
+		);
+		expect(
+			parseStatsSummary(raw({ staleReason: null })).staleReason,
+		).toBeNull();
 	});
 
 	test("keeps the stale reason and flag", () => {
@@ -229,6 +257,16 @@ describe("emptyKind", () => {
 				summary({ totals: { activities: 3, score: 0, activeDevelopers: 1 } }),
 			),
 		).toBe("has-data");
+	});
+});
+
+describe("DEFAULT_PRESET", () => {
+	test("matches the server's own default span", () => {
+		// packages/worker/src/routes/stats.ts DEFAULT_SPAN_DAYS. If these drift,
+		// the first render and the "28 days" button silently show different
+		// windows while both look correct.
+		expect(DEFAULT_PRESET).toBe(28);
+		expect(WINDOW_PRESETS).toContain(DEFAULT_PRESET);
 	});
 });
 

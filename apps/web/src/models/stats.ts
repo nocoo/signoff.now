@@ -70,6 +70,13 @@ function arr(raw: unknown, label: string): unknown[] {
 	return raw;
 }
 
+function bool(raw: unknown, label: string): boolean {
+	if (typeof raw !== "boolean") {
+		throw new Error(`Invalid ${label}: expected a boolean`);
+	}
+	return raw;
+}
+
 export function parseStatsSummary(raw: unknown): StatsSummary {
 	const r = asRecord(raw, "stats summary");
 	const window = asRecord(r.window, "stats window");
@@ -80,8 +87,12 @@ export function parseStatsSummary(raw: unknown): StatsSummary {
 			r.pipelineConfigVersion,
 			"pipelineConfigVersion",
 		),
-		scoresStale: r.scoresStale === true,
-		staleReason: typeof r.staleReason === "string" ? r.staleReason : null,
+		// Strictly, not `=== true`. This is the flag that decides whether numbers
+		// get published at all, so a malformed value must raise an error rather
+		// than quietly resolve to "trustworthy" — the one direction that shows a
+		// manager figures the server refused to stand behind.
+		scoresStale: bool(r.scoresStale, "scoresStale"),
+		staleReason: nullable(r.staleReason, str, "staleReason"),
 		window: {
 			from: str(window.from, "window.from"),
 			to: str(window.to, "window.to"),
@@ -116,11 +127,17 @@ export function parseStatsSummary(raw: unknown): StatsSummary {
 				activityCount: num(d.activityCount, "daily.activityCount"),
 			};
 		}),
-		lastIngestAt:
-			typeof r.lastIngestAt === "number" && Number.isFinite(r.lastIngestAt)
-				? r.lastIngestAt
-				: null,
+		lastIngestAt: nullable(r.lastIngestAt, num, "lastIngestAt"),
 	};
+}
+
+/** `null` is a real value here; anything else must still parse strictly. */
+function nullable<T>(
+	raw: unknown,
+	parse: (v: unknown, label: string) => T,
+	label: string,
+): T | null {
+	return raw === null || raw === undefined ? null : parse(raw, label);
 }
 
 /** Every day in `[from, to]`, with absent days filled in as zeroes. */
@@ -213,6 +230,8 @@ export function isTrustworthy(summary: StatsSummary): boolean {
 
 export const WINDOW_PRESETS = [7, 28, 92] as const;
 export type WindowPreset = (typeof WINDOW_PRESETS)[number];
+/** What the server falls back to when a request omits the window. */
+export const DEFAULT_PRESET: WindowPreset = 28;
 
 /** `[from, to]` for a preset, counted back from `to` inclusive. */
 export function presetWindow(
