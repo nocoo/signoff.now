@@ -104,7 +104,7 @@ function baseOpts(client: AdoClient, fs: FsLike) {
 		fs,
 		writer: createRawWriter(fs, ".data"),
 		dataDir: ".data",
-		collectRunId: "01JCOLLECT000000000000000",
+		collectRunId: "01JCLECT00000000000000000J",
 		nowSeconds: NOW,
 		repos: [repo],
 		developers: [{ id: "01K0DEV000000000000000000", alias: "ada" }],

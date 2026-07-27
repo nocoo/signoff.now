@@ -106,6 +106,43 @@ async function main(): Promise<void> {
 		.description("Ingest activities into Worker");
 
 	ingest
+		.command("normalized")
+		.argument("<file>", "Path to a collect artifact under .data/normalized/")
+		.requiredOption(
+			"--manifest <path>",
+			"Run manifest that lists this artifact",
+		)
+		.description("Ingest a collect artifact and commit its cursor when whole")
+		.action(async (file: string, o: { manifest: string }) => {
+			const env = loadEnv();
+			const fs = createBunFs();
+			const { ingestNormalized } = await import(
+				"./commands/ingest-normalized.ts"
+			);
+			const { createRawWriter } = await import("./ado/storage.ts");
+			const writer = createRawWriter(fs, env.dataDir);
+			const bootstrap = await createPipelineClient({
+				apiBase: env.apiBase,
+				writeToken: env.writeToken,
+			}).bootstrap();
+			const code = await ingestNormalized({
+				filePath: file,
+				manifestPath: o.manifest,
+				dataDir: env.dataDir,
+				fs,
+				writeJson: writer.writeJson,
+				client: createPipelineClient({
+					apiBase: env.apiBase,
+					writeToken: env.writeToken,
+				}),
+				log,
+				nowSeconds: Math.floor(Date.now() / 1000),
+				pipelineConfigVersion: bootstrap.settings.pipelineConfigVersion,
+			});
+			process.exit(code);
+		});
+
+	ingest
 		.command("fixture")
 		.argument("<file>", "Path to fixture JSON (fixtureFileSchema)")
 		.option("--dry-validate", "Validate only; do not POST", false)

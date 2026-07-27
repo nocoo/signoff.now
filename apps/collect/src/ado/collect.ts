@@ -38,6 +38,7 @@ import {
 	type PageProblem,
 } from "./paging.ts";
 import type { RawWriter } from "./storage.ts";
+import { derivedUlid } from "./ulid.ts";
 
 export type CollectRepo = {
 	id: string;
@@ -347,7 +348,7 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 				.length;
 			scope.artifacts.push({
 				path,
-				runId: `${opts.collectRunId}R${scopes.length}`,
+				runId: derivedUlid(opts.collectRunId, scopes.length),
 				sha256: await sha256(JSON.stringify(artifactBody)),
 				activityCount: count,
 				status: "pending",
@@ -373,7 +374,7 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 					.length;
 				scope.artifacts.push({
 					path,
-					runId: `${opts.collectRunId}P${scopes.length}`,
+					runId: derivedUlid(opts.collectRunId, 1000 + scopes.length),
 					sha256: await sha256(JSON.stringify(artifactBody)),
 					activityCount: count,
 					status: "pending",
