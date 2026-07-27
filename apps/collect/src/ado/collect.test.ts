@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { FsLike } from "../cache/bootstrap.ts";
-import type { AdoClient } from "./client.ts";
+import { exitCodeForError } from "../commands/exit-code-for-error.ts";
+import { ExitCode } from "../exit-codes.ts";
+import { type AdoClient, AdoError } from "./client.ts";
 import { type CollectRepo, collect, readCursorFile } from "./collect.ts";
 import { createRawWriter, sha256Hex } from "./storage.ts";
 
@@ -181,6 +183,49 @@ describe("collect", () => {
 		expect(manifest.scopes[0]?.status).toBe("pending");
 		expect(manifest.scopes[0]?.artifacts[0]?.status).toBe("pending");
 		expect(files.has(manifestPath)).toBe(true);
+	});
+
+	test("a raw payload that fails schema is a contract error, not a crash", async () => {
+		// A bare ZodError exits RUNTIME, which reads as "signoff has a bug". The
+		// truth is that ADO's shape moved, and the operator needs the field path.
+		const { fs } = memoryFs();
+		const client = routedClient({
+			prs: (s) => ({ value: s === "completed" ? [pr(1001)] : [] }),
+			threads: { value: [{ id: "not-a-number" }] },
+		});
+
+		const err = await collect(baseOpts(client, fs)).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).kind).toBe("bad_response");
+		expect(exitCodeForError(err)).toBe(ExitCode.CONTRACT);
+	});
+
+	test("the schema error names what failed and where", async () => {
+		const { fs } = memoryFs();
+		const client = routedClient({
+			prs: (s) => ({ value: s === "completed" ? [pr(1001)] : [] }),
+			threads: { value: [{ id: "not-a-number" }] },
+		});
+		const err = (await collect(baseOpts(client, fs)).catch(
+			(e: unknown) => e,
+		)) as AdoError;
+		// Without the entity and the field path this message cannot be acted on.
+		expect(err.message).toContain("PR 1001 threads");
+		expect(err.message).toMatch(/id/);
+	});
+
+	test("a malformed work item is also a contract error", async () => {
+		const { fs } = memoryFs();
+		const client = routedClient({
+			wiqlIds: [42],
+			workItem: { id: "not-a-number" },
+		});
+		const err = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).message).toContain("work item 42");
 	});
 
 	test("never writes the cursor", async () => {

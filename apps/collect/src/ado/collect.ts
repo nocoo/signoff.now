@@ -31,7 +31,7 @@ import {
 	transformWorkItems,
 } from "@signoff/domain";
 import type { FsLike } from "../cache/bootstrap.ts";
-import { type AdoClient, adoUrl } from "./client.ts";
+import { type AdoClient, AdoError, adoUrl } from "./client.ts";
 import {
 	fetchAllPages,
 	fetchPullRequests,
@@ -40,6 +40,36 @@ import {
 } from "./paging.ts";
 import { type RawWriter, serializeJson, sha256Hex } from "./storage.ts";
 import { derivedUlid } from "./ulid.ts";
+
+/**
+ * Parse a raw ADO payload, turning a schema failure into an `AdoError`.
+ *
+ * A bare `.parse()` throws a `ZodError`, which exits RUNTIME — indistinguishable
+ * from a crash. A payload we cannot read is a contract problem: doc 07 §8 says
+ * CONTRACT, and the operator needs the field path to know which shape moved.
+ */
+function parseRaw<T>(
+	schema: { parse: (v: unknown) => T },
+	raw: unknown,
+	what: string,
+): T {
+	try {
+		return schema.parse(raw);
+	} catch (e) {
+		const detail =
+			e && typeof e === "object" && "issues" in e
+				? (
+						e as { issues: { path: (string | number)[]; message: string }[] }
+					).issues
+						.slice(0, 3)
+						.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+						.join("; ")
+				: e instanceof Error
+					? e.message
+					: "unknown";
+		throw new AdoError("bad_response", `${what} failed schema — ${detail}`);
+	}
+}
 
 export type CollectRepo = {
 	id: string;
@@ -147,15 +177,19 @@ async function collectRepo(
 	const iterationsByPr = new Map();
 	for (const pr of prs) {
 		const id = pr.pullRequestId;
-		const threads = adoListSchema(rawThreadSchema).parse(
+		const threads = parseRaw(
+			adoListSchema(rawThreadSchema),
 			await opts.client.get(
 				adoUrl(base, `${repoPath}/pullRequests/${id}/threads`),
 			),
+			`PR ${id} threads`,
 		).value;
-		const iterations = adoListSchema(rawIterationSchema).parse(
+		const iterations = parseRaw(
+			adoListSchema(rawIterationSchema),
 			await opts.client.get(
 				adoUrl(base, `${repoPath}/pullRequests/${id}/iterations`),
 			),
+			`PR ${id} iterations`,
 		).value;
 		threadsByPr.set(id, threads);
 		iterationsByPr.set(id, iterations);
@@ -261,8 +295,10 @@ async function collectProject(
 	const updatesByWi = new Map();
 	const types = new Set<string>();
 	for (const id of idPage.items) {
-		const item = rawWorkItemSchema.parse(
+		const item = parseRaw(
+			rawWorkItemSchema,
 			await opts.client.get(adoUrl(base, `_apis/wit/workitems/${id}`)),
+			`work item ${id}`,
 		);
 		workItems.push(item);
 		const type = item.fields["System.WorkItemType"];
@@ -274,7 +310,9 @@ async function collectProject(
 			opts.client,
 			(skip) =>
 				adoUrl(base, `_apis/wit/workItems/${id}/updates`, { $skip: skip }),
-			(raw) => adoListSchema(rawWiUpdateSchema).parse(raw).value,
+			(raw) =>
+				parseRaw(adoListSchema(rawWiUpdateSchema), raw, `WI ${id} updates`)
+					.value,
 			// `rev` is not unique in live data; `id` is the real key (07 §6.2.3).
 			(u) => u.id ?? `${u.rev}`,
 		);
