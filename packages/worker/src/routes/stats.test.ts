@@ -396,6 +396,31 @@ describe("statsSummaryRoute", () => {
 		expect(body.lastIngestAt).toBe(1_784_700_000);
 	});
 
+	/** A run plus one chunk, as the write path leaves them mid-ingest. */
+	function seedRunWithChunk(opts: {
+		runId: string;
+		runStatus: "chunked" | "finalized" | "failed";
+		chunkStatus: "prepared" | "completed" | null;
+		configVersion?: number;
+	}) {
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_runs
+           (id, started_at, finished_at, status, config_version, mode, run_meta_json)
+         VALUES (?, 1, NULL, ?, ?, 'incremental', '{}')`,
+			)
+			.run(opts.runId, opts.runStatus, opts.configVersion ?? 1);
+		if (opts.chunkStatus) {
+			sqlite.raw
+				.query(
+					`INSERT INTO ingest_chunks
+             (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
+           VALUES (?, 0, ?, 'd', '[]', NULL)`,
+				)
+				.run(opts.runId, opts.chunkStatus);
+		}
+	}
+
 	test("an ingest in flight reports unsettled rather than mismatched numbers", async () => {
 		seedDeveloper(DEV_A, "Ada", "ada");
 		// Activities land in Phase 1 and Scores in Phase 3, in SEPARATE batches.
@@ -413,15 +438,111 @@ describe("statsSummaryRoute", () => {
          VALUES ('01JRUNINFLIGHT0000000000', 1, 'chunked', 1, 'incremental', '{}')`,
 			)
 			.run();
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_chunks
+           (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
+         VALUES ('01JRUNINFLIGHT0000000000', 0, 'prepared', 'd', '[]', NULL)`,
+			)
+			.run();
 
 		const body = await summary("?from=2026-07-01&to=2026-07-10");
 		expect(body.scoresStale).toBe(true);
 		expect(body.staleReason).toContain("ingest is in progress");
+		// The run id must be there or nobody can find what to resume or abandon.
+		expect(body.staleReason).toContain("01JRUNINFLIGHT0000000000");
 		expect(body.totals).toEqual({
 			activities: 0,
 			score: 0,
 			activeDevelopers: 0,
 		});
+	});
+
+	test("a chunked run between chunks still publishes", async () => {
+		// A run is `chunked` for its whole life. Guarding on that would blank the
+		// Dashboard for the entire duration of a multi-chunk ingest, and forever
+		// if one were abandoned — a worse failure than the race it prevents.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedScore({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			breakdown: { "pr.merged": 10 },
+			activityCount: 1,
+		});
+		seedRunWithChunk({
+			runId: "01JRUNBETWEEN00000000000",
+			runStatus: "chunked",
+			chunkStatus: "completed",
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(false);
+		expect(body.totals.score).toBe(10);
+	});
+
+	test("a failed run holding a prepared chunk still counts as unsettled", async () => {
+		// The write path lets the CLI resume a prepared chunk regardless of run
+		// status, so its half-written data is real. Keying on the run's status
+		// would miss it and publish activities whose scores never landed.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedActivity({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			type: "pr.merged",
+		});
+		seedRunWithChunk({
+			runId: "01JRUNFAILED000000000000",
+			runStatus: "failed",
+			chunkStatus: "prepared",
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(true);
+		expect(body.staleReason).toContain("01JRUNFAILED000000000000");
+	});
+
+	test("a prepared chunk of another config version does not block this one", async () => {
+		// Version drift already invalidates that run's work; letting it gag the
+		// current version's numbers would strand the Dashboard behind a run
+		// nobody intends to finish.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedScore({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			breakdown: { "pr.merged": 10 },
+			activityCount: 1,
+		});
+		seedRunWithChunk({
+			runId: "01JRUNOTHERVER0000000000",
+			runStatus: "chunked",
+			chunkStatus: "prepared",
+			configVersion: 2,
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(false);
+		expect(body.totals.score).toBe(10);
+	});
+
+	test("a run with no chunks yet does not block", async () => {
+		// Phase 0 has dispatched but nothing is written, so there is nothing
+		// inconsistent to hide.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedScore({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			breakdown: { "pr.merged": 10 },
+			activityCount: 1,
+		});
+		seedRunWithChunk({
+			runId: "01JRUNNOCHUNKS0000000000",
+			runStatus: "chunked",
+			chunkStatus: null,
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(false);
+		expect(body.totals.score).toBe(10);
 	});
 
 	test("a finalized run does not count as in flight", async () => {

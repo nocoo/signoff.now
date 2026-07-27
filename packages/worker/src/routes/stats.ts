@@ -198,14 +198,20 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 			)
 			.bind(version),
 		// Read inside the SAME batch as the aggregates so it describes the same
-		// snapshot. A run mid-flight means Activities may already be committed
-		// while their Scores are not: the ingest write path commits Phase 1 and
-		// Phase 3 in separate batches, so `byType.count` (from activities) can
-		// exceed `totals.activities` (from scores) for the duration.
+		// snapshot. A chunk sits `prepared` between Phase 1 (activities) and
+		// Phase 3 (scores), which the write path commits as separate batches —
+		// so for that window `byType.count` can exceed `totals.activities`.
+		//
+		// Key on the CHUNK, not the run. A run is `chunked` for its whole life,
+		// so guarding on that would blank the Dashboard for an entire
+		// multi-chunk ingest — and forever if one were abandoned. It would also
+		// miss a `failed` run that left a prepared chunk, which the write path
+		// still lets the CLI resume, and whose data really is inconsistent.
 		db
 			.prepare(
-				`SELECT COUNT(*) AS inFlight FROM ingest_runs
-         WHERE config_version = ? AND status = 'chunked'`,
+				`SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
+         FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
+         WHERE c.status = 'prepared' AND r.config_version = ?`,
 			)
 			.bind(version),
 	]);
@@ -232,7 +238,10 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 	}>(4);
 	const lastIngestAt =
 		rows<{ lastIngestAt: number | null }>(5)[0]?.lastIngestAt ?? null;
-	const inFlight = rows<{ inFlight: number }>(6)[0]?.inFlight ?? 0;
+	const inFlight = rows<{ inFlight: number; runId: string | null }>(6)[0] ?? {
+		inFlight: 0,
+		runId: null,
+	};
 
 	// Counts and scores come from different tables on purpose; a type can appear
 	// in one and not the other (all its events folded away, or a zero weight).
@@ -246,15 +255,19 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		}))
 		.sort((a, b) => b.score - a.score || a.type.localeCompare(b.type));
 
-	if (inFlight > 0) {
-		// Mid-ingest the two tables disagree by construction, so publishing
-		// would show a manager numbers that contradict each other. Report it as
+	if (inFlight.inFlight > 0) {
+		// Mid-chunk the two tables disagree by construction, so publishing would
+		// show a manager numbers that contradict each other. Report it as
 		// unsettled rather than guessing which figure is right.
+		//
+		// The run id is in the message because this state can outlive the ingest
+		// that caused it: a crashed CLI leaves a prepared chunk behind, and
+		// without the id nobody can find which run to resume or abandon.
 		return c.json(
 			{
 				...staleBody(settings, window, lastIngestAt),
 				scoresStale: true,
-				staleReason: "an ingest is in progress; numbers are still settling",
+				staleReason: `an ingest is in progress; numbers are still settling (run ${inFlight.runId ?? "unknown"})`,
 			} satisfies StatsSummary,
 			200,
 		);
