@@ -165,40 +165,38 @@ export function wiqlDay(instant: string, addDays = 0): string {
 async function oldestChangedDate(
 	q: WiqlQuery,
 ): Promise<{ floor: string } | { error: string }> {
-	{
-		const res = parseRaw(
-			wiqlResultSchema,
-			await q.client.post(adoUrl(q.base, "_apis/wit/wiql", { $top: 1 }), {
-				query: `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${q.project.replace(/'/g, "''")}' ORDER BY [System.ChangedDate] ASC`,
-			}),
-			"oldest work item query",
-		);
-		const id = res.workItems[0]?.id;
-		if (id === undefined) {
-			// This probe runs ONLY because the open query just failed with "more
-			// than 20k work items". A `$top=1 ASC` answering "none" contradicts
-			// that, so it cannot mean the project is empty. Reporting it as empty
-			// would advance the cursor over a project that was never collected —
-			// the silent truncation this whole path exists to prevent.
-			return {
-				error:
-					"the cap said >20k work items but the oldest-item probe returned none; the results are inconsistent",
-			};
-		}
-		const item = parseRaw(
-			oldestItemSchema,
-			await q.client.get(
-				adoUrl(q.base, `_apis/wit/workitems/${id}`, {
-					fields: "System.ChangedDate",
-				}),
-			),
-			`work item ${id} changed date`,
-		);
-		const changed = item.fields["System.ChangedDate"];
-		return typeof changed === "string" && Number.isFinite(Date.parse(changed))
-			? { floor: changed }
-			: { error: `work item ${id} has no readable System.ChangedDate` };
+	const res = parseRaw(
+		wiqlResultSchema,
+		await q.client.post(adoUrl(q.base, "_apis/wit/wiql", { $top: 1 }), {
+			query: `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${q.project.replace(/'/g, "''")}' ORDER BY [System.ChangedDate] ASC`,
+		}),
+		"oldest work item query",
+	);
+	const id = res.workItems[0]?.id;
+	if (id === undefined) {
+		// This probe runs ONLY because the open query just failed with "more
+		// than 20k work items". A `$top=1 ASC` answering "none" contradicts
+		// that, so it cannot mean the project is empty. Reporting it as empty
+		// would advance the cursor over a project that was never collected —
+		// the silent truncation this whole path exists to prevent.
+		return {
+			error:
+				"the cap said >20k work items but the oldest-item probe returned none; the results are inconsistent",
+		};
 	}
+	const item = parseRaw(
+		oldestItemSchema,
+		await q.client.get(
+			adoUrl(q.base, `_apis/wit/workitems/${id}`, {
+				fields: "System.ChangedDate",
+			}),
+		),
+		`work item ${id} changed date`,
+	);
+	const changed = item.fields["System.ChangedDate"];
+	return typeof changed === "string" && Number.isFinite(Date.parse(changed))
+		? { floor: changed }
+		: { error: `work item ${id} has no readable System.ChangedDate` };
 }
 
 /**

@@ -306,15 +306,11 @@ describe("fetchWorkItemIds", () => {
 		expect(halves[0]).toContain(">= '2026-06-30'");
 		expect(halves[1]).toContain("<= '2026-07-04'");
 
-		// The SEAM is what matters. Asserting only the outer edges permits a
-		// hole in the middle: shifting the second half two days later leaves the
-		// outer bounds intact while work items in the gap vanish, and the cursor
-		// advances past them regardless.
-		// Merge every successful slice and check the UNION covers the requested
-		// window with no hole. Sampling two edges permits a gap in the middle:
-		// shifting the second half two days later leaves both outer bounds
-		// intact while the work items between them vanish, and the cursor
-		// advances past them regardless.
+		// What matters is that the halves COVER the parent with no missing day.
+		// Asserting the exact overlap would pin a rounding constant instead:
+		// both bounds round outward, so a small seam drift is absorbed and only
+		// a real hole should fail. Measured: shifting the second half by 1-3
+		// days loses no day; by 4 days loses 2026-07-04, and this fails.
 		const ranges = halves
 			.map((q) => ({
 				lo: /\bChangedDate\] >= '(\d{4}-\d{2}-\d{2})'/.exec(q ?? "")?.[1],
@@ -323,25 +319,21 @@ describe("fetchWorkItemIds", () => {
 			.filter((x): x is { lo: string; hi: string } => !!x.lo && !!x.hi)
 			.sort((a, b) => a.lo.localeCompare(b.lo));
 		expect(ranges.length).toBeGreaterThan(1);
+
+		const nextDay = (d: string) =>
+			new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000)
+				.toISOString()
+				.slice(0, 10);
 		for (const [i, cur] of ranges.slice(1).entries()) {
 			const prev = ranges[i] as { hi: string };
-			// Each range must start no later than the previous one ended.
-			expect(`${cur.lo} after ${prev.hi}`).toBe(
-				`${cur.lo <= prev.hi ? cur.lo : "GAP"} after ${prev.hi}`,
+			// Inclusive ranges are contiguous when the next starts no later than
+			// the day AFTER the previous one ended.
+			expect(`${cur.lo} follows ${prev.hi}`).toBe(
+				`${cur.lo <= nextDay(prev.hi) ? cur.lo : "GAP"} follows ${prev.hi}`,
 			);
 		}
 		expect(ranges[0]?.lo).toBe("2026-06-30");
 		expect(ranges[ranges.length - 1]?.hi).toBe("2026-07-04");
-		// The halves overlap by 2 days because both bounds round outward. That
-		// slack is deliberate — ids dedupe — and it means a small drift in the
-		// seam is absorbed rather than losing data. Measured: shifting the
-		// second half by 2 days stays covered; by 4 days opens a real hole and
-		// this assertion fails.
-		const overlap =
-			(Date.parse(`${ranges[0]?.hi}T00:00:00Z`) -
-				Date.parse(`${ranges[1]?.lo}T00:00:00Z`)) /
-			86_400_000;
-		expect(overlap).toBe(2);
 		for (const q of halves) {
 			expect(q).not.toMatch(/T\d\d:/);
 		}
