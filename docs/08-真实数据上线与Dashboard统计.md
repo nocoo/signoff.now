@@ -366,21 +366,31 @@ README 的手册比这里多两节，都是实测/复审后补的：
 >
 > **下面的清单仍是「生产」的**，本地通过不等于线上通过。
 
-- [ ] 远端 apply 0007 + 0008，`wrangler d1 migrations list` 无待应用项
-- [ ] Worker + SPA 部署完成
-- [ ] 生产 Settings 已核对（后缀非 `example.com`、时区、权重）
-- [ ] 灰度单仓 `collect` → `ingest normalized`，游标推进
-- [ ] **每个启用 scope** 都完成一次基线采集
-- [ ] 远端 `activities` / `scores` 有真实行，`external_ref` 无重复
-- [ ] §5.2 的每条对账 SQL 与页面一致
-- [ ] §5.3 的交叉不变量全部成立
-- [ ] `scoresStale=true` 时页面显示横幅且不显示可疑数字
-- [ ] 覆盖率门禁通过：Web 非 View 与 Worker 的
-      **statements / branches / functions / lines 均 ≥95%**（01 §9、03 §6）
-- [ ] **生产 Access 已配置**：`CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`。
-      未配置时 Worker 对 `/api/*` 返回 500（fail-closed，03 §8），
-      页面会全线报错 —— 这是预期行为，不是故障。
-- [ ] `bun run security` 通过
+**已完成（与环境无关的部分）**：
+
+- [x] 远端 apply 0007 + 0008 —— `wrangler d1 migrations list --remote` 显示无待应用项
+- [x] Worker + SPA 部署完成 —— `https://signoff.nocoo.workers.dev`
+- [x] 生产 Settings 已核对 —— 后缀为 `microsoft.com`（非默认 `example.com`）、
+      时区 `Asia/Shanghai`
+- [x] 灰度单仓 `collect` → `ingest normalized`，游标推进 —— **本地**对真实仓
+      `domoreexp/Teamspace/workshop-v7` 完成，50 条 Activity、5 chunk 入库
+- [x] §5.2 的每条对账 SQL 与页面一致 —— **本地**实测 26 / 50 / 50 全对
+- [x] §5.3 的交叉不变量全部成立 —— **本地**五条 + 跨端点一致（均为 26）
+- [x] `scoresStale=true` 时页面显示横幅且不显示可疑数字 —— 实测：
+      改权重触发 bump 后横幅出现、原因可见、旧的 26 / 50 全部消失
+- [x] 覆盖率门禁通过
+- [x] `bun run security` 通过
+
+**被生产 Access 阻塞（必须先配 `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`）**：
+
+- [ ] **每个启用 scope** 都完成一次**生产**基线采集
+- [ ] **远端** `activities` / `scores` 有真实行，`external_ref` 无重复
+      （当前远端两表均为 0 行 —— 所有真实数据都还在本地）
+- [ ] 上面三项「本地实测」在**生产**上重跑一遍
+
+> 生产 `/api/*` 目前返回 500（fail-closed，03 §8），`/api/live` 返回 200 ——
+> 这是未配 Access 的预期表现，不是故障。配好之前，CLI 无法向生产 ingest，
+> 所以远端库必然是空的。
 
 ### 5.2 对账 SQL（逐字段，非只看页面）
 
