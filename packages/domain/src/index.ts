@@ -58,6 +58,16 @@ export {
 	type ActivityWithDayKey,
 	aggregateScores,
 } from "./score.js";
+export {
+	type PrTransformInput,
+	resolveIdentity,
+	type SkipReason,
+	type TransformCommon,
+	type TransformResult,
+	toUnixSeconds,
+	transformPullRequests,
+	voteComment,
+} from "./transform/pr.js";
 export type {
 	AggregateScores,
 	BuildExternalRef,
