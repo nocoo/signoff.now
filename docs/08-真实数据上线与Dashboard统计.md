@@ -383,16 +383,28 @@ README 的手册比这里多两节，都是实测/复审后补的：
 - [x] 覆盖率门禁通过
 - [x] `bun run security` 通过
 
-**被生产 Access 阻塞（必须先配 `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`）**：
+**Access 与域名已就位**（2026-07-28）：
+
+- [x] 生产域名 `signoff.hexly.ai`（人，走 Access）+ `signoff-ingest.hexly.ai`
+      （CLI，走 pipeline token）—— 实测：人无会话 → 302 跳登录；
+      CLI 无 token → 401；CLI 带 token → 200
+- [x] `CF_ACCESS_AUD` / `CF_ACCESS_TEAM_DOMAIN` / `SIGNOFF_PIPELINE_WRITE_TOKEN`
+      三个 secret 已配；JWKS 端点实测有效
+
+**等待人工在生产 Web UI 建实体绑定**：
 
 - [ ] **每个启用 scope** 都完成一次**生产**基线采集
 - [ ] **远端** `activities` / `scores` 有真实行，`external_ref` 无重复
-      （当前远端两表均为 0 行 —— 所有真实数据都还在本地）
 - [ ] 上面三项「本地实测」在**生产**上重跑一遍
 
-> 生产 `/api/*` 目前返回 500（fail-closed，03 §8），`/api/live` 返回 200 ——
-> 这是未配 Access 的预期表现，不是故障。配好之前，CLI 无法向生产 ingest，
-> 所以远端库必然是空的。
+> 生产 bootstrap 现在返回 `developers: 0, repos: 0` —— 库是空的，
+> 但**不是 Access 没配好**。`MACHINE_ROUTES`（`middleware/entry-control.ts:13`）
+> 只放行 bootstrap / ingest / recompute / live / me 五条，
+> **CRUD 对机器一律 403**（实测 `GET`/`POST /api/repos` 均为 403）。
+>
+> 这是有意的：机器不该能凭 token 凭空创建开发者或仓库绑定。
+> 所以生产的第一批实体必须由**人**登录 `signoff.hexly.ai` 在 Web UI 里建，
+> 之后 CLI 才有可采的 scope。
 
 ### 5.2 对账 SQL（逐字段，非只看页面）
 

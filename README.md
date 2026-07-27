@@ -77,6 +77,25 @@ bun run security
 单写者约定：**同一时刻只跑一个 `ingest`**（06 §5.7）。并发 ingest 会用旧的
 聚合覆盖新的。
 
+### 指向生产
+
+CLI 默认打本地 `127.0.0.1:37042`。要对生产采集，把这两项放进 `.env`
+（已 gitignore）：
+
+```bash
+SIGNOFF_API_BASE=https://signoff-ingest.hexly.ai
+SIGNOFF_PIPELINE_WRITE_TOKEN=<Worker 上同名 secret 的值>
+```
+
+**机器域名不能拿来开 Web**：它绕过 Access 是为了让 CLI 带 token 写入，
+人要看 Dashboard 请走 `signoff.hexly.ai`。
+
+**生产的第一批实体必须由人建**。`MACHINE_ROUTES`
+（`middleware/entry-control.ts`）只放行 bootstrap / ingest /
+recompute / live / me —— **CRUD 对机器一律 403**，机器不该能凭 token
+凭空造出开发者或仓库绑定。所以新环境的顺序是：人登录
+`signoff.hexly.ai` → 建 Developer / Repo → CLI 才有可采的 scope。
+
 ### 一次增量采集
 
 ```bash
