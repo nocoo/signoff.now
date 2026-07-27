@@ -71,7 +71,12 @@ function classifyErrorBody(body: string): {
 
 export type FetchFn = (
 	url: string,
-	init?: { method?: string; headers?: Record<string, string>; body?: string },
+	init?: {
+		method?: string;
+		headers?: Record<string, string>;
+		body?: string;
+		signal?: AbortSignal;
+	},
 ) => Promise<AdoResponse>;
 
 export type AdoResponse = {
@@ -90,12 +95,20 @@ export type AdoClientOptions = {
 	maxRetries?: number;
 	/** Deterministic jitter hook; default adds 0–250ms. */
 	jitterMs?: () => number;
+	/**
+	 * Per-request ceiling. Without one a half-open connection hangs the whole
+	 * collect forever — no error, no progress, nothing to act on.
+	 */
+	timeoutMs?: number;
 };
 
 type TokenState = { token: string; expiresAtMs: number } | null;
 
 /** Refresh a minute before expiry so an in-flight page never straddles it. */
 const REFRESH_MARGIN_MS = 60_000;
+
+/** Generous: a large threads page is slow, but nothing legitimately hangs. */
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 export type AdoClient = {
 	/** GET a JSON resource, retrying transient failures. */
@@ -110,6 +123,7 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 	const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
 	const maxRetries = opts.maxRetries ?? 3;
 	const jitter = opts.jitterMs ?? (() => Math.floor(Math.random() * 250));
+	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	let token: TokenState = null;
 
 	async function acquireToken(nowMs: number): Promise<string> {
@@ -182,6 +196,8 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 		bearer: string,
 		body?: unknown,
 	): Promise<{ res: AdoResponse } | { failure: string }> {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
 		try {
 			return {
 				res: await opts.fetchFn(url, {
@@ -194,10 +210,17 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 							: { "content-type": "application/json" }),
 					},
 					...(body === undefined ? {} : { body: JSON.stringify(body) }),
+					signal: controller.signal,
 				}),
 			};
 		} catch (e) {
+			// Name the timeout: "aborted" alone reads like someone hit Ctrl-C.
+			if (controller.signal.aborted) {
+				return { failure: `timed out after ${timeoutMs}ms` };
+			}
 			return { failure: e instanceof Error ? e.message : "unknown" };
+		} finally {
+			clearTimeout(timer);
 		}
 	}
 
@@ -267,9 +290,13 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 			}
 
 			if (res.status === 401 && !refreshedOn401) {
-				// The token may have been revoked mid-run; try once with a fresh one.
+				// The token may have been revoked mid-run; try once with a fresh
+				// one. This does NOT spend a retry: a token refresh is not a
+				// transient remote failure, and letting it eat one would mean a
+				// run that hits 401 gets fewer retries than the doc promises.
 				refreshedOn401 = true;
 				token = null;
+				attempt--;
 				continue;
 			}
 

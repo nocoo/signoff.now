@@ -61,6 +61,12 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 
 - 入口先跑 `doctor` 校验 `az account show` 成功（已实现）。
 - token 有效期内缓存在内存，**不落盘**；到期前主动刷新，收到 401 时刷新并重试**一次**。
+  这次刷新**不消耗重试预算**——token 过期不是远端故障，让它吃掉一次重试
+  会使碰上 401 的那趟比没碰上的少一次机会。
+- **每个请求有 60s 超时**（`AbortController`，可用 `timeoutMs` 覆盖）。
+  半开连接不会报错也不会推进，没有超时就是整个 collect 无限期挂起；
+  超时按网络失败处理（走重试预算，耗尽后 `SERVER`），错误文案明确写
+  `timed out after Nms` 而不是笼统的 "aborted"——后者读起来像用户按了 Ctrl-C。
 - **401 与 403 语义不同**：401 = 未认证（提示 `az login`）；403 = 已认证但**无权限**
   （提示检查该 org/project 的访问授权）——两者都退 `ENV`，但文案必须区分，
   否则用户会对着已登录的终端反复 `az login`。

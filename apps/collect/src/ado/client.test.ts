@@ -546,3 +546,83 @@ describe("network failures", () => {
 		expect(f.count()).toBe(1);
 	});
 });
+
+describe("timeouts and the retry budget", () => {
+	test("a hung request is aborted and named as a timeout", async () => {
+		// "aborted" alone reads like the operator hit Ctrl-C. It did not.
+		const fetchFn: FetchFn = (_url, init) =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () =>
+					reject(new Error("The operation was aborted.")),
+				);
+			});
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn,
+			sleep: noSleep,
+			maxRetries: 0,
+			timeoutMs: 20,
+		});
+		const err = await c.get("https://x/1").catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).kind).toBe("server");
+		expect((err as AdoError).message).toMatch(/timed out after 20ms/);
+	});
+
+	test("a request that answers in time is not aborted", async () => {
+		let aborted = false;
+		const fetchFn: FetchFn = async (_url, init) => {
+			init?.signal?.addEventListener("abort", () => {
+				aborted = true;
+			});
+			return {
+				status: 200,
+				headers: headers(),
+				text: async () => JSON.stringify({ ok: true }),
+			};
+		};
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn,
+			sleep: noSleep,
+			timeoutMs: 5_000,
+		});
+		expect(await c.get("https://x/1")).toEqual({ ok: true });
+		expect(aborted).toBe(false);
+	});
+
+	test("a 401 refresh does not consume a retry", async () => {
+		// The doc promises 3 retries. A run that happens to hit an expired token
+		// must not silently get fewer than a run that does not.
+		const withRefresh = scriptedFetch([
+			{ status: 401 },
+			{ status: 500 },
+			{ status: 500 },
+			{ status: 500 },
+			{ status: 200, body: "{}" },
+		]);
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn: withRefresh.fetchFn,
+			sleep: noSleep,
+			maxRetries: 3,
+		});
+		expect(await c.get("https://x/1")).toEqual({});
+		// 1 (401) + 1 initial + 3 retries.
+		expect(withRefresh.calls).toHaveLength(5);
+	});
+
+	test("a second 401 is not retried again", async () => {
+		// One refresh is recovery; two in a row means the token is genuinely
+		// rejected, and looping would just spin.
+		const f = scriptedFetch([{ status: 401 }, { status: 401 }]);
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn: f.fetchFn,
+			sleep: noSleep,
+		});
+		const err = await c.get("https://x/1").catch((e: unknown) => e);
+		expect((err as AdoError).kind).toBe("unauthenticated");
+		expect(f.calls).toHaveLength(2);
+	});
+});
