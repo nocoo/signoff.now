@@ -28,12 +28,12 @@
 
 **身份形态实测**（决定 01 §4.1 匹配规则可行）：
 
-- 人类：`"uniqueName": "mastank@microsoft.com"`，`isContainer` 缺省
-- 评审组：`"uniqueName": "vstfs:///Classification/TeamProject/{guid}\\CT and IM on Duty"`，`isContainer: true`
+- 人类：`"uniqueName": "<alias>@<corp-domain>"`（邮箱），`isContainer` 缺省
+- 评审组：`"uniqueName": "vstfs:///Classification/TeamProject/{guid}\\<Group Name>"`，`isContainer: true`
 
 → 01 的「人类 uniqueName 几乎全是邮箱、group 忽略」成立。
 
-**多 org 实测**：`domoreexp` / `office` / `msdata` 三个 org 均可访问，01 §4.2 的多 org 要求必须支持。
+**多 org 实测**：三个不同 org 均可访问（org 名不在此列出，见 01 §11），01 §4.2 的多 org 要求必须支持。
 
 **PR 时间过滤实测**（此参数在部分 SDK 里不可见，故实测确认）：
 
@@ -111,7 +111,18 @@ repo 名可含 `/`、`..` 等字符，`paths.ts` 只去首尾斜杠，不防目�
 
 **PR 快照不可覆盖**：一个 PR 可以 abandoned 后重开再 completed。若直接覆盖
 `prs/{prId}.json`，旧的 `pr.closed` 就再也无法从 raw 复算，违反 01 §6.2「可重建」。
-故 PR/WI 的 raw 按 `prs/{prId}/{fetchedAt}.json` 追加快照，`latest.json` 为软链接式指针。
+故**所有按实体落盘的 raw 一律追加快照**，不只是 PR/WI：
+
+```text
+repos/{repo}/prs/{prId}/{fetchedAt}.json
+repos/{repo}/pr-threads/{prId}/{fetchedAt}.json
+repos/{repo}/pr-iterations/{prId}/{fetchedAt}.json
+workitems/{wiId}/{fetchedAt}.json
+workitem-updates/{wiId}/{fetchedAt}.json
+```
+
+threads 同样会变（评论可编辑/删除、投票可撤销），覆盖同样破坏可重建性。
+`latest.json` 为指针文件（内容是最新快照的文件名，非软链，便于跨平台）。
 
 **WI 按 project 落盘**（01 §7.2）：多个绑定 repo 同属一个 project 时**只采一份**，用 project GUID 去重，禁止按 repo 重复拉。
 
@@ -163,6 +174,7 @@ type Common = {
 
 type PrTransformInput = Common & {
   repo: { id: string; externalId: string };   // externalId = repo GUID
+  projectExternalId: string;                  // project GUID, for the §6.1 check
   prs: RawPr[];
   threadsByPr: Map<number, RawThread[]>;
   iterationsByPr: Map<number, RawIteration[]>;
@@ -172,6 +184,12 @@ type WiTransformInput = Common & {
   projectExternalId: string;                  // project GUID
   workItems: RawWorkItem[];
   updatesByWi: Map<number, RawWiUpdate[]>;
+  /**
+   * State name → category, per work item type. Resolved by the CALLER via
+   * GET /_apis/wit/workitemtypes/{type}/states and passed in, because the
+   * transform is a pure function and cannot make HTTP calls (§6.2.2).
+   */
+  stateCategories: Map<string, Map<string, string>>;
 };
 ```
 
@@ -186,7 +204,7 @@ type WiTransformInput = Common & {
 | `pr.created` | 总是 | `creationDate` | `createdBy` | `{prRepoGuid, prId}` |
 | `pr.merged` | `status==="completed"` **且** `lastMergeCommit.commitId` 存在 | `closedDate` | `createdBy` | `{prRepoGuid, prId}` |
 | `pr.closed` | `status==="abandoned"` | `closedDate` | `createdBy` | `{prRepoGuid, prId}` |
-| `pr.vote` | thread 的 `CodeReviewThreadType==="VoteUpdate"` 且 `CodeReviewVoteResult !== 0` | 该 VoteUpdate comment 的 `publishedDate` | **投票者**（该 comment 的 author） | `{prRepoGuid, prId, voterIdentityId, threadId, commentId}` |
+| `pr.vote` | thread 的 `CodeReviewThreadType==="VoteUpdate"` 且 **`propNumber(...) !== 0`** | 该 VoteUpdate comment 的 `publishedDate` | **投票者**（该 comment 的 author） | `{prRepoGuid, prId, voterIdentityId, threadId, commentId}` |
 | `pr.active` | iteration 存在 | iteration `updatedDate` | iteration `author` | `{prRepoGuid, prId, iterationId}` |
 | `wi.created` | 总是 | `System.CreatedDate` | `System.CreatedBy` | `{projectGuid, wiId}` |
 | `wi.closed` | 见 §6.2.2 | 该 revision 的 `revisedDate` | 该 revision 的 `revisedBy` | `{projectGuid, wiId}` |
@@ -194,6 +212,9 @@ type WiTransformInput = Common & {
 
 #### 6.2.1 `pr.vote` 细则
 
+- **`$value` 是字符串，必须先转数字**。实测：`{"$type":"System.String","$value":"10"}`。
+  直接写 `props.CodeReviewVoteResult.$value !== 0` 会因为 `"0" !== 0` 恒真，
+  把**撤销投票当成有效投票**。一律经 `propNumber()`（domain 已实现并单测）。
 - **不限于赞成票**。01 §6.1 写的是「个人 vote」，不是「approve」。ADO 的取值为
   `10 / 5 / 0 / -5 / -10`；`0` 是**撤销投票**，不计分；其余非零值均计一次。
   权重按 type 统一（06 §3），不因赞成/反对而不同。
@@ -273,8 +294,10 @@ type WiTransformInput = Common & {
       "kind": "repo",
       "id": "<repoId>",
       "field": "prsClosedThrough",
-      "from": "2026-07-20T00:00:00Z",
+      "baseCursor": "2026-07-20T00:00:00Z",
+      "from": "2026-07-19T00:00:00Z",
       "watermark": "2026-07-26T12:00:00Z",
+      "commitEligible": true,
       "status": "pending",
       "artifacts": [
         { "path": "…/activities-01J….json", "runId": "01J…", "sha256": "…", "status": "pending" }
@@ -284,11 +307,45 @@ type WiTransformInput = Common & {
 }
 ```
 
-- `status`: `pending` | `complete` | `incomplete`
-- **scope 原子提交**：只有该 scope 的**全部** artifact 都 `finalized`，才把
-  `watermark` 写进 `cursor.json`。任一 artifact 失败 → scope 保持 `pending`，
-  游标不动，重跑同窗口即可。
-- `incomplete` 的 scope（§5 校验失败）**不生成 artifact**，也永不推进。
+| 字段 | 含义 |
+|:---|:---|
+| `baseCursor` | 采集时**已提交**的游标值（`null` = 从未采过） |
+| `from` | 本次实际查询下界（= `baseCursor - overlap`，或被 `--since` 覆盖） |
+| `watermark` | 采集前预取的上界（§7.2） |
+| `commitEligible` | `from <= baseCursor` 才为 `true`，见 §7.1.1 |
+| `status` | `pending` / `complete` / `incomplete` |
+
+#### 7.1.1 `--since` 不得造成永久跳窗
+
+游标停在 7/1，操作者跑 `--since 7/20`，ingest 成功 —— 若直接把 watermark 写进游标，
+**7/1–7/20 就永久丢了**，而且无人知晓。
+
+规则：**一次 run 只有在它的覆盖区间衔接得上已提交游标时，才允许推进游标。**
+
+```
+commitEligible = (baseCursor === null) || (from <= baseCursor)
+```
+
+- `commitEligible === false` 的 scope：产物照样可以 ingest（数据本身有效），
+  但**永不推进游标**，且 CLI 在 ingest 成功后打印显式提醒：
+  「该 run 起点晚于当前游标，游标未推进；如需补齐请跑 `--since <=baseCursor>`」。
+- `--full` 把 `from` 设为 `null`（全量），恒 `commitEligible`。
+
+#### 7.1.2 提交协议（崩溃安全）
+
+写 manifest 与写 `cursor.json` 是两次文件操作，中间可能崩。定死顺序：
+
+1. artifact ingest 成功 → 原子改写 manifest，把该 artifact 标 `complete`。
+2. 该 scope 全部 artifact 都 `complete` 且 `commitEligible` → 把 scope 标 `complete`（原子写）。
+3. **再**读回 manifest 确认 scope 已是 `complete`，才原子写 `cursor.json`。
+
+崩溃恢复：**manifest 是唯一真相**。启动时扫 `.data/meta/runs/`，
+对每个 `complete` 但游标仍落后的 scope，补写 `cursor.json`（幂等）。
+反向不成立——游标领先于 manifest 属数据损坏，直接报错拒绝继续。
+
+`ingest normalized <file>` **如何知道自己属于哪个 scope**：不靠猜。
+CLI 反查 `.data/meta/runs/*.json`，找到含该 `path` 的 artifact；
+找不到 → 拒绝执行并提示先跑 `collect`（避免手工丢进来的文件推进游标）。
 
 ### 7.2 Watermark 竞态
 
@@ -321,8 +378,17 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 `searchCriteria.status` 只接受单值；漏了 `abandoned` 就等于永远不产 `pr.closed`。
 `active` 不受时间过滤（活跃 PR 数量小，全量拉）。
 
-分页需防重复页：记录已见 `pullRequestId` / `wiId`，重复出现即视为服务端游标异常，
-置 scope `incomplete`。
+**`$skip` 偏移不稳定**：分页途中若有 PR 状态变化，其在服务端排序里的位置会移动，
+可能导致某条记录被**跳过且不产生重复**——只查重是抓不到的。缓解：
+
+- 按 `closedDate` **降序**分页（实测该顺序稳定且无缺口/重叠），并记录每页边界值；
+  若下一页首条的 `closedDate` **大于**上一页末条，说明发生了重排 → scope `incomplete`。
+- 分页完成后用 `[from, watermark)` 与已收集条数做一次总量核对；
+  服务端 `count` 与实收不符 → `incomplete`。
+- 重叠窗口（§7.2）额外提供一层兜底：下一轮会重新覆盖边界区间。
+
+去重键：PR 用 `pullRequestId`；**WI updates 必须用 `(wiId, rev)`** ——
+同一个 WI 天然有多条 revision，只按 `wiId` 去重会丢掉除首条外的全部更新。
 
 ### 7.4 游标文件
 
@@ -360,7 +426,8 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 
 | 场景 | 退出码 | 行为 |
 |:---|:---|:---|
-| `az` 未登录 / token 401 403 | `ENV` | 提示 `az login` |
+| `az` 未登录 / token 401 | `ENV` | 提示 `az login`（见 §2） |
+| 403 | `ENV` | 提示**检查该 org/project 授权**——已认证但无权限，再 `az login` 无用 |
 | ADO 429 | 重试 | **优先读 `Retry-After`**；无该头再用指数退避（1s/2s/4s）+ 抖动，3 次后 `SERVER` |
 | ADO 5xx | 重试 | 指数退避（1s/2s/4s）+ 抖动，3 次后 `SERVER` |
 | raw zod 校验失败 | `CONTRACT` | 打印字段路径，不落该实体 |
@@ -379,6 +446,10 @@ transform 产物是 `fixtureFileSchema` 形状（06 §6.2，`activities` 上限 
 - 超过 5000 条 → 拆多个 `activities-{runId}-{n}.json`，各自独立 runId。
 - `ingest normalized` 复用 `splitFixtureIntoChunks`（每 chunk ≤10 条）与既有重试逻辑。
 - 单写者约定（06 §5.7）：CLI 帮助文本声明「同一时刻只跑一个 ingest」。
+- **`full_rematch` 跨多产物时不得提前清 stale**：`recompute/complete` 会把
+  `scores_stale` 置 false，若在第 1 个文件 finalized 后就调用，而文件 2…N 还没进库，
+  Web 会显示「分数已是最新」但实际残缺。规则：`recompute/complete` **只在
+  该 scope 的全部 artifact 都 `complete` 之后**调用一次，由 §7.1.2 的第 2 步触发。
 
 ---
 
@@ -387,7 +458,7 @@ transform 产物是 `fixtureFileSchema` 形状（06 §6.2，`activities` 上限 
 | 层 | 内容 |
 |:---|:---|
 | **raw schema 单测** | 用**真实 API 响应脱敏后**的样本（`packages/domain/fixtures/raw/`），确保 schema 与现实一致，而非凭空写 |
-| **transform 单测** | 每个 type 的正例 + §6.3 每条丢弃规则各一反例；覆盖率 ≥95% |
+| **transform 单测** | 每个 type 的正例 + §6.4 每条丢弃规则各一反例；覆盖率 ≥95% |
 | **游标单测** | 推进/回退/首次运行；ingest 失败不推进 |
 | **HTTP 客户端单测** | mock 401/429/5xx/超时，验证退避与退出码 |
 | **端到端（手动）** | 对真实 repo 跑 `collect --repo X --since <近期>`，检查 raw 落盘 → transform → ingest → heatmap 出数 |

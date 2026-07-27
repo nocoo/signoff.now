@@ -147,3 +147,32 @@ export const rawEnvelopeSchema = z
 
 export type RawEnvelope = z.infer<typeof rawEnvelopeSchema>;
 export const RAW_SCHEMA_VERSION = 1;
+
+/**
+ * Read a `properties` entry as a number.
+ *
+ * ADO reports these as `{"$type":"System.String","$value":"10"}` — the vote
+ * result is a STRING even though it is numeric. Comparing it directly against
+ * a number silently misclassifies: `"0" !== 0` is true, so a withdrawn vote
+ * would be counted as a cast one (07 §6.2.1).
+ */
+export function propNumber(
+	props: Record<string, { $value?: string | number }> | null | undefined,
+	key: string,
+): number | null {
+	const raw = props?.[key]?.$value;
+	if (raw === undefined || raw === null || raw === "") {
+		return null;
+	}
+	const n = typeof raw === "number" ? raw : Number(raw);
+	return Number.isFinite(n) ? n : null;
+}
+
+/** Read a `properties` entry as a string (e.g. CodeReviewThreadType). */
+export function propString(
+	props: Record<string, { $value?: string | number }> | null | undefined,
+	key: string,
+): string | null {
+	const raw = props?.[key]?.$value;
+	return raw === undefined || raw === null ? null : String(raw);
+}

@@ -8,6 +8,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	adoListSchema,
+	propNumber,
+	propString,
 	rawEnvelopeSchema,
 	rawIdentitySchema,
 	rawIterationSchema,
@@ -146,5 +148,53 @@ describe("raw envelope", () => {
 				extra: true,
 			}),
 		).toThrow();
+	});
+});
+
+describe("property coercion", () => {
+	test("vote results arrive as strings and must be compared as numbers", () => {
+		// The live payload is {"$type":"System.String","$value":"10"}. Comparing
+		// the raw value against a number would make "0" !== 0 true and count a
+		// withdrawn vote as a cast one.
+		const parsed = adoListSchema(rawThreadSchema).parse(fixture("threads"));
+		const votes = parsed.value.filter(
+			(t) => propString(t.properties, "CodeReviewThreadType") === "VoteUpdate",
+		);
+		expect(votes.length).toBeGreaterThan(0);
+		for (const v of votes) {
+			const n = propNumber(v.properties, "CodeReviewVoteResult");
+			expect(typeof n).toBe("number");
+			expect(Number.isInteger(n)).toBe(true);
+		}
+	});
+
+	test("withdrawal is zero, not truthy", () => {
+		const props = { CodeReviewVoteResult: { $value: "0" } };
+		expect(propNumber(props, "CodeReviewVoteResult")).toBe(0);
+		// The mistake this guards: comparing the raw value against a number.
+		// TypeScript rejects `"0" !== 0` outright, which is exactly why the
+		// union type made it invisible — go through unknown to show the runtime
+		// behaviour a `string | number` field would have had.
+		const raw: unknown = props.CodeReviewVoteResult.$value;
+		expect(raw !== 0).toBe(true);
+		expect(Number(raw) !== 0).toBe(false);
+	});
+
+	test("negative votes are preserved", () => {
+		expect(propNumber({ v: { $value: "-10" } }, "v")).toBe(-10);
+		expect(propNumber({ v: { $value: -5 } }, "v")).toBe(-5);
+	});
+
+	test("missing, empty and unparseable values are null", () => {
+		expect(propNumber(undefined, "v")).toBeNull();
+		expect(propNumber(null, "v")).toBeNull();
+		expect(propNumber({}, "v")).toBeNull();
+		expect(propNumber({ v: { $value: "" } }, "v")).toBeNull();
+		expect(propNumber({ v: { $value: "abc" } }, "v")).toBeNull();
+	});
+
+	test("propString normalises numbers to strings", () => {
+		expect(propString({ v: { $value: 10 } }, "v")).toBe("10");
+		expect(propString({ v: {} }, "v")).toBeNull();
 	});
 });
