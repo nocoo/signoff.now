@@ -5,6 +5,10 @@
 -- differs from what 0007 now says, and a schema you cannot read off the
 -- migrations is a schema nobody will trust later.
 --
+-- 0007 itself is left byte-for-byte as applied, `IF NOT EXISTS` and all.
+-- Editing a migration that has already run makes the history lie about what
+-- actually happened, which is the exact failure this file exists to correct.
+--
 -- Pure index work: no data is touched.
 
 DROP INDEX IF EXISTS idx_ingest_runs_config_status_finished;
