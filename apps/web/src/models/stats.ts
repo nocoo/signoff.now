@@ -143,15 +143,41 @@ export function fillDailyGaps(
 }
 
 /** Relative bar height (0–1) for a day, against the window's busiest day. */
-export function dailyLevels(
-	daily: readonly StatsDay[],
-): { dayKey: string; score: number; activityCount: number; ratio: number }[] {
+export function dailyLevels(daily: readonly StatsDay[]): {
+	dayKey: string;
+	score: number;
+	activityCount: number;
+	ratio: number;
+	level: number;
+}[] {
 	const max = daily.reduce((m, d) => Math.max(m, d.score), 0);
 	return daily.map((d) => ({
 		...d,
 		// A flat window of equal days should read as "all full", not "all empty".
 		ratio: max <= 0 ? 0 : d.score / max,
+		level: max <= 0 ? 0 : ratioLevel(d.score / max),
 	}));
+}
+
+/**
+ * Bucket a 0–1 ratio onto the 1–4 heatmap scale, reserving 0 for a truly idle
+ * day. Living here rather than in the View keeps the one judgement call in the
+ * chart — where "busy" starts — inside the coverage gate.
+ */
+export function ratioLevel(ratio: number): number {
+	if (ratio <= 0) {
+		return 0;
+	}
+	if (ratio <= 0.25) {
+		return 1;
+	}
+	if (ratio <= 0.5) {
+		return 2;
+	}
+	if (ratio <= 0.75) {
+		return 3;
+	}
+	return 4;
 }
 
 /** Share of the window's total score, for the type distribution bars. */
