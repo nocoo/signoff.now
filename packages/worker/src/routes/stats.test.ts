@@ -612,6 +612,11 @@ describe("statsSummaryRoute", () => {
 			["boolean dayKey", '[{"dayKey":true}]', true],
 			["array dayKey", '[{"dayKey":[]}]', true],
 			["unparseable dayKey", '[{"dayKey":"not-a-date"}]', true],
+			// Shape-valid but not a real date: a glob check would pass these, and
+			// `2026-02-30` silently normalises to March 2 — comparing against the
+			// window as a day it is not.
+			["impossible month/day", '[{"dayKey":"2026-13-45"}]', true],
+			["overflowing day", '[{"dayKey":"2026-02-30"}]', true],
 		];
 		for (const [name, union, shouldBlank] of shapes) {
 			sqlite = createSqliteD1();

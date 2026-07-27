@@ -238,10 +238,13 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		// siblings: `[{"dayKey":"1999-01-01"},"bad"]` published July even though
 		// the unreadable entry may BE the half-written July day.
 		//
-		// "Readable" means a `YYYY-MM-DD` STRING. A present-but-wrong-typed key
-		// (`{"dayKey":123}`) compares as neither inside nor outside the window,
-		// so an IS NULL test alone would wave it through — and this guard's whole
-		// premise is that the union may be corrupt.
+		// "Readable" means a STRING that survives a `date()` round trip. Shape
+		// alone is not enough: `2026-13-45` matches a `YYYY-MM-DD` glob but is no
+		// date, and `2026-02-30` silently normalises to March 2 — both would then
+		// compare against the window as something they are not. A wrong-typed key
+		// (`{"dayKey":123}`) is neither inside nor outside it, so an IS NULL test
+		// would wave that through too, and this guard's whole premise is that the
+		// union may be corrupt.
 		//
 		// `json_valid(d.value)` is load-bearing: `json_extract` on a scalar
 		// element raises "malformed JSON", which surfaces as a 500 rather than a
@@ -262,8 +265,8 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
                SELECT 1 FROM json_each(c.dev_day_union_json) d
                WHERE NOT json_valid(d.value)
                   OR json_type(d.value, '$.dayKey') IS NOT 'text'
-                  OR json_extract(d.value, '$.dayKey')
-                       NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+                  OR date(json_extract(d.value, '$.dayKey'))
+                       IS NOT json_extract(d.value, '$.dayKey')
              )
            )`,
 			)
