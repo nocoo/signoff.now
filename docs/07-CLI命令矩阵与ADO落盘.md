@@ -366,15 +366,23 @@ commitEligible = (baseCursor === null) || (from <= baseCursor)
 
 1. artifact ingest 成功 → 原子改写 manifest，把该 artifact 标 `complete`。
 2. 该 scope 全部 artifact 都 `complete` 且 `commitEligible` → 把 scope 标 `complete`（原子写）。
-3. **再**读回 manifest 确认 scope 已是 `complete`，才原子写 `cursor.json`。
+3. 该 scope 确为 `complete` 后，才原子写 `cursor.json`。
 
-崩溃恢复：**manifest 是唯一真相**。启动时扫 `.data/meta/runs/`，
-对每个 `complete` 但游标仍落后的 scope，补写 `cursor.json`（幂等）。
-反向不成立——游标领先于 manifest 属数据损坏，直接报错拒绝继续。
+> **实现现状（与上面三步一致，但不要读出多余承诺）**：第 3 步的判定用的是
+> 刚写出的 manifest 对象本身，**不是**重新从磁盘读一遍。两者在单写者约定下
+> 等价（同一进程刚写完自己的文件），要防的是"写 manifest 失败却推进游标"，
+> 而写失败会抛出、根本走不到第 3 步。
 
-`ingest normalized <file>` **如何知道自己属于哪个 scope**：不靠猜。
-CLI 反查 `.data/meta/runs/*.json`，找到含该 `path` 的 artifact；
-找不到 → 拒绝执行并提示先跑 `collect`（避免手工丢进来的文件推进游标）。
+崩溃恢复：**manifest 是唯一真相**，且**恢复由人驱动**——
+重新执行同一条 `ingest normalized <file> --manifest <manifest>` 即可，
+artifact 与 chunk 都是幂等的，已完成的部分不会重做。
+
+> **没有**启动时扫 `.data/meta/runs/` 自动补游标这回事，也**没有**
+> 由文件路径反查所属 manifest：`--manifest` 是必填参数，CLI 只读你指定的
+> 那一份，并在其中按 `path` 找到对应 artifact；找不到 → 拒绝执行并提示先跑
+> `collect`（避免手工丢进来的文件推进游标）。
+>
+> 游标领先于 manifest 属数据损坏，但目前**没有**启动自检去发现它。
 
 ### 7.2 Watermark 竞态
 
@@ -474,11 +482,22 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 | `AdoErrorKind` | 退出码 |
 |:---|:---|
 | `unauthenticated` / `forbidden` | `ENV` |
-| `rate_limited` / `server` | `SERVER` |
-| `not_found` / `bad_request` / `bad_response` | `CONTRACT` |
+| `rate_limited` / `server`（含网络中断） | `SERVER` |
+| `not_found` / `bad_request` / `bad_response`（含 raw zod 失败） | `CONTRACT` |
 | `result_too_large` | `RUNTIME`（分治收窄是 paging 的职责，冒到顶层即为缺陷） |
 
-非 `AdoError` 的异常仍为 `RUNTIME`。
+上表两处「含」是关键，否则上面那张场景表会落空：
+
+- **网络中断**：`fetchFn` 抛出（DNS 失败、连接重置）在 client 内被捕获，
+  与 5xx 共用同一重试预算；预算耗尽后抛 `AdoError("server")`。
+  不包这层的话它会以裸 `Error` 逃逸 → `RUNTIME`，等于告诉自动化
+  「网络抖动是程序缺陷」。
+- **raw zod 失败**：`collect.ts` 的 `parseRaw()` 把 `ZodError` 转成
+  `AdoError("bad_response")` 并带上字段路径与实体标识（如
+  `PR 1001 threads failed schema — id: expected number`）。裸 `.parse()`
+  同样会退出 `RUNTIME`，而真相是 ADO 的形状变了，运维需要知道是哪个字段。
+
+其余非 `AdoError` 的异常（真正的程序缺陷）仍为 `RUNTIME`。
 
 **限流**：当前实现是**串行**的（并发与 `--concurrency` 未实现）。threads/iterations
 是 per-PR 调用，PR 多时为主要耗时，大窗口会很慢 —— 用 `--since` 缩小窗口。
