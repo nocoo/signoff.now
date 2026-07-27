@@ -463,6 +463,26 @@ describe("statsSummaryRoute", () => {
 		});
 	});
 
+	test("a prepared chunk with no readable window still blanks", async () => {
+		// Unknown scope is not the same as out of scope. Treating a missing
+		// window as "somewhere else" would publish the very mismatch the guard
+		// exists to withhold.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedActivity({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			type: "pr.merged",
+		});
+		seedRunWithChunk({
+			runId: "01JRUNNOWINDOW0000000000",
+			runStatus: "chunked",
+			chunkStatus: "prepared",
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(true);
+	});
+
 	test("a chunked run between chunks still publishes", async () => {
 		// A run is `chunked` for its whole life. Guarding on that would blank the
 		// Dashboard for the entire duration of a multi-chunk ingest, and forever

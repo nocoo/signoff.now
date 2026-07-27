@@ -207,13 +207,24 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		// multi-chunk ingest — and forever if one were abandoned. It would also
 		// miss a `failed` run that left a prepared chunk, which the write path
 		// still lets the CLI resume, and whose data really is inconsistent.
+		//
+		// Scope it to runs whose window OVERLAPS the one being asked for. A
+		// stalled July ingest says nothing about January, and blanking every
+		// window makes one stuck run look like a broken product. The bounds come
+		// from `run_meta_json`, which the write path already validates.
+		//
+		// A run with no readable window counts as overlapping: unknown scope is
+		// not the same as out of scope, and guessing "elsewhere" would publish
+		// exactly the mismatched numbers this guard exists to withhold.
 		db
 			.prepare(
 				`SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
          FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
-         WHERE c.status = 'prepared' AND r.config_version = ?`,
+         WHERE c.status = 'prepared' AND r.config_version = ?
+           AND COALESCE(json_extract(r.run_meta_json, '$.windowFrom'), '') <= ?
+           AND COALESCE(json_extract(r.run_meta_json, '$.windowTo'), '9999-12-31') >= ?`,
 			)
-			.bind(version),
+			.bind(version, window.to, window.from),
 	]);
 
 	const rows = <T>(i: number): T[] => (results[i]?.results ?? []) as T[];

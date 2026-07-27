@@ -98,16 +98,18 @@ function body(over: Partial<IngestBody> = {}): IngestBody {
 	} as IngestBody;
 }
 
-async function summary(): Promise<StatsSummary> {
+async function summaryFor(query: string): Promise<StatsSummary> {
 	const app = new Hono<AppEnv>();
 	app.use("*", async (c, next) => {
 		c.env = { DB: sqlite.db } as AppEnv["Bindings"];
 		return next();
 	});
 	app.get("/api/stats/summary", statsSummaryRoute);
-	const res = await app.request(`/api/stats/summary${WINDOW}`);
+	const res = await app.request(`/api/stats/summary${query}`);
 	return (await res.json()) as StatsSummary;
 }
+
+const summary = () => summaryFor(WINDOW);
 
 const chunkStatuses = () =>
 	sqlite.raw
@@ -370,6 +372,52 @@ describe("the in-flight guard over a real ingest", () => {
 		await processIngestChunk(sqlite.db, body(), settings);
 		expect(chunkStatuses().every((c) => c.status === "completed")).toBe(true);
 		expect((await summary()).scoresStale).toBe(false);
+	});
+
+	test("an unrelated window's prepared chunk does not blank this one", async () => {
+		// A July ingest stalling must not hide January, whose numbers are whole
+		// and self-consistent. Blanking everything makes one stalled run look
+		// like a broken product.
+		sqlite.beforeBatch("INSERT INTO scores", () => {
+			throw new Error("crash on the July run");
+		});
+		const july = await processIngestChunk(
+			sqlite.db,
+			body({
+				runId: "01JAY7B4HXTMRP0VQZ0FKZH5F2",
+				runMeta: {
+					startedAt: 1_784_737_800,
+					source: "fixture",
+					windowFrom: "2026-07-01",
+					windowTo: "2026-07-31",
+					mode: "incremental",
+				},
+			} as Partial<IngestBody>),
+			settings,
+		);
+		expect(july.kind).not.toBe("ok");
+		expect(chunkStatuses()).toEqual([{ chunk_index: 0, status: "prepared" }]);
+
+		// The July window is genuinely unsettled and must say so.
+		expect((await summary()).scoresStale).toBe(true);
+
+		// Neither a window entirely before the stalled run nor one entirely
+		// after it is affected — both bounds of the overlap must hold.
+		const jan = await summaryFor("?from=2026-01-01&to=2026-01-31");
+		expect(jan.scoresStale).toBe(false);
+		const oct = await summaryFor("?from=2026-10-01&to=2026-10-31");
+		expect(oct.scoresStale).toBe(false);
+	});
+
+	test("a prepared chunk whose window overlaps still blanks", async () => {
+		// Partial overlap is enough: the activities that landed may fall inside
+		// the requested days even when the windows are not identical.
+		sqlite.beforeBatch("INSERT INTO scores", () => {
+			throw new Error("crash");
+		});
+		await processIngestChunk(sqlite.db, body(), settings);
+		const overlapping = await summaryFor("?from=2026-07-20&to=2026-08-10");
+		expect(overlapping.scoresStale).toBe(true);
 	});
 
 	test("the same ingest gives the heatmap and the Dashboard the same score", async () => {
