@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AdoError, type AdoErrorKind } from "../ado/client.ts";
 import { ExitCode } from "../exit-codes.ts";
-import { exitCodeForError } from "./exit-code-for-error.ts";
+import { describeError, exitCodeForError } from "./exit-code-for-error.ts";
 
 const code = (kind: AdoErrorKind) => exitCodeForError(new AdoError(kind, kind));
 
@@ -51,5 +51,51 @@ describe("exitCodeForError", () => {
 			expect(code(kind as AdoErrorKind)).toBe(expected);
 		}
 		expect(new Set(Object.values(all)).size).toBe(4);
+	});
+});
+
+describe("pipeline client errors", () => {
+	// These are plain object literals, not Error subclasses — the shape
+	// `pipeline/client.ts` actually throws.
+	const perr = (status: number) => ({
+		status,
+		body: null,
+		message: `HTTP ${status}`,
+	});
+
+	test("our own Worker's outages are retryable, not bugs", () => {
+		expect(exitCodeForError(perr(500))).toBe(ExitCode.SERVER);
+		expect(exitCodeForError(perr(503))).toBe(ExitCode.SERVER);
+		expect(exitCodeForError(perr(429))).toBe(ExitCode.SERVER);
+		// status 0 is the client's marker for a transport failure.
+		expect(exitCodeForError(perr(0))).toBe(ExitCode.SERVER);
+	});
+
+	test("auth against our own Worker is an environment problem", () => {
+		expect(exitCodeForError(perr(401))).toBe(ExitCode.ENV);
+		expect(exitCodeForError(perr(403))).toBe(ExitCode.ENV);
+	});
+
+	test("a rejected request is a contract failure", () => {
+		expect(exitCodeForError(perr(422))).toBe(ExitCode.CONTRACT);
+		expect(exitCodeForError(perr(404))).toBe(ExitCode.CONTRACT);
+	});
+});
+
+describe("describeError", () => {
+	test("renders a pipeline error instead of [object Object]", () => {
+		// String() on an object literal is useless to an operator.
+		const msg = describeError({
+			status: 503,
+			body: null,
+			message: "HTTP 503 /api/pipeline/bootstrap",
+		});
+		expect(msg).toBe("HTTP 503 /api/pipeline/bootstrap");
+	});
+
+	test("falls back sensibly for Errors and anything else", () => {
+		expect(describeError(new Error("boom"))).toBe("boom");
+		expect(describeError("plain string")).toBe("plain string");
+		expect(describeError(undefined)).toBe("undefined");
 	});
 });

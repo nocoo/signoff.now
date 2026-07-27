@@ -15,7 +15,7 @@ import { ExitCode } from "../exit-codes.ts";
 import type { Logger } from "../logger.ts";
 import type { PipelineClient } from "../pipeline/client.ts";
 import { type CollectFlags, validateCollectFlags } from "./collect-flags.ts";
-import { exitCodeForError } from "./exit-code-for-error.ts";
+import { describeError, exitCodeForError } from "./exit-code-for-error.ts";
 
 export type RunCollectDeps = {
 	flags: CollectFlags;
@@ -47,7 +47,7 @@ export async function runCollect(deps: RunCollectDeps): Promise<number> {
 	try {
 		snapshot = await deps.client.bootstrap();
 	} catch (e) {
-		log.error(e instanceof Error ? e.message : String(e));
+		log.error(describeError(e));
 		return exitCodeForError(e);
 	}
 
@@ -111,7 +111,7 @@ export async function runCollect(deps: RunCollectDeps): Promise<number> {
 	} catch (e) {
 		// Keep the AdoError taxonomy alive to the process boundary: "log in
 		// again" and "retry later" need different responses.
-		log.error(e instanceof Error ? e.message : String(e));
+		log.error(describeError(e));
 		return exitCodeForError(e);
 	}
 

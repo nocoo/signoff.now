@@ -34,6 +34,7 @@ import {
 	isPipelineClientError,
 	type PipelineClient,
 } from "../pipeline/client.ts";
+import { describeError } from "./exit-code-for-error.ts";
 
 export type IngestNormalizedOptions = {
 	filePath: string;
@@ -177,13 +178,13 @@ export async function postWithRetry(
 				const status = isPipelineClientError(e) ? e.status : 0;
 				return {
 					code: ExitCode.CONTRACT,
-					error: `ingest HTTP ${status}: ${e instanceof Error ? e.message : "rejected"}`,
+					error: `ingest HTTP ${status}: ${describeError(e)}`,
 				};
 			}
 			if (attempt >= MAX_INGEST_ATTEMPTS) {
 				return {
 					code: ExitCode.SERVER,
-					error: `ingest failed after ${attempt} attempts: ${e instanceof Error ? e.message : "unknown"}`,
+					error: `ingest failed after ${attempt} attempts: ${describeError(e)}`,
 				};
 			}
 			const backoff = 100 * 2 ** (attempt - 1);
@@ -347,7 +348,7 @@ async function finishRematch(
 		// Unverifiable is not the same as verified. Clearing the global flag on
 		// a failed check would be the exact outcome the check exists to prevent.
 		opts.log.error(
-			`cannot verify repo bindings before clearing stale: ${e instanceof Error ? e.message : "unknown"}; ` +
+			`cannot verify repo bindings before clearing stale: ${describeError(e)}; ` +
 				"scores stay stale — re-run this ingest to retry",
 		);
 		return ExitCode.SERVER;
@@ -378,7 +379,7 @@ async function finishRematch(
 		return ExitCode.OK;
 	} catch (e) {
 		opts.log.error(
-			`recompute/complete failed: ${e instanceof Error ? e.message : "unknown"}; re-run this ingest to retry`,
+			`recompute/complete failed: ${describeError(e)}; re-run this ingest to retry`,
 		);
 		return ExitCode.SERVER;
 	}

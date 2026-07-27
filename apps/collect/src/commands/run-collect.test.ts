@@ -130,7 +130,50 @@ describe("runCollect error mapping", () => {
 		expect(await runCollect(h.deps)).toBe(ExitCode.SERVER);
 	});
 
-	test("a bootstrap failure is mapped too, not just the collect call", async () => {
+	test("a real Worker outage maps to SERVER with a readable message", async () => {
+		// `pipeline/client.ts` throws a plain OBJECT LITERAL, not an Error
+		// subclass. An earlier version of this test injected an AdoError — a type
+		// the production path never produces — so it passed while a real 503
+		// exited RUNTIME and logged "[object Object]".
+		const h = harness({
+			client: {
+				async bootstrap() {
+					throw {
+						status: 503,
+						body: null,
+						message: "HTTP 503 /api/pipeline/bootstrap",
+					};
+				},
+			},
+		});
+		expect(await runCollect(h.deps)).toBe(ExitCode.SERVER);
+		expect(h.errors[0]).toBe("HTTP 503 /api/pipeline/bootstrap");
+		expect(h.errors[0]).not.toContain("[object Object]");
+	});
+
+	test("an unauthorized Worker tells the operator to fix their access", async () => {
+		const h = harness({
+			client: {
+				async bootstrap() {
+					throw { status: 403, body: null, message: "HTTP 403" };
+				},
+			},
+		});
+		expect(await runCollect(h.deps)).toBe(ExitCode.ENV);
+	});
+
+	test("a Worker 4xx is a contract failure, not something to retry", async () => {
+		const h = harness({
+			client: {
+				async bootstrap() {
+					throw { status: 422, body: null, message: "HTTP 422" };
+				},
+			},
+		});
+		expect(await runCollect(h.deps)).toBe(ExitCode.CONTRACT);
+	});
+
+	test("an AdoError from bootstrap is still mapped", async () => {
 		const h = harness({
 			client: {
 				async bootstrap() {
