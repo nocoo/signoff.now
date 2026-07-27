@@ -374,7 +374,7 @@ describe("the in-flight guard over a real ingest", () => {
 		expect((await summary()).scoresStale).toBe(false);
 	});
 
-	test("an unrelated window's prepared chunk does not blank this one", async () => {
+	test("a stalled run does not blank days it never touched", async () => {
 		// A July ingest stalling must not hide January, whose numbers are whole
 		// and self-consistent. Blanking everything makes one stalled run look
 		// like a broken product.
@@ -401,23 +401,73 @@ describe("the in-flight guard over a real ingest", () => {
 		// The July window is genuinely unsettled and must say so.
 		expect((await summary()).scoresStale).toBe(true);
 
-		// Neither a window entirely before the stalled run nor one entirely
-		// after it is affected — both bounds of the overlap must hold.
+		// Neither a window entirely before the affected day nor one entirely
+		// after it is hidden — both bounds must hold.
 		const jan = await summaryFor("?from=2026-01-01&to=2026-01-31");
 		expect(jan.scoresStale).toBe(false);
 		const oct = await summaryFor("?from=2026-10-01&to=2026-10-31");
 		expect(oct.scoresStale).toBe(false);
 	});
 
-	test("a prepared chunk whose window overlaps still blanks", async () => {
-		// Partial overlap is enough: the activities that landed may fall inside
-		// the requested days even when the windows are not identical.
+	test("a request overlapping the affected day still blanks", async () => {
+		// Partial overlap is enough: the day that landed half-written falls
+		// inside the requested range even though the ranges differ.
 		sqlite.beforeBatch("INSERT INTO scores", () => {
 			throw new Error("crash");
 		});
 		await processIngestChunk(sqlite.db, body(), settings);
 		const overlapping = await summaryFor("?from=2026-07-20&to=2026-08-10");
 		expect(overlapping.scoresStale).toBe(true);
+	});
+
+	test("a day the run actually touched is blanked even outside its declared window", async () => {
+		// The declared window is not the affected days. Asia/Shanghai pushes a
+		// 20:00Z event into the NEXT day, so the shipped CLI on the default
+		// timezone routinely writes a day_key past its own windowTo. Scoping on
+		// the declaration would publish that half-written day as settled.
+		sqlite.beforeBatch("INSERT INTO scores", () => {
+			throw new Error("crash");
+		});
+		const res = await processIngestChunk(
+			sqlite.db,
+			body({
+				runMeta: {
+					startedAt: 1_784_737_800,
+					source: "fixture",
+					windowFrom: "2026-07-01",
+					windowTo: "2026-07-31",
+					mode: "incremental",
+				},
+				activities: [
+					{
+						type: "pr.merged",
+						// 2026-07-31T20:00Z is already 2026-08-01 in Asia/Shanghai.
+						occurredAt: Date.parse("2026-07-31T20:00:00Z") / 1000,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "life@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 9 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+		expect(res.kind).not.toBe("ok");
+
+		// Confirm the premise rather than assuming it.
+		const day = (
+			sqlite.raw.query("SELECT day_key FROM activities").get() as {
+				day_key: string;
+			}
+		).day_key;
+		expect(day).toBe("2026-08-01");
+
+		// August is outside the declared window but IS the day left half-written.
+		const aug = await summaryFor("?from=2026-08-01&to=2026-08-05");
+		expect(aug.scoresStale).toBe(true);
 	});
 
 	test("the same ingest gives the heatmap and the Dashboard the same score", async () => {

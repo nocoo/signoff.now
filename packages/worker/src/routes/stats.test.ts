@@ -407,6 +407,8 @@ describe("statsSummaryRoute", () => {
 		runStatus: "chunked" | "finalized" | "failed";
 		chunkStatus: "prepared" | "completed" | null;
 		configVersion?: number;
+		/** The days the chunk touches — what the guard actually scopes on. */
+		unionDays?: string[];
 	}) {
 		sqlite.raw
 			.query(
@@ -420,9 +422,18 @@ describe("statsSummaryRoute", () => {
 				.query(
 					`INSERT INTO ingest_chunks
              (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
-           VALUES (?, 0, ?, 'd', '[]', NULL)`,
+           VALUES (?, 0, ?, 'd', ?, NULL)`,
 				)
-				.run(opts.runId, opts.chunkStatus);
+				.run(
+					opts.runId,
+					opts.chunkStatus,
+					JSON.stringify(
+						(opts.unionDays ?? ["2026-07-02"]).map((dayKey) => ({
+							developerId: DEV_A,
+							dayKey,
+						})),
+					),
+				);
 		}
 	}
 
@@ -447,7 +458,8 @@ describe("statsSummaryRoute", () => {
 			.query(
 				`INSERT INTO ingest_chunks
            (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
-         VALUES ('01JRUNINFLIGHT0000000000', 0, 'prepared', 'd', '[]', NULL)`,
+         VALUES ('01JRUNINFLIGHT0000000000', 0, 'prepared', 'd',
+                 '[{"developerId":"01K0STATSDEVA0000000000000","dayKey":"2026-07-02"}]', NULL)`,
 			)
 			.run();
 
@@ -463,10 +475,10 @@ describe("statsSummaryRoute", () => {
 		});
 	});
 
-	test("a prepared chunk with no readable window still blanks", async () => {
-		// Unknown scope is not the same as out of scope. Treating a missing
-		// window as "somewhere else" would publish the very mismatch the guard
-		// exists to withhold.
+	test("a prepared chunk with an empty affected-day list still blanks", async () => {
+		// Unknown scope is not the same as out of scope. A mid-flight chunk with
+		// no affected dev-days should not exist, so an empty list means the
+		// stored state is not what we think it is — fail closed.
 		seedDeveloper(DEV_A, "Ada", "ada");
 		seedActivity({
 			developerId: DEV_A,
@@ -477,10 +489,64 @@ describe("statsSummaryRoute", () => {
 			runId: "01JRUNNOWINDOW0000000000",
 			runStatus: "chunked",
 			chunkStatus: "prepared",
+			unionDays: [],
 		});
 
 		const body = await summary("?from=2026-07-01&to=2026-07-10");
 		expect(body.scoresStale).toBe(true);
+	});
+
+	test("a prepared chunk touching only other days does not blank this window", async () => {
+		// The reason the guard is scoped at all: one stalled run must not make
+		// the whole product look broken.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedScore({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			breakdown: { "pr.merged": 10 },
+			activityCount: 1,
+		});
+		seedRunWithChunk({
+			runId: "01JRUNELSEWHERE000000000",
+			runStatus: "chunked",
+			chunkStatus: "prepared",
+			unionDays: ["2026-01-15"],
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(false);
+		expect(body.totals.score).toBe(10);
+	});
+
+	test("a union that is valid JSON but not an array still blanks", async () => {
+		// `json_valid` accepts an object, so the 0006 CHECK does not rule this
+		// out. `json_array_length` then returns NULL and the day scan matches
+		// nothing — which without the IS NULL arm would publish a half-written
+		// window as settled.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedActivity({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			type: "pr.merged",
+		});
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_runs
+           (id, started_at, status, config_version, mode, run_meta_json)
+         VALUES ('01JRUNBADUNION0000000000', 1, 'chunked', 1, 'incremental', '{}')`,
+			)
+			.run();
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_chunks
+           (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
+         VALUES ('01JRUNBADUNION0000000000', 0, 'prepared', 'd', ?, NULL)`,
+			)
+			.run('{"not":"an array"}');
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(true);
+		expect(body.staleReason).toContain("01JRUNBADUNION0000000000");
 	});
 
 	test("a chunked run between chunks still publishes", async () => {

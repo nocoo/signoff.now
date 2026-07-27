@@ -208,23 +208,43 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		// miss a `failed` run that left a prepared chunk, which the write path
 		// still lets the CLI resume, and whose data really is inconsistent.
 		//
-		// Scope it to runs whose window OVERLAPS the one being asked for. A
-		// stalled July ingest says nothing about January, and blanking every
-		// window makes one stuck run look like a broken product. The bounds come
-		// from `run_meta_json`, which the write path already validates.
+		// Scope it by the days the chunk ACTUALLY touches — `dev_day_union_json`,
+		// which the write path already stores for its own resume path — not by
+		// the window the run declared. The two differ routinely:
 		//
-		// A run with no readable window counts as overlapping: unknown scope is
-		// not the same as out of scope, and guessing "elsewhere" would publish
-		// exactly the mismatched numbers this guard exists to withhold.
+		//   - the CLI derives `windowTo` from a UTC watermark while day keys use
+		//     the configured timezone, so a 20:00Z event under Asia/Shanghai
+		//     lands on the NEXT day, past the declared end;
+		//   - a rematch pulls prior day keys out of `activities` by external_ref,
+		//     and those can be any date at all.
+		//
+		// Scoping on the declaration would then publish a half-written day as
+		// settled. Scoping on the union cannot: it is the same list the resume
+		// path recomputes scores from.
+		//
+		// An EMPTY union blanks every window. A chunk with no affected dev-days
+		// should not exist mid-flight, so `[]` means the stored state is not
+		// what we think it is — and the last time a shape like this was judged
+		// harmless (an optional key in a raw schema), it reopened exactly the
+		// silent-skip it was added to close.
+		//
+		// `json_array_length` returns 0 for a JSON OBJECT too (measured, not
+		// assumed), so a `json_valid` payload of the wrong shape lands here as
+		// well. No separate IS NULL arm is needed — one would never fire.
 		db
 			.prepare(
 				`SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
          FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
          WHERE c.status = 'prepared' AND r.config_version = ?
-           AND COALESCE(json_extract(r.run_meta_json, '$.windowFrom'), '') <= ?
-           AND COALESCE(json_extract(r.run_meta_json, '$.windowTo'), '9999-12-31') >= ?`,
+           AND (
+             json_array_length(c.dev_day_union_json) = 0
+             OR EXISTS (
+               SELECT 1 FROM json_each(c.dev_day_union_json) d
+               WHERE json_extract(d.value, '$.dayKey') BETWEEN ? AND ?
+             )
+           )`,
 			)
-			.bind(version, window.to, window.from),
+			.bind(version, window.from, window.to),
 	]);
 
 	const rows = <T>(i: number): T[] => (results[i]?.results ?? []) as T[];
