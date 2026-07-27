@@ -19,6 +19,7 @@ describe("D1 migrations", () => {
 		expect(files).toContain("0005_normalize_activity_weights.sql");
 		expect(files).toContain("0006_ingest_run_states.sql");
 		expect(files).toContain("0007_dashboard_indexes.sql");
+		expect(files).toContain("0008_align_ingest_run_index.sql");
 		expect(files).toEqual([...files].sort((a, b) => a.localeCompare(b)));
 	});
 
