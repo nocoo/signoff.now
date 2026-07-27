@@ -1,0 +1,52 @@
+{
+	"count": 3,
+	"value": [
+		{
+			"id": 1,
+			"rev": 1,
+			"revisedDate": "2026-07-23T02:44:54.593Z",
+			"revisedBy": {
+				"id": "a2584a37-5ada-4681-89ca-1965752614e7",
+				"uniqueName": "dev1@example.com",
+				"displayName": "Dev 1"
+			},
+			"fields": {
+				"System.State": {
+					"newValue": "New"
+				},
+				"System.ChangedDate": {
+					"newValue": "2026-07-23T02:18:36.82Z"
+				},
+				"System.Title": {
+					"newValue": "<redacted>"
+				}
+			}
+		},
+		{
+			"id": 2,
+			"rev": 1,
+			"revisedDate": "2026-07-23T02:38:33.03Z",
+			"revisedBy": {
+				"id": "a2584a37-5ada-4681-89ca-1965752614e7",
+				"uniqueName": "dev1@example.com",
+				"displayName": "Dev 1"
+			}
+		},
+		{
+			"id": 3,
+			"rev": 2,
+			"revisedDate": "2026-07-23T02:48:45.193Z",
+			"revisedBy": {
+				"id": "a2584a37-5ada-4681-89ca-1965752614e7",
+				"uniqueName": "dev1@example.com",
+				"displayName": "Dev 1"
+			},
+			"fields": {
+				"System.ChangedDate": {
+					"newValue": "2026-07-23T02:44:54.593Z",
+					"oldValue": "2026-07-23T02:18:36.82Z"
+				}
+			}
+		}
+	]
+}

@@ -1,0 +1,525 @@
+{
+	"count": 18,
+	"value": [
+		{
+			"id": 30942422,
+			"publishedDate": "2026-07-24T14:20:15.83Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "PolicyStatusUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:20:15.83Z",
+					"commentType": "system",
+					"author": {
+						"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+						"uniqueName": "dev1@example.com",
+						"displayName": "Dev 1"
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30942423,
+			"publishedDate": "2026-07-24T14:20:16.13Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "IsDraftUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:20:16.13Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30942432,
+			"publishedDate": "2026-07-24T14:20:47.533Z",
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:20:47.533Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 2,
+					"publishedDate": "2026-07-24T14:21:30.213Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 3,
+					"publishedDate": "2026-07-24T18:23:30.463Z",
+					"commentType": "text",
+					"author": {
+						"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+						"uniqueName": "dev1@example.com",
+						"displayName": "Dev 1"
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 4,
+					"publishedDate": "2026-07-24T18:24:10.607Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 5,
+					"publishedDate": "2026-07-24T22:32:24.25Z",
+					"commentType": "text",
+					"author": {
+						"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+						"uniqueName": "dev1@example.com",
+						"displayName": "Dev 1"
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 6,
+					"publishedDate": "2026-07-24T22:32:56.223Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30942438,
+			"publishedDate": "2026-07-24T14:21:39.66Z",
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:21:39.66Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30942516,
+			"publishedDate": "2026-07-24T14:26:30.413Z",
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:26:30.413Z",
+					"commentType": null,
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30942517,
+			"publishedDate": "2026-07-24T14:26:31.567Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "ReviewersUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:26:31.567Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30942618,
+			"publishedDate": "2026-07-24T14:34:45.117Z",
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T14:34:45.117Z",
+					"commentType": null,
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 2,
+					"publishedDate": "2026-07-24T14:34:45.24Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 3,
+					"publishedDate": "2026-07-24T14:43:38.72Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30943307,
+			"publishedDate": "2026-07-24T15:20:18.743Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "AutoCompleteUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T15:20:18.743Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30943308,
+			"publishedDate": "2026-07-24T15:20:23.007Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "ReviewersUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T15:20:23.007Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30943309,
+			"publishedDate": "2026-07-24T15:20:23.117Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "VoteUpdate"
+				},
+				"CodeReviewVoteResult": {
+					"$type": "System.String",
+					"$value": "10"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T15:20:23.117Z",
+					"commentType": "system",
+					"author": {
+						"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+						"uniqueName": "dev1@example.com",
+						"displayName": "Dev 1"
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30943661,
+			"publishedDate": "2026-07-24T15:46:47.11Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "ReviewersUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T15:46:47.11Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30943662,
+			"publishedDate": "2026-07-24T15:46:47.24Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "VoteUpdate"
+				},
+				"CodeReviewVoteResult": {
+					"$type": "System.String",
+					"$value": "10"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-24T15:46:47.24Z",
+					"commentType": "system",
+					"author": {
+						"id": "fa05a15a-17d1-4299-8f1a-9e8323fafa51",
+						"uniqueName": "dev2@example.com",
+						"displayName": "Dev 2"
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30956901,
+			"publishedDate": "2026-07-25T06:26:58.02Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "ReviewersUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-25T06:26:58.02Z",
+					"commentType": "system",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30956902,
+			"publishedDate": "2026-07-25T06:26:58.153Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "VoteUpdate"
+				},
+				"CodeReviewVoteResult": {
+					"$type": "System.String",
+					"$value": "10"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-25T06:26:58.153Z",
+					"commentType": "system",
+					"author": {
+						"id": "117f92d9-6815-422b-848f-625216180cc0",
+						"uniqueName": "dev3@example.com",
+						"displayName": "Dev 3"
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30960046,
+			"publishedDate": "2026-07-26T20:09:25.297Z",
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-26T20:09:25.297Z",
+					"commentType": null,
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 2,
+					"publishedDate": "2026-07-26T20:09:25.42Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 3,
+					"publishedDate": "2026-07-26T20:09:25.613Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				},
+				{
+					"id": 4,
+					"publishedDate": "2026-07-26T20:18:31.35Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30960109,
+			"publishedDate": "2026-07-26T21:48:35.563Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "PolicyStatusUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-26T21:48:35.563Z",
+					"commentType": "system",
+					"author": {
+						"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+						"uniqueName": "dev1@example.com",
+						"displayName": "Dev 1"
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30960110,
+			"publishedDate": "2026-07-26T21:48:36.49Z",
+			"properties": {
+				"CodeReviewThreadType": {
+					"$type": "System.String",
+					"$value": "StatusUpdate"
+				}
+			},
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-26T21:48:36.49Z",
+					"commentType": "system",
+					"author": {
+						"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+						"uniqueName": "dev1@example.com",
+						"displayName": "Dev 1"
+					},
+					"content": "<redacted>"
+				}
+			]
+		},
+		{
+			"id": 30960111,
+			"publishedDate": "2026-07-26T21:50:18.33Z",
+			"comments": [
+				{
+					"id": 1,
+					"publishedDate": "2026-07-26T21:50:18.33Z",
+					"commentType": "text",
+					"author": {
+						"id": "c5e9a582-ab90-4421-8182-e725c4f23f1a",
+						"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+						"displayName": "Review Group",
+						"isContainer": true
+					},
+					"content": "<redacted>"
+				}
+			]
+		}
+	]
+}

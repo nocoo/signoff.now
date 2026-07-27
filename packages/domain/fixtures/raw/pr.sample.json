@@ -1,0 +1,51 @@
+{
+	"count": 1,
+	"value": [
+		{
+			"pullRequestId": 1615473,
+			"status": "completed",
+			"creationDate": "2026-07-02T23:09:27.0377773Z",
+			"createdBy": {
+				"id": "64520a60-841a-4958-846e-2d9172bcbf16",
+				"uniqueName": "dev1@example.com",
+				"displayName": "Dev 1"
+			},
+			"repository": {
+				"id": "11111111-1111-4111-8111-111111111111",
+				"name": "alpha-repo",
+				"project": {
+					"id": "22222222-2222-4222-8222-222222222222",
+					"name": "Alpha"
+				}
+			},
+			"closedDate": "2026-07-26T21:48:35.6338351Z",
+			"mergeStatus": "succeeded",
+			"isDraft": false,
+			"lastMergeCommit": {
+				"commitId": "452e757b-9eab-4681-8317-4fc62fb1fba8"
+			},
+			"reviewers": [
+				{
+					"id": "1cef282f-f5d5-4ae4-8d96-a2f388b3a6e7",
+					"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+					"displayName": "Review Group",
+					"isContainer": true,
+					"vote": 10
+				},
+				{
+					"id": "93e50406-95a5-473e-85d6-d45d688e55b3",
+					"uniqueName": "vstfs:///Classification/TeamProject/89a34f88-6685-43bf-8159-7878ae0bc506\\Review Group",
+					"displayName": "Review Group",
+					"isContainer": true,
+					"vote": 10
+				},
+				{
+					"id": "fa05a15a-17d1-4299-8f1a-9e8323fafa51",
+					"uniqueName": "dev2@example.com",
+					"displayName": "Dev 2",
+					"vote": 10
+				}
+			]
+		}
+	]
+}

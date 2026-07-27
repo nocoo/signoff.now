@@ -36,6 +36,25 @@ export {
 	rawPath,
 } from "./paths.js";
 export {
+	adoInstant,
+	adoListSchema,
+	RAW_SCHEMA_VERSION,
+	type RawEnvelope,
+	type RawIdentity,
+	type RawIteration,
+	type RawPr,
+	type RawThread,
+	type RawWiUpdate,
+	type RawWorkItem,
+	rawEnvelopeSchema,
+	rawIdentitySchema,
+	rawIterationSchema,
+	rawPrSchema,
+	rawThreadSchema,
+	rawWiUpdateSchema,
+	rawWorkItemSchema,
+} from "./raw.js";
+export {
 	type ActivityWithDayKey,
 	aggregateScores,
 } from "./score.js";
