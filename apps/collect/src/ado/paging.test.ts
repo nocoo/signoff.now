@@ -480,6 +480,62 @@ describe("fetchWorkItemIds", () => {
 		});
 		expect(r.problems).toHaveLength(1);
 		expect(r.problems[0]?.reason).toContain("earliest work item");
+		// And say WHY. Without it the operator cannot tell a permissions problem
+		// from a shape change from a flaky network — three different next steps.
+		expect(r.problems[0]?.reason).toMatch(/System\.ChangedDate|\(.+\)/);
+	});
+
+	test("a failing floor probe reports the underlying error", async () => {
+		const client: AdoClient = {
+			async get() {
+				return { value: [] };
+			},
+			async post(_u, body) {
+				const q = (body as { query: string }).query;
+				if (q.includes("ORDER BY [System.ChangedDate] ASC")) {
+					throw new AdoError("forbidden", "no access to this project", 403);
+				}
+				throw new AdoError("result_too_large", "cap", 400, "VS402337");
+			},
+			invalidateToken() {},
+		};
+		const r = await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+		});
+		expect(r.problems).toHaveLength(1);
+		expect(r.problems[0]?.reason).toContain("no access to this project");
+	});
+
+	test("a project with no work items at all sweeps clean", async () => {
+		// Zero rows genuinely means empty: an inaccessible or misspelled project
+		// answers 400, not an empty list (measured against live ADO). So this
+		// must NOT be reported as a coverage gap.
+		const client: AdoClient = {
+			async get() {
+				return { value: [] };
+			},
+			async post(_u, body) {
+				const q = (body as { query: string }).query;
+				if (q.includes("ORDER BY [System.ChangedDate] ASC")) {
+					return { workItems: [] };
+				}
+				throw new AdoError("result_too_large", "cap", 400, "VS402337");
+			},
+			invalidateToken() {},
+		};
+		const r = await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+		});
+		expect(r.items).toEqual([]);
+		expect(r.problems).toEqual([]);
 	});
 
 	test("the backwards walk has a step budget and reports when it runs out", async () => {

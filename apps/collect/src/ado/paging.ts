@@ -157,7 +157,9 @@ export function wiqlDay(instant: string, addDays = 0): string {
  * any doubt is deliberate: the caller reports a problem rather than treating
  * "we could not check" as "there is nothing there".
  */
-async function oldestChangedDate(q: WiqlQuery): Promise<string | null> {
+async function oldestChangedDate(
+	q: WiqlQuery,
+): Promise<{ floor: string } | { error: string }> {
 	try {
 		const res = parseRaw(
 			wiqlResultSchema,
@@ -169,7 +171,9 @@ async function oldestChangedDate(q: WiqlQuery): Promise<string | null> {
 		const id = res.workItems[0]?.id;
 		if (id === undefined) {
 			// A project with no work items at all: the sweep is trivially whole.
-			return new Date().toISOString();
+			// Zero rows really does mean empty — an inaccessible or misspelled
+			// project answers 400, not an empty list (measured against live ADO).
+			return { floor: new Date().toISOString() };
 		}
 		const item = parseRaw(
 			oldestItemSchema,
@@ -182,10 +186,13 @@ async function oldestChangedDate(q: WiqlQuery): Promise<string | null> {
 		);
 		const changed = item.fields["System.ChangedDate"];
 		return typeof changed === "string" && Number.isFinite(Date.parse(changed))
-			? changed
-			: null;
-	} catch {
-		return null;
+			? { floor: changed }
+			: { error: `work item ${id} has no readable System.ChangedDate` };
+	} catch (e) {
+		// Keep WHY. "could not determine the earliest work item" alone leaves the
+		// operator guessing between a permissions problem, a shape change, and a
+		// flaky network — three different next actions.
+		return { error: e instanceof Error ? e.message : "unknown" };
 	}
 }
 
@@ -296,15 +303,15 @@ export async function fetchWorkItemIds(
 	 * history actually goes.
 	 */
 	const runOpenEnded = async (to: string, depth: number): Promise<void> => {
-		const floor = await oldestChangedDate(q);
-		if (floor === null) {
+		const probe = await oldestChangedDate(q);
+		if ("error" in probe) {
 			// No floor and no answer: say so rather than assume emptiness.
 			problems.push({
-				reason:
-					"could not determine the project's earliest work item, so an open-ended window cannot be proven covered",
+				reason: `could not determine the project's earliest work item (${probe.error}), so an open-ended window cannot be proven covered`,
 			});
 			return;
 		}
+		const floor = probe.floor;
 
 		let end = to;
 		let spanDays = 30;
