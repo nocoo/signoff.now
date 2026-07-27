@@ -475,27 +475,6 @@ describe("statsSummaryRoute", () => {
 		});
 	});
 
-	test("a prepared chunk with an empty affected-day list still blanks", async () => {
-		// Unknown scope is not the same as out of scope. A mid-flight chunk with
-		// no affected dev-days should not exist, so an empty list means the
-		// stored state is not what we think it is — fail closed.
-		seedDeveloper(DEV_A, "Ada", "ada");
-		seedActivity({
-			developerId: DEV_A,
-			dayKey: "2026-07-02",
-			type: "pr.merged",
-		});
-		seedRunWithChunk({
-			runId: "01JRUNNOWINDOW0000000000",
-			runStatus: "chunked",
-			chunkStatus: "prepared",
-			unionDays: [],
-		});
-
-		const body = await summary("?from=2026-07-01&to=2026-07-10");
-		expect(body.scoresStale).toBe(true);
-	});
-
 	test("a prepared chunk touching only other days does not blank this window", async () => {
 		// The reason the guard is scoped at all: one stalled run must not make
 		// the whole product look broken.
@@ -520,9 +499,9 @@ describe("statsSummaryRoute", () => {
 
 	test("a union that is valid JSON but not an array still blanks", async () => {
 		// `json_valid` accepts an object, so the 0006 CHECK does not rule this
-		// out. `json_array_length` then returns NULL and the day scan matches
-		// nothing — which without the IS NULL arm would publish a half-written
-		// window as settled.
+		// out. `json_array_length` returns 0 for an object (measured), which is
+		// indistinguishable from a legitimately empty union — so the two are
+		// told apart by `json_type`, not by length.
 		seedDeveloper(DEV_A, "Ada", "ada");
 		seedActivity({
 			developerId: DEV_A,
@@ -547,6 +526,60 @@ describe("statsSummaryRoute", () => {
 		const body = await summary("?from=2026-07-01&to=2026-07-10");
 		expect(body.scoresStale).toBe(true);
 		expect(body.staleReason).toContain("01JRUNBADUNION0000000000");
+	});
+
+	test("a zero-activity chunk does not blank every window", async () => {
+		// `writeArtifacts` deliberately emits a zero-activity artifact to carry
+		// `unmatched`/`skipped`, and `activities` has no `.min(1)`, so a chunk
+		// whose union is `[]` is legitimate — not evidence of corruption. If it
+		// crashes before Phase 3 it has touched no score day at all, yet the
+		// "fail closed on empty" arm would blank the Dashboard everywhere.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedScore({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			breakdown: { "pr.merged": 10 },
+			activityCount: 1,
+		});
+		seedRunWithChunk({
+			runId: "01JRUNEMPTYUNION00000000",
+			runStatus: "chunked",
+			chunkStatus: "prepared",
+			unionDays: [],
+		});
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(false);
+		expect(body.totals.score).toBe(10);
+	});
+
+	test("a union array of the wrong shape still blanks", async () => {
+		// `[{"day_key":"…"}]` has length 1, so it misses the empty arm, and
+		// `$.dayKey` extracts NULL, so the day scan matches nothing — the half
+		// written day would be published as settled.
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedActivity({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			type: "pr.merged",
+		});
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_runs
+           (id, started_at, status, config_version, mode, run_meta_json)
+         VALUES ('01JRUNBADSHAPE0000000000', 1, 'chunked', 1, 'incremental', '{}')`,
+			)
+			.run();
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_chunks
+           (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
+         VALUES ('01JRUNBADSHAPE0000000000', 0, 'prepared', 'd', ?, NULL)`,
+			)
+			.run('[{"day_key":"2026-07-02"}]');
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(true);
 	});
 
 	test("a chunked run between chunks still publishes", async () => {

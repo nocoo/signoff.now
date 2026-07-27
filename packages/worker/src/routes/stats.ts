@@ -222,25 +222,39 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		// settled. Scoping on the union cannot: it is the same list the resume
 		// path recomputes scores from.
 		//
-		// An EMPTY union blanks every window. A chunk with no affected dev-days
-		// should not exist mid-flight, so `[]` means the stored state is not
-		// what we think it is — and the last time a shape like this was judged
-		// harmless (an optional key in a raw schema), it reopened exactly the
-		// silent-skip it was added to close.
+		// An EMPTY union is legitimate and must NOT blank anything: the collector
+		// deliberately emits a zero-activity artifact to carry `unmatched` /
+		// `skipped`, and `activities` has no minimum length. Such a chunk has
+		// touched no score day, so nothing it did can contradict the numbers.
 		//
-		// `json_array_length` returns 0 for a JSON OBJECT too (measured, not
-		// assumed), so a `json_valid` payload of the wrong shape lands here as
-		// well. No separate IS NULL arm is needed — one would never fire.
+		// A union we cannot READ is the opposite — a JSON object, or entries
+		// without a `dayKey` — and that must blank, since we cannot tell which
+		// days are half-written. `json_array_length` returns 0 for an object as
+		// well as for `[]` (measured, not assumed), so the two cases are told
+		// apart by whether any entry yields a `dayKey`, not by length.
+		//
+		// `json_valid(d.value)` is load-bearing: `json_extract` on a scalar
+		// element raises "malformed JSON", which surfaces as a 500 rather than a
+		// withheld figure — an error page where a caution was intended.
 		db
 			.prepare(
 				`SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
          FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
          WHERE c.status = 'prepared' AND r.config_version = ?
            AND (
-             json_array_length(c.dev_day_union_json) = 0
-             OR EXISTS (
+             EXISTS (
                SELECT 1 FROM json_each(c.dev_day_union_json) d
-               WHERE json_extract(d.value, '$.dayKey') BETWEEN ? AND ?
+               WHERE json_valid(d.value)
+                 AND json_extract(d.value, '$.dayKey') BETWEEN ? AND ?
+             )
+             OR json_type(c.dev_day_union_json) <> 'array'
+             OR (
+               json_array_length(c.dev_day_union_json) > 0
+               AND NOT EXISTS (
+                 SELECT 1 FROM json_each(c.dev_day_union_json) d
+                 WHERE json_valid(d.value)
+                   AND json_extract(d.value, '$.dayKey') IS NOT NULL
+               )
              )
            )`,
 			)
