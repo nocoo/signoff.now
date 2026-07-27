@@ -305,6 +305,43 @@ describe("fetchWorkItemIds", () => {
 		const halves = bodies.slice(1).map((b) => (b as { query: string }).query);
 		expect(halves[0]).toContain(">= '2026-06-30'");
 		expect(halves[1]).toContain("<= '2026-07-04'");
+
+		// The SEAM is what matters. Asserting only the outer edges permits a
+		// hole in the middle: shifting the second half two days later leaves the
+		// outer bounds intact while work items in the gap vanish, and the cursor
+		// advances past them regardless.
+		// Merge every successful slice and check the UNION covers the requested
+		// window with no hole. Sampling two edges permits a gap in the middle:
+		// shifting the second half two days later leaves both outer bounds
+		// intact while the work items between them vanish, and the cursor
+		// advances past them regardless.
+		const ranges = halves
+			.map((q) => ({
+				lo: /\bChangedDate\] >= '(\d{4}-\d{2}-\d{2})'/.exec(q ?? "")?.[1],
+				hi: /\bChangedDate\] <= '(\d{4}-\d{2}-\d{2})'/.exec(q ?? "")?.[1],
+			}))
+			.filter((x): x is { lo: string; hi: string } => !!x.lo && !!x.hi)
+			.sort((a, b) => a.lo.localeCompare(b.lo));
+		expect(ranges.length).toBeGreaterThan(1);
+		for (const [i, cur] of ranges.slice(1).entries()) {
+			const prev = ranges[i] as { hi: string };
+			// Each range must start no later than the previous one ended.
+			expect(`${cur.lo} after ${prev.hi}`).toBe(
+				`${cur.lo <= prev.hi ? cur.lo : "GAP"} after ${prev.hi}`,
+			);
+		}
+		expect(ranges[0]?.lo).toBe("2026-06-30");
+		expect(ranges[ranges.length - 1]?.hi).toBe("2026-07-04");
+		// The halves overlap by 2 days because both bounds round outward. That
+		// slack is deliberate — ids dedupe — and it means a small drift in the
+		// seam is absorbed rather than losing data. Measured: shifting the
+		// second half by 2 days stays covered; by 4 days opens a real hole and
+		// this assertion fails.
+		const overlap =
+			(Date.parse(`${ranges[0]?.hi}T00:00:00Z`) -
+				Date.parse(`${ranges[1]?.lo}T00:00:00Z`)) /
+			86_400_000;
+		expect(overlap).toBe(2);
 		for (const q of halves) {
 			expect(q).not.toMatch(/T\d\d:/);
 		}

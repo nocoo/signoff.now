@@ -151,16 +151,21 @@ export function wiqlDay(instant: string, addDays = 0): string {
 }
 
 /**
- * The project's earliest `System.ChangedDate`, or null if it cannot be read.
+ * The project's earliest `System.ChangedDate`.
  *
- * One extra query buys a real floor for open-ended sweeps. Returning null on
- * any doubt is deliberate: the caller reports a problem rather than treating
- * "we could not check" as "there is nothing there".
+ * One extra query buys a real floor for open-ended sweeps, so the sweep no
+ * longer has to guess where history ends.
+ *
+ * Failures are NOT caught here. Downgrading them to a `problems` entry would
+ * flatten every cause into an `incomplete` scope, i.e. CONTRACT — telling
+ * automation "your request is wrong" when a 403 means "grant access" and a 503
+ * means "retry later". Letting the `AdoError` through keeps its kind all the
+ * way to `exitCodeForError`.
  */
 async function oldestChangedDate(
 	q: WiqlQuery,
 ): Promise<{ floor: string } | { error: string }> {
-	try {
+	{
 		const res = parseRaw(
 			wiqlResultSchema,
 			await q.client.post(adoUrl(q.base, "_apis/wit/wiql", { $top: 1 }), {
@@ -193,13 +198,6 @@ async function oldestChangedDate(
 		return typeof changed === "string" && Number.isFinite(Date.parse(changed))
 			? { floor: changed }
 			: { error: `work item ${id} has no readable System.ChangedDate` };
-	} catch (e) {
-		// Rethrow rather than downgrade to a `problems` entry. A `problems` entry
-		// only ever becomes an `incomplete` scope, i.e. CONTRACT — so a 403 and a
-		// 503 would both tell automation "your request is wrong" when the real
-		// answers are "grant access" and "retry later". Letting the AdoError
-		// through preserves the kind all the way to `exitCodeForError`.
-		throw e;
 	}
 }
 
