@@ -116,24 +116,25 @@
 | `totals.activities` | 窗口内 `SUM(scores.activity_count)`，**原始事件数**（折叠前） |
 | `totals.score` | 窗口内 `SUM(scores.total)`，**折叠后得分** |
 | `totals.activeDevelopers` | 窗口内 `activity_count > 0` 的 distinct 开发者数（**不是**得分 >0，全 0 权重配置下仍算活跃） |
-| `daily[].dayKey` | 设置时区下的自然日；**缺失日必须补 0**，否则 CSS 条形序列会把空闲日折叠掉，看起来像连续活跃 |
+| `daily[].dayKey` | 设置时区下的自然日；API **只返回有数据的天**，补 0 由 ViewModel 负责（见 §3.3） |
 | `topDevelopers` | 固定 N=10，排序 `score DESC, developer_id ASC`（第二键保证并列时稳定） |
-| `byType` | 基数**不设上限**：`activities.type` 是开放字符串（02 §6.5），一期不裁剪 |
+| `byType` | D1 列是开放字符串（02 §6.5），但 ingest 只接受 `ACTIVITY_TYPES` 的 8 种，故实际基数 ≤8 |
 | `lastIngestAt` | 当前 `config_version` 下 `status='finalized'` 的 `MAX(finished_at)`。失败或半途的 run **不算**，否则界面会显示「已采集」而实际没有 |
 
 **默认窗口用设置时区算**（01 §4.7），不是浏览器时区也不是 UTC ——
 否则「最近 28 天」在不同人机器上边界不同。
 
 **stale 响应形状**（冻结）：`totals` 全 0、`byType`/`topDevelopers`/`daily` 为空数组、
-`lastIngestAt` 照常返回（它是运维元数据，不是统计），语句 2–7 一条都不执行。
+`lastIngestAt` 照常返回（它是运维元数据，不是统计）。聚合语句一条都不执行 ——
+所以 stale 路径是 **2 条**（settings + lastIngestAt），不是 1 条。
 
 - 所有查询绑定当前 `config_version`，与 `activity.ts` 同样处理。
 - 只读：08 不新增任何写接口。
 
 ### 3.3 D1 查询预算
 
-Worker 每次调用有 statement 上限（05 §5.2）。本接口 **stale 时 1 条**（只跑
-`loadSettings` 就返回），**正常时 7 条**：
+Worker 每次调用有 statement 上限（05 §5.2）。本接口 **stale 时 2 条**
+（`loadSettings` + `lastIngestAt`，见 §3.2 的语义说明），**正常时 8 条**：
 
 | # | 用途 |
 |:--|:-----|
@@ -144,12 +145,27 @@ Worker 每次调用有 statement 上限（05 §5.2）。本接口 **stale 时 1 
 | 5 | `scores` + `json_each(breakdown_json)` → `byType.score`（折叠后得分） |
 | 6 | `scores` join `developers` 取 top N（N=10，按 score DESC, developer_id ASC）→ topDevelopers |
 | 7 | `ingest_runs` 取 `MAX(finished_at)` where `status='finalized'` → lastIngestAt |
+| 8 | `ingest_runs` 计 `status='chunked'` → **是否有 ingest 正在进行**（见下） |
 
 跨度上限 92 天让第 3 条的返回行数可控（≤92 行）。7 条远低于 Paid 上限。
 
-**快照一致性**：业务聚合（2–7）放进一次 `DB.batch`，避免各条查询看到不同的
-ingest 中间态。若无法同批，返回前重读一次 `config_version` 与 `scores_stale`
-并比对；不一致则按 stale 处理。
+**快照一致性**：业务聚合放进一次 `DB.batch`，让它们看到同一个快照。
+
+但同批**不足以**保证数字自洽。ingest 的写入路径把 Activity（Phase 1）和
+Score（Phase 3）提交在**两个不同的 batch** 里（`pipeline-ingest-write.ts`），
+所以落在两者之间的快照会看到「活动已入库、分数还没算」：
+`byType.count` 读 `activities`、`totals.activities` 读 `scores`，两者会对不上。
+
+重读 `config_version` / `scores_stale` **检测不到**这种情况 —— 增量 ingest
+期间这两个值都不变。因此在**同一批**里查一次
+`ingest_runs WHERE status='chunked' AND config_version=?`：
+只要有正在进行的 run，就按 stale 返回并给出 `staleReason: "an ingest is in
+progress; numbers are still settling"`。宁可说「还在算」，也不要给出两个
+互相矛盾的数字。
+
+**零填充归属**：`daily` 的缺失日由 **Web ViewModel** 补 0，API 只返回有数据的
+天。API 不做是因为窗口边界属于展示决策；ViewModel 必须做，否则 CSS 条形序列
+会把空闲日折叠掉，看起来像连续活跃。
 
 > **byType 的两个字段来自两张表，这不是冗余**：
 >
@@ -167,27 +183,6 @@ ingest 中间态。若无法同批，返回前重读一次 `config_version` 与 
 > 彼此不相交，跨天求和不会重复计入任何已折叠事件。
 >
 > **不变量**：`SUM(byType.score) === totals.score`，`SUM(byType.count) === totals.activities`。
-
-### 3.5 Migration 0007（新增索引）
-
-`EXPLAIN QUERY PLAN` 实测：按 type 聚合会选中 `idx_activities_config_version`，
-然后**扫遍该版本全部行**再过滤日期。0006 只恢复了 `day_key` / `type` /
-`config_version` 三个**独立**索引，没有复合索引。
-
-```sql
--- 支撑 byType.count：先按版本+日窗收敛，再按 type 分组
-CREATE INDEX idx_activities_config_day_type
-  ON activities (config_version, day_key, type);
-
--- 支撑 lastIngestAt
-CREATE INDEX idx_ingest_runs_config_status_finished
-  ON ingest_runs (config_version, status, finished_at DESC);
-```
-
-score 侧已有 `idx_scores_config_day_dev(config_version, day_key, developer_id)`
-（0003），totals / daily / topDevelopers 都走它的范围扫描，无需新增。
-
-0007 是**纯增量索引**：无守卫、无重建、可在有数据的库上直接 apply。
 
 ### 3.4 Web 侧
 
@@ -212,6 +207,30 @@ View 里，逃出了覆盖率门禁。08 把它改成三层，逻辑落到 Model
 6. **stale 横幅**：与 Activity 页同一措辞。
 7. **空态**：区分「窗口内无数据」与「从未采集过」，后者给出
    `signoff collect` 的下一步提示。
+
+### 3.5 Migration 0007 / 0008（索引）
+
+`EXPLAIN QUERY PLAN` 实测：按 type 聚合会选中 `idx_activities_config_version`，
+然后**扫遍该版本全部行**再过滤日期。0006 只恢复了 `day_key` / `type` /
+`config_version` 三个**独立**索引，没有复合索引。
+
+```sql
+-- 支撑 byType.count：先按版本+日窗收敛，再按 type 分组
+CREATE INDEX idx_activities_config_day_type
+  ON activities (config_version, day_key, type);
+
+-- 支撑 lastIngestAt
+CREATE INDEX idx_ingest_runs_config_status_finished
+  ON ingest_runs (config_version, status, finished_at DESC);
+```
+
+score 侧已有 `idx_scores_config_day_dev(config_version, day_key, developer_id)`
+（0003），totals / daily / topDevelopers 都走它的范围扫描，无需新增。
+
+0007 是**纯增量索引**：无守卫、无重建、可在有数据的库上直接 apply。
+0008 只把 `finished_at DESC` 改回 `finished_at`（对 `MAX()` 无差别，SQLite
+会反向扫升序索引）—— 0007 已经在远端跑过，直接改它会让迁移历史与实际不符，
+所以补一个新迁移而不是改旧的。
 
 ---
 
@@ -254,36 +273,39 @@ bun run signoff -- ingest normalized <artifact> --manifest <manifest>
 ### 5.2 对账 SQL（逐字段，非只看页面）
 
 页面可能在展示缓存、空数组或错误态，所以每个数字都要有对应的直查。
-`?v` = 当前 `pipeline_config_version`，`?from`/`?to` = 页面窗口。
+把 `:v` / `:from` / `:to` 替换成实际值再执行 —— `wrangler d1 execute --command`
+不接受命名参数。`COALESCE` 不能省：空窗口下 `SUM()` 返回 `NULL`，而 API 返回 0，
+不加会看起来像对不上。
 
 ```sql
 -- totals
-SELECT SUM(total) AS score, SUM(activity_count) AS activities,
+SELECT COALESCE(SUM(total),0) AS score, COALESCE(SUM(activity_count),0) AS activities,
        COUNT(DISTINCT CASE WHEN activity_count > 0 THEN developer_id END) AS activeDevelopers
-FROM scores WHERE config_version = ?v AND day_key BETWEEN ?from AND ?to;
+FROM scores WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26';
 
 -- daily
-SELECT day_key, SUM(total) AS score, SUM(activity_count) AS activityCount
-FROM scores WHERE config_version = ?v AND day_key BETWEEN ?from AND ?to
+SELECT day_key, COALESCE(SUM(total),0) AS score, COALESCE(SUM(activity_count),0) AS activityCount
+FROM scores WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26'
 GROUP BY day_key ORDER BY day_key;
 
 -- byType.count（原始事件）
 SELECT type, COUNT(*) AS count FROM activities
-WHERE config_version = ?v AND day_key BETWEEN ?from AND ?to GROUP BY type;
+WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26' GROUP BY type;
 
 -- byType.score（折叠后得分）
 SELECT j.key AS type, SUM(CAST(j.value AS INTEGER)) AS score
 FROM scores s, json_each(s.breakdown_json) j
-WHERE s.config_version = ?v AND s.day_key BETWEEN ?from AND ?to GROUP BY j.key;
+WHERE s.config_version = 1 AND s.day_key BETWEEN '2026-07-01' AND '2026-07-26' GROUP BY j.key;
 
 -- topDevelopers
-SELECT developer_id, SUM(total) AS score, SUM(activity_count) AS activityCount
-FROM scores WHERE config_version = ?v AND day_key BETWEEN ?from AND ?to
-GROUP BY developer_id ORDER BY score DESC, developer_id ASC LIMIT 10;
+SELECT s.developer_id, COALESCE(d.name, s.developer_id) AS name,
+       COALESCE(SUM(s.total),0) AS score, COALESCE(SUM(s.activity_count),0) AS activityCount
+FROM scores s LEFT JOIN developers d ON d.id = s.developer_id WHERE s.config_version = 1 AND s.day_key BETWEEN '2026-07-01' AND '2026-07-26'
+GROUP BY s.developer_id ORDER BY score DESC, s.developer_id ASC LIMIT 10;
 
 -- lastIngestAt
 SELECT MAX(finished_at) FROM ingest_runs
-WHERE config_version = ?v AND status = 'finalized';
+WHERE config_version = 1 AND status = 'finalized';
 ```
 
 ### 5.3 交叉不变量
