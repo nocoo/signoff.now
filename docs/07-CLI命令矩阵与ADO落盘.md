@@ -77,9 +77,9 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 | `signoff collect --repo <id>` | 只采集指定 repo（调试用） |
 | `signoff collect --since <date>` | 覆盖增量游标，强制从该日期起 |
 | `signoff collect --no-wi` | 跳过 Work Item（PR-only，加速调试） |
-| `signoff collect --full` | 忽略游标全量重采（配合 `full_rematch`） |
-| `signoff collect --offline` | 用已有缓存，缺则报错（04 §6.4 要求） |
-| `signoff collect --concurrency <n>` | 并发度，默认 4 |
+| `signoff collect --full` | 忽略游标全量重采（配合 `full_rematch`）。**不可与 `--repo` / `--no-wi` 同用**：`scores_stale` 是全局的，部分重算会把没算的仓也标成新鲜 |
+| `signoff collect --offline` | **未实现**（04 §6.4 的期望；当前 bootstrap 不可达即失败） |
+| `signoff collect --concurrency <n>` | **未实现**：当前采集是**串行**的 |
 | `signoff ingest normalized <file>` | **07 新增**：把 transform 产物走 06 的 ingest 链路 |
 
 `collect` **不自动 ingest**：落盘与写库分离，便于人工检查后再提交（01 §7.2 硬约束 3「落盘后必须验证，失败禁止 ingest」）。
@@ -412,9 +412,13 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 
 - 按 `closedDate` **降序**分页（实测该顺序稳定且无缺口/重叠），并记录每页边界值；
   若下一页首条的 `closedDate` **大于**上一页末条，说明发生了重排 → scope `incomplete`。
-- 分页完成后用 `[from, watermark)` 与已收集条数做一次总量核对；
-  服务端 `count` 与实收不符 → `incomplete`。
-- 重叠窗口（§7.2）额外提供一层兜底：下一轮会重新覆盖边界区间。
+- **总量核对未实现**：服务端 `count` 的语义（是否受 `$top` 影响、是否含被过滤行）
+  未经实测确认，凭猜实现只会制造误报。重叠窗口（§7.2）是当前的兜底手段。
+- **已知缺口**：若某条记录在我们已经翻过的偏移之前被删除，窗口会前移并跳过一条，
+  且**不产生重复**。降序分页本身就总是「下一页比上一页旧」，因此无法用日期跳跃
+  区分正常翻页与真正的遗漏 —— 曾经实现过这个检查，结果把每个多页仓库都误判为
+  incomplete，会让游标永久卡住，故已移除。keyset 分页可能是真正的解法，
+  但需先实测 `maxTime` 的开闭区间语义与同秒大量记录的行为。
 
 去重键：PR 用 `pullRequestId`；**WI updates 必须用 `(wiId, rev)`** ——
 同一个 WI 天然有多条 revision，只按 `wiId` 去重会丢掉除首条外的全部更新。
@@ -463,8 +467,9 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 | bootstrap 版本与库不符 | `CONTRACT` | 提示先 `settings pull` |
 | 网络中断 | `SERVER` | 已落盘 raw 保留，可续跑 |
 
-**限流**：默认并发 4，`--concurrency` 可调。threads/iterations 是 per-PR 调用，PR 多时为主要耗时。
-ADO 返回 `X-RateLimit-Remaining` / `X-RateLimit-Delay` 时按其减速，不要硬打。
+**限流**：当前实现是**串行**的（并发与 `--concurrency` 未实现）。threads/iterations
+是 per-PR 调用，PR 多时为主要耗时，大窗口会很慢 —— 用 `--since` 缩小窗口。
+客户端已按 `Retry-After` / `X-RateLimit-Delay` 退避。
 
 ---
 
@@ -473,12 +478,17 @@ ADO 返回 `X-RateLimit-Remaining` / `X-RateLimit-Delay` 时按其减速，不�
 transform 产物是 `fixtureFileSchema` 形状（06 §6.2，`activities` 上限 5000）：
 
 - 超过 5000 条 → 拆多个 `activities-{runId}-{n}.json`，各自独立 runId。
-- `ingest normalized` 复用 `splitFixtureIntoChunks`（每 chunk ≤10 条）与既有重试逻辑。
+- `ingest normalized` 复用 `splitFixtureIntoChunks`（每 chunk ≤10 条）。
+  重试是**独立实现**的（3 次、100/200/400ms 退避，仅重试 5xx/429/网络错误），
+  不是复用 `ingest fixture` 的那份。
 - 单写者约定（06 §5.7）：CLI 帮助文本声明「同一时刻只跑一个 ingest」。
-- **`full_rematch` 跨多产物时不得提前清 stale**：`recompute/complete` 会把
-  `scores_stale` 置 false，若在第 1 个文件 finalized 后就调用，而文件 2…N 还没进库，
-  Web 会显示「分数已是最新」但实际残缺。规则：`recompute/complete` **只在
-  该 scope 的全部 artifact 都 `complete` 之后**调用一次，由 §7.1.2 的第 2 步触发。
+- **`full_rematch` 不得提前清 stale**。`scores_stale` 是**全局**标志，不是 per-scope，
+  所以规则有两层：
+  1. `recompute/complete` 只在 manifest 里**所有** `fullRematch` scope 都
+     committable 之后调用一次；
+  2. `--full` **禁止**与 `--repo` / `--no-wi` 同用（CLI 直接拒绝），
+     否则一个只含单 scope 的 manifest 会「全部完成」并清掉全局 stale，
+     而其余仓根本没重算。
 
 ---
 
