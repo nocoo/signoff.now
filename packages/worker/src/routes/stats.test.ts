@@ -221,6 +221,11 @@ describe("statsSummaryRoute", () => {
 		expect(body.byType.reduce((n, t) => n + t.score, 0)).toBe(
 			body.totals.score,
 		);
+		// Counts come from `activities` and totals from `scores.activity_count`.
+		// Two tables, one number: if they diverge, the page contradicts itself.
+		expect(body.byType.reduce((n, t) => n + t.count, 0)).toBe(
+			body.totals.activities,
+		);
 	});
 
 	test("byType score comes from the folded breakdown, not count × weight", async () => {

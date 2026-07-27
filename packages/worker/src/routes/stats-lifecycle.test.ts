@@ -20,6 +20,7 @@ import {
 	seedDevAndRepo,
 } from "../test/sqlite-d1.ts";
 import type { AppEnv } from "../types.js";
+import { activityHeatmapRoute } from "./activity.ts";
 import { type StatsSummary, statsSummaryRoute } from "./stats.ts";
 
 const DEV = "01K0LIFEDEV000000000000000";
@@ -112,6 +113,24 @@ const chunkStatuses = () =>
 	sqlite.raw
 		.query("SELECT chunk_index, status FROM ingest_chunks ORDER BY chunk_index")
 		.all() as { chunk_index: number; status: string }[];
+
+type HeatmapBody = {
+	rows: { developerId: string; total: number; activityCount: number }[];
+};
+
+/** The other endpoint a manager reaches for the same person's numbers. */
+async function heatmap(): Promise<HeatmapBody> {
+	const app = new Hono<AppEnv>();
+	app.use("*", async (c, next) => {
+		c.env = { DB: sqlite.db } as AppEnv["Bindings"];
+		return next();
+	});
+	app.get("/api/activity/heatmap", activityHeatmapRoute);
+	const res = await app.request(
+		`/api/activity/heatmap?devs=${DEV}&from=2026-07-01&to=2026-07-31`,
+	);
+	return (await res.json()) as HeatmapBody;
+}
 
 describe("the in-flight guard over a real ingest", () => {
 	test("a run frozen between activities and scores blanks the numbers", async () => {
@@ -294,5 +313,46 @@ describe("the in-flight guard over a real ingest", () => {
 		const mid = await summary();
 		expect(mid.scoresStale).toBe(true);
 		expect(mid.totals.score).toBe(0);
+	});
+	test("the same ingest gives the heatmap and the Dashboard the same score", async () => {
+		// 08 §5.3's last invariant, and the one a manager hits first: they click
+		// a name on the Dashboard, land on the heatmap, and compare. Two
+		// endpoints, two query shapes, one number — a mismatch means one of them
+		// is lying and there is no way to tell which.
+		const first = await processIngestChunk(sqlite.db, body(), settings);
+		expect(first.kind).toBe("ok");
+		const second = await processIngestChunk(
+			sqlite.db,
+			body({
+				chunkIndex: 1,
+				isFinalChunk: true,
+				activities: [
+					{
+						type: "wi.closed",
+						occurredAt: 1_784_824_200,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: null,
+						developerId: DEV,
+						matchedUniqueName: "life@example.com",
+						sourceIds: { projectGuid: PROJ_GUID, wiId: 7 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+		expect(second.kind).toBe("ok");
+
+		const dash = await summary();
+		const heat = await heatmap();
+		expect(heat.rows.length).toBeGreaterThan(0);
+
+		const heatTotal = heat.rows.reduce((n, r) => n + r.total, 0);
+		const heatCount = heat.rows.reduce((n, r) => n + r.activityCount, 0);
+		expect(heatTotal).toBe(dash.totals.score);
+		expect(heatCount).toBe(dash.totals.activities);
+		const dashDev = dash.topDevelopers.find((d) => d.developerId === DEV);
+		expect(dashDev?.score).toBe(heatTotal);
 	});
 });
