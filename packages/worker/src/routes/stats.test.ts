@@ -596,6 +596,16 @@ describe("statsSummaryRoute", () => {
 			["json null", "null", true],
 			["nested array", '[[{"dayKey":"2026-07-02"}]]', true],
 			["null dayKey", '[{"dayKey":null}]', true],
+			// Mixed arrays: one readable entry must NOT launder its siblings.
+			// The unreadable one may itself be the half-written day.
+			["readable + scalar", '[{"dayKey":"1999-01-01"},"bad"]', true],
+			[
+				"readable + wrong key",
+				'[{"dayKey":"1999-01-01"},{"day_key":"2026-07-02"}]',
+				true,
+			],
+			// All entries readable and all elsewhere: genuinely not our window.
+			["all elsewhere", '[{"dayKey":"1999-01-01"}]', false],
 		];
 		for (const [name, union, shouldBlank] of shapes) {
 			sqlite = createSqliteD1();

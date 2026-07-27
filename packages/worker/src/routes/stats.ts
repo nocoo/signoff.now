@@ -230,8 +230,13 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		// A union we cannot READ is the opposite — a JSON object, or entries
 		// without a `dayKey` — and that must blank, since we cannot tell which
 		// days are half-written. `json_array_length` returns 0 for an object as
-		// well as for `[]` (measured, not assumed), so the two cases are told
-		// apart by whether any entry yields a `dayKey`, not by length.
+		// well as for `[]` (measured, not assumed), so the two are told apart by
+		// `json_type`, not by length.
+		//
+		// The unreadable test asks whether ANY entry is unreadable, not whether
+		// ALL are. Requiring all of them let one good entry launder its corrupt
+		// siblings: `[{"dayKey":"1999-01-01"},"bad"]` published July even though
+		// the unreadable entry may BE the half-written July day.
 		//
 		// `json_valid(d.value)` is load-bearing: `json_extract` on a scalar
 		// element raises "malformed JSON", which surfaces as a 500 rather than a
@@ -248,13 +253,10 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
                  AND json_extract(d.value, '$.dayKey') BETWEEN ? AND ?
              )
              OR json_type(c.dev_day_union_json) <> 'array'
-             OR (
-               json_array_length(c.dev_day_union_json) > 0
-               AND NOT EXISTS (
-                 SELECT 1 FROM json_each(c.dev_day_union_json) d
-                 WHERE json_valid(d.value)
-                   AND json_extract(d.value, '$.dayKey') IS NOT NULL
-               )
+             OR EXISTS (
+               SELECT 1 FROM json_each(c.dev_day_union_json) d
+               WHERE NOT json_valid(d.value)
+                  OR json_extract(d.value, '$.dayKey') IS NULL
              )
            )`,
 			)
