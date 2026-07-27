@@ -24,6 +24,7 @@ import {
 	readCursor,
 	splitFixtureIntoChunks,
 } from "@signoff/domain";
+import { sha256Hex } from "../ado/storage.ts";
 import type { FsLike } from "../cache/bootstrap.ts";
 import { ExitCode } from "../exit-codes.ts";
 import type { Logger } from "../logger.ts";
@@ -121,14 +122,37 @@ export async function ingestNormalized(
 		return ExitCode.CONTRACT;
 	}
 
-	const body = await readJson<{ activities: unknown[]; unmatched: unknown[] }>(
-		opts.fs,
-		opts.filePath,
-		(v) => v as { activities: unknown[]; unmatched: unknown[] },
-	);
-	if (!body) {
+	let rawArtifact: string;
+	try {
+		rawArtifact = await opts.fs.readFile(opts.filePath);
+	} catch {
 		opts.log.error(`cannot read artifact: ${opts.filePath}`);
 		return ExitCode.RUNTIME;
+	}
+
+	// The manifest vouches for specific BYTES, not just a path. Without this the
+	// file could be edited after collection and the cursor would still advance,
+	// certifying data that was never collected.
+	if ((await sha256Hex(rawArtifact)) !== artifact.sha256) {
+		opts.log.error(
+			`${opts.filePath} does not match the digest recorded at collection; re-collect rather than ingest it`,
+		);
+		return ExitCode.CONTRACT;
+	}
+
+	let body: { activities: unknown[]; unmatched: unknown[] };
+	try {
+		body = JSON.parse(rawArtifact) as typeof body;
+	} catch {
+		opts.log.error(`artifact is not valid JSON: ${opts.filePath}`);
+		return ExitCode.RUNTIME;
+	}
+
+	if (body.activities.length !== artifact.activityCount) {
+		opts.log.error(
+			`artifact has ${body.activities.length} activities but the manifest recorded ${artifact.activityCount}`,
+		);
+		return ExitCode.CONTRACT;
 	}
 
 	let chunks: IngestBody[];

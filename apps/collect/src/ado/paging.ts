@@ -56,11 +56,17 @@ export async function fetchPullRequests(
 	const seen = new Set<number>();
 	const maxPages = q.maxPages ?? MAX_PAGES;
 	let previousPageLast: string | null = null;
+	// Values seen at a page boundary; a repeat means continuity, not a gap.
+	const seenBoundary = new Set<string>();
 
 	for (let page = 0; page < maxPages; page++) {
 		const url = adoUrl(q.base, `${q.repoPath}/pullrequests`, {
 			"searchCriteria.status": q.status,
 			"searchCriteria.minTime": q.from ?? undefined,
+			// Bound BOTH ends. Without maxTime the rows newer than the watermark
+			// still occupy $skip offsets and the page budget, so a busy repo can
+			// be declared incomplete forever and stall its cursor.
+			"searchCriteria.maxTime": q.status === "active" ? undefined : q.watermark,
 			"searchCriteria.queryTimeRangeType":
 				q.status === "active" ? undefined : "closed",
 			$top: PAGE_SIZE,
@@ -70,10 +76,20 @@ export async function fetchPullRequests(
 		const batch = parsed.value;
 
 		const first = batch[0]?.closedDate ?? null;
-		if (previousPageLast && first && first > previousPageLast) {
-			problems.push({
-				reason: `page ${page} starts newer than page ${page - 1} ended; the result set shifted mid-pagination`,
-			});
+		if (previousPageLast && first) {
+			if (first > previousPageLast) {
+				// Something was inserted or reordered ahead of us.
+				problems.push({
+					reason: `page ${page} starts newer than page ${page - 1} ended; the result set shifted mid-pagination`,
+				});
+			} else if (first < previousPageLast && !seenBoundary.has(first)) {
+				// The dangerous direction: a row removed before this offset pulls
+				// the window forward, skipping a record with no duplicate to show
+				// for it. A strict jump past the previous boundary is the signal.
+				problems.push({
+					reason: `page ${page} skips past the page ${page - 1} boundary (${previousPageLast} → ${first}); a record may have been missed`,
+				});
+			}
 		}
 
 		for (const pr of batch) {
@@ -94,7 +110,11 @@ export async function fetchPullRequests(
 			items.push(pr);
 		}
 
-		previousPageLast = batch[batch.length - 1]?.closedDate ?? previousPageLast;
+		const last = batch[batch.length - 1]?.closedDate ?? null;
+		if (last) {
+			seenBoundary.add(last);
+			previousPageLast = last;
+		}
 		if (batch.length < PAGE_SIZE) {
 			return { items, problems };
 		}

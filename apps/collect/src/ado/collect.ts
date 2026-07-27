@@ -37,7 +37,7 @@ import {
 	fetchWorkItemIds,
 	type PageProblem,
 } from "./paging.ts";
-import type { RawWriter } from "./storage.ts";
+import { type RawWriter, serializeJson, sha256Hex } from "./storage.ts";
 import { derivedUlid } from "./ulid.ts";
 
 export type CollectRepo = {
@@ -62,7 +62,8 @@ export type CollectOptions = {
 	since?: string | null;
 	full?: boolean;
 	includeWorkItems?: boolean;
-	log?: { info: (m: string) => void; warn: (m: string) => void };
+	/** Only warnings: collection reports blockers, the CLI prints the rest. */
+	log?: { warn: (m: string) => void };
 };
 
 export type CollectResult = {
@@ -70,9 +71,8 @@ export type CollectResult = {
 	manifestPath: string;
 };
 
-const orgBase = (org: string) => `https://dev.azure.com/${org}/`;
 const projectBase = (org: string, project: string) =>
-	`${orgBase(org)}${encodeURIComponent(project)}/`;
+	`https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/`;
 
 export async function readCursorFile(
 	fs: FsLike,
@@ -349,7 +349,7 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 			scope.artifacts.push({
 				path,
 				runId: derivedUlid(opts.collectRunId, scopes.length),
-				sha256: await sha256(JSON.stringify(artifactBody)),
+				sha256: await sha256Hex(serializeJson(artifactBody)),
 				activityCount: count,
 				status: "pending",
 			});
@@ -375,7 +375,7 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 				scope.artifacts.push({
 					path,
 					runId: derivedUlid(opts.collectRunId, 1000 + scopes.length),
-					sha256: await sha256(JSON.stringify(artifactBody)),
+					sha256: await sha256Hex(serializeJson(artifactBody)),
 					activityCount: count,
 					status: "pending",
 				});
@@ -406,14 +406,4 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 	}
 
 	return { manifest, manifestPath };
-}
-
-async function sha256(text: string): Promise<string> {
-	const digest = await crypto.subtle.digest(
-		"SHA-256",
-		new TextEncoder().encode(text),
-	);
-	return [...new Uint8Array(digest)]
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
 }

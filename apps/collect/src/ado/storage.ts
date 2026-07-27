@@ -51,6 +51,28 @@ export function assertUnderRoot(root: string, candidate: string): void {
 	}
 }
 
+/**
+ * The single serialization used for every artifact we hash.
+ *
+ * Hashing compact JSON while writing tab-indented JSON yields a digest that can
+ * never match the file, so verification would reject everything the collector
+ * produces. One function removes that trap.
+ */
+export function serializeJson(value: unknown): string {
+	return `${JSON.stringify(value, null, "\t")}\n`;
+}
+
+/** SHA-256 of a string, hex encoded. */
+export async function sha256Hex(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(text),
+	);
+	return [...new Uint8Array(digest)]
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+}
+
 export type RawWriter = {
 	/** Write a snapshot, returning the path it landed at. */
 	writeSnapshot(opts: {
@@ -71,7 +93,7 @@ export function createRawWriter(fs: FsLike, dataRoot: string): RawWriter {
 		await fs.mkdir(dir, { recursive: true });
 		// Write-then-rename: a reader never sees a partial file, and a crash
 		// leaves the previous version intact rather than a truncated one.
-		const body = `${JSON.stringify(value, null, "\t")}\n`;
+		const body = serializeJson(value);
 		const rename = fs.rename;
 		if (!rename) {
 			// No atomic rename available: writing directly is still better than

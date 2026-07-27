@@ -84,22 +84,105 @@ async function main(): Promise<void> {
 
 	program
 		.command("collect")
-		.description("Collect from ADO (05: dry-run / stub only)")
+		.description("Collect pull requests and work items from Azure DevOps")
 		.option("--dry-run", "Print plan only; do not call ADO", false)
-		.action(async (opts: { dryRun?: boolean }) => {
-			const env = loadEnv();
-			if (opts.dryRun) {
-				const code = await collectDryRun({
-					fs: createBunFs(),
+		.option("--repo <id>", "Only collect this repo id")
+		.option("--since <date>", "Override the cursor start (ISO 8601)")
+		.option("--full", "Ignore the cursor and re-collect everything", false)
+		.option("--no-wi", "Skip work items")
+		.action(
+			async (opts: {
+				dryRun?: boolean;
+				repo?: string;
+				since?: string;
+				full?: boolean;
+				wi?: boolean;
+			}) => {
+				const env = loadEnv();
+				const fs = createBunFs();
+				if (opts.dryRun) {
+					const code = await collectDryRun({ fs, dataDir: env.dataDir, log });
+					process.exit(code);
+				}
+
+				const client = createPipelineClient({
+					apiBase: env.apiBase,
+					writeToken: env.writeToken,
+				});
+				const snapshot = await client.bootstrap();
+				const repos = snapshot.repos
+					.filter((r) => r.provider === "ado" && r.externalId)
+					.filter((r) => !opts.repo || r.id === opts.repo)
+					.map((r) => ({
+						id: r.id,
+						org: r.org,
+						project: r.project,
+						name: r.name,
+						externalId: r.externalId as string,
+						projectExternalId: r.projectExternalId as string,
+					}));
+
+				if (repos.length === 0) {
+					log.error(
+						opts.repo
+							? `no enabled ADO repo with id ${opts.repo}`
+							: "no enabled ADO repos bound; add one in the web UI first",
+					);
+					process.exit(ExitCode.CONTRACT);
+				}
+				const missingGuid = repos.filter((r) => !r.projectExternalId);
+				if (missingGuid.length > 0) {
+					// Work items are project-scoped; without the GUID their activities
+					// would be rejected server-side (05 §5.5).
+					log.error(
+						`repos missing projectExternalId: ${missingGuid.map((r) => r.name).join(", ")}`,
+					);
+					process.exit(ExitCode.CONTRACT);
+				}
+
+				const { collect } = await import("./ado/collect.ts");
+				const { createAdoClient } = await import("./ado/client.ts");
+				const { createRawWriter } = await import("./ado/storage.ts");
+				const { ulid } = await import("./ado/ulid.ts");
+
+				const result = await collect({
+					client: createAdoClient({
+						exec: defaultExec,
+						fetchFn: fetch as never,
+					}),
+					fs,
+					writer: createRawWriter(fs, env.dataDir),
 					dataDir: env.dataDir,
+					collectRunId: ulid(),
+					nowSeconds: Math.floor(Date.now() / 1000),
+					repos,
+					developers: snapshot.developers.map((d) => ({
+						id: d.id,
+						alias: d.alias,
+					})),
+					settings: { emailSuffixes: snapshot.settings.emailSuffixes },
+					since: opts.since ?? null,
+					full: opts.full,
+					includeWorkItems: opts.wi !== false,
 					log,
 				});
-				process.exit(code);
-			}
-			log.error("collect not implemented (see docs/06 / docs/07)");
-			log.info("hint: use `signoff collect --dry-run` to print the plan");
-			process.exit(ExitCode.RUNTIME);
-		});
+
+				const blocked = result.manifest.scopes.filter(
+					(sc) => sc.status === "incomplete",
+				);
+				for (const sc of result.manifest.scopes) {
+					for (const a of sc.artifacts) {
+						log.info(`artifact ${a.path} (${a.activityCount} activities)`);
+					}
+				}
+				log.info(`manifest ${result.manifestPath}`);
+				log.info(
+					"next: signoff ingest normalized <artifact> --manifest <manifest>",
+				);
+				// The cursor is untouched by design; ingest owns the commit.
+				process.exit(blocked.length > 0 ? ExitCode.CONTRACT : ExitCode.OK);
+			},
+		);
 
 	const ingest = program
 		.command("ingest")

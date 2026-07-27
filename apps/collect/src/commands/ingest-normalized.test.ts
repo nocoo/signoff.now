@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Manifest } from "@signoff/domain";
+import { serializeJson, sha256Hex } from "../ado/storage.ts";
 import type { FsLike } from "../cache/bootstrap.ts";
 import { ExitCode } from "../exit-codes.ts";
 import type { PipelineClient } from "../pipeline/client.ts";
@@ -54,12 +55,40 @@ function manifest(over: Partial<Manifest["scopes"][number]> = {}): Manifest {
 	};
 }
 
-function harness(m: Manifest, artifacts: Record<string, unknown>) {
-	const files = new Map<string, string>([
-		[MANIFEST_PATH, JSON.stringify(m)],
-		...Object.entries(artifacts).map(
-			([p, v]) => [p, JSON.stringify(v)] as [string, string],
+/**
+ * Build a harness whose manifest digests match the artifact bytes, the way a
+ * real collect run produces them.
+ */
+async function harness(m: Manifest, artifacts: Record<string, unknown>) {
+	const bodies = new Map<string, string>();
+	for (const [path, value] of Object.entries(artifacts)) {
+		bodies.set(path, serializeJson(value));
+	}
+	const withDigests: Manifest = {
+		...m,
+		scopes: await Promise.all(
+			m.scopes.map(async (sc) => ({
+				...sc,
+				artifacts: await Promise.all(
+					sc.artifacts.map(async (a) => {
+						const text = bodies.get(a.path);
+						if (text === undefined) {
+							return a;
+						}
+						const parsed = artifacts[a.path] as { activities: unknown[] };
+						return {
+							...a,
+							sha256: await sha256Hex(text),
+							activityCount: parsed.activities.length,
+						};
+					}),
+				),
+			})),
 		),
+	};
+	const files = new Map<string, string>([
+		[MANIFEST_PATH, JSON.stringify(withDigests)],
+		...bodies.entries(),
 	]);
 	const fs: FsLike = {
 		async mkdir() {},
@@ -120,8 +149,8 @@ function okClient(over: Partial<Record<string, unknown>> = {}): PipelineClient {
 	} as PipelineClient;
 }
 
-const base = (m: Manifest, artifacts: Record<string, unknown>) => {
-	const h = harness(m, artifacts);
+const base = async (m: Manifest, artifacts: Record<string, unknown>) => {
+	const h = await harness(m, artifacts);
 	return {
 		h,
 		opts: {
@@ -204,7 +233,7 @@ describe("verifyIngestResponse", () => {
 
 describe("ingestNormalized", () => {
 	test("ingests and advances the cursor when the scope completes", async () => {
-		const { h, opts } = base(manifest(), {
+		const { h, opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		expect(await ingestNormalized(opts)).toBe(ExitCode.OK);
@@ -238,7 +267,7 @@ describe("ingestNormalized", () => {
 				},
 			],
 		});
-		const { h, opts } = base(m, {
+		const { h, opts } = await base(m, {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 			[ART_B]: { activities: [activity(2)], unmatched: [] },
 		});
@@ -254,7 +283,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("an ineligible scope ingests but never advances the cursor", async () => {
-		const { h, opts } = base(manifest({ commitEligible: false }), {
+		const { h, opts } = await base(manifest({ commitEligible: false }), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		expect(await ingestNormalized(opts)).toBe(ExitCode.OK);
@@ -262,7 +291,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("an incomplete scope refuses to ingest at all", async () => {
-		const { h, opts } = base(
+		const { h, opts } = await base(
 			manifest({ status: "incomplete", errors: ["page gap"] }),
 			{ [ART_A]: { activities: [activity(1)], unmatched: [] } },
 		);
@@ -271,7 +300,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("a file the manifest does not list is refused", async () => {
-		const { opts } = base(manifest(), {
+		const { opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		// A hand-dropped file must not be able to move a cursor.
@@ -284,7 +313,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("a missing manifest is a contract error, not a crash", async () => {
-		const { opts } = base(manifest(), {
+		const { opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		expect(
@@ -296,7 +325,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("a server error leaves the cursor and manifest untouched", async () => {
-		const { h, opts } = base(manifest(), {
+		const { h, opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		const before = h.files.get(MANIFEST_PATH);
@@ -317,7 +346,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("a response that fails verification stops before the manifest write", async () => {
-		const { h, opts } = base(manifest(), {
+		const { h, opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		const before = h.files.get(MANIFEST_PATH);
@@ -343,7 +372,7 @@ describe("ingestNormalized", () => {
 	});
 
 	test("a stale watermark does not rewind an ahead cursor", async () => {
-		const { h, opts } = base(manifest(), {
+		const { h, opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
 		});
 		await h.writeJson(".data/meta/cursor.json", {
@@ -358,13 +387,51 @@ describe("ingestNormalized", () => {
 		);
 	});
 
+	test("an artifact edited after collection is refused", async () => {
+		const { h, opts } = await base(manifest(), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		// The manifest vouches for bytes, not just a path. Tampering must not be
+		// able to certify data that was never collected.
+		h.files.set(
+			ART_A,
+			JSON.stringify({ activities: [activity(999)], unmatched: [] }),
+		);
+		expect(await ingestNormalized(opts)).toBe(ExitCode.CONTRACT);
+		expect(h.files.has(".data/meta/cursor.json")).toBe(false);
+	});
+
+	test("an activity count disagreeing with the manifest is refused", async () => {
+		const h = await harness(manifest(), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		// Same bytes, but the manifest claims a different count: one of the two
+		// is wrong and neither can be trusted.
+		const m = JSON.parse(h.files.get(MANIFEST_PATH) as string);
+		m.scopes[0].artifacts[0].activityCount = 7;
+		h.files.set(MANIFEST_PATH, JSON.stringify(m));
+		expect(
+			await ingestNormalized({
+				filePath: ART_A,
+				manifestPath: MANIFEST_PATH,
+				dataDir: ".data",
+				fs: h.fs,
+				writeJson: h.writeJson,
+				client: okClient(),
+				log: { info: () => {}, warn: () => {}, error: () => {} },
+				nowSeconds: 1_784_737_800,
+				pipelineConfigVersion: 1,
+			}),
+		).toBe(ExitCode.CONTRACT);
+	});
+
 	test("an unreadable artifact is a runtime error", async () => {
-		const { opts } = base(manifest(), {});
+		const { opts } = await base(manifest(), {});
 		expect(await ingestNormalized(opts)).toBe(ExitCode.RUNTIME);
 	});
 
 	test("an artifact violating the ingest contract is refused", async () => {
-		const { opts } = base(manifest(), {
+		const { opts } = await base(manifest(), {
 			[ART_A]: { activities: [{ type: "nonsense" }], unmatched: [] },
 		});
 		expect(await ingestNormalized(opts)).toBe(ExitCode.CONTRACT);

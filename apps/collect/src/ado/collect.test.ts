@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { FsLike } from "../cache/bootstrap.ts";
 import type { AdoClient } from "./client.ts";
-import { type CollectRepo, collect } from "./collect.ts";
-import { createRawWriter } from "./storage.ts";
+import { type CollectRepo, collect, readCursorFile } from "./collect.ts";
+import { createRawWriter, sha256Hex } from "./storage.ts";
 
 const REPO_GUID = "11111111-1111-4111-8111-111111111111";
 const PROJ_GUID = "22222222-2222-4222-8222-222222222222";
@@ -112,6 +112,39 @@ function baseOpts(client: AdoClient, fs: FsLike) {
 		includeWorkItems: false,
 	};
 }
+
+describe("readCursorFile", () => {
+	test("returns an empty cursor when the file is absent", async () => {
+		const { fs } = memoryFs();
+		// "Never collected" is safe; guessing a start point would skip history.
+		expect(await readCursorFile(fs, ".data")).toEqual({
+			schemaVersion: 1,
+			byRepo: {},
+			byProject: {},
+		});
+	});
+
+	test("returns an empty cursor when the file is malformed", async () => {
+		const { fs } = memoryFs();
+		await fs.writeFile(".data/meta/cursor.json", "{ not json");
+		expect((await readCursorFile(fs, ".data")).byRepo).toEqual({});
+	});
+
+	test("reads a valid cursor", async () => {
+		const { fs } = memoryFs();
+		await fs.writeFile(
+			".data/meta/cursor.json",
+			JSON.stringify({
+				schemaVersion: 1,
+				byRepo: { r1: { prsClosedThrough: "2026-07-20T00:00:00.000Z" } },
+				byProject: {},
+			}),
+		);
+		expect(
+			(await readCursorFile(fs, ".data")).byRepo.r1?.prsClosedThrough,
+		).toBe("2026-07-20T00:00:00.000Z");
+	});
+});
 
 describe("collect", () => {
 	test("writes a manifest whose scopes are all pending", async () => {
@@ -278,6 +311,25 @@ describe("collect", () => {
 					"System.CreatedBy": { uniqueName: "ada@example.com", id: "a" },
 				},
 			},
+			// A real update stream, so the paging parse callback runs.
+			updates: {
+				value: [
+					{
+						id: 1,
+						rev: 2,
+						revisedDate: "2026-07-03T00:00:00Z",
+						revisedBy: { uniqueName: "ada@example.com", id: "a" },
+						fields: { "System.State": { newValue: "Committed" } },
+					},
+					{
+						// No `id`: the dedupe key falls back to the revision number.
+						rev: 3,
+						revisedDate: "2026-07-04T00:00:00Z",
+						revisedBy: { uniqueName: "ada@example.com", id: "a" },
+						fields: { "System.Title": { newValue: "x" } },
+					},
+				],
+			},
 			states: { value: [{ name: "Done", category: "Completed" }] },
 		});
 		const { manifest } = await collect({
@@ -351,6 +403,19 @@ describe("collect", () => {
 		expect(manifest.scopes[0]?.commitEligible).toBe(true);
 	});
 
+	test("the recorded digest matches the bytes written to disk", async () => {
+		const { fs, files } = memoryFs();
+		const client = routedClient({
+			prs: (s) => ({ value: s === "completed" ? [pr(1001)] : [] }),
+		});
+		const { manifest } = await collect(baseOpts(client, fs));
+		const artifact = manifest.scopes[0]?.artifacts[0];
+		const onDisk = files.get(artifact?.path as string) as string;
+		// Hashing a different serialization than the one written would make
+		// verification reject every artifact the collector produces.
+		expect(await sha256Hex(onDisk)).toBe(artifact?.sha256 as string);
+	});
+
 	test("warns when a scope cannot advance the cursor", async () => {
 		const { fs } = memoryFs();
 		const warnings: string[] = [];
@@ -365,7 +430,7 @@ describe("collect", () => {
 		await collect({
 			...baseOpts(routedClient({}), fs),
 			since: "2026-07-20T00:00:00.000Z",
-			log: { info: () => {}, warn: (m) => warnings.push(m) },
+			log: { warn: (m) => warnings.push(m) },
 		});
 		expect(warnings.some((w) => w.includes("will not advance"))).toBe(true);
 	});

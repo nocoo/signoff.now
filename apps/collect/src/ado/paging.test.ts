@@ -101,6 +101,61 @@ describe("fetchPullRequests", () => {
 		expect(urls[0]).toContain("queryTimeRangeType=closed");
 	});
 
+	test("bounds both ends of the window", async () => {
+		const { client, urls } = scripted([{ value: [] }]);
+		await fetchPullRequests({
+			client,
+			base,
+			repoPath,
+			status: "completed",
+			from: "2026-07-01T00:00:00Z",
+			watermark: "2026-07-26T00:00:00Z",
+		});
+		// Without maxTime the newer rows still consume $skip offsets and the page
+		// budget, so a busy repo can be declared incomplete forever.
+		expect(urls[0]).toContain("searchCriteria.minTime=2026-07-01");
+		expect(urls[0]).toContain("searchCriteria.maxTime=2026-07-26");
+	});
+
+	test("a page starting older than the last boundary is reported", async () => {
+		// The dangerous direction: a row removed before this offset pulls the
+		// window forward and skips a record, leaving no duplicate behind.
+		const pageA = {
+			value: Array.from({ length: PAGE_SIZE }, (_, i) =>
+				pr(2000 - i, "2026-07-20T00:00:00Z"),
+			),
+		};
+		const pageB = { value: [pr(1, "2026-07-01T00:00:00Z")] };
+		const { client } = scripted([pageA, pageB]);
+		const r = await fetchPullRequests({
+			client,
+			base,
+			repoPath,
+			status: "completed",
+		});
+		expect(r.problems.some((p) => p.reason.includes("skips past"))).toBe(true);
+	});
+
+	test("a page continuing at the same instant is not a gap", async () => {
+		// Many PRs can close in the same second; that is continuity, not loss.
+		const pageA = {
+			value: Array.from({ length: PAGE_SIZE }, (_, i) =>
+				pr(2000 - i, "2026-07-20T00:00:00Z"),
+			),
+		};
+		const pageB = { value: [pr(1, "2026-07-20T00:00:00Z")] };
+		const { client } = scripted([pageA, pageB]);
+		const r = await fetchPullRequests({
+			client,
+			base,
+			repoPath,
+			status: "completed",
+		});
+		expect(r.problems.filter((p) => p.reason.includes("skips past"))).toEqual(
+			[],
+		);
+	});
+
 	test("active PRs are not time-filtered", async () => {
 		// They have no closedDate to filter on, and the set is small.
 		const { client, urls } = scripted([{ value: [] }]);
