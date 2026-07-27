@@ -9,9 +9,21 @@ name = "signoff"
 main = "packages/worker/src/index.ts"
 compatibility_date = "2026-07-07"
 
-# Production entry point. Cloudflare provisions the DNS record and certificate
+# Production entry points. Cloudflare provisions the DNS record and certificate
 # for a custom domain, so no separate DNS entry is needed.
-routes = [{ pattern = "signoff.hexly.ai", custom_domain = true }]
+#
+# Two hosts, one Worker, two auth paths:
+#   signoff.hexly.ai         — people, behind Cloudflare Access (302 to login)
+#   signoff-ingest.hexly.ai  — the CLI, authenticated by the pipeline token
+#
+# The split is not cosmetic. `isMachineEndpoint` (middleware/entry-control.ts)
+# recognises the `signoff-ingest` prefix and lets that host skip Access, so a
+# machine can post without a browser session. Serving both from one hostname
+# would mean a write path on the human domain that Access never sees.
+routes = [
+  { pattern = "signoff.hexly.ai", custom_domain = true },
+  { pattern = "signoff-ingest.hexly.ai", custom_domain = true },
+]
 
 # workers.dev stays on as a fallback: if the custom domain or its certificate
 # misbehaves, `signoff.<subdomain>.workers.dev` is still a way in to check

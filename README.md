@@ -139,8 +139,20 @@ bun run signoff -- ingest normalized <同一个 artifact> --manifest <同一个 
 部署后接口不通是预期行为，不是故障。
 （例外：`/api/live` 与 pipeline 机器端点走各自的鉴权，不经 Access。）
 
+**两个生产域名，一个 Worker，两条鉴权路径**：
+
+| 域名 | 谁用 | 鉴权 |
+|:---|:---|:---|
+| `signoff.hexly.ai` | 人（浏览器） | Cloudflare Access（未登录 → 302 跳登录页） |
+| `signoff-ingest.hexly.ai` | CLI | pipeline token，**不经 Access** |
+
+拆开不是为了好看：`isMachineEndpoint`（`middleware/entry-control.ts`）
+认 `signoff-ingest` 前缀并让该主机跳过 Access，机器才能在没有浏览器会话的
+情况下写入。合成一个域名就意味着主域名上存在一条 Access 看不见的写入路径。
+
 1. Cloudflare Zero Trust → Access → Applications 建一个应用，指向
-   `signoff.hexly.ai`（生产域名；`workers.dev` 保留为退路）；
+   `signoff.hexly.ai`（**只保护它，不要包含 ingest 域名**；
+   `workers.dev` 保留为退路）；
 2. 复制该应用的 **AUD**，与 team domain（形如 `<team>.cloudflareaccess.com`）
    一起配成 Worker secret：
 
