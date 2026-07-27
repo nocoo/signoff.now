@@ -10,9 +10,9 @@
 
 - ✅ 08 做：远端上线流程、Dashboard 统计 API 与视图、运维手册、真实数据验收
 - ❌ 08 不做：改 Activity type / 权重 / external_ref / 表结构 / 采集规则
-- ⚠️ 08 **确实新增两个索引**（`0007`，纯 `CREATE INDEX`，不动任何列）：
-  见 §3.5。这是对「不改 schema」边界的一处显式豁免，理由是没有它们
-  按 type 聚合会全表扫描。
+- ⚠️ 08 **确实新增两个索引**（`0007`，纯 `CREATE INDEX`，不动任何列；
+  `0008` 只重建其中一个的定义）：见 §3.5。这是对「不改 schema」边界的一处
+  显式豁免，理由是没有它们按 type 聚合会全表扫描。
 
 ---
 
@@ -36,7 +36,7 @@
 沿用 06 §9.1 的原则：**schema 先行，代码其次，数据最后**。
 
 ```
-1) 远端 apply 0007（索引）
+1) 远端 apply 0007 + 0008（索引）
 2) Worker + SPA deploy
 3) 核对生产 Settings：邮箱后缀不能还是默认的 example.com、
    时区是否正确、权重是否是想要的       ← 见下方警告
@@ -134,7 +134,7 @@
 ### 3.3 D1 查询预算
 
 Worker 每次调用有 statement 上限（05 §5.2）。本接口 **stale 时 2 条**
-（`loadSettings` + `lastIngestAt`，见 §3.2 的语义说明），**正常时 8 条**：
+（`loadSettings` + `lastIngestAt`，见 §3.2 的语义说明），**正常时 9 条**：
 
 | # | 用途 |
 |:--|:-----|
@@ -145,9 +145,11 @@ Worker 每次调用有 statement 上限（05 §5.2）。本接口 **stale 时 2 
 | 5 | `scores` + `json_each(breakdown_json)` → `byType.score`（折叠后得分） |
 | 6 | `scores` join `developers` 取 top N（N=10，按 score DESC, developer_id ASC）→ topDevelopers |
 | 7 | `ingest_runs` 取 `MAX(finished_at)` where `status='finalized'` → lastIngestAt |
-| 8 | `ingest_runs` 计 `status='chunked'` → **是否有 ingest 正在进行**（见下） |
+| 8 | `ingest_chunks` join `ingest_runs` 计 `status='prepared'` → **是否有 chunk 半写入**（见下） |
+| 9 | batch 之后再次 `loadSettings` → 检测聚合期间配置漂移 |
 
-跨度上限 92 天让第 3 条的返回行数可控（≤92 行）。7 条远低于 Paid 上限。
+第 2–8 条在一次 `DB.batch` 内；第 1、9 条是 batch 前后各一次单独读取。
+跨度上限 92 天让第 3 条的返回行数可控（≤92 行）。9 条远低于 Paid 上限。
 
 **快照一致性**：业务聚合放进一次 `DB.batch`，让它们看到同一个快照。
 
@@ -158,10 +160,30 @@ Score（Phase 3）提交在**两个不同的 batch** 里（`pipeline-ingest-writ
 
 重读 `config_version` / `scores_stale` **检测不到**这种情况 —— 增量 ingest
 期间这两个值都不变。因此在**同一批**里查一次
-`ingest_runs WHERE status='chunked' AND config_version=?`：
-只要有正在进行的 run，就按 stale 返回并给出 `staleReason: "an ingest is in
-progress; numbers are still settling"`。宁可说「还在算」，也不要给出两个
-互相矛盾的数字。
+
+```sql
+SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
+FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
+WHERE c.status = 'prepared' AND r.config_version = ?
+```
+
+只要有 chunk 处于 `prepared`，就按 stale 返回并给出
+`staleReason: "an ingest is in progress; numbers are still settling (run <id>)"`。
+宁可说「还在算」，也不要给出两个互相矛盾的数字。
+
+**必须盯 chunk，不能盯 run**。三个理由：
+
+1. run 在**整个生命周期**里都是 `chunked`，盯它会让一次多 chunk 的 ingest
+   全程遮蔽 Dashboard，而不只是不一致的那个窗口；
+2. 若某个 run 被遗弃，盯 run 会让 Dashboard **永久**空白且无恢复路径 ——
+   「还在算」和「产品坏了」在用户眼里不可区分，比原来的竞态更糟；
+3. 被标为 `failed` 的 run 仍可能留下 `prepared` chunk，而写入路径
+   （`pipeline-ingest-write.ts`，同 digest 重试直接跳到 score 阶段）
+   允许 CLI 续跑它 —— 那份数据是真实的半写入，盯 run 会漏掉。
+
+`prepared` 是**可恢复**状态，不是终态：CLI 重发同一 chunk 即可完成 Phase 3，
+守卫随之解除。`runId` 写进 `staleReason` 是因为这个状态可能比造成它的那次
+ingest 活得更久 —— 没有 id 就没人知道该去续跑或放弃哪个 run。
 
 **零填充归属**：`daily` 的缺失日由 **Web ViewModel** 补 0，API 只返回有数据的
 天。API 不做是因为窗口边界属于展示决策；ViewModel 必须做，否则 CSS 条形序列
@@ -200,13 +222,22 @@ View 里，逃出了覆盖率门禁。08 把它改成三层，逻辑落到 Model
 
 1. **窗口选择**：最近 7 / 28 / 92 天。
 2. **StatCard ×3**：活动总数、总分、活跃开发者数。
-3. **每日趋势**：复用 `--heatmap-*` 色阶的条形序列。一期不引入图表库——
-   01 §8 提到 Recharts，但为一个条形图增加依赖不划算，先用 CSS 高度。
+3. **每日趋势**：复用 `--heatmap-*` 色阶的条形序列。
 4. **按类型分布**：type / 次数 / 得分，占比条用 `--chart-*`。
 5. **Top 开发者**：姓名 + 得分 + 活动数，点击跳 Activity 页并带上该开发者。
-6. **stale 横幅**：与 Activity 页同一措辞。
+6. **stale 横幅**：与 Activity 页同一措辞，正文直接渲染 `staleReason`。
 7. **空态**：区分「窗口内无数据」与「从未采集过」，后者给出
    `signoff collect` 的下一步提示。
+
+**`staleReason` 是不透明展示文本**：View 与 ViewModel 一律**不得**对它做
+字符串判断来分支。in-flight 守卫复用了 stale 的响应形状但换了措辞，
+这组理由今后还会增加；要分支就加结构化字段，不要 match 文案。
+
+**Recharts 例外（记在这里，不改 01 §8）**：01 §8 把 Recharts 定为项目默认
+图表库，这条**不因本页而更改**。08 的每日趋势与占比条用 CSS 高度实现，
+是一处**局部豁免**：两者都是单序列条形，为它们引入图表库不划算。
+一旦 Dashboard 需要多序列、坐标轴或交互式 tooltip，就按 01 §8 引入 Recharts，
+而不是继续堆 CSS。
 
 ### 3.5 Migration 0007 / 0008（索引）
 
@@ -219,7 +250,7 @@ View 里，逃出了覆盖率门禁。08 把它改成三层，逻辑落到 Model
 CREATE INDEX idx_activities_config_day_type
   ON activities (config_version, day_key, type);
 
--- 支撑 lastIngestAt
+-- 支撑 lastIngestAt（0007 原样，含 DESC；0008 把它改回升序）
 CREATE INDEX idx_ingest_runs_config_status_finished
   ON ingest_runs (config_version, status, finished_at DESC);
 ```
@@ -231,6 +262,12 @@ score 侧已有 `idx_scores_config_day_dev(config_version, day_key, developer_id
 0008 只把 `finished_at DESC` 改回 `finished_at`（对 `MAX()` 无差别，SQLite
 会反向扫升序索引）—— 0007 已经在远端跑过，直接改它会让迁移历史与实际不符，
 所以补一个新迁移而不是改旧的。
+
+> **本文档一度自相矛盾过**：`a23ecc6` 在 0007 里删掉了 `IF NOT EXISTS`，
+> 同一个 commit 却加注释说「本文件保持应用时原样」。已由 `f20f633` 按
+> `0416f4c` 的字节恢复。教训是「不改已应用的迁移」这条规则对**注释之外的
+> 每一个字节**同样成立 —— 一个自称未被修改的文件，比一个诚实记录了修改的
+> 文件更危险。
 
 ---
 
@@ -257,7 +294,7 @@ bun run signoff -- ingest normalized <artifact> --manifest <manifest>
 
 ### 5.1 清单
 
-- [ ] 远端 apply 0007，`wrangler d1 migrations list` 无待应用项
+- [ ] 远端 apply 0007 + 0008，`wrangler d1 migrations list` 无待应用项
 - [ ] Worker + SPA 部署完成
 - [ ] 生产 Settings 已核对（后缀非 `example.com`、时区、权重）
 - [ ] 灰度单仓 `collect` → `ingest normalized`，游标推进
@@ -273,8 +310,9 @@ bun run signoff -- ingest normalized <artifact> --manifest <manifest>
 ### 5.2 对账 SQL（逐字段，非只看页面）
 
 页面可能在展示缓存、空数组或错误态，所以每个数字都要有对应的直查。
-把 `:v` / `:from` / `:to` 替换成实际值再执行 —— `wrangler d1 execute --command`
-不接受命名参数。`COALESCE` 不能省：空窗口下 `SUM()` 返回 `NULL`，而 API 返回 0，
+下面的语句已经写死示例值（`config_version = 1`、窗口 `2026-07-01`~`2026-07-26`），
+换成实际值再执行 —— `wrangler d1 execute --command` 不接受命名参数。
+`COALESCE` 不能省：空窗口下 `SUM()` 返回 `NULL`，而 API 返回 0，
 不加会看起来像对不上。
 
 ```sql
@@ -293,7 +331,8 @@ SELECT type, COUNT(*) AS count FROM activities
 WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26' GROUP BY type;
 
 -- byType.score（折叠后得分）
-SELECT j.key AS type, SUM(CAST(j.value AS INTEGER)) AS score
+-- json_each 对数值 JSON 已经返回 integer，无需 CAST；与 stats.ts 逐字一致。
+SELECT j.key AS type, COALESCE(SUM(j.value), 0) AS score
 FROM scores s, json_each(s.breakdown_json) j
 WHERE s.config_version = 1 AND s.day_key BETWEEN '2026-07-01' AND '2026-07-26' GROUP BY j.key;
 
@@ -325,7 +364,7 @@ WHERE config_version = 1 AND status = 'finalized';
 
 | 切片 | 内容 | 验收 |
 |:---|:---|:---|
-| **P0** | migration 0007（两个索引） | 本地 + 远端 apply，`EXPLAIN QUERY PLAN` 命中新索引 |
+| **P0** | migration 0007 + 0008（两个索引） | 本地 + 远端 apply，`EXPLAIN QUERY PLAN` 命中新索引 |
 | **P1** | `GET /api/stats/summary` + Worker 测试 | 真实 SQLite 集成测试，含 stale 分支与 §5.3 不变量 |
 | **P2** | Web Model + ViewModel（含 zod parse、补零、派生） | statements/branches/functions/lines 均 ≥95% |
 | **P3** | DashboardPage 重写为三层 + basalt 视图 | 本地起服务看到真实数字 |
