@@ -35,6 +35,20 @@
 
 **多 org 实测**：`domoreexp` / `office` / `msdata` 三个 org 均可访问，01 §4.2 的多 org 要求必须支持。
 
+**PR 时间过滤实测**（此参数在部分 SDK 里不可见，故实测确认）：
+
+```
+searchCriteria.minTime=2030-01-01T00:00:00Z + queryTimeRangeType=closed → 0 条
+searchCriteria.minTime=2020-01-01T00:00:00Z + queryTimeRangeType=closed → 5 条
+```
+
+→ REST `api-version=7.1` **支持**该过滤。仍按 §7 保留重叠窗口与本地 `closedDate` 复核，
+不把服务端过滤当作唯一正确性来源。
+
+**其它实测**：`status=abandoned` 可查（3 条样本 `lastMergeCommit` 均为空）；
+50 条 `completed` 样本 **全部**有 `lastMergeCommit` 与 `closedDate`；
+VoteUpdate thread 恰含 1 条 comment，`author.id` 为稳定 GUID。
+
 ---
 
 ## 2. 认证
@@ -46,8 +60,11 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 `499b84ac-…` 是 Azure DevOps 的固定 resource id。CLI 通过 `az` 取 token 后走 HTTP，**不存 PAT**（01 §7.3）。
 
 - 入口先跑 `doctor` 校验 `az account show` 成功（已实现）。
-- token 有效期内缓存在内存，**不落盘**。
-- 401/403 → exit code `ENV`，提示重新 `az login`。
+- token 有效期内缓存在内存，**不落盘**；到期前主动刷新，收到 401 时刷新并重试**一次**。
+- **401 与 403 语义不同**：401 = 未认证（提示 `az login`）；403 = 已认证但**无权限**
+  （提示检查该 org/project 的访问授权）——两者都退 `ENV`，但文案必须区分，
+  否则用户会对着已登录的终端反复 `az login`。
+- **API 版本固定 `api-version=7.1`**，写进客户端常量。不跟随服务端默认版本漂移。
 
 ---
 
@@ -56,11 +73,13 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 | 命令 | 行为 |
 |:---|:---|
 | `signoff collect --dry-run` | 现状：读 bootstrap 缓存打印计划，不调 ADO |
-| `signoff collect` | **07 新增**：真实拉取 → 落盘 → 校验 → transform → 写 `.data/normalized/` |
+| `signoff collect` | **07 新增**：真实拉取 → 落盘 → 校验 → transform → 写 `.data/normalized/` + run manifest |
 | `signoff collect --repo <id>` | 只采集指定 repo（调试用） |
 | `signoff collect --since <date>` | 覆盖增量游标，强制从该日期起 |
 | `signoff collect --no-wi` | 跳过 Work Item（PR-only，加速调试） |
+| `signoff collect --full` | 忽略游标全量重采（配合 `full_rematch`） |
 | `signoff collect --offline` | 用已有缓存，缺则报错（04 §6.4 要求） |
+| `signoff collect --concurrency <n>` | 并发度，默认 4 |
 | `signoff ingest normalized <file>` | **07 新增**：把 transform 产物走 06 的 ingest 链路 |
 
 `collect` **不自动 ingest**：落盘与写库分离，便于人工检查后再提交（01 §7.2 硬约束 3「落盘后必须验证，失败禁止 ingest」）。
@@ -82,8 +101,17 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 .data/normalized/ado/{org}/{project}/
   activities-{runId}.json              # transform 产物，fixtureFileSchema 形状
 .data/meta/
-  cursor.json                          # 增量游标
+  cursor.json                          # 已提交的游标（只由 ingest 成功后推进）
+  runs/{collectRunId}.json             # run manifest（见 §7.1）
 ```
+
+**写入方式**：一律 `write temp → fsync → rename` 原子替换，避免中断留下半截 JSON。
+路径每段先做 `encodeURIComponent`，并断言解析后的绝对路径仍在 `.data/` 之下——
+repo 名可含 `/`、`..` 等字符，`paths.ts` 只去首尾斜杠，不防目录穿越。
+
+**PR 快照不可覆盖**：一个 PR 可以 abandoned 后重开再 completed。若直接覆盖
+`prs/{prId}.json`，旧的 `pr.closed` 就再也无法从 raw 复算，违反 01 §6.2「可重建」。
+故 PR/WI 的 raw 按 `prs/{prId}/{fetchedAt}.json` 追加快照，`latest.json` 为软链接式指针。
 
 **WI 按 project 落盘**（01 §7.2）：多个绑定 repo 同属一个 project 时**只采一份**，用 project GUID 去重，禁止按 repo 重复拉。
 
@@ -107,7 +135,13 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 | `raw/iteration.ts` | `rawIterationSchema`（`id`/`createdDate`/`updatedDate`/`author`） |
 | `raw/workitem.ts` | `rawWorkItemSchema`（`id`/`fields`）、`rawWiUpdateSchema`（`rev`/`revisedDate`/`revisedBy`/`fields`） |
 
-**校验失败即中止该实体**，记入 run 报告，不写半截数据。
+**校验失败 → 整个 scope 标记为 incomplete**，不只是跳过该实体。
+
+01 §7.2 硬约束 3 是「落盘后必须验证，失败禁止 ingest」。若只跳过单个实体而让其余
+数据照常 ingest 并推进游标，那条坏实体就**永久跳过**了——下次增量窗口已经不含它。
+因此：任何 fetch / 分页 / schema / transform 失败都把所属 cursor scope 置为
+`incomplete`，该 scope **不产生可 ingest 的 manifest，也不推进游标**。修好后重跑
+同一窗口即可，因为游标没动。
 
 ---
 
@@ -117,55 +151,186 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 
 ### 6.1 输入
 
+PR 与 WI 的作用域不同（repo vs project），故是两个函数、两组输入：
+
 ```ts
-type TransformInput = {
+type Common = {
   settings: { timezone: string; emailSuffixes: string[] };
   developers: { id: string; alias: string }[];
-  repo: {
-    id: string; org: string; project: string;
-    externalId: string; projectExternalId: string;
-  };
+  org: string;
+  project: string;
+};
+
+type PrTransformInput = Common & {
+  repo: { id: string; externalId: string };   // externalId = repo GUID
   prs: RawPr[];
   threadsByPr: Map<number, RawThread[]>;
   iterationsByPr: Map<number, RawIteration[]>;
 };
+
+type WiTransformInput = Common & {
+  projectExternalId: string;                  // project GUID
+  workItems: RawWorkItem[];
+  updatesByWi: Map<number, RawWiUpdate[]>;
+};
 ```
+
+**GUID 校验**：`prs[].repository.id` 必须等于 `repo.externalId`，
+`repository.project.id` 必须等于绑定的 `projectExternalId`。不等 → scope
+`incomplete`（说明 bootstrap 绑定与实际仓库不符，继续采集只会产生 422）。
 
 ### 6.2 逐 type 规则（严格对齐 01 §6.1）
 
 | type | 触发条件 | occurredAt | 归属 | sourceIds |
 |:---|:---|:---|:---|:---|
 | `pr.created` | 总是 | `creationDate` | `createdBy` | `{prRepoGuid, prId}` |
-| `pr.merged` | `status==="completed"` **且** `lastMergeCommit` 存在 | `closedDate` | `createdBy` | `{prRepoGuid, prId}` |
+| `pr.merged` | `status==="completed"` **且** `lastMergeCommit.commitId` 存在 | `closedDate` | `createdBy` | `{prRepoGuid, prId}` |
 | `pr.closed` | `status==="abandoned"` | `closedDate` | `createdBy` | `{prRepoGuid, prId}` |
-| `pr.vote` | thread 的 `CodeReviewThreadType==="VoteUpdate"` **且** `CodeReviewVoteResult > 0` | thread `publishedDate` | **投票者**（comment author） | `{prRepoGuid, prId, voterIdentityId, threadId, commentId}` |
+| `pr.vote` | thread 的 `CodeReviewThreadType==="VoteUpdate"` 且 `CodeReviewVoteResult !== 0` | 该 VoteUpdate comment 的 `publishedDate` | **投票者**（该 comment 的 author） | `{prRepoGuid, prId, voterIdentityId, threadId, commentId}` |
 | `pr.active` | iteration 存在 | iteration `updatedDate` | iteration `author` | `{prRepoGuid, prId, iterationId}` |
 | `wi.created` | 总是 | `System.CreatedDate` | `System.CreatedBy` | `{projectGuid, wiId}` |
-| `wi.closed` | update 把 `System.State` 改成关闭态 | 该 update 的 `revisedDate` | 该 update 的 `revisedBy` | `{projectGuid, wiId}` |
+| `wi.closed` | 见 §6.2.2 | 该 revision 的 `revisedDate` | 该 revision 的 `revisedBy` | `{projectGuid, wiId}` |
 | `wi.updated` | 每条 update | `revisedDate` | `revisedBy` | `{projectGuid, wiId, revisionId: rev}` |
 
-### 6.3 硬性丢弃规则（01 §6.2）
+#### 6.2.1 `pr.vote` 细则
+
+- **不限于赞成票**。01 §6.1 写的是「个人 vote」，不是「approve」。ADO 的取值为
+  `10 / 5 / 0 / -5 / -10`；`0` 是**撤销投票**，不计分；其余非零值均计一次。
+  权重按 type 统一（06 §3），不因赞成/反对而不同。
+- **时间戳取 comment 而非 thread**。一个 thread 理论上可含多条 comment
+  （实测样本恒为 1 条）。取那条 `commentType === "system"` 的 VoteUpdate comment：
+  它的 `publishedDate` 是投票时刻，`author` 是投票者，`id` 是 `commentId`。
+  若找不到唯一一条 → 丢弃该 vote 并记入 run 报告（不猜）。
+- **`voterIdentityId` 用 `author.id`（GUID），不用 `uniqueName`**。邮箱会变，
+  external_ref 必须稳定（02 §5.1）。
+
+#### 6.2.2 `wi.closed` 细则
+
+「关闭态」不能用状态名判断——状态名随流程模板自定义（Closed / Done / Completed / Resolved…）。
+改用**稳定字段**：
+
+- 触发：某条 update 的 `fields["Microsoft.VSTS.Common.ClosedDate"].newValue` 由空变为非空。
+- 若该字段在此流程模板下不存在，则退化为 `System.State` 的
+  `newValue` 落入 **`Completed` / `Resolved` 状态类别**（用
+  `GET /_apis/wit/workitemtypes/{type}/states` 查类别，按 project+type 缓存）。
+- **重开再关闭**：`wi.closed` 的 external_ref 是 `ado:wi:{projectGuid}:{wiId}:closed`，
+  一个 WI 只能有一条。取**最早**满足条件的 revision 为准（确定性），
+  后续再关闭不再产生新 Activity。理由：external_ref 无法表达多次关闭，
+  取最早可保证同一份 raw 反复复算得到同一结果。
+
+### 6.3 Activity 完整构造
+
+除 `sourceIds` 外，每条 Activity 还必须填（`activitySchema` 强制）：
+
+| 字段 | 取值 |
+|:---|:---|
+| `provider` | 恒为 `"ado"` |
+| `org` / `project` | 来自绑定的 repo 行，**不用** raw 里的名字（大小写可能不一致） |
+| `repoId` | `pr.*` → `repo.id`（D1 主键，非 GUID）；`wi.*` → `null` |
+| `developerId` | `matchDeveloper(uniqueName, developers, emailSuffixes)` 的结果 |
+| `matchedUniqueName` | 命中的原始 `uniqueName`（服务端会用 alias+suffix 交叉校验） |
+| `occurredAt` | ISO 8601 → **UTC Unix 秒正整数**：`Math.floor(Date.parse(iso)/1000)`；`NaN` 或 ≤0 → 丢弃并记报告 |
+| `meta` | 可选，≤4 KiB（05 §5.2）；只放展示用文本（如 PR 标题） |
+
+### 6.4 硬性丢弃规则（01 §6.2）
 
 1. **缺时间戳 → 丢弃**：`closedDate` 为 null 的 completed PR、无 `publishedDate` 的 vote、无 `updatedDate` 的 iteration，一律不产 Activity。
 2. **身份不匹配 → 不产 Activity，记 unmatched**：`matchDeveloper` 返回 null 时把 `uniqueName` 加入 `unmatchedIdentities`（06 已有契约，每 chunk ≤10 条）。
-3. **忽略 container**：`isContainer === true` 或 `uniqueName` 不含 `@` → 直接跳过，**不记 unmatched**（避免评审组刷屏）。
-4. **禁止**：用 `reviewers[].vote` 快照反推投票日、用 `System.ChangedDate` 伪造逐日 updated、用 `isDraft` 推断历史草稿状态。
+3. **忽略 container**：`isContainer === true` 或 `uniqueName` 不含 `@` → 跳过，**不记 unmatched**（对齐 01 §4.1，避免评审组刷屏）。
+   但**必须**在 run 报告里按原因（`container` / `non_email`）计数并留脱敏样本——
+   否则 on-prem 的 `DOMAIN\alias` 这类真人身份会被静默吞掉且无人知晓。
+4. **`completed` 却没有 merge commit** → **不静默丢弃**：拉 PR 详情重试一次，
+   仍缺则记为异常并把 scope 置 `incomplete`。50 条实测样本中未出现，
+   出现即说明假设有偏差，应当暴露而非掩盖。
+5. **禁止**：用 `reviewers[].vote` 快照反推投票日、用 `System.ChangedDate` 伪造逐日 updated、用 `isDraft` 推断历史草稿状态。
 
-### 6.4 客户端不算的东西
+### 6.5 客户端不算的东西
 
 `externalRef` / `dayKey` / `config_version` **不由 CLI 计算**（05 §5.1）——服务端重算并比对。transform 只产出 06 `activitySchema` 要求的字段。
 
 ---
 
-## 7. 增量游标
+## 7. 增量游标与 run manifest
 
-`.data/meta/cursor.json`：
+### 7.1 为什么需要 manifest
+
+「ingest 返回 finalized 就推进游标」对**单个 fixture 文件**是安全的，但一次 collect
+可能产出多个文件（§9：超 5000 条要拆，各自独立 runId）。文件 1 finalized
+并不说明文件 2…N 也成功。而 `fixtureFileSchema` 里没有游标信息（06 §6.2 是
+`.strict()`），`ingest normalized <file>` 单看文件也无从知道该推进哪个 scope。
+
+故引入 **run manifest**：把「采集窗口 → 产物 → 游标推进」三者绑在一起。
+
+`.data/meta/runs/{collectRunId}.json`：
+
+```json
+{
+  "schemaVersion": 1,
+  "collectRunId": "01J…",
+  "startedAt": 1784737800,
+  "scopes": [
+    {
+      "kind": "repo",
+      "id": "<repoId>",
+      "field": "prsClosedThrough",
+      "from": "2026-07-20T00:00:00Z",
+      "watermark": "2026-07-26T12:00:00Z",
+      "status": "pending",
+      "artifacts": [
+        { "path": "…/activities-01J….json", "runId": "01J…", "sha256": "…", "status": "pending" }
+      ]
+    }
+  ]
+}
+```
+
+- `status`: `pending` | `complete` | `incomplete`
+- **scope 原子提交**：只有该 scope 的**全部** artifact 都 `finalized`，才把
+  `watermark` 写进 `cursor.json`。任一 artifact 失败 → scope 保持 `pending`，
+  游标不动，重跑同窗口即可。
+- `incomplete` 的 scope（§5 校验失败）**不生成 artifact**，也永不推进。
+
+### 7.2 Watermark 竞态
+
+分页期间仍有新数据写入 ADO。若把「本次见到的最大时间」当作新游标，
+分页过程中产生的变更会被永久跳过。
+
+规则：
+
+1. **采集前**先取 `watermark = now - safetyLag`（`safetyLag` 默认 5 分钟，
+   因 ADO 索引是最终一致的）。
+2. 查询区间用**闭开区间** `[from - overlap, watermark)`，`overlap` 默认 1 小时。
+   重叠部分靠 `external_ref` 幂等吸收（06 已保证同 ref 重放不重复计分）。
+3. WIQL **必须**同时带上下界：
+   `WHERE [System.ChangedDate] >= @from AND [System.ChangedDate] < @watermark`。
+4. 只有 scope 全部 artifact finalized 后，才把这个**预先算好的** watermark 提交为新游标——
+   而不是提交「实际见到的最大值」。
+
+### 7.3 分端点的查询与分页
+
+不同端点分页方式不同，不能用一个通用分页器：
+
+| 端点 | 分页 | 终止条件 |
+|:---|:---|:---|
+| PR 列表 | `$skip` / `$top`（每页 100） | 返回条数 < `$top` |
+| WI updates | `$skip` / `$top` | 同上 |
+| WIQL | **无续传令牌**，结果集有上限（约 20000） | 命中上限即**递归二分时间窗**重查 |
+| threads / iterations | 一次性返回全集 | 无需分页 |
+
+PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
+`searchCriteria.status` 只接受单值；漏了 `abandoned` 就等于永远不产 `pr.closed`。
+`active` 不受时间过滤（活跃 PR 数量小，全量拉）。
+
+分页需防重复页：记录已见 `pullRequestId` / `wiId`，重复出现即视为服务端游标异常，
+置 scope `incomplete`。
+
+### 7.4 游标文件
 
 ```json
 {
   "schemaVersion": 1,
   "byRepo": {
-    "<repoId>": { "prsUpdatedThrough": "2026-07-20T00:00:00Z", "lastRunId": "01J…" }
+    "<repoId>": { "prsClosedThrough": "2026-07-20T00:00:00Z", "lastCollectRunId": "01J…" }
   },
   "byProject": {
     "<projectGuid>": { "wiChangedThrough": "2026-07-20T00:00:00Z" }
@@ -173,10 +338,19 @@ type TransformInput = {
 }
 ```
 
-- PR 增量：`searchCriteria.minTime` + `queryTimeRangeType=closed`（对已完成），外加一次 `status=active` 全量（活跃 PR 数量小）。
-- WI 增量：WIQL `WHERE [System.ChangedDate] >= @cursor`。
-- **游标只在 ingest 成功后推进**：collect 落盘不动游标，`ingest normalized` 返回 200 且 `finalized` 后才写。避免「采了没进库但游标已推进」导致永久丢数据。
-- `--since` 覆盖游标；`--full` 忽略游标全量重采（配合 `full_rematch`）。
+`--since` 覆盖 `from`；`--full` 忽略游标全量重采（配合 `full_rematch`）。
+
+### 7.5 Ingest 响应校验
+
+推进游标前必须**逐字段核对**响应，而不只是校验 schema 形状：
+
+- `runId` 等于请求的 runId
+- `chunkIndex` 等于请求的 chunkIndex
+- `pipelineConfigVersion` 等于请求值
+- 中间 chunk `finalized === false`，最后一个 chunk `finalized === true`
+- `activities.rejected === 0`
+
+任一不符 → artifact 不算成功，scope 不推进。
 
 ---
 
@@ -187,12 +361,14 @@ type TransformInput = {
 | 场景 | 退出码 | 行为 |
 |:---|:---|:---|
 | `az` 未登录 / token 401 403 | `ENV` | 提示 `az login` |
-| ADO 429 / 5xx | 重试 | 指数退避（1s/2s/4s），3 次后 `SERVER` |
+| ADO 429 | 重试 | **优先读 `Retry-After`**；无该头再用指数退避（1s/2s/4s）+ 抖动，3 次后 `SERVER` |
+| ADO 5xx | 重试 | 指数退避（1s/2s/4s）+ 抖动，3 次后 `SERVER` |
 | raw zod 校验失败 | `CONTRACT` | 打印字段路径，不落该实体 |
 | bootstrap 版本与库不符 | `CONTRACT` | 提示先 `settings pull` |
 | 网络中断 | `SERVER` | 已落盘 raw 保留，可续跑 |
 
 **限流**：默认并发 4，`--concurrency` 可调。threads/iterations 是 per-PR 调用，PR 多时为主要耗时。
+ADO 返回 `X-RateLimit-Remaining` / `X-RateLimit-Delay` 时按其减速，不要硬打。
 
 ---
 
@@ -224,12 +400,17 @@ transform 产物是 `fixtureFileSchema` 形状（06 §6.2，`activities` 上限 
 
 | 切片 | 内容 | 验收 |
 |:---|:---|:---|
-| **P1** | `ado/client.ts`：token 获取 + HTTP + 重试 + 分页 | 单测 mock 全绿 |
-| **P2** | raw schema + 落盘 | 真实 API 抓样本，schema 通过 |
-| **P3** | transform（PR：created/merged/closed/vote/active） | 单测覆盖 §6.2/§6.3 |
-| **P4** | transform（WI：created/closed/updated） | 同上 |
-| **P5** | 游标 + `collect` 真路径接线 | 真实 repo 跑通落盘 |
-| **P6** | `ingest normalized` + 端到端 | heatmap 出真实数据 |
+| **P1** | `ado/client.ts`：token（含刷新/401 重试）+ HTTP + 429/5xx 退避 + 分端点分页 | 单测 mock 401/403/429/5xx/重复页全绿 |
+| **P2** | raw schema + 原子落盘 + 快照保留 + 路径安全 | 真实 API 抓样本，schema 通过；穿越路径被拒 |
+| **P3** | transform（PR：created/merged/closed/vote/active） | 单测覆盖 §6.2/§6.3/§6.4 |
+| **P4** | transform（WI：created/closed/updated，含状态类别查询） | 同上 |
+| **P5** | `collect` 真路径 + watermark + **写 manifest（scope 恒为 pending）** | 真实 repo 跑通落盘；游标**不动** |
+| **P6** | `ingest normalized` + 响应核对 + **scope 原子提交游标** | 多产物部分失败时游标不推进；全成功才推进 |
+
+**P5 / P6 的边界**：P5 只负责「采集 + 产出 pending manifest + 读游标」，
+它**不具备**推进游标的能力——推进逻辑属于 P6。这样 P5 可独立合并且行为完整
+（跑完游标不动是正确行为，不是半成品）。P6 必须包含一个「多文件、其中一个
+ingest 失败」的测试，证明 scope 不会被部分提交。
 
 每片独立可合并、测试绿、原子提交。
 
