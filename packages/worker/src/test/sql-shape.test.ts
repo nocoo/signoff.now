@@ -272,3 +272,65 @@ describe("helpers fail closed rather than reporting a partial answer", () => {
 		expect(setAssignments("UPDATE t SET (a, b) = (1, 2)")).toEqual([]);
 	});
 });
+
+describe("isWriteInto anchoring", () => {
+	test("a quoted alias elsewhere does not claim the write", () => {
+		// `sqlShape` blanks quoted identifiers, so the raw text must be read at
+		// the SAME offset the verb was found. A free-floating search reads this
+		// exactly backwards: the statement writes `other`, not `ingest_runs`.
+		expect(
+			isWriteInto(
+				'INSERT INTO "other" (a) SELECT 1 AS "ingest_runs"',
+				"ingest_runs",
+			),
+		).toBe(false);
+		expect(
+			isWriteInto('INSERT INTO "ingest_runs" (a) VALUES (1)', "ingest_runs"),
+		).toBe(true);
+	});
+
+	test("UPDATE counts as a write, as the name promises", () => {
+		// Called `isWriteInto` but blind to UPDATE, it would silently answer
+		// "nothing writes this table" for the statement that does.
+		expect(
+			isWriteInto("UPDATE ingest_runs SET status='x'", "ingest_runs"),
+		).toBe(true);
+		expect(
+			isWriteInto("UPDATE OR REPLACE ingest_runs SET a=1", "ingest_runs"),
+		).toBe(true);
+		expect(isWriteInto("UPDATE main.ingest_runs SET a=1", "ingest_runs")).toBe(
+			true,
+		);
+	});
+
+	test("a table named in a string or as a prefix is not a write", () => {
+		expect(
+			isWriteInto("UPDATE other SET x = 'ingest_runs'", "ingest_runs"),
+		).toBe(false);
+		expect(
+			isWriteInto(
+				"INSERT INTO ingest_runs_archive (a) VALUES (1)",
+				"ingest_runs",
+			),
+		).toBe(false);
+		expect(isWriteInto("SELECT * FROM ingest_runs", "ingest_runs")).toBe(false);
+	});
+});
+
+describe("isInsertInto vs isWriteInto", () => {
+	test("they are NOT the same predicate", () => {
+		// Aliasing them made `isInsertInto` match UPDATE, which turned "exactly
+		// one batch inserts the run" into a false failure against a statement
+		// that only guards on the row's existence.
+		const update =
+			"UPDATE ingest_runs SET stats_json = stats_json WHERE id = ?";
+		expect(isWriteInto(update, "ingest_runs")).toBe(true);
+		expect(isInsertInto(update, "ingest_runs")).toBe(false);
+	});
+
+	test("both agree on a real insert", () => {
+		const insert = "INSERT INTO ingest_runs (id) VALUES (?)";
+		expect(isWriteInto(insert, "ingest_runs")).toBe(true);
+		expect(isInsertInto(insert, "ingest_runs")).toBe(true);
+	});
+});

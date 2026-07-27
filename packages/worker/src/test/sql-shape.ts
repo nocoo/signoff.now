@@ -92,33 +92,57 @@ export function sqlShape(sql: string): SqlShape {
 
 /**
  * True when the statement writes rows into `table`, however it is spelled:
- * INSERT / INSERT OR ... / REPLACE, optionally behind a CTE, and with the
+ * INSERT / INSERT OR ... / REPLACE / UPDATE, optionally behind a CTE, with the
  * target quoted (`"t"`, `[t]`, `` `t` ``) or schema-qualified (`main.t`).
  *
- * Quoted targets are recovered from the raw SQL because `sqlShape` blanks
- * identifiers; matching only the blanked form would let a rename hide.
+ * `sqlShape` blanks quoted identifiers, so a quoted target must be recovered
+ * from the raw SQL. The recovery is anchored at the SAME OFFSET the verb was
+ * found at — a free-floating search would let
+ * `INSERT INTO "other" (a) SELECT 1 AS "ingest_runs"` claim to write
+ * `ingest_runs`, which is exactly backwards: it writes somewhere else.
  */
 export function isWriteInto(sql: string, table: string): boolean {
 	const { tokens } = sqlShape(sql);
 	const T = table.toUpperCase();
-	// Blanked identifiers become "" — treat that as a wildcard target and fall
-	// back to checking the raw text for the table name in quotes.
-	const quoted = new RegExp(`["'\`\\[]\\s*${table}\\s*["'\`\\]]`, "i").test(
-		sql,
-	);
-	const verb = /\b(INSERT|REPLACE)\b[^;]*?\bINTO\s+([A-Z0-9_]+\.)?/;
+
+	// INSERT/REPLACE name the target after INTO; UPDATE names it immediately.
+	const verb =
+		/\b(?:INSERT|REPLACE)\b[^;]*?\bINTO\s+(?:[A-Z0-9_]+\.)?|\bUPDATE\s+(?:OR\s+[A-Z]+\s+)?(?:[A-Z0-9_]+\.)?/;
 	const m = verb.exec(tokens);
 	if (!m) {
 		return false;
 	}
-	const after = tokens.slice((m.index ?? 0) + m[0].length);
+	const at = (m.index ?? 0) + m[0].length;
+	const after = tokens.slice(at);
+
 	// Identifier boundary: `ingest_runs_archive` must not match `ingest_runs`.
-	const bare = new RegExp(`^${T}(?![A-Z0-9_])`).test(after);
-	return bare || (quoted && after.startsWith('""'));
+	if (new RegExp(`^${T}(?![A-Z0-9_])`).test(after)) {
+		return true;
+	}
+	// A blanked identifier sits where the target should be. Read the raw SQL at
+	// that same position to find out what it actually was.
+	if (!after.startsWith('""')) {
+		return false;
+	}
+	const rawTarget = /^\s*["'`[]\s*([A-Za-z0-9_]+)\s*["'`\]]/.exec(
+		sql.slice(at),
+	);
+	return rawTarget?.[1]?.toUpperCase() === T;
 }
 
-/** Back-compat alias: reads better at call sites that only ever see INSERT. */
-export const isInsertInto = isWriteInto;
+/**
+ * INSERT/REPLACE only — deliberately NOT an alias of `isWriteInto`.
+ *
+ * Call sites that ask "which batch inserts this row" mean insertion. Aliasing
+ * the two made `isInsertInto` start matching UPDATE, which turned "exactly one
+ * batch inserts the run" into a false failure against a statement that only
+ * guards on the row's existence.
+ */
+export function isInsertInto(sql: string, table: string): boolean {
+	return /\b(?:INSERT|REPLACE)\b/.test(sqlShape(sql).tokens)
+		? isWriteInto(sql, table)
+		: false;
+}
 
 /** True when the statement uses any upsert/replace form. */
 export function hasUpsert(sql: string): boolean {
