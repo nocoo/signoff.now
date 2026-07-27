@@ -260,8 +260,14 @@ export function guardConditionFor(
 	// still contains the marker.
 	let best: string | null = null;
 	let searchFrom = 0;
+	// `if(` with no space is valid JS and Biome will not reformat inside a
+	// string, so matching a literal "if (" would silently find no guard at all
+	// and the caller would fail closed on a guard that is present.
+	const ifHead = /\bif\s*\(/g;
 	while (true) {
-		const head = source.indexOf("if (", searchFrom);
+		ifHead.lastIndex = searchFrom;
+		const found = ifHead.exec(source);
+		const head = found?.index ?? -1;
 		if (head === -1 || head > at) {
 			break;
 		}
@@ -316,8 +322,35 @@ function readParenSpan(
 	}
 	let depth = 0;
 	const start = i;
+	// Parens inside a string or a comment are text, not structure. Counting
+	// them truncated `if (msg === "a) b" && n > 0)` to `msg === "a`, so a guard
+	// could be rewritten past the cut and the assertion would still pass.
+	let quote: string | null = null;
 	while (i < source.length) {
-		const ch = source[i];
+		const ch = source[i] as string;
+		const prev = source[i - 1];
+		if (quote) {
+			if (ch === quote && prev !== "\\") {
+				quote = null;
+			}
+			i++;
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") {
+			quote = ch;
+			i++;
+			continue;
+		}
+		if (ch === "/" && source[i + 1] === "/") {
+			const nl = source.indexOf("\n", i);
+			i = nl === -1 ? source.length : nl;
+			continue;
+		}
+		if (ch === "/" && source[i + 1] === "*") {
+			const close = source.indexOf("*/", i + 2);
+			i = close === -1 ? source.length : close + 2;
+			continue;
+		}
 		if (ch === "(") {
 			depth++;
 		} else if (ch === ")") {

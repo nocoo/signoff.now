@@ -334,3 +334,37 @@ describe("isInsertInto vs isWriteInto", () => {
 		expect(isInsertInto(insert, "ingest_runs")).toBe(true);
 	});
 });
+
+describe("guardConditionFor lexing", () => {
+	test("finds a guard written without a space after `if`", () => {
+		// `if(` is valid JS. Matching the literal "if (" found no guard at all,
+		// and the caller then fails closed on a guard that is actually present.
+		expect(
+			guardConditionFor("if(inFlight > 0) {\n return HIT;\n}", "HIT"),
+		).toBe("inFlight > 0");
+	});
+
+	test("a paren inside a string does not truncate the condition", () => {
+		// Truncation is the dangerous half: `msg === "a` reads as a complete
+		// condition, so the guard could be rewritten past the cut and the
+		// assertion would still pass.
+		expect(
+			guardConditionFor(
+				'if (msg === "a) b" && n > 0) {\n return HIT;\n}',
+				"HIT",
+			),
+		).toBe('msg === "a) b" && n > 0');
+	});
+
+	test("a paren inside a comment does not truncate either", () => {
+		const cond = guardConditionFor(
+			"if (/* ) */ n > 0) {\n return HIT;\n}",
+			"HIT",
+		);
+		expect(cond).toContain("n > 0");
+	});
+
+	test("still returns null when there is genuinely no guard", () => {
+		expect(guardConditionFor("return HIT;", "HIT")).toBeNull();
+	});
+});
