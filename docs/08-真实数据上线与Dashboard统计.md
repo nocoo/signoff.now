@@ -178,7 +178,9 @@ WHERE c.status = 'prepared' AND r.config_version = ?
     OR EXISTS (
       SELECT 1 FROM json_each(c.dev_day_union_json) d
       WHERE NOT json_valid(d.value)
-         OR json_extract(d.value, '$.dayKey') IS NULL
+         OR json_type(d.value, '$.dayKey') IS NOT 'text'
+         OR date(json_extract(d.value, '$.dayKey'))
+              IS NOT json_extract(d.value, '$.dayKey')
     )
   )
 ```
@@ -221,7 +223,9 @@ ingest 活得更久 —— 没有 id 就没人知道该去续跑或放弃哪个 
 所以 `[]` 是合法的 —— 这种 chunk 一天的分数都没碰，不可能与任何数字矛盾。
 
 真正要拦的是**读不懂**的 union：非数组（`json_type <> 'array'`），
-或**任意一条**条目读不出 `dayKey`。判据是「存在任何坏条目」而**不是**
+或**任意一条**条目的 `dayKey` 不是能通过 `date()` 往返的字符串
+（类型不对、`2026-13-45` 这种形状合法但非真日期、`2026-02-30` 会被
+静默归一成 3 月 2 日 —— 三者都会以「它不是的那一天」去跟窗口比较）。判据是「存在任何坏条目」而**不是**
 「全部都坏」—— 后者会让一条好条目替它损坏的兄弟洗白：
 `[{"dayKey":"1999-01-01"},"bad"]` 会照常公布 7 月，
 而那条读不出的很可能**就是**半写入的 7 月那天。
@@ -454,4 +458,4 @@ WHERE config_version = 1 AND status = 'finalized';
 
 ---
 
-**文档结束（08 设计稿）**
+**文档结束（08，已实装）**
