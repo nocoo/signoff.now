@@ -208,7 +208,7 @@ type WiTransformInput = Common & {
 | `pr.active` | iteration 存在 | iteration `updatedDate` | iteration `author` | `{prRepoGuid, prId, iterationId}` |
 | `wi.created` | 总是 | `System.CreatedDate` | `System.CreatedBy` | `{projectGuid, wiId}` |
 | `wi.closed` | 见 §6.2.2 | 该 revision 的 `revisedDate` | 该 revision 的 `revisedBy` | `{projectGuid, wiId}` |
-| `wi.updated` | 每条 update | `revisedDate` | `revisedBy` | `{projectGuid, wiId, revisionId: rev}` |
+| `wi.updated` | 每个**唯一 rev**（见 §6.2.3） | `revisedDate` | `revisedBy` | `{projectGuid, wiId, revisionId: rev}` |
 
 #### 6.2.1 `pr.vote` 细则
 
@@ -238,6 +238,23 @@ type WiTransformInput = Common & {
   一个 WI 只能有一条。取**最早**满足条件的 revision 为准（确定性），
   后续再关闭不再产生新 Activity。理由：external_ref 无法表达多次关闭，
   取最早可保证同一份 raw 反复复算得到同一结果。
+
+#### 6.2.3 `rev` 会重复（实测）
+
+实测发现：同一个 WI 的 updates 流里**存在 `rev` 相同的多条记录**（`id` 不同、
+作者与时间不同，其中一条 `fields` 为空，疑似关联/链接更新）。一个真实样本里
+132 条 update 有 3 组重复 rev。
+
+这会破坏幂等：external_ref 模板是 `…:{wiId}:rev:{revisionId}`，两条记录算出
+**同一个 ref**，服务端按 ref UPSERT，后写的会**静默覆盖**先写的，
+且最终留下哪条取决于 chunk 顺序 —— 同样的 raw 反复复算得到不同结果。
+
+规则：**按 rev 去重，保留 `revisedDate` 最早的那条**。排序键为
+`(rev, revisedDate)` 以保证「最早」有确定定义。
+
+> 为什么不改用 `id` 做 ref：02 §5.2 的模板已冻结，且 06 已按此实装并上线远端
+> schema。改模板要重迁移；而按 rev 取最早在语义上也站得住 ——
+> 同一 rev 代表同一次修订。
 
 ### 6.3 Activity 完整构造
 

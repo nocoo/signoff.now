@@ -173,8 +173,13 @@ export function transformWorkItems(input: WiTransformInput): TransformResult {
 			core,
 		);
 
+		// Order by rev, then by revision time, so "the earliest record for a
+		// rev" is well defined regardless of the order the API returned them.
 		const updates = [...(input.updatesByWi.get(wiId) ?? [])].sort(
-			(a, b) => a.rev - b.rev,
+			(a, b) =>
+				a.rev - b.rev ||
+				(Date.parse(a.revisedDate ?? "") || 0) -
+					(Date.parse(b.revisedDate ?? "") || 0),
 		);
 
 		// wi.closed — the EARLIEST qualifying revision wins. The frozen
@@ -192,12 +197,21 @@ export function transformWorkItems(input: WiTransformInput): TransformResult {
 			);
 		}
 
-		// wi.updated — one per revision. Revision 1 is the creation itself and
-		// would double-count against wi.created.
+		// wi.updated — one per revision NUMBER, not per update record.
+		//
+		// Live data contains several update records sharing a `rev` (the extras
+		// carry no field diff and appear to be link/relation updates). The frozen
+		// external_ref is `…:{wiId}:rev:{revisionId}`, so emitting both would
+		// produce two Activities with the same ref: the server UPSERTs by ref, so
+		// one would silently overwrite the other and the surviving row would
+		// depend on chunk ordering. Keep the earliest record for each rev —
+		// deterministic on replay (01 §6.2).
+		const seenRev = new Set<number>();
 		for (const u of updates) {
-			if (u.rev <= 1) {
+			if (u.rev <= 1 || seenRev.has(u.rev)) {
 				continue;
 			}
+			seenRev.add(u.rev);
 			c.emit(
 				"wi.updated",
 				toUnixSeconds(u.revisedDate),

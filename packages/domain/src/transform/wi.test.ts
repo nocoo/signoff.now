@@ -228,6 +228,44 @@ describe("work item activities", () => {
 		);
 	});
 
+	test("duplicate revision numbers collapse to the earliest record", () => {
+		// Live data really contains this: two update records share a `rev`, with
+		// different authors and times (the extra carries no field diff). Both
+		// would build the SAME external_ref, so the server would UPSERT one over
+		// the other and the winner would depend on chunk ordering.
+		const r = transformWorkItems(
+			input({
+				workItems: [wi()],
+				updatesByWi: new Map([
+					[
+						4016916,
+						[
+							update({
+								rev: 23,
+								revisedDate: "2024-12-03T10:18:40.55Z",
+								revisedBy: { uniqueName: "ada@example.com", id: "a" },
+							}),
+							update({
+								rev: 23,
+								revisedDate: "2024-12-02T09:33:50.943Z",
+								revisedBy: { uniqueName: "ada@example.com", id: "b" },
+							}),
+						],
+					],
+				]),
+			}),
+		);
+		const updates = r.activities.filter((a) => a.type === "wi.updated");
+		expect(updates).toHaveLength(1);
+		// The earliest record wins, so a replay picks the same one every time.
+		expect(updates[0]?.occurredAt).toBe(
+			Math.floor(Date.parse("2024-12-02T09:33:50.943Z") / 1000),
+		);
+
+		const refs = r.activities.map((a) => buildExternalRef(a.type, a.sourceIds));
+		expect(new Set(refs).size).toBe(refs.length);
+	});
+
 	test("revisions are ordered by rev regardless of input order", () => {
 		const r = transformWorkItems(
 			input({
