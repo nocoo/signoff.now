@@ -582,7 +582,7 @@ describe("statsSummaryRoute", () => {
 		expect(body.scoresStale).toBe(true);
 	});
 
-	test("every storable union shape has a defined verdict and never 500s", async () => {
+	test("every union shape has a defined verdict and never 500s", async () => {
 		// Enumerated against SQLite rather than reasoned about: `json_extract`
 		// on a scalar element raises "malformed JSON", which would surface as an
 		// error page where a withheld figure was intended.
@@ -606,6 +606,12 @@ describe("statsSummaryRoute", () => {
 			],
 			// All entries readable and all elsewhere: genuinely not our window.
 			["all elsewhere", '[{"dayKey":"1999-01-01"}]', false],
+			// Present but wrong-typed: compares as neither inside nor outside the
+			// window, so an IS NULL test alone would wave it through.
+			["numeric dayKey", '[{"dayKey":123}]', true],
+			["boolean dayKey", '[{"dayKey":true}]', true],
+			["array dayKey", '[{"dayKey":[]}]', true],
+			["unparseable dayKey", '[{"dayKey":"not-a-date"}]', true],
 		];
 		for (const [name, union, shouldBlank] of shapes) {
 			sqlite = createSqliteD1();
