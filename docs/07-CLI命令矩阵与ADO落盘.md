@@ -1,6 +1,6 @@
 # 07 — 真实 ADO 采集：命令矩阵与落盘
 
-> 状态：设计稿（待 Codex review）
+> 状态：已实装并经真实 ADO 验证（`domoreexp/Teamspace/workshop-v7`）
 > 依赖：[01](./01-项目定位.md) §6.1 稳定数据源、[02](./02-数据结构与D1.md) §5.2 external_ref、[05](./05-管线铺垫与Ingest实现.md) Ingest 契约、[06](./06-Activity重建与Score算法.md) 算法与 domain 函数
 > 范围：把 `signoff collect` 从 `--dry-run` 骨架变成**真实拉取 ADO → 落盘 → 校验 → transform → 复用 06 ingest** 的完整链路
 
@@ -428,8 +428,10 @@ chunk 重新 POST 一遍，服务端按 digest 认出已完成的并返回成功
    带上时间会被直接拒绝（真实 ADO 实测，非推测）：
    > You cannot supply a time with the date when running a query using date precision.
 
-   因此 `wiqlDay()` 把 watermark 截到日：**下界向下取整、上界推到次日**，
-   即查询区间只会**变宽**不会变窄。反过来（窄一点）会永久漏掉工作项 ——
+   因此 `wiqlDay()` 把 watermark 截到日：**下界再回退一天、上界推到次日**，
+   即查询区间只会**变宽**不会变窄。下界多退一天是因为 WIQL 的日期精度按
+   **组织时区**判定，而我们看不到那个时区：US-West 组织的 `04:00Z` 本地是
+   前一天，只做向下取整会把它排除在外，而游标照样推进。反过来（窄一点）会永久漏掉工作项 ——
    游标照样推进，下一个增量窗口从更晚开始，那些 WI 再也不会被看到。
    注意上界因此是 `<=` 次日而不是 `<` 当日：日期精度丢掉时分秒后，
    `< to` 会把 `to` 当天发生的一切排除在外。
@@ -481,8 +483,9 @@ transform 里由 `chooseRevisionRecord` 挑选（优先 `fields` 非空者）。
 Dashboard 对该团队永久空白，且**没有任何出路**。真实环境实测到这一点。
 
 所以无下界时改为**从上界回退扫描**，而且**先问出真正的下界**：
-WIQL 支持 `ORDER BY [System.ChangedDate] ASC`，一次查询即可拿到该 project
-最早的工作项（实测某真实项目为 `2015-06-04`）。以它为终点，
+WIQL 支持 `ORDER BY [System.ChangedDate] ASC`，两次调用即可拿到该 project
+最早的工作项：一次 WIQL POST 取 id，一次 work item GET 读它的 `ChangedDate`
+（实测某真实项目为 `2015-06-04`）。以它为终点，
 30 天起步、每次跨度翻倍（上限 720 天）往前切片。
 
 - 翻倍让调用次数对历史长度取对数，同时每片都小到能装下；

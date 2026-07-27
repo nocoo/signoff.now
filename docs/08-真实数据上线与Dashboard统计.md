@@ -1,6 +1,6 @@
 # 08 — 真实数据上线与 Dashboard 统计
 
-> 状态：设计稿（待 Codex review）
+> 状态：已实装；本地端到端验收通过，生产待配 Cloudflare Access
 > 依赖：[01](./01-项目定位.md) §6.4 展示要求、[03](./03-Web模块模板.md) MVVM 与 basalt、[06](./06-Activity重建与Score算法.md) 只读 API、[07](./07-CLI命令矩阵与ADO落盘.md) 采集链路
 > 范围：把 07 采到的**真实 ADO 数据**推到远端 D1，并让 Web Dashboard 展示可用的统计
 
@@ -183,7 +183,8 @@ WHERE c.status = 'prepared' AND r.config_version = ?
   )
 ```
 
-只要有 chunk 处于 `prepared`，就按 stale 返回并给出
+只要有 chunk 处于 `prepared` **且它碰过本次请求窗口里的某一天**（或它的
+`dev_day_union_json` 读不懂），就按 stale 返回并给出
 `staleReason: "an ingest is in progress; numbers are still settling (run <id>)"`。
 宁可说「还在算」，也不要给出两个互相矛盾的数字。
 
