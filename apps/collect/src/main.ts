@@ -105,6 +105,22 @@ async function main(): Promise<void> {
 					process.exit(code);
 				}
 
+				// Validate flag combinations BEFORE any network call: a bad
+				// combination should fail instantly, not after a bootstrap round
+				// trip that might itself fail and mask the real problem.
+				if (opts.full && opts.repo) {
+					log.error(
+						"--full recomputes every score, so it cannot be limited to one repo; run `--full` alone or drop `--full`",
+					);
+					process.exit(ExitCode.CONTRACT);
+				}
+				if (opts.full && opts.wi === false) {
+					log.error(
+						"--full cannot skip work items: their scores would stay stale while the flag says otherwise",
+					);
+					process.exit(ExitCode.CONTRACT);
+				}
+
 				const client = createPipelineClient({
 					apiBase: env.apiBase,
 					writeToken: env.writeToken,
@@ -138,6 +154,12 @@ async function main(): Promise<void> {
 						`repos missing projectExternalId: ${missingGuid.map((r) => r.name).join(", ")}`,
 					);
 					process.exit(ExitCode.CONTRACT);
+				}
+
+				if (opts.full) {
+					log.info(
+						`full rematch over ${repos.length} repo(s) and their projects; scores stay stale until every scope is ingested`,
+					);
 				}
 
 				const { collect } = await import("./ado/collect.ts");
@@ -186,7 +208,11 @@ async function main(): Promise<void> {
 
 	const ingest = program
 		.command("ingest")
-		.description("Ingest activities into Worker");
+		.description(
+			"Ingest activities into Worker.\n" +
+				"SINGLE WRITER: run only one ingest at a time. Concurrent ingests can " +
+				"overwrite a newer score aggregation with an older one (06 §5.7).",
+		);
 
 	ingest
 		.command("normalized")

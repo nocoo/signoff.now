@@ -144,6 +144,47 @@ async function loadArtifact(
 	return { body };
 }
 
+const MAX_INGEST_ATTEMPTS = 3;
+
+/**
+ * POST one chunk, retrying transient failures.
+ *
+ * Chunks are digest-idempotent server-side, so replaying one is safe — and
+ * giving up on the first 5xx would strand the scope with a partially ingested
+ * run that only a manual replay could finish.
+ */
+async function postWithRetry(
+	opts: IngestNormalizedOptions,
+	chunk: IngestBody,
+): Promise<{ response: unknown } | { code: number; error: string }> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return { response: await opts.client.ingest(chunk) };
+		} catch (e) {
+			const transient =
+				!isPipelineClientError(e) || e.status >= 500 || e.status === 429;
+			if (!transient) {
+				const status = isPipelineClientError(e) ? e.status : 0;
+				return {
+					code: ExitCode.CONTRACT,
+					error: `ingest HTTP ${status}: ${e instanceof Error ? e.message : "rejected"}`,
+				};
+			}
+			if (attempt >= MAX_INGEST_ATTEMPTS) {
+				return {
+					code: ExitCode.SERVER,
+					error: `ingest failed after ${attempt} attempts: ${e instanceof Error ? e.message : "unknown"}`,
+				};
+			}
+			const backoff = 100 * 2 ** (attempt - 1);
+			opts.log.info(
+				`retry chunk ${chunk.chunkIndex} attempt ${attempt} backoff=${backoff}ms`,
+			);
+			await new Promise((r) => setTimeout(r, backoff));
+		}
+	}
+}
+
 export async function ingestNormalized(
 	opts: IngestNormalizedOptions,
 ): Promise<number> {
@@ -205,17 +246,12 @@ export async function ingestNormalized(
 	}
 
 	for (const chunk of chunks) {
-		let response: unknown;
-		try {
-			response = await opts.client.ingest(chunk);
-		} catch (e) {
-			if (isPipelineClientError(e)) {
-				opts.log.error(`ingest HTTP ${e.status}: ${e.message}`);
-				return e.status >= 500 ? ExitCode.SERVER : ExitCode.CONTRACT;
-			}
-			opts.log.error(e instanceof Error ? e.message : "ingest failed");
-			return ExitCode.SERVER;
+		const sent = await postWithRetry(opts, chunk);
+		if ("code" in sent) {
+			opts.log.error(sent.error);
+			return sent.code;
 		}
+		const response = sent.response;
 		const problem = verifyIngestResponse(response, chunk);
 		if (problem) {
 			opts.log.error(problem);
