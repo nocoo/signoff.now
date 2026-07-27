@@ -337,6 +337,15 @@ README 的手册比这里多两节，都是实测/复审后补的：
 
 ### 5.1 清单
 
+> **本地已全链路验收通过**（真实 ADO 仓 `domoreexp/Teamspace/workshop-v7`）：
+> `collect` → 50 条 Activity → `ingest normalized` → 5 chunk 入库 → 游标推进 →
+> `recompute/complete` 清 stale → Dashboard 与热力图数字一致（均为 26）。
+> §5.3 六条不变量全部成立；浏览器渲染 28 天零填充、4 天有色、无控制台错误。
+> 采集过程中真实数据验证了：服务主体身份按 `non_email` 丢弃、未建档真人计入
+> `unmatched`、增量 ingest 清不掉 stale、部分完成的 rematch 拒绝清除全局标志。
+>
+> **下面的清单仍是「生产」的**，本地通过不等于线上通过。
+
 - [ ] 远端 apply 0007 + 0008，`wrangler d1 migrations list` 无待应用项
 - [ ] Worker + SPA 部署完成
 - [ ] 生产 Settings 已核对（后缀非 `example.com`、时区、权重）
@@ -348,6 +357,9 @@ README 的手册比这里多两节，都是实测/复审后补的：
 - [ ] `scoresStale=true` 时页面显示横幅且不显示可疑数字
 - [ ] 覆盖率门禁通过：Web 非 View 与 Worker 的
       **statements / branches / functions / lines 均 ≥95%**（01 §9、03 §6）
+- [ ] **生产 Access 已配置**：`CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`。
+      未配置时 Worker 对 `/api/*` 返回 500（fail-closed，03 §8），
+      页面会全线报错 —— 这是预期行为，不是故障。
 - [ ] `bun run security` 通过
 
 ### 5.2 对账 SQL（逐字段，非只看页面）
