@@ -136,8 +136,26 @@ export function isWriteInto(sql: string, table: string): boolean {
 	if (!after.startsWith('""') && !after.startsWith("''")) {
 		return false;
 	}
-	const seen = (tokens.slice(0, at).match(/""|''/g) ?? []).length;
-	return blanks[seen]?.toUpperCase() === T;
+	// A QUOTED schema qualifier blanks too: `"main"."ingest_runs"` leaves two
+	// blanks where one target was expected. Taking the first would both miss the
+	// real target and — worse — claim `"ingest_runs"."other"` writes
+	// `ingest_runs` when it writes `other`. Walk to the LAST blank of the
+	// dotted chain.
+	let seen = (tokens.slice(0, at).match(/""|''/g) ?? []).length;
+	let rest = after;
+	while (rest.startsWith('""') || rest.startsWith("''")) {
+		const next = rest.slice(2);
+		if (!next.startsWith(".")) {
+			return blanks[seen]?.toUpperCase() === T;
+		}
+		seen++;
+		rest = next.slice(1);
+		// `"main".ingest_runs` — the tail is bare after the dot.
+		if (!rest.startsWith('""') && !rest.startsWith("''")) {
+			return new RegExp(`^${T}(?![A-Z0-9_])`).test(rest);
+		}
+	}
+	return false;
 }
 
 /**

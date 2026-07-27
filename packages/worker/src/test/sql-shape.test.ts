@@ -487,3 +487,31 @@ describe("guardConditionFor marker anchoring", () => {
 		expect(cond).toContain("n > 0");
 	});
 });
+
+describe("isWriteInto schema qualification", () => {
+	test("a quoted schema prefix does not hide the target", () => {
+		expect(
+			isWriteInto(
+				'INSERT INTO "main"."ingest_runs" (a) VALUES (1)',
+				"ingest_runs",
+			),
+		).toBe(true);
+		expect(
+			isWriteInto(
+				'INSERT INTO "main".ingest_runs (a) VALUES (1)',
+				"ingest_runs",
+			),
+		).toBe(true);
+	});
+
+	test("a table named as the SCHEMA is not the table written", () => {
+		// The dangerous direction: claiming a write to a table the statement
+		// only qualifies with. This one writes `other`.
+		expect(
+			isWriteInto(
+				'INSERT INTO "ingest_runs"."other" (a) VALUES (1)',
+				"ingest_runs",
+			),
+		).toBe(false);
+	});
+});
