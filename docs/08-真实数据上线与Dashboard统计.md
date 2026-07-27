@@ -149,7 +149,10 @@ Worker 每次调用有 statement 上限（05 §5.2）。本接口 **stale 时 2 
 | 9 | batch 之后再次 `loadSettings` → 检测聚合期间配置漂移 |
 
 第 2–8 条在一次 `DB.batch` 内；第 1、9 条是 batch 前后各一次单独读取。
-跨度上限 92 天让第 3 条的返回行数可控（≤92 行）。9 条远低于 Paid 上限。
+**第 9 条只在守卫未触发时执行**：守卫命中就直接返回，所以那条路径是 **8 条**。
+完整计数因此是：窗口非法 1 条、settings 已 stale 2 条、守卫命中 8 条、
+正常/配置漂移 9 条。跨度上限 92 天让第 3 条的返回行数可控（≤92 行）。
+9 条远低于 Paid 上限。
 
 **快照一致性**：业务聚合放进一次 `DB.batch`，让它们看到同一个快照。
 
@@ -165,8 +168,13 @@ Score（Phase 3）提交在**两个不同的 batch** 里（`pipeline-ingest-writ
 SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
 FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
 WHERE c.status = 'prepared' AND r.config_version = ?
-  AND COALESCE(json_extract(r.run_meta_json, '$.windowFrom'), '') <= :to
-  AND COALESCE(json_extract(r.run_meta_json, '$.windowTo'), '9999-12-31') >= :from
+  AND (
+    json_array_length(c.dev_day_union_json) = 0
+    OR EXISTS (
+      SELECT 1 FROM json_each(c.dev_day_union_json) d
+      WHERE json_extract(d.value, '$.dayKey') BETWEEN :from AND :to
+    )
+  )
 ```
 
 只要有 chunk 处于 `prepared`，就按 stale 返回并给出
@@ -187,15 +195,24 @@ WHERE c.status = 'prepared' AND r.config_version = ?
 守卫随之解除。`runId` 写进 `staleReason` 是因为这个状态可能比造成它的那次
 ingest 活得更久 —— 没有 id 就没人知道该去续跑或放弃哪个 run。
 
-**按窗口收窄**。上面的 SQL 还比对 run 的 `windowFrom`/`windowTo`
-（来自 `run_meta_json`，写入路径已校验）与请求窗口是否**相交**：
-一次卡住的 7 月 ingest 对 1 月的数字**不构成任何证据**，
-把所有窗口一起遮蔽会让「一个 run 卡住」看起来像「产品坏了」。
-两端边界都要判：完全早于和完全晚于都不算相交。
+**按「实际影响的天」收窄，不是按声明的窗口**。一次卡住的 7 月 ingest 对
+1 月的数字不构成任何证据，把所有窗口一起遮蔽会让「一个 run 卡住」
+看起来像「产品坏了」。但收窄的依据必须是 `dev_day_union_json`
+（写入路径为自己的 resume 存的那份），**不能**是 `run_meta.windowFrom/To`：
 
-反过来，**读不到窗口的 run 一律视为相交**（`COALESCE` 的两个兜底值）。
-「范围未知」不等于「范围无关」，猜成「在别处」正好会公布这道守卫要拦下的
-那种自相矛盾数字。
+- CLI 的 watermark 按 **UTC** 切片，而 `day_key` 按**设置时区**算。
+  默认 `Asia/Shanghai` 下，一条 `20:00Z` 的活动落在**次日** ——
+  已经越过它自己声明的 `windowTo`。这不是恶意客户端，是出厂配置下的正常行为。
+- `full_rematch` 的 `oldDevDays` 从既有行按 `external_ref` 反查 `day_key`，
+  那些日期可以是任意历史值。
+
+按声明收窄就会把这些半写入的天当作已结算公布出去。按 union 收窄不会 ——
+它就是 resume 路径重算分数时用的同一份列表。
+
+**空 union 遮蔽所有窗口**：一个没有任何待算 dev-day 的 chunk 不应该存在于
+半途状态，所以 `[]` 说明存储状态不是我们以为的样子。
+（`json_array_length` 对 JSON **对象**同样返回 0 —— 实测确认，非假设 ——
+所以形状不对的 `json_valid` 载荷也落在这一支，不需要额外的 `IS NULL` 判断。）
 
 **`finalize` 必须拒绝跨过 `prepared` chunk**（`finalizeRun`）。
 否则会形成单向门：`processIngestChunk` 对 finalized 的 run 在**到达**
@@ -229,7 +246,7 @@ prepared-resume 分支**之前**就返回 `Run already finalized`，
 
 | 层 | 文件 | 职责 |
 |:---|:---|:---|
-| Model | `models/stats.ts` | DTO + zod parse + 派生（占比、空态判定） |
+| Model | `models/stats.ts` | DTO + **手写严格解析** + 派生（占比、空态判定、heatmap 档位） |
 | API | `models/statsApi.ts` | `fetchSummary(from, to)` |
 | ViewModel | `viewmodels/useDashboardViewModel.ts` | 窗口状态、加载、错误、stale 横幅 |
 | View | `views/DashboardPage.tsx` | 纯展示 |
@@ -290,7 +307,10 @@ score 侧已有 `idx_scores_config_day_dev(config_version, day_key, developer_id
 
 ---
 
-## 4. 运维手册（写进 README）
+## 4. 运维手册（已写进 [README](../README.md#运维手册)）
+
+> 本节是**规格**，README 是**交付物**。两者内容必须一致；
+> 改这里就要同步改 README，否则运维读到的是过期版本。
 
 ```bash
 # 一次增量采集
@@ -303,7 +323,11 @@ bun run signoff -- collect --full
 bun run signoff -- ingest normalized <artifact> --manifest <manifest>
 ```
 
-**单写者**：同一时刻只跑一个 ingest（06 §5.7）。手册须显式写明。
+README 的手册比这里多两节，都是实测/复审后补的：
+**卡住的 ingest 如何恢复**（重发同一 chunk）与**生产 Access 配置**
+（未配时 Worker fail-closed 返回 500，属预期而非故障）。
+
+**单写者**：同一时刻只跑一个 ingest（06 §5.7）。手册已显式写明。
 
 ---
 
@@ -341,7 +365,8 @@ SELECT COALESCE(SUM(total),0) AS score, COALESCE(SUM(activity_count),0) AS activ
 FROM scores WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26';
 
 -- daily
-SELECT day_key, COALESCE(SUM(total),0) AS score, COALESCE(SUM(activity_count),0) AS activityCount
+SELECT day_key AS dayKey, COALESCE(SUM(total),0) AS score,
+       COALESCE(SUM(activity_count),0) AS activityCount
 FROM scores WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26'
 GROUP BY day_key ORDER BY day_key;
 
@@ -385,7 +410,7 @@ WHERE config_version = 1 AND status = 'finalized';
 |:---|:---|:---|
 | **P0** | migration 0007 + 0008（两个索引） | 本地 + 远端 apply，`EXPLAIN QUERY PLAN` 命中新索引 |
 | **P1** | `GET /api/stats/summary` + Worker 测试 | 真实 SQLite 集成测试，含 stale 分支与 §5.3 不变量 |
-| **P2** | Web Model + ViewModel（含 zod parse、补零、派生） | statements/branches/functions/lines 均 ≥95% |
+| **P2** | Web Model + ViewModel（含严格解析、补零、派生） | statements/branches/functions/lines 均 ≥95% |
 | **P3** | DashboardPage 重写为三层 + basalt 视图 | 本地起服务看到真实数字 |
 | **P4** | 远端部署 + 灰度 + 全量基线 + 逐条对账 | §5 清单全绿 |
 

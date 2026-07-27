@@ -13,6 +13,9 @@
 | **[docs/03-Web模块模板.md](./docs/03-Web模块模板.md)** | Web basalt 模板 + Worker/Access |
 | **[docs/04-Settings设计.md](./docs/04-Settings设计.md)** | Settings CRUD 与 CLI 读路径 |
 | **[docs/05-管线铺垫与Ingest实现.md](./docs/05-管线铺垫与Ingest实现.md)** | 06 开工前置契约（Ingest / 域包 / CLI 骨架） |
+| **[docs/06-Activity重建与Score算法.md](./docs/06-Activity重建与Score算法.md)** | Activity 写入、折叠规则与计分 |
+| **[docs/07-CLI命令矩阵与ADO落盘.md](./docs/07-CLI命令矩阵与ADO落盘.md)** | 真实 ADO 采集：命令矩阵、落盘、游标 |
+| **[docs/08-真实数据上线与Dashboard统计.md](./docs/08-真实数据上线与Dashboard统计.md)** | 上线顺序、Dashboard 统计 API、运维手册 |
 
 ## 部署前提
 
@@ -41,7 +44,8 @@ bun run dev:all
 
 生产 Worker 静态资源：`bun run build:web` 产出 `apps/web/dist`，由 `wrangler.toml` `[assets]` 挂载（SPA fallback）。deploy / dry-run 前必须先 build web。
 
-`POST /api/pipeline/ingest` 目前返回 **501 Not Implemented**（不会假装写入 Activity/Score）。
+`POST /api/pipeline/ingest` **已实装**（06）：分块写 Activity、二次读回、聚合 Score、finalize。
+单写者约定 —— 同一时刻只跑一个 ingest（06 §5.7）。
 
 本地鉴权：Worker 对 `localhost` / `127.0.0.1` / `*.dev.hexly.ai` 跳过 Access（与 bat 一致）。侧栏显示 **Dev (anonymous)**。生产需配置 `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD`。
 
@@ -68,6 +72,62 @@ bun run typecheck
 bun run security
 ```
 
+## 运维手册
+
+单写者约定：**同一时刻只跑一个 `ingest`**（06 §5.7）。并发 ingest 会用旧的
+聚合覆盖新的。
+
+### 一次增量采集
+
+```bash
+bun run signoff -- doctor                     # az 登录、.data 可写、bootstrap 可达
+bun run signoff -- settings pull               # 刷新本地 bootstrap 缓存
+bun run signoff -- collect --repo <repoId>     # 采集 → .data/normalized/ + manifest
+bun run signoff -- ingest normalized <artifact> --manifest <manifest>
+```
+
+`collect` **不会**推进游标 —— 它无从知道数据是否真的入库。游标由 `ingest`
+在整个 scope 落地后提交（07 §7.1.2）。
+
+耗时预期：`--since` 只收窄 `completed`/`abandoned`，**`active` 是全量拉取**，
+而 threads/iterations 是 per-PR 调用。大仓首次采集以十分钟计（07 §8）。
+
+### 配置变更后的全量重算
+
+改 Settings（权重 / 后缀 / 时区）会 bump `pipeline_config_version` 并置
+`scores_stale`。**增量 ingest 清不掉 stale**，必须走全量：
+
+```bash
+bun run signoff -- collect --full              # 不可与 --repo / --no-wi 同用
+bun run signoff -- ingest normalized <artifact> --manifest <manifest>
+```
+
+`--full` 与 `--repo` / `--no-wi` 同用会被直接拒绝：`scores_stale` 是**全局**
+标志，部分重算后清掉它，等于把没重算的仓也宣称为新鲜。
+
+### 卡住的 ingest
+
+Dashboard 显示「an ingest is in progress; numbers are still settling (run …)」
+且长时间不消失时，说明有 chunk 停在 `prepared`（Phase 1 已写活动、Phase 3
+的分数没算完）。**重发同一个 chunk 即可**——artifact 与 chunk 都是幂等的：
+
+```bash
+bun run signoff -- ingest normalized <同一个 artifact> --manifest <同一个 manifest>
+```
+
+这期间该 run 涉及的日期会被扣住不发布；不涉及的日期照常显示。
+
+### 生产环境 Access
+
+生产 `/api/*` 需要 `CF_ACCESS_TEAM_DOMAIN` 与 `CF_ACCESS_AUD`。**未配置时
+Worker 返回 500 而不是放行**（03 §8，fail-closed），所以线上首次部署后
+接口不通是预期行为，不是故障：
+
+1. Cloudflare Zero Trust → Access → Applications 建一个应用，指向 Worker 域名；
+2. 复制该应用的 **AUD**，与 team domain 一起配成 Worker 变量。
+
 ## 状态
 
-Web dashboard + Settings / Developers / Teams / Tags / Repos CRUD 可本地运行；pipeline bootstrap/complete 可用；**ingest 写 Activity/Score 尚未实现（501）**。
+Web dashboard（含活跃度统计）+ Settings / Developers / Teams / Tags / Repos CRUD 可本地运行；
+pipeline bootstrap / ingest / complete 全部可用；`signoff collect` 可对真实 ADO 采集。
+生产环境的 `/api/*` 需要先配好 Access（见「运维手册」末条）。
