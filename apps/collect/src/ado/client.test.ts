@@ -342,75 +342,148 @@ describe("retry behaviour", () => {
 		const { fetchFn, calls } = scriptedFetch([{ status: 400 }]);
 		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
 		await expect(c.get("https://x/y")).rejects.toMatchObject({
-			kind: "server",
+			kind: "bad_request",
 		});
 		expect(calls).toHaveLength(1);
 	});
 });
 
-describe("post", () => {
-	test("sends a JSON body with the right content type", async () => {
-		const { fetchFn, calls } = scriptedFetch([
-			{ status: 200, body: '{"r":1}' },
-		]);
-		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
-		expect(await c.post("https://x/wiql", { query: "SELECT 1" })).toEqual({
-			r: 1,
-		});
-		const init = calls[0]?.init as {
-			method: string;
-			headers: Record<string, string>;
-			body: string;
-		};
-		expect(init.method).toBe("POST");
-		expect(init.headers["content-type"]).toBe("application/json");
-		expect(JSON.parse(init.body)).toEqual({ query: "SELECT 1" });
-	});
-
-	test("GET carries no body or content-type", async () => {
-		const { fetchFn, calls } = scriptedFetch([{ status: 200, body: "{}" }]);
-		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
-		await c.get("https://x/y");
-		const init = calls[0]?.init as {
-			body?: string;
-			headers: Record<string, string>;
-		};
-		expect(init.body).toBeUndefined();
-		expect(init.headers["content-type"]).toBeUndefined();
-	});
-});
-
-describe("defaults", () => {
-	test("the built-in sleep and jitter are exercised on a real retry", async () => {
-		// Neither is injected here, so this covers the production defaults that
-		// every real run uses.
-		const { fetchFn, calls } = scriptedFetch([
-			{ status: 503, headers: { "retry-after": "0" } },
-			{ status: 200, body: '{"ok":1}' },
-		]);
-		const c = createAdoClient({ exec: okExec, fetchFn });
-		expect(await c.get("https://x/y")).toEqual({ ok: 1 });
-		expect(calls).toHaveLength(2);
-	});
-
-	test("a token without expires_on gets a bounded lease rather than forever", async () => {
-		let execCount = 0;
-		const exec: ExecFn = async () => {
-			execCount++;
-			return {
-				exitCode: 0,
-				stdout: JSON.stringify({ accessToken: `t${execCount}` }),
-				stderr: "",
-			};
-		};
+describe("error body classification", () => {
+	test("a WIQL result-cap failure is distinguishable, not an opaque 400", async () => {
+		// Without this the caller cannot tell "narrow the window and retry" from
+		// "this request is malformed", and WIQL bisection is impossible.
 		const { fetchFn } = scriptedFetch([
-			{ status: 200, body: "{}" },
-			{ status: 200, body: "{}" },
+			{
+				status: 400,
+				body: JSON.stringify({
+					message:
+						"VS402337: The number of work items returned exceeds the size limit of 20000.",
+				}),
+			},
 		]);
-		const c = createAdoClient({ exec, fetchFn, sleep: noSleep });
-		await c.get("https://x/1");
-		await c.get("https://x/2");
-		// Still cached within the fallback lease — not re-fetched every call.
-		expect(execCount).toBe(1);
+		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+		await expect(c.post("https://x/wiql", {})).rejects.toMatchObject({
+			kind: "result_too_large",
+			adoCode: "VS402337",
+		});
+	});
+
+	test("the size-limit wording alone is enough, without the code", async () => {
+		const { fetchFn } = scriptedFetch([
+			{
+				status: 400,
+				body: JSON.stringify({ message: "Result exceeds the size limit" }),
+			},
+		]);
+		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+		await expect(c.post("https://x/wiql", {})).rejects.toMatchObject({
+			kind: "result_too_large",
+		});
+	});
+
+	test("other typed errors keep their ADO code for the run report", async () => {
+		const { fetchFn } = scriptedFetch([
+			{
+				status: 400,
+				body: JSON.stringify({ message: "VS403123: Field does not exist" }),
+			},
+		]);
+		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+		await expect(c.post("https://x/wiql", {})).rejects.toMatchObject({
+			kind: "bad_request",
+			adoCode: "VS403123",
+		});
+	});
+
+	test("an unparseable error body is still a bad request, not a crash", async () => {
+		const { fetchFn } = scriptedFetch([{ status: 400, body: "<html>" }]);
+		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+		await expect(c.get("https://x/y")).rejects.toMatchObject({
+			kind: "bad_request",
+		});
+	});
+
+	test("5xx stays a server error and is not body-classified", async () => {
+		const { fetchFn } = scriptedFetch([
+			{
+				status: 500,
+				body: JSON.stringify({ message: "exceeds the size limit" }),
+			},
+		]);
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn,
+			sleep: noSleep,
+			maxRetries: 0,
+		});
+		await expect(c.get("https://x/y")).rejects.toMatchObject({
+			kind: "server",
+		});
+	});
+	describe("post", () => {
+		test("sends a JSON body with the right content type", async () => {
+			const { fetchFn, calls } = scriptedFetch([
+				{ status: 200, body: '{"r":1}' },
+			]);
+			const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+			expect(await c.post("https://x/wiql", { query: "SELECT 1" })).toEqual({
+				r: 1,
+			});
+			const init = calls[0]?.init as {
+				method: string;
+				headers: Record<string, string>;
+				body: string;
+			};
+			expect(init.method).toBe("POST");
+			expect(init.headers["content-type"]).toBe("application/json");
+			expect(JSON.parse(init.body)).toEqual({ query: "SELECT 1" });
+		});
+
+		test("GET carries no body or content-type", async () => {
+			const { fetchFn, calls } = scriptedFetch([{ status: 200, body: "{}" }]);
+			const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+			await c.get("https://x/y");
+			const init = calls[0]?.init as {
+				body?: string;
+				headers: Record<string, string>;
+			};
+			expect(init.body).toBeUndefined();
+			expect(init.headers["content-type"]).toBeUndefined();
+		});
+	});
+
+	describe("defaults", () => {
+		test("the built-in sleep and jitter are exercised on a real retry", async () => {
+			// Neither is injected here, so this covers the production defaults that
+			// every real run uses.
+			const { fetchFn, calls } = scriptedFetch([
+				{ status: 503, headers: { "retry-after": "0" } },
+				{ status: 200, body: '{"ok":1}' },
+			]);
+			const c = createAdoClient({ exec: okExec, fetchFn });
+			expect(await c.get("https://x/y")).toEqual({ ok: 1 });
+			expect(calls).toHaveLength(2);
+		});
+
+		test("a token without expires_on gets a bounded lease rather than forever", async () => {
+			let execCount = 0;
+			const exec: ExecFn = async () => {
+				execCount++;
+				return {
+					exitCode: 0,
+					stdout: JSON.stringify({ accessToken: `t${execCount}` }),
+					stderr: "",
+				};
+			};
+			const { fetchFn } = scriptedFetch([
+				{ status: 200, body: "{}" },
+				{ status: 200, body: "{}" },
+			]);
+			const c = createAdoClient({ exec, fetchFn, sleep: noSleep });
+			await c.get("https://x/1");
+			await c.get("https://x/2");
+			// Still cached within the fallback lease — not re-fetched every call.
+			expect(execCount).toBe(1);
+		});
 	});
 });

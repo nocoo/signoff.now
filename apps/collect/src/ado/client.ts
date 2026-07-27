@@ -19,18 +19,54 @@ export type AdoErrorKind =
 	| "rate_limited" // 429 after retries
 	| "server" // 5xx after retries, or network failure
 	| "not_found"
+	| "result_too_large" // WIQL exceeded its result cap — caller must narrow
+	| "bad_request" // 4xx the caller cannot retry its way out of
 	| "bad_response"; // unparseable body
 
 export class AdoError extends Error {
 	readonly kind: AdoErrorKind;
 	readonly status: number | undefined;
+	/** Azure DevOps' own error code, e.g. `VS402337`, when the body carries one. */
+	readonly adoCode: string | undefined;
 
-	constructor(kind: AdoErrorKind, message: string, status?: number) {
+	constructor(
+		kind: AdoErrorKind,
+		message: string,
+		status?: number,
+		adoCode?: string,
+	) {
 		super(message);
 		this.name = "AdoError";
 		this.kind = kind;
 		this.status = status;
+		this.adoCode = adoCode;
 	}
+}
+
+/**
+ * ADO reports failures as a 400 with a typed body. Reading it is what lets a
+ * caller tell "your query is too broad, split the window" apart from "this
+ * request is malformed" — without it, WIQL result-cap recovery is impossible.
+ */
+function classifyErrorBody(body: string): {
+	kind: AdoErrorKind;
+	code?: string;
+	message?: string;
+} {
+	let parsed: { typeKey?: string; message?: string; errorCode?: number };
+	try {
+		parsed = JSON.parse(body) as typeof parsed;
+	} catch {
+		return { kind: "bad_request" };
+	}
+	const message =
+		typeof parsed.message === "string" ? parsed.message : undefined;
+	const code = /\bVS\d{6}\b/.exec(message ?? "")?.[0];
+	// VS402337: "the result exceeds the size limit of 20000".
+	if (code === "VS402337" || /exceeds the size limit/i.test(message ?? "")) {
+		return { kind: "result_too_large", code, message };
+	}
+	return { kind: "bad_request", code, message };
 }
 
 export type FetchFn = (
@@ -197,8 +233,26 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 				continue;
 			}
 
+			if (res.status === 429) {
+				throw new AdoError(
+					"rate_limited",
+					`Azure DevOps rate limit persisted for ${url}`,
+					429,
+				);
+			}
+
+			if (res.status < 500) {
+				const info = classifyErrorBody(await res.text());
+				throw new AdoError(
+					info.kind,
+					info.message ?? `Azure DevOps returned ${res.status} for ${url}`,
+					res.status,
+					info.code,
+				);
+			}
+
 			throw new AdoError(
-				res.status === 429 ? "rate_limited" : "server",
+				"server",
 				`Azure DevOps returned ${res.status} for ${url}`,
 				res.status,
 			);

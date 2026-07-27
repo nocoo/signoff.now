@@ -69,7 +69,7 @@ export const rawCommentSchema = z
 		publishedDate: adoInstant.optional(),
 		// Live payloads carry an explicit null here, not just an absent key.
 		commentType: z.string().nullish(),
-		author: rawIdentitySchema.optional(),
+		author: rawIdentitySchema.nullish(),
 	})
 	.passthrough();
 
@@ -94,7 +94,7 @@ export const rawIterationSchema = z
 		id: z.number().int().positive(),
 		createdDate: adoInstant.nullish(),
 		updatedDate: adoInstant.nullish(),
-		author: rawIdentitySchema.optional(),
+		author: rawIdentitySchema.nullish(),
 	})
 	.passthrough();
 
@@ -122,7 +122,7 @@ export const rawWiUpdateSchema = z
 		id: z.number().int().nonnegative().optional(),
 		rev: z.number().int().positive(),
 		revisedDate: adoInstant.nullish(),
-		revisedBy: rawIdentitySchema.optional(),
+		revisedBy: rawIdentitySchema.nullish(),
 		fields: z.record(z.string(), fieldDiff).optional(),
 	})
 	.passthrough();

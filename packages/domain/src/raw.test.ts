@@ -126,6 +126,13 @@ describe("raw schemas reject payloads the transform cannot use", () => {
 		expect(id.uniqueName).toBe("");
 	});
 
+	test("an explicit null revisedBy does not reject the page", () => {
+		// Observed in live payloads. Rejecting here would abort a whole page of
+		// otherwise-valid updates.
+		const u = rawWiUpdateSchema.parse({ rev: 2, revisedBy: null });
+		expect(u.rev).toBe(2);
+	});
+
 	test("a work item revision without a revision number", () => {
 		expect(() =>
 			rawWiUpdateSchema.parse({ revisedDate: "2026-07-01T00:00:00Z" }),
