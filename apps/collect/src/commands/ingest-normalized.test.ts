@@ -121,9 +121,6 @@ async function harness(m: Manifest, artifacts: Record<string, unknown>) {
 
 function okClient(over: Partial<Record<string, unknown>> = {}): PipelineClient {
 	return {
-		async bootstrap() {
-			return {} as never;
-		},
 		async ingest(body) {
 			const b = body as {
 				runId: string;
@@ -149,6 +146,21 @@ function okClient(over: Partial<Record<string, unknown>> = {}): PipelineClient {
 		},
 		async recomputeComplete() {
 			return {} as never;
+		},
+		// The universe the rematch is checked against. `projectExternalId` is
+		// null because these manifests carry only a repo scope; a project GUID
+		// here would correctly be reported as never collected.
+		async bootstrap() {
+			return {
+				repos: [
+					{
+						id: REPO_ID,
+						provider: "ado",
+						enabled: true,
+						projectExternalId: null,
+					},
+				],
+			} as never;
 		},
 	} as PipelineClient;
 }
@@ -479,6 +491,177 @@ describe("ingestNormalized", () => {
 
 		await ingestNormalized({ ...opts, filePath: ART_B });
 		expect(calls).toHaveLength(1);
+	});
+
+	test("a repo enabled mid-rematch keeps scores stale", async () => {
+		// The manifest is complete for the universe as it was at collection
+		// time. A repo bound since then was never recomputed, so clearing the
+		// GLOBAL flag would declare its old scores fresh — the same corruption
+		// the --full flag guards prevent, arriving by a different door.
+		const calls: unknown[] = [];
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async bootstrap() {
+				return {
+					repos: [
+						{
+							id: REPO_ID,
+							provider: "ado",
+							enabled: true,
+							projectExternalId: null,
+						},
+						{
+							id: "01K0REPONEW00000000000000",
+							provider: "ado",
+							enabled: true,
+							projectExternalId: null,
+						},
+					],
+				} as never;
+			},
+			async recomputeComplete(b: unknown) {
+				calls.push(b);
+				return {} as never;
+			},
+		} as PipelineClient;
+
+		const code = await ingestNormalized({
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		});
+		expect(code).toBe(ExitCode.CONTRACT);
+		expect(calls).toHaveLength(0);
+		// The data DID land, so the cursor is right; only the clear is refused.
+		expect(h.files.has(".data/meta/cursor.json")).toBe(true);
+	});
+
+	test("a repo unbound mid-rematch does not block the clear", async () => {
+		// Its scopes landed and nothing about them is unrecomputed. Holding
+		// stale forever because someone removed a repo would be the wrong cure.
+		const calls: unknown[] = [];
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async bootstrap() {
+				return { repos: [] } as never;
+			},
+			async recomputeComplete(b: unknown) {
+				calls.push(b);
+				return {} as never;
+			},
+		} as PipelineClient;
+
+		const code = await ingestNormalized({
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		});
+		expect(code).toBe(ExitCode.OK);
+		expect(calls).toHaveLength(1);
+	});
+
+	test("a disabled repo is not part of the universe", async () => {
+		const calls: unknown[] = [];
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async bootstrap() {
+				return {
+					repos: [
+						{
+							id: REPO_ID,
+							provider: "ado",
+							enabled: true,
+							projectExternalId: null,
+						},
+						{
+							id: "01K0REPOOFF00000000000000",
+							provider: "ado",
+							enabled: false,
+							projectExternalId: null,
+						},
+						{
+							id: "01K0REPOGIT00000000000000",
+							provider: "github",
+							enabled: true,
+							projectExternalId: null,
+						},
+					],
+				} as never;
+			},
+			async recomputeComplete(b: unknown) {
+				calls.push(b);
+				return {} as never;
+			},
+		} as PipelineClient;
+
+		expect(
+			await ingestNormalized({
+				filePath: ART_A,
+				manifestPath: MANIFEST_PATH,
+				dataDir: ".data",
+				fs: h.fs,
+				writeJson: h.writeJson,
+				client,
+				log: { info: () => {}, warn: () => {}, error: () => {} },
+				nowSeconds: 1_784_737_800,
+				pipelineConfigVersion: 1,
+			}),
+		).toBe(ExitCode.OK);
+		expect(calls).toHaveLength(1);
+	});
+
+	test("an unverifiable universe refuses to clear rather than assuming", async () => {
+		// bootstrap down is not evidence that the bindings held. Clearing on a
+		// failed check is precisely the outcome the check exists to prevent.
+		const calls: unknown[] = [];
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async bootstrap() {
+				throw new Error("worker unavailable");
+			},
+			async recomputeComplete(b: unknown) {
+				calls.push(b);
+				return {} as never;
+			},
+		} as PipelineClient;
+
+		const code = await ingestNormalized({
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		});
+		expect(code).toBe(ExitCode.SERVER);
+		expect(calls).toHaveLength(0);
 	});
 
 	test("a failed rematch can be retried after the cursor already moved", async () => {

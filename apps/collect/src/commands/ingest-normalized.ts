@@ -21,7 +21,9 @@ import {
 	type Manifest,
 	manifestSchema,
 	markArtifactComplete,
+	missingRematchScopes,
 	readCursor,
+	rematchUniverse,
 	splitFixtureIntoChunks,
 } from "@signoff/domain";
 import { sha256Hex } from "../ado/storage.ts";
@@ -329,6 +331,36 @@ async function finishRematch(
 			`full_rematch: ${outstanding.length} scope(s) still pending; scores stay stale until all land`,
 		);
 		return ExitCode.OK;
+	}
+
+	// Every scope in the MANIFEST landed. That is not the same as every scope
+	// that exists: a repo enabled after collection started was never recomputed,
+	// and clearing the global flag would declare its old scores fresh. So
+	// compare against the live bindings, not the ones we recorded.
+	let liveRepos: { id: string; projectExternalId: string | null }[];
+	try {
+		const snapshot = await opts.client.bootstrap();
+		liveRepos = snapshot.repos
+			.filter((r) => r.provider === "ado" && r.enabled)
+			.map((r) => ({ id: r.id, projectExternalId: r.projectExternalId }));
+	} catch (e) {
+		// Unverifiable is not the same as verified. Clearing the global flag on
+		// a failed check would be the exact outcome the check exists to prevent.
+		opts.log.error(
+			`cannot verify repo bindings before clearing stale: ${e instanceof Error ? e.message : "unknown"}; ` +
+				"scores stay stale — re-run this ingest to retry",
+		);
+		return ExitCode.SERVER;
+	}
+
+	const missing = missingRematchScopes(manifest, rematchUniverse(liveRepos));
+	if (missing.length > 0) {
+		opts.log.error(
+			`repo bindings changed during the rematch; ${missing.length} scope(s) were never collected ` +
+				`(${missing.map((m) => `${m.kind}:${m.id}`).join(", ")}). ` +
+				"Scores stay stale — re-run `signoff collect --full`.",
+		);
+		return ExitCode.CONTRACT;
 	}
 
 	const last = rematchScopes[rematchScopes.length - 1];
