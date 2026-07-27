@@ -98,6 +98,26 @@ function routedClient(routes: {
 	};
 }
 
+/** Serves a PR list as real 100-row pages, so $skip behaves. */
+function pagedClient(prs: unknown[]): AdoClient {
+	return {
+		async get(url) {
+			if (url.includes("/pullrequests")) {
+				if (!url.includes("status=completed")) {
+					return { value: [] };
+				}
+				const skip = Number(/%24skip=(\d+)/.exec(url)?.[1] ?? 0);
+				return { value: prs.slice(skip, skip + 100) };
+			}
+			return { value: [] };
+		},
+		async post() {
+			return { workItems: [] };
+		},
+		invalidateToken() {},
+	};
+}
+
 function baseOpts(client: AdoClient, fs: FsLike) {
 	return {
 		client,
@@ -414,6 +434,68 @@ describe("collect", () => {
 		// Hashing a different serialization than the one written would make
 		// verification reject every artifact the collector produces.
 		expect(await sha256Hex(onDisk)).toBe(artifact?.sha256 as string);
+	});
+
+	test("splits into several artifacts at the fixture cap", async () => {
+		const { fs, files } = memoryFs();
+		// 2 activities per PR (created + merged) — enough PRs to cross the 5000
+		// cap. Pages must be served for real, or the paginator sees the same
+		// batch repeatedly and reports duplicates.
+		const many = Array.from({ length: 2600 }, (_, i) =>
+			pr(10_000 + i, {
+				closedDate: new Date(Date.UTC(2026, 6, 5) - i * 1000).toISOString(),
+			}),
+		);
+		const client = pagedClient(many);
+		const { manifest } = await collect(baseOpts(client, fs));
+		const artifacts = manifest.scopes[0]?.artifacts ?? [];
+
+		// fixtureFileSchema caps a file at 5000 activities.
+		expect(artifacts.length).toBeGreaterThan(1);
+		for (const a of artifacts) {
+			expect(a.activityCount).toBeLessThanOrEqual(5000);
+			expect(files.has(a.path)).toBe(true);
+		}
+		// Each part is an independent run; sharing an id would make the second
+		// file's chunk 0 look like a duplicate of the first's.
+		expect(new Set(artifacts.map((a) => a.runId)).size).toBe(artifacts.length);
+		expect(artifacts.reduce((n, a) => n + a.activityCount, 0)).toBe(2600 * 2);
+	});
+
+	test("unmatched identities ride on the first part only", async () => {
+		const { fs, files } = memoryFs();
+		// A mix: unknown authors produce the unmatched report, known ones produce
+		// enough activities to force a split.
+		const many = Array.from({ length: 2600 }, (_, i) =>
+			pr(20_000 + i, {
+				closedDate: new Date(Date.UTC(2026, 6, 5) - i * 1000).toISOString(),
+				...(i === 0 ? { createdBy: { uniqueName: "bob@example.com" } } : {}),
+			}),
+		);
+		const client = pagedClient(many);
+		const { manifest } = await collect(baseOpts(client, fs));
+		const artifacts = manifest.scopes[0]?.artifacts ?? [];
+		// Repeating them per part would inflate seen_count once per file.
+		const bodies = artifacts.map(
+			(a) =>
+				JSON.parse(files.get(a.path) as string) as { unmatched: unknown[] },
+		);
+		expect(bodies.filter((b) => b.unmatched.length > 0)).toHaveLength(1);
+	});
+
+	test("--full marks scopes for a full rematch", async () => {
+		const { fs } = memoryFs();
+		const { manifest } = await collect({
+			...baseOpts(routedClient({}), fs),
+			full: true,
+		});
+		expect(manifest.scopes[0]?.fullRematch).toBe(true);
+	});
+
+	test("an incremental run does not request a rematch", async () => {
+		const { fs } = memoryFs();
+		const { manifest } = await collect(baseOpts(routedClient({}), fs));
+		expect(manifest.scopes[0]?.fullRematch).toBe(false);
 	});
 
 	test("warns when a scope cannot advance the cursor", async () => {

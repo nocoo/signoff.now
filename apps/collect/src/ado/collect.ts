@@ -17,6 +17,7 @@ import {
 	type Cursor,
 	cursorSchema,
 	emptyCursor,
+	FIXTURE_FILE_MAX_ACTIVITIES,
 	MANIFEST_SCHEMA_VERSION,
 	type Manifest,
 	planWindow,
@@ -66,6 +67,12 @@ export type CollectOptions = {
 	log?: { warn: (m: string) => void };
 };
 
+export type ArtifactBody = {
+	activities: unknown[];
+	unmatched: unknown[];
+	skipped: Record<string, number>;
+};
+
 export type CollectResult = {
 	manifest: Manifest;
 	manifestPath: string;
@@ -92,7 +99,7 @@ async function collectRepo(
 	opts: CollectOptions,
 	repo: CollectRepo,
 	cursor: Cursor,
-): Promise<{ scope: Scope; artifactBody: unknown | null }> {
+): Promise<{ scope: Scope; artifactBody: ArtifactBody | null }> {
 	const base = projectBase(repo.org, repo.project);
 	const repoPath = `_apis/git/repositories/${encodeURIComponent(repo.name)}`;
 	const baseCursor = readCursor(cursor, { kind: "repo", id: repo.id });
@@ -114,6 +121,9 @@ async function collectRepo(
 		status: "pending",
 		errors: [],
 		artifacts: [],
+		// `--full` re-reads the whole history, so the server must re-match every
+		// activity rather than merge into what is already stored (06 §8).
+		fullRematch: opts.full === true,
 	};
 
 	const problems: PageProblem[] = [];
@@ -209,7 +219,7 @@ async function collectProject(
 	opts: CollectOptions,
 	repo: CollectRepo,
 	cursor: Cursor,
-): Promise<{ scope: Scope; artifactBody: unknown | null }> {
+): Promise<{ scope: Scope; artifactBody: ArtifactBody | null }> {
 	const base = projectBase(repo.org, repo.project);
 	const baseCursor = readCursor(cursor, {
 		kind: "project",
@@ -233,6 +243,9 @@ async function collectProject(
 		status: "pending",
 		errors: [],
 		artifacts: [],
+		// `--full` re-reads the whole history, so the server must re-match every
+		// activity rather than merge into what is already stored (06 §8).
+		fullRematch: opts.full === true,
 	};
 
 	const idPage = await fetchWorkItemIds({
@@ -335,6 +348,57 @@ async function collectProject(
 	};
 }
 
+/**
+ * Write a scope's activities, splitting at the fixture cap.
+ *
+ * `fixtureFileSchema` allows at most 5000 activities per file, so a busy window
+ * has to become several artifacts. Each gets its own run id — the server treats
+ * them as independent runs and would otherwise see the second file's chunk 0 as
+ * a duplicate of the first's. The scope only commits once ALL of them land.
+ */
+async function writeArtifacts(
+	opts: CollectOptions,
+	scope: Scope,
+	body: ArtifactBody,
+	target: { dir: string; stem: string; indexBase: number },
+): Promise<void> {
+	const parts: ArtifactBody[] = [];
+	for (
+		let i = 0;
+		i < body.activities.length;
+		i += FIXTURE_FILE_MAX_ACTIVITIES
+	) {
+		parts.push({
+			activities: body.activities.slice(i, i + FIXTURE_FILE_MAX_ACTIVITIES),
+			// Unmatched identities and counters belong to the window, not to a
+			// slice, so they ride on the first file only — repeating them would
+			// inflate seen_count once per part.
+			unmatched: i === 0 ? body.unmatched : [],
+			skipped: i === 0 ? body.skipped : {},
+		});
+	}
+	if (parts.length === 0) {
+		parts.push({
+			activities: [],
+			unmatched: body.unmatched,
+			skipped: body.skipped,
+		});
+	}
+
+	for (const [i, part] of parts.entries()) {
+		const suffix = parts.length === 1 ? "" : `-${i}`;
+		const path = `${target.dir}/${target.stem}-${opts.collectRunId}${suffix}.json`;
+		await opts.writer.writeJson(path, part);
+		scope.artifacts.push({
+			path,
+			runId: derivedUlid(opts.collectRunId, target.indexBase + i),
+			sha256: await sha256Hex(serializeJson(part)),
+			activityCount: part.activities.length,
+			status: "pending",
+		});
+	}
+}
+
 export async function collect(opts: CollectOptions): Promise<CollectResult> {
 	const cursor = await readCursorFile(opts.fs, opts.dataDir);
 	const scopes: Scope[] = [];
@@ -342,16 +406,10 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 	for (const repo of opts.repos) {
 		const { scope, artifactBody } = await collectRepo(opts, repo, cursor);
 		if (artifactBody) {
-			const path = `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}/repo-${encodeURIComponent(repo.id)}-${opts.collectRunId}.json`;
-			await opts.writer.writeJson(path, artifactBody);
-			const count = (artifactBody as { activities: unknown[] }).activities
-				.length;
-			scope.artifacts.push({
-				path,
-				runId: derivedUlid(opts.collectRunId, scopes.length),
-				sha256: await sha256Hex(serializeJson(artifactBody)),
-				activityCount: count,
-				status: "pending",
+			await writeArtifacts(opts, scope, artifactBody, {
+				dir: `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}`,
+				stem: `repo-${encodeURIComponent(repo.id)}`,
+				indexBase: scopes.length,
 			});
 		}
 		scopes.push(scope);
@@ -368,16 +426,10 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 			seenProjects.add(repo.projectExternalId);
 			const { scope, artifactBody } = await collectProject(opts, repo, cursor);
 			if (artifactBody) {
-				const path = `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}/project-${opts.collectRunId}.json`;
-				await opts.writer.writeJson(path, artifactBody);
-				const count = (artifactBody as { activities: unknown[] }).activities
-					.length;
-				scope.artifacts.push({
-					path,
-					runId: derivedUlid(opts.collectRunId, 1000 + scopes.length),
-					sha256: await sha256Hex(serializeJson(artifactBody)),
-					activityCount: count,
-					status: "pending",
+				await writeArtifacts(opts, scope, artifactBody, {
+					dir: `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}`,
+					stem: "project",
+					indexBase: 1000 + scopes.length,
 				});
 			}
 			scopes.push(scope);

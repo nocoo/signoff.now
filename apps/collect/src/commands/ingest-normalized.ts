@@ -93,6 +93,57 @@ async function readJson<T>(
 	}
 }
 
+type ArtifactLoad =
+	| { body: { activities: unknown[]; unmatched: unknown[] } }
+	| { code: number; error: string };
+
+/**
+ * Read an artifact and prove it is the one the manifest vouched for.
+ *
+ * The manifest records BYTES, not just a path: without the digest check a file
+ * could be edited after collection and the cursor would still advance,
+ * certifying data that was never collected.
+ */
+async function loadArtifact(
+	opts: IngestNormalizedOptions,
+	artifact: { sha256: string; activityCount: number },
+): Promise<ArtifactLoad> {
+	let raw: string;
+	try {
+		raw = await opts.fs.readFile(opts.filePath);
+	} catch {
+		return {
+			code: ExitCode.RUNTIME,
+			error: `cannot read artifact: ${opts.filePath}`,
+		};
+	}
+
+	if ((await sha256Hex(raw)) !== artifact.sha256) {
+		return {
+			code: ExitCode.CONTRACT,
+			error: `${opts.filePath} does not match the digest recorded at collection; re-collect rather than ingest it`,
+		};
+	}
+
+	let body: { activities: unknown[]; unmatched: unknown[] };
+	try {
+		body = JSON.parse(raw) as typeof body;
+	} catch {
+		return {
+			code: ExitCode.RUNTIME,
+			error: `artifact is not valid JSON: ${opts.filePath}`,
+		};
+	}
+
+	if (body.activities.length !== artifact.activityCount) {
+		return {
+			code: ExitCode.CONTRACT,
+			error: `artifact has ${body.activities.length} activities but the manifest recorded ${artifact.activityCount}`,
+		};
+	}
+	return { body };
+}
+
 export async function ingestNormalized(
 	opts: IngestNormalizedOptions,
 ): Promise<number> {
@@ -122,38 +173,12 @@ export async function ingestNormalized(
 		return ExitCode.CONTRACT;
 	}
 
-	let rawArtifact: string;
-	try {
-		rawArtifact = await opts.fs.readFile(opts.filePath);
-	} catch {
-		opts.log.error(`cannot read artifact: ${opts.filePath}`);
-		return ExitCode.RUNTIME;
+	const loaded = await loadArtifact(opts, artifact);
+	if ("code" in loaded) {
+		opts.log.error(loaded.error);
+		return loaded.code;
 	}
-
-	// The manifest vouches for specific BYTES, not just a path. Without this the
-	// file could be edited after collection and the cursor would still advance,
-	// certifying data that was never collected.
-	if ((await sha256Hex(rawArtifact)) !== artifact.sha256) {
-		opts.log.error(
-			`${opts.filePath} does not match the digest recorded at collection; re-collect rather than ingest it`,
-		);
-		return ExitCode.CONTRACT;
-	}
-
-	let body: { activities: unknown[]; unmatched: unknown[] };
-	try {
-		body = JSON.parse(rawArtifact) as typeof body;
-	} catch {
-		opts.log.error(`artifact is not valid JSON: ${opts.filePath}`);
-		return ExitCode.RUNTIME;
-	}
-
-	if (body.activities.length !== artifact.activityCount) {
-		opts.log.error(
-			`artifact has ${body.activities.length} activities but the manifest recorded ${artifact.activityCount}`,
-		);
-		return ExitCode.CONTRACT;
-	}
+	const body = loaded.body;
 
 	let chunks: IngestBody[];
 	try {
@@ -167,7 +192,7 @@ export async function ingestNormalized(
 				source: "ado",
 				windowFrom: (scope.from ?? scope.watermark).slice(0, 10),
 				windowTo: scope.watermark.slice(0, 10),
-				mode: "incremental",
+				mode: scope.fullRematch ? "full_rematch" : "incremental",
 			},
 			activities: body.activities,
 			unmatchedIdentities: body.unmatched,
@@ -231,5 +256,25 @@ export async function ingestNormalized(
 	opts.log.info(
 		`scope ${after.kind}:${after.id} complete; cursor → ${readCursor(next, after)}`,
 	);
+
+	// Only now, with every artifact in, may stale be cleared. Calling this after
+	// the first file would report fresh scores while later files are still
+	// pending (07 §9).
+	if (after.fullRematch) {
+		const lastRunId = after.artifacts[after.artifacts.length - 1]?.runId;
+		try {
+			await opts.client.recomputeComplete({
+				runId: lastRunId as string,
+				pipelineConfigVersion: opts.pipelineConfigVersion,
+				ok: true,
+			});
+			opts.log.info("full_rematch complete; scores are no longer stale");
+		} catch (e) {
+			opts.log.error(
+				`recompute/complete failed: ${e instanceof Error ? e.message : "unknown"}`,
+			);
+			return ExitCode.SERVER;
+		}
+	}
 	return ExitCode.OK;
 }

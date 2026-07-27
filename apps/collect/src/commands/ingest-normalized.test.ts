@@ -387,6 +387,96 @@ describe("ingestNormalized", () => {
 		);
 	});
 
+	test("a full_rematch scope sends the mode and clears stale once whole", async () => {
+		const calls: unknown[] = [];
+		const sent: unknown[] = [];
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async ingest(body: unknown) {
+				sent.push(body);
+				return okClient().ingest(body as never);
+			},
+			async recomputeComplete(body: unknown) {
+				calls.push(body);
+				return {} as never;
+			},
+		} as PipelineClient;
+
+		expect(
+			await ingestNormalized({
+				filePath: ART_A,
+				manifestPath: MANIFEST_PATH,
+				dataDir: ".data",
+				fs: h.fs,
+				writeJson: h.writeJson,
+				client,
+				log: { info: () => {}, warn: () => {}, error: () => {} },
+				nowSeconds: 1_784_737_800,
+				pipelineConfigVersion: 1,
+			}),
+		).toBe(ExitCode.OK);
+
+		expect((sent[0] as { runMeta: { mode: string } }).runMeta.mode).toBe(
+			"full_rematch",
+		);
+		expect(calls).toHaveLength(1);
+	});
+
+	test("a full_rematch scope does NOT clear stale while artifacts are pending", async () => {
+		const calls: unknown[] = [];
+		const m = manifest({
+			fullRematch: true,
+			artifacts: [
+				{
+					path: ART_A,
+					runId: RUN_A,
+					sha256: "x",
+					activityCount: 1,
+					status: "pending",
+				},
+				{
+					path: ART_B,
+					runId: "01JARTFCTB0000000000000000",
+					sha256: "y",
+					activityCount: 1,
+					status: "pending",
+				},
+			],
+		});
+		const h = await harness(m, {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+			[ART_B]: { activities: [activity(2)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async recomputeComplete(body: unknown) {
+				calls.push(body);
+				return {} as never;
+			},
+		} as PipelineClient;
+		const opts = {
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		};
+
+		await ingestNormalized(opts);
+		// Clearing stale here would report fresh scores while file B is missing.
+		expect(calls).toHaveLength(0);
+
+		await ingestNormalized({ ...opts, filePath: ART_B });
+		expect(calls).toHaveLength(1);
+	});
+
 	test("an artifact edited after collection is refused", async () => {
 		const { h, opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },
@@ -423,6 +513,76 @@ describe("ingestNormalized", () => {
 				pipelineConfigVersion: 1,
 			}),
 		).toBe(ExitCode.CONTRACT);
+	});
+
+	test("an artifact whose bytes hash correctly but are not JSON", async () => {
+		const h = await harness(manifest(), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		// Digest and count come from the manifest, so make them agree with the
+		// corrupt bytes: the JSON parse is then the only thing left to catch it.
+		const corrupt = "{ not json";
+		const m = JSON.parse(h.files.get(MANIFEST_PATH) as string);
+		m.scopes[0].artifacts[0].sha256 = await sha256Hex(corrupt);
+		h.files.set(MANIFEST_PATH, JSON.stringify(m));
+		h.files.set(ART_A, corrupt);
+
+		expect(
+			await ingestNormalized({
+				filePath: ART_A,
+				manifestPath: MANIFEST_PATH,
+				dataDir: ".data",
+				fs: h.fs,
+				writeJson: h.writeJson,
+				client: okClient(),
+				log: { info: () => {}, warn: () => {}, error: () => {} },
+				nowSeconds: 1_784_737_800,
+				pipelineConfigVersion: 1,
+			}),
+		).toBe(ExitCode.RUNTIME);
+	});
+
+	test("a network failure during ingest is a server error", async () => {
+		const { h, opts } = await base(manifest(), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const failing = {
+			...opts.client,
+			async ingest() {
+				throw new Error("socket hang up");
+			},
+		} as PipelineClient;
+		expect(await ingestNormalized({ ...opts, client: failing })).toBe(
+			ExitCode.SERVER,
+		);
+		expect(h.files.has(".data/meta/cursor.json")).toBe(false);
+	});
+
+	test("a failing recompute/complete surfaces after the cursor moved", async () => {
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async recomputeComplete() {
+				throw new Error("worker unavailable");
+			},
+		} as PipelineClient;
+		const code = await ingestNormalized({
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		});
+		// The data DID land, so the cursor is correct; only stale clearing
+		// failed, and the operator must know to retry it.
+		expect(code).toBe(ExitCode.SERVER);
+		expect(h.files.has(".data/meta/cursor.json")).toBe(true);
 	});
 
 	test("an unreadable artifact is a runtime error", async () => {

@@ -117,9 +117,9 @@ describe("fetchPullRequests", () => {
 		expect(urls[0]).toContain("searchCriteria.maxTime=2026-07-26");
 	});
 
-	test("a page starting older than the last boundary is reported", async () => {
-		// The dangerous direction: a row removed before this offset pulls the
-		// window forward and skips a record, leaving no duplicate behind.
+	test("descending pages with distinct timestamps report nothing", async () => {
+		// Real pagination walks strictly backwards in time; flagging that would
+		// mark every busy repo incomplete and stall its cursor forever.
 		const pageA = {
 			value: Array.from({ length: PAGE_SIZE }, (_, i) =>
 				pr(2000 - i, "2026-07-20T00:00:00Z"),
@@ -133,27 +133,7 @@ describe("fetchPullRequests", () => {
 			repoPath,
 			status: "completed",
 		});
-		expect(r.problems.some((p) => p.reason.includes("skips past"))).toBe(true);
-	});
-
-	test("a page continuing at the same instant is not a gap", async () => {
-		// Many PRs can close in the same second; that is continuity, not loss.
-		const pageA = {
-			value: Array.from({ length: PAGE_SIZE }, (_, i) =>
-				pr(2000 - i, "2026-07-20T00:00:00Z"),
-			),
-		};
-		const pageB = { value: [pr(1, "2026-07-20T00:00:00Z")] };
-		const { client } = scripted([pageA, pageB]);
-		const r = await fetchPullRequests({
-			client,
-			base,
-			repoPath,
-			status: "completed",
-		});
-		expect(r.problems.filter((p) => p.reason.includes("skips past"))).toEqual(
-			[],
-		);
+		expect(r.problems).toEqual([]);
 	});
 
 	test("active PRs are not time-filtered", async () => {
