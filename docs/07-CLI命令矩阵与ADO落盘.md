@@ -467,6 +467,19 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 | bootstrap 版本与库不符 | `CONTRACT` | 提示先 `settings pull` |
 | 网络中断 | `SERVER` | 已落盘 raw 保留，可续跑 |
 
+`collect` 的抛出路径由 `exitCodeForError()`（`commands/exit-code-for-error.ts`）
+把 `AdoError.kind` 映射到退出码，而不是一律 `RUNTIME`——否则自动化分不清
+「重新登录」「稍后重试」「这是 bug」这三件需要不同响应的事：
+
+| `AdoErrorKind` | 退出码 |
+|:---|:---|
+| `unauthenticated` / `forbidden` | `ENV` |
+| `rate_limited` / `server` | `SERVER` |
+| `not_found` / `bad_request` / `bad_response` | `CONTRACT` |
+| `result_too_large` | `RUNTIME`（分治收窄是 paging 的职责，冒到顶层即为缺陷） |
+
+非 `AdoError` 的异常仍为 `RUNTIME`。
+
 **限流**：当前实现是**串行**的（并发与 `--concurrency` 未实现）。threads/iterations
 是 per-PR 调用，PR 多时为主要耗时，大窗口会很慢 —— 用 `--since` 缩小窗口。
 客户端已按 `Retry-After` / `X-RateLimit-Delay` 退避。
@@ -479,7 +492,7 @@ transform 产物是 `fixtureFileSchema` 形状（06 §6.2，`activities` 上限 
 
 - 超过 5000 条 → 拆多个 `activities-{runId}-{n}.json`，各自独立 runId。
 - `ingest normalized` 复用 `splitFixtureIntoChunks`（每 chunk ≤10 条）。
-  重试是**独立实现**的（3 次、100/200/400ms 退避，仅重试 5xx/429/网络错误），
+  重试是**独立实现**的（最多 3 次尝试 = 2 次退避，100/200ms，仅重试 5xx/429/网络错误），
   不是复用 `ingest fixture` 的那份。
 - 单写者约定（06 §5.7）：CLI 帮助文本声明「同一时刻只跑一个 ingest」。
 - **`full_rematch` 不得提前清 stale**。`scores_stale` 是**全局**标志，不是 per-scope，

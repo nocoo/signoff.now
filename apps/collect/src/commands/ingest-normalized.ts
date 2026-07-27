@@ -43,6 +43,8 @@ export type IngestNormalizedOptions = {
 	log: Logger;
 	nowSeconds: number;
 	pipelineConfigVersion: number;
+	/** Injectable so retry tests do not spend real backoff time. */
+	sleep?: (ms: number) => Promise<void>;
 };
 
 /**
@@ -152,11 +154,17 @@ const MAX_INGEST_ATTEMPTS = 3;
  * Chunks are digest-idempotent server-side, so replaying one is safe — and
  * giving up on the first 5xx would strand the scope with a partially ingested
  * run that only a manual replay could finish.
+ *
+ * Three attempts means two backoffs: 100ms and 200ms. The attempt cap is
+ * checked before sleeping, so the third failure returns immediately rather than
+ * waiting on a delay nothing will follow.
  */
-async function postWithRetry(
-	opts: IngestNormalizedOptions,
+export async function postWithRetry(
+	opts: Pick<IngestNormalizedOptions, "client" | "log" | "sleep">,
 	chunk: IngestBody,
 ): Promise<{ response: unknown } | { code: number; error: string }> {
+	const sleep =
+		opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 	for (let attempt = 1; ; attempt++) {
 		try {
 			return { response: await opts.client.ingest(chunk) };
@@ -180,7 +188,7 @@ async function postWithRetry(
 			opts.log.info(
 				`retry chunk ${chunk.chunkIndex} attempt ${attempt} backoff=${backoff}ms`,
 			);
-			await new Promise((r) => setTimeout(r, backoff));
+			await sleep(backoff);
 		}
 	}
 }

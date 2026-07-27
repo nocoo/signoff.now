@@ -4,7 +4,11 @@ import { serializeJson, sha256Hex } from "../ado/storage.ts";
 import type { FsLike } from "../cache/bootstrap.ts";
 import { ExitCode } from "../exit-codes.ts";
 import type { PipelineClient } from "../pipeline/client.ts";
-import { ingestNormalized, verifyIngestResponse } from "./ingest-normalized.ts";
+import {
+	ingestNormalized,
+	postWithRetry,
+	verifyIngestResponse,
+} from "./ingest-normalized.ts";
 
 const REPO_ID = "01K0REPO00000000000000000";
 const RUN_A = "01JARTFCTA0000000000000000";
@@ -685,5 +689,151 @@ describe("ingestNormalized", () => {
 			[ART_A]: { activities: [{ type: "nonsense" }], unmatched: [] },
 		});
 		expect(await ingestNormalized(opts)).toBe(ExitCode.CONTRACT);
+	});
+});
+
+describe("postWithRetry", () => {
+	const chunk = { chunkIndex: 0 } as never;
+	const silent = { info: () => {}, warn: () => {}, error: () => {} };
+
+	/** Injected so a failing run costs no wall-clock time and delays are observable. */
+	function recorder() {
+		const delays: number[] = [];
+		return {
+			delays,
+			sleep: async (ms: number) => {
+				delays.push(ms);
+			},
+		};
+	}
+
+	test("a first-attempt success neither retries nor sleeps", async () => {
+		const r = recorder();
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				return { ok: true };
+			},
+		} as unknown as PipelineClient;
+		const out = await postWithRetry(
+			{ client, log: silent, sleep: r.sleep },
+			chunk,
+		);
+		expect(out).toEqual({ response: { ok: true } });
+		expect(calls).toBe(1);
+		expect(r.delays).toEqual([]);
+	});
+
+	test("a 5xx is retried and can succeed on the third attempt", async () => {
+		// The cap is 3 attempts, so exactly two backoffs occur. A regression to
+		// a single attempt would strand the scope half-ingested.
+		const r = recorder();
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				if (calls < 3) {
+					throw { status: 503, body: null, message: "HTTP 503" };
+				}
+				return { ok: true };
+			},
+		} as unknown as PipelineClient;
+		const out = await postWithRetry(
+			{ client, log: silent, sleep: r.sleep },
+			chunk,
+		);
+		expect(out).toEqual({ response: { ok: true } });
+		expect(calls).toBe(3);
+		expect(r.delays).toEqual([100, 200]);
+	});
+
+	test("exhausting the attempts reports SERVER, and never sleeps after the last", async () => {
+		// 400ms would mean a fourth attempt that never comes.
+		const r = recorder();
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				throw { status: 500, body: null, message: "HTTP 500" };
+			},
+		} as unknown as PipelineClient;
+		const out = await postWithRetry(
+			{ client, log: silent, sleep: r.sleep },
+			chunk,
+		);
+		expect(calls).toBe(3);
+		expect(r.delays).toEqual([100, 200]);
+		expect(out).toMatchObject({ code: ExitCode.SERVER });
+		expect((out as { error: string }).error).toMatch(/after 3 attempts/);
+	});
+
+	test("429 is retried like a 5xx", async () => {
+		const r = recorder();
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				if (calls < 2) {
+					throw { status: 429, body: null, message: "HTTP 429" };
+				}
+				return { ok: true };
+			},
+		} as unknown as PipelineClient;
+		await postWithRetry({ client, log: silent, sleep: r.sleep }, chunk);
+		expect(calls).toBe(2);
+	});
+
+	test("a network failure with no status is retried", async () => {
+		const r = recorder();
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				throw new Error("ECONNRESET");
+			},
+		} as unknown as PipelineClient;
+		const out = await postWithRetry(
+			{ client, log: silent, sleep: r.sleep },
+			chunk,
+		);
+		expect(calls).toBe(3);
+		expect(out).toMatchObject({ code: ExitCode.SERVER });
+	});
+
+	test("a 4xx is refused immediately: replaying a rejected body cannot help", async () => {
+		const r = recorder();
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				throw { status: 422, body: null, message: "HTTP 422 unprocessable" };
+			},
+		} as unknown as PipelineClient;
+		const out = await postWithRetry(
+			{ client, log: silent, sleep: r.sleep },
+			chunk,
+		);
+		expect(calls).toBe(1);
+		expect(r.delays).toEqual([]);
+		expect(out).toMatchObject({ code: ExitCode.CONTRACT });
+		expect((out as { error: string }).error).toMatch(/422/);
+	});
+
+	test("without an injected sleep it still backs off for real", async () => {
+		// Guards against a default that silently skips the delay entirely.
+		let calls = 0;
+		const client = {
+			async ingest() {
+				calls++;
+				if (calls < 2) {
+					throw { status: 500, body: null, message: "HTTP 500" };
+				}
+				return { ok: true };
+			},
+		} as unknown as PipelineClient;
+		const started = performance.now();
+		await postWithRetry({ client, log: silent }, chunk);
+		expect(performance.now() - started).toBeGreaterThanOrEqual(90);
 	});
 });
