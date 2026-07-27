@@ -31,45 +31,16 @@ import {
 	transformWorkItems,
 } from "@signoff/domain";
 import type { FsLike } from "../cache/bootstrap.ts";
-import { type AdoClient, AdoError, adoUrl } from "./client.ts";
+import { type AdoClient, adoUrl } from "./client.ts";
 import {
 	fetchAllPages,
 	fetchPullRequests,
 	fetchWorkItemIds,
 	type PageProblem,
 } from "./paging.ts";
+import { parseRaw, workItemStatesSchema } from "./parse-raw.ts";
 import { type RawWriter, serializeJson, sha256Hex } from "./storage.ts";
 import { derivedUlid } from "./ulid.ts";
-
-/**
- * Parse a raw ADO payload, turning a schema failure into an `AdoError`.
- *
- * A bare `.parse()` throws a `ZodError`, which exits RUNTIME — indistinguishable
- * from a crash. A payload we cannot read is a contract problem: doc 07 §8 says
- * CONTRACT, and the operator needs the field path to know which shape moved.
- */
-function parseRaw<T>(
-	schema: { parse: (v: unknown) => T },
-	raw: unknown,
-	what: string,
-): T {
-	try {
-		return schema.parse(raw);
-	} catch (e) {
-		const detail =
-			e && typeof e === "object" && "issues" in e
-				? (
-						e as { issues: { path: (string | number)[]; message: string }[] }
-					).issues
-						.slice(0, 3)
-						.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-						.join("; ")
-				: e instanceof Error
-					? e.message
-					: "unknown";
-		throw new AdoError("bad_response", `${what} failed schema — ${detail}`);
-	}
-}
 
 export type CollectRepo = {
 	id: string;
@@ -341,12 +312,16 @@ async function collectProject(
 	// must resolve the map — the transform is pure and cannot ask the API.
 	const stateCategories = new Map<string, Map<string, string>>();
 	for (const type of types) {
-		const res = (await opts.client.get(
-			adoUrl(
-				base,
-				`_apis/wit/workitemtypes/${encodeURIComponent(type)}/states`,
+		const res = parseRaw(
+			workItemStatesSchema,
+			await opts.client.get(
+				adoUrl(
+					base,
+					`_apis/wit/workitemtypes/${encodeURIComponent(type)}/states`,
+				),
 			),
-		)) as { value?: { name?: string; category?: string }[] };
+			`work item type ${type} states`,
+		);
 		stateCategories.set(
 			type,
 			new Map(

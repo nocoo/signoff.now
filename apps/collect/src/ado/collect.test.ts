@@ -228,6 +228,89 @@ describe("collect", () => {
 		expect((err as AdoError).message).toContain("work item 42");
 	});
 
+	test("a drifted WIQL response is refused, not read as an empty window", async () => {
+		// This is the worst failure shape in the whole pipeline: an `as` cast
+		// turns a changed payload into "no work items", the scope reports
+		// pending with no errors, and the cursor advances past days that were
+		// never read. Silent, permanent data loss with no operator signal.
+		const { fs } = memoryFs();
+		const client: AdoClient = {
+			...routedClient({}),
+			async post() {
+				return { workItems: [{ identifier: 42 }] };
+			},
+		};
+		const err = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).message).toContain("WIQL result");
+		expect(exitCodeForError(err)).toBe(ExitCode.CONTRACT);
+	});
+
+	test("a WIQL response of the wrong type is refused too", async () => {
+		const { fs } = memoryFs();
+		for (const bad of ["a string", 123, [], { workItems: "nope" }]) {
+			const client: AdoClient = {
+				...routedClient({}),
+				async post() {
+					return bad;
+				},
+			};
+			const err = await collect({
+				...baseOpts(client, fs),
+				includeWorkItems: true,
+			}).catch((e: unknown) => e);
+			expect(err).toBeInstanceOf(AdoError);
+		}
+	});
+
+	test("a drifted state list is refused rather than closing nothing", async () => {
+		// 06 decides closure by state CATEGORY. An unreadable list degrading to
+		// an empty map would mean no work item is ever seen as closed.
+		const { fs } = memoryFs();
+		const client: AdoClient = {
+			...routedClient({
+				wiqlIds: [42],
+				workItem: {
+					id: 42,
+					fields: { "System.WorkItemType": "Bug", "System.State": "Active" },
+				},
+			}),
+			async get(url: string) {
+				if (url.includes("/workitemtypes/")) {
+					return { value: "not-a-list" };
+				}
+				return routedClient({
+					wiqlIds: [42],
+					workItem: {
+						id: 42,
+						fields: { "System.WorkItemType": "Bug", "System.State": "Active" },
+					},
+				}).get(url);
+			},
+		};
+		const err = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).message).toContain("states");
+	});
+
+	test("a drifted pull request list is a contract error, not a crash", async () => {
+		// paging.ts had the same bare `.parse()` that collect.ts was fixed for.
+		const { fs } = memoryFs();
+		const client = routedClient({
+			prs: () => ({ value: [{ pullRequestId: "not-a-number" }] }),
+		});
+		const err = await collect(baseOpts(client, fs)).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect(exitCodeForError(err)).toBe(ExitCode.CONTRACT);
+		expect((err as AdoError).message).toContain("pull requests");
+	});
+
 	test("never writes the cursor", async () => {
 		const { fs, files } = memoryFs();
 		const client = routedClient({

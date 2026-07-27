@@ -14,6 +14,7 @@
 
 import { adoListSchema, type RawPr, rawPrSchema } from "@signoff/domain";
 import { type AdoClient, AdoError, adoUrl } from "./client.ts";
+import { parseRaw, wiqlResultSchema } from "./parse-raw.ts";
 
 export const PAGE_SIZE = 100;
 /** Refuse to loop forever if the server keeps handing back full pages. */
@@ -70,7 +71,11 @@ export async function fetchPullRequests(
 			$top: PAGE_SIZE,
 			$skip: page * PAGE_SIZE,
 		});
-		const parsed = adoListSchema(rawPrSchema).parse(await q.client.get(url));
+		const parsed = parseRaw(
+			adoListSchema(rawPrSchema),
+			await q.client.get(url),
+			`pull requests (${q.status})`,
+		);
 		const batch = parsed.value;
 
 		const first = batch[0]?.closedDate ?? null;
@@ -152,9 +157,11 @@ export async function fetchWorkItemIds(
 		const query = `SELECT [System.Id] FROM WorkItems WHERE ${clauses.join(" AND ")} ORDER BY [System.ChangedDate] DESC`;
 
 		try {
-			const res = (await q.client.post(adoUrl(q.base, "_apis/wit/wiql"), {
-				query,
-			})) as { workItems?: { id: number }[] };
+			const res = parseRaw(
+				wiqlResultSchema,
+				await q.client.post(adoUrl(q.base, "_apis/wit/wiql"), { query }),
+				"WIQL result",
+			);
 			for (const w of res.workItems ?? []) {
 				ids.add(w.id);
 			}
