@@ -85,6 +85,24 @@ function runMetaEqual(
 	);
 }
 
+/**
+ * Whether a stored chunk's bytes differ from the ones just posted.
+ *
+ * Deliberately takes ONLY the two digests. The rule is "a replay with different
+ * bytes is refused at EVERY chunk index", and the way to hold that rule is to
+ * make its violation unwriteable: with no access to `body`, a cap such as
+ * `chunkIndex < 6` — or an index-free one like `activities.length <= 1` —
+ * cannot be expressed here at all.
+ *
+ * Source-scanning tests were tried first and could not hold it. A computed
+ * property (`body["chunk" + "Index"]`) hides from a text assertion, and a cap
+ * beyond the sampled range hides from a behavioural sweep; both variants passed
+ * the entire suite. Structure by construction needs neither.
+ */
+export function digestsDiffer(stored: string, incoming: string): boolean {
+	return stored !== incoming;
+}
+
 /** Multi-phase ingest: intentionally branched; covered by unit + E2E tests. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: 06 multi-phase state machine
 export async function processIngestChunk(
@@ -134,7 +152,7 @@ export async function processIngestChunk(
 		);
 	}
 
-	if (chunk && chunk.digest !== digest) {
+	if (chunk && digestsDiffer(chunk.digest, digest)) {
 		return { kind: "conflict", error: "Chunk digest conflict" };
 	}
 
