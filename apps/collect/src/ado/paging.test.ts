@@ -6,6 +6,7 @@ import {
 	fetchPullRequests,
 	fetchWorkItemIds,
 	PAGE_SIZE,
+	wiqlDay,
 } from "./paging.ts";
 
 const REPO_GUID = "11111111-1111-4111-8111-111111111111";
@@ -249,8 +250,12 @@ describe("fetchWorkItemIds", () => {
 		});
 		const q = (bodies[0] as { query: string }).query;
 		// An open upper bound would sweep in rows written during pagination.
-		expect(q).toContain(">= '2026-07-01T00:00:00Z'");
-		expect(q).toContain("< '2026-07-26T00:00:00Z'");
+		// WIQL compares at DATE precision and REJECTS a supplied time, so the
+		// bounds are days — widened, never narrowed, or work items whose day
+		// falls on the edge would be skipped for good.
+		expect(q).toContain(">= '2026-07-01'");
+		expect(q).toContain("<= '2026-07-27'");
+		expect(q).not.toMatch(/T\d\d:/);
 	});
 
 	test("a project name with a quote cannot break the query", async () => {
@@ -288,7 +293,15 @@ describe("fetchWorkItemIds", () => {
 		expect(r.problems).toEqual([]);
 		// Three calls: the failed whole, then each half.
 		expect(bodies).toHaveLength(3);
-		expect((bodies[1] as { query: string }).query).toContain("2026-07-02");
+		// The halves must together COVER the original window. Date rounding
+		// widens each side, so they overlap — harmless, since ids dedupe — but a
+		// gap between them would drop work items with nothing to reveal it.
+		const halves = bodies.slice(1).map((b) => (b as { query: string }).query);
+		expect(halves[0]).toContain(">= '2026-07-01'");
+		expect(halves[1]).toContain("<= '2026-07-04'");
+		for (const q of halves) {
+			expect(q).not.toMatch(/T\d\d:/);
+		}
 	});
 
 	test("an unbounded window that is too large is reported, not split", async () => {
@@ -370,5 +383,30 @@ describe("fetchAllPages", () => {
 			2,
 		);
 		expect(r.problems[0]?.reason).toContain("stopped after 2 pages");
+	});
+});
+
+describe("wiqlDay", () => {
+	test("drops the time, which WIQL rejects outright", async () => {
+		// Measured against live ADO: "You cannot supply a time with the date when
+		// running a query using date precision."
+		expect(wiqlDay("2026-07-26T04:26:24.000Z")).toBe("2026-07-26");
+	});
+
+	test("rounds the upper bound OUTWARD, never inward", async () => {
+		// A narrower window skips work items permanently: the cursor still
+		// advances past them and the next incremental window starts later.
+		expect(wiqlDay("2026-07-26T23:59:59Z", 1)).toBe("2026-07-27");
+		expect(wiqlDay("2026-07-26T00:00:00Z", 1)).toBe("2026-07-27");
+	});
+
+	test("crosses month and year boundaries", async () => {
+		expect(wiqlDay("2026-07-31T12:00:00Z", 1)).toBe("2026-08-01");
+		expect(wiqlDay("2026-12-31T12:00:00Z", 1)).toBe("2027-01-01");
+	});
+
+	test("an unparseable bound is a bug, not a query for all time", async () => {
+		// Silently widening to everything would hide the defect and hammer ADO.
+		expect(() => wiqlDay("not-a-date")).toThrow(AdoError);
 	});
 });

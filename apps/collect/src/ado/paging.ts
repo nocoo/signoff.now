@@ -129,6 +129,26 @@ export type WiqlQuery = {
 };
 
 /**
+ * WIQL compares `System.ChangedDate` at DATE precision and rejects any query
+ * that supplies a time: "You cannot supply a time with the date when running a
+ * query using date precision" — measured against live ADO, not assumed.
+ *
+ * Widening is the only safe rounding. `from` truncates to its own day and `to`
+ * is pushed to the following day, so the queried range always CONTAINS the
+ * requested one. A narrower range would skip work items permanently: the cursor
+ * still advances past them, and the next incremental window starts later.
+ */
+export function wiqlDay(instant: string, addDays = 0): string {
+	const ms = Date.parse(instant);
+	if (!Number.isFinite(ms)) {
+		// Callers pass watermarks the caller itself produced; a malformed one is
+		// a bug, and silently querying "all time" would hide it.
+		throw new AdoError("bad_request", `unparseable WIQL bound: ${instant}`);
+	}
+	return new Date(ms + addDays * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
  * Work item ids in `[from, watermark)`.
  *
  * WIQL has no continuation token: past ~20k rows it fails outright with
@@ -151,9 +171,12 @@ export async function fetchWorkItemIds(
 			`[System.TeamProject] = '${q.project.replace(/'/g, "''")}'`,
 		];
 		if (from) {
-			clauses.push(`[System.ChangedDate] >= '${from}'`);
+			clauses.push(`[System.ChangedDate] >= '${wiqlDay(from)}'`);
 		}
-		clauses.push(`[System.ChangedDate] < '${to}'`);
+		// `<=` with the day AFTER `to`, not `<` with `to`'s own day: date
+		// precision drops the time, so `< to` would exclude everything that
+		// happened on `to` itself.
+		clauses.push(`[System.ChangedDate] <= '${wiqlDay(to, 1)}'`);
 		const query = `SELECT [System.Id] FROM WorkItems WHERE ${clauses.join(" AND ")} ORDER BY [System.ChangedDate] DESC`;
 
 		try {
