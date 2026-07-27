@@ -18,6 +18,7 @@ describe("D1 migrations", () => {
 		expect(files).toContain("0004_repo_project_guid.sql");
 		expect(files).toContain("0005_normalize_activity_weights.sql");
 		expect(files).toContain("0006_ingest_run_states.sql");
+		expect(files).toContain("0007_dashboard_indexes.sql");
 		expect(files).toEqual([...files].sort((a, b) => a.localeCompare(b)));
 	});
 
@@ -227,9 +228,47 @@ describe("D1 migrations", () => {
 			"idx_developers_alias_active",
 			"idx_activities_config_version",
 			"idx_scores_config_day_dev",
+			"idx_activities_config_day_type",
+			"idx_ingest_runs_config_status_finished",
 		]) {
 			expect(indexes).toContain(name);
 		}
+	});
+
+	test("dashboard aggregates use an index rather than scanning", () => {
+		const db = openMemoryDb();
+		applyMigrations(db, migrationsDir);
+
+		const plan = (sql: string) =>
+			db
+				.query<{ detail: string }, []>(`EXPLAIN QUERY PLAN ${sql}`)
+				.all()
+				.map((r) => r.detail)
+				.join(" | ");
+
+		// Without the composite index this picks idx_activities_config_version
+		// and walks every row of the version before filtering dates (08 §3.5).
+		const byType = plan(
+			`SELECT type, COUNT(*) FROM activities
+			 WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26'
+			 GROUP BY type`,
+		);
+		expect(byType).toContain("idx_activities_config_day_type");
+		expect(byType).not.toContain("SCAN activities");
+
+		const lastIngest = plan(
+			`SELECT MAX(finished_at) FROM ingest_runs
+			 WHERE config_version = 1 AND status = 'finalized'`,
+		);
+		expect(lastIngest).toContain("idx_ingest_runs_config_status_finished");
+		expect(lastIngest).not.toContain("SCAN ingest_runs");
+
+		// Score aggregates already had their index from 0003.
+		const totals = plan(
+			`SELECT SUM(total) FROM scores
+			 WHERE config_version = 1 AND day_key BETWEEN '2026-07-01' AND '2026-07-26'`,
+		);
+		expect(totals).toContain("idx_scores_config_day_dev");
 	});
 
 	test("query plan uses composite index for developer day heatmap path", () => {
