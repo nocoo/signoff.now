@@ -477,6 +477,96 @@ describe("ingestNormalized", () => {
 		expect(calls).toHaveLength(1);
 	});
 
+	test("a failed rematch can be retried after the cursor already moved", async () => {
+		// The retry path: commitScope is now a no-op, but the run must still
+		// reach recompute/complete or scores_stale is stuck forever.
+		let attempts = 0;
+		const h = await harness(manifest({ fullRematch: true }), {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async recomputeComplete() {
+				attempts++;
+				if (attempts === 1) {
+					throw new Error("worker unavailable");
+				}
+				return {} as never;
+			},
+		} as PipelineClient;
+		const opts = {
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		};
+
+		expect(await ingestNormalized(opts)).toBe(ExitCode.SERVER);
+		expect(h.files.has(".data/meta/cursor.json")).toBe(true);
+
+		// Same command again: the cursor does not move, but the rematch does.
+		expect(await ingestNormalized(opts)).toBe(ExitCode.OK);
+		expect(attempts).toBe(2);
+	});
+
+	test("a multi-scope rematch waits for every scope, not just this one", async () => {
+		const calls: unknown[] = [];
+		const m = manifest({ fullRematch: true });
+		// A second scope in the same run that has not been ingested yet.
+		m.scopes.push({
+			...m.scopes[0],
+			kind: "project",
+			id: "22222222-2222-4222-8222-222222222222",
+			field: "wiChangedThrough",
+			fullRematch: true,
+			artifacts: [
+				{
+					path: ART_B,
+					runId: "01JARTFCTB0000000000000000",
+					sha256: "y",
+					activityCount: 1,
+					status: "pending",
+				},
+			],
+		} as (typeof m.scopes)[number]);
+
+		const h = await harness(m, {
+			[ART_A]: { activities: [activity(1)], unmatched: [] },
+			[ART_B]: { activities: [activity(2)], unmatched: [] },
+		});
+		const client = {
+			...okClient(),
+			async recomputeComplete(body: unknown) {
+				calls.push(body);
+				return {} as never;
+			},
+		} as PipelineClient;
+		const opts = {
+			filePath: ART_A,
+			manifestPath: MANIFEST_PATH,
+			dataDir: ".data",
+			fs: h.fs,
+			writeJson: h.writeJson,
+			client,
+			log: { info: () => {}, warn: () => {}, error: () => {} },
+			nowSeconds: 1_784_737_800,
+			pipelineConfigVersion: 1,
+		};
+
+		await ingestNormalized(opts);
+		// scores_stale is global: clearing it now would call the whole instance
+		// fresh while another repo is still missing.
+		expect(calls).toHaveLength(0);
+
+		await ingestNormalized({ ...opts, filePath: ART_B });
+		expect(calls).toHaveLength(1);
+	});
+
 	test("an artifact edited after collection is refused", async () => {
 		const { h, opts } = await base(manifest(), {
 			[ART_A]: { activities: [activity(1)], unmatched: [] },

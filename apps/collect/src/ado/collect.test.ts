@@ -483,6 +483,30 @@ describe("collect", () => {
 		expect(bodies.filter((b) => b.unmatched.length > 0)).toHaveLength(1);
 	});
 
+	test("run ids are unique across scopes, not just within one", async () => {
+		const { fs } = memoryFs();
+		// Two repos, the first splitting into several artifacts. Indexing run ids
+		// by scope would make repo 2's first artifact reuse repo 1's second id,
+		// and the server would read a fresh chunk 0 as a duplicate.
+		const many = Array.from({ length: 2600 }, (_, i) =>
+			pr(30_000 + i, {
+				closedDate: new Date(Date.UTC(2026, 6, 5) - i * 1000).toISOString(),
+			}),
+		);
+		const client = pagedClient(many);
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: false,
+			repos: [repo, { ...repo, id: "01K0REPO2", name: "beta-repo" }],
+		});
+
+		const runIds = manifest.scopes.flatMap((s) =>
+			s.artifacts.map((a) => a.runId),
+		);
+		expect(runIds.length).toBeGreaterThan(2);
+		expect(new Set(runIds).size).toBe(runIds.length);
+	});
+
 	test("--full marks scopes for a full rematch", async () => {
 		const { fs } = memoryFs();
 		const { manifest } = await collect({

@@ -250,31 +250,60 @@ export async function ingestNormalized(
 	const next = commitScope(current, after, manifest.collectRunId);
 	if (next === current) {
 		opts.log.info("cursor already at or ahead of this watermark; not moved");
+	} else {
+		await opts.writeJson(cursorPath, next);
+		opts.log.info(
+			`scope ${after.kind}:${after.id} complete; cursor → ${readCursor(next, after)}`,
+		);
+	}
+
+	// `scores_stale` is GLOBAL, so it may only be cleared once every scope of a
+	// full rematch has landed. Clearing it per scope would report fresh scores
+	// while other repos are still pending — and a retry must still reach here,
+	// which is why an unmoved cursor does not return early.
+	return finishRematch(opts, updated);
+}
+
+/**
+ * Clear `scores_stale` when — and only when — the entire run is complete.
+ *
+ * Returning `SERVER` on failure while leaving the cursor advanced is the right
+ * end state: the activities really did land, so re-collecting would be wrong.
+ * Re-running the same ingest retries this step.
+ */
+async function finishRematch(
+	opts: IngestNormalizedOptions,
+	manifest: Manifest,
+): Promise<number> {
+	const rematchScopes = manifest.scopes.filter((s) => s.fullRematch);
+	if (rematchScopes.length === 0) {
 		return ExitCode.OK;
 	}
-	await opts.writeJson(cursorPath, next);
-	opts.log.info(
-		`scope ${after.kind}:${after.id} complete; cursor → ${readCursor(next, after)}`,
-	);
-
-	// Only now, with every artifact in, may stale be cleared. Calling this after
-	// the first file would report fresh scores while later files are still
-	// pending (07 §9).
-	if (after.fullRematch) {
-		const lastRunId = after.artifacts[after.artifacts.length - 1]?.runId;
-		try {
-			await opts.client.recomputeComplete({
-				runId: lastRunId as string,
-				pipelineConfigVersion: opts.pipelineConfigVersion,
-				ok: true,
-			});
-			opts.log.info("full_rematch complete; scores are no longer stale");
-		} catch (e) {
-			opts.log.error(
-				`recompute/complete failed: ${e instanceof Error ? e.message : "unknown"}`,
-			);
-			return ExitCode.SERVER;
-		}
+	const outstanding = rematchScopes.filter((s) => !isScopeCommittable(s));
+	if (outstanding.length > 0) {
+		opts.log.info(
+			`full_rematch: ${outstanding.length} scope(s) still pending; scores stay stale until all land`,
+		);
+		return ExitCode.OK;
 	}
-	return ExitCode.OK;
+
+	const last = rematchScopes[rematchScopes.length - 1];
+	const runId = last?.artifacts[last.artifacts.length - 1]?.runId;
+	if (!runId) {
+		return ExitCode.OK;
+	}
+	try {
+		await opts.client.recomputeComplete({
+			runId,
+			pipelineConfigVersion: opts.pipelineConfigVersion,
+			ok: true,
+		});
+		opts.log.info("full_rematch complete; scores are no longer stale");
+		return ExitCode.OK;
+	} catch (e) {
+		opts.log.error(
+			`recompute/complete failed: ${e instanceof Error ? e.message : "unknown"}; re-run this ingest to retry`,
+		);
+		return ExitCode.SERVER;
+	}
 }

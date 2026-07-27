@@ -360,7 +360,8 @@ async function writeArtifacts(
 	opts: CollectOptions,
 	scope: Scope,
 	body: ArtifactBody,
-	target: { dir: string; stem: string; indexBase: number },
+	target: { dir: string; stem: string },
+	nextArtifactIndex: () => number,
 ): Promise<void> {
 	const parts: ArtifactBody[] = [];
 	for (
@@ -391,7 +392,7 @@ async function writeArtifacts(
 		await opts.writer.writeJson(path, part);
 		scope.artifacts.push({
 			path,
-			runId: derivedUlid(opts.collectRunId, target.indexBase + i),
+			runId: derivedUlid(opts.collectRunId, nextArtifactIndex()),
 			sha256: await sha256Hex(serializeJson(part)),
 			activityCount: part.activities.length,
 			status: "pending",
@@ -402,15 +403,25 @@ async function writeArtifacts(
 export async function collect(opts: CollectOptions): Promise<CollectResult> {
 	const cursor = await readCursorFile(opts.fs, opts.dataDir);
 	const scopes: Scope[] = [];
+	// A single monotonic counter across the whole run. Indexing by scope would
+	// let scope 1's first artifact reuse scope 0's second run id, and the server
+	// would then read a fresh chunk 0 as a duplicate of a finalized run.
+	let artifactIndex = 0;
+	const nextArtifactIndex = () => artifactIndex++;
 
 	for (const repo of opts.repos) {
 		const { scope, artifactBody } = await collectRepo(opts, repo, cursor);
 		if (artifactBody) {
-			await writeArtifacts(opts, scope, artifactBody, {
-				dir: `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}`,
-				stem: `repo-${encodeURIComponent(repo.id)}`,
-				indexBase: scopes.length,
-			});
+			await writeArtifacts(
+				opts,
+				scope,
+				artifactBody,
+				{
+					dir: `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}`,
+					stem: `repo-${encodeURIComponent(repo.id)}`,
+				},
+				nextArtifactIndex,
+			);
 		}
 		scopes.push(scope);
 	}
@@ -426,11 +437,16 @@ export async function collect(opts: CollectOptions): Promise<CollectResult> {
 			seenProjects.add(repo.projectExternalId);
 			const { scope, artifactBody } = await collectProject(opts, repo, cursor);
 			if (artifactBody) {
-				await writeArtifacts(opts, scope, artifactBody, {
-					dir: `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}`,
-					stem: "project",
-					indexBase: 1000 + scopes.length,
-				});
+				await writeArtifacts(
+					opts,
+					scope,
+					artifactBody,
+					{
+						dir: `${opts.dataDir}/normalized/ado/${encodeURIComponent(repo.org)}/${encodeURIComponent(repo.project)}`,
+						stem: "project",
+					},
+					nextArtifactIndex,
+				);
 			}
 			scopes.push(scope);
 		}
