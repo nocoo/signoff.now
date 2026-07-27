@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	byTypeShares,
+	DEFAULT_PRESET,
 	dailyLevels,
 	emptyKind,
 	fillDailyGaps,
@@ -19,7 +20,7 @@ import { fetchStatsSummary } from "@/models/statsApi";
  * logic left there is logic nobody tests.
  */
 export function useDashboardViewModel() {
-	const [preset, setPreset] = useState<WindowPreset>(28);
+	const [preset, setPreset] = useState<WindowPreset>(DEFAULT_PRESET);
 	const [summary, setSummary] = useState<StatsSummary | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -33,38 +34,54 @@ export function useDashboardViewModel() {
 	 * keeps a stable identity — otherwise the mount effect would depend on a
 	 * function that changes with every fetch and re-fire in a loop.
 	 */
-	const presetRef = useRef<WindowPreset>(28);
+	const presetRef = useRef<WindowPreset>(DEFAULT_PRESET);
 	const anchorRef = useRef<string | null>(null);
 
-	const load = useCallback(async (next?: WindowPreset) => {
-		const seq = ++requestSeq.current;
-		setLoading(true);
-		setError(null);
-		try {
-			// The first call omits the window so the server applies the
-			// configured timezone; later calls derive from the window it
-			// returned, so a preset means the same days as the default did.
-			const days = next ?? presetRef.current;
-			const anchorDay = anchorRef.current;
-			const window = anchorDay ? presetWindow(days, anchorDay) : undefined;
-			const data = await fetchStatsSummary(window);
-			if (seq !== requestSeq.current) {
-				return;
+	const load = useCallback(
+		async (opts?: { next?: WindowPreset; reanchor?: boolean }) => {
+			const seq = ++requestSeq.current;
+			setLoading(true);
+			setError(null);
+			try {
+				const days = opts?.next ?? presetRef.current;
+				// A reload re-asks the server what "today" is. Reusing a stored
+				// anchor would leave a tab open across midnight showing yesterday
+				// as the last day, forever.
+				let anchorDay = opts?.reanchor ? null : anchorRef.current;
+				let data: StatsSummary | null = null;
+
+				// At most two round trips. The first call of the session cannot
+				// send a window — only the server knows what "today" is in the
+				// configured timezone — so if a non-default preset was clicked
+				// before the anchor existed, ask again rather than light up the
+				// 92 button over 28 days of bars.
+				for (let attempt = 0; attempt < 2; attempt++) {
+					const window = anchorDay ? presetWindow(days, anchorDay) : undefined;
+					data = await fetchStatsSummary(window);
+					if (seq !== requestSeq.current) {
+						return;
+					}
+					anchorRef.current = data.window.to;
+					if (window || days === DEFAULT_PRESET) {
+						break;
+					}
+					anchorDay = data.window.to;
+				}
+				setSummary(data);
+			} catch (e) {
+				if (seq !== requestSeq.current) {
+					return;
+				}
+				setError(e instanceof Error ? e.message : "Failed to load statistics");
+				setSummary(null);
+			} finally {
+				if (seq === requestSeq.current) {
+					setLoading(false);
+				}
 			}
-			setSummary(data);
-			anchorRef.current = data.window.to;
-		} catch (e) {
-			if (seq !== requestSeq.current) {
-				return;
-			}
-			setError(e instanceof Error ? e.message : "Failed to load statistics");
-			setSummary(null);
-		} finally {
-			if (seq === requestSeq.current) {
-				setLoading(false);
-			}
-		}
-	}, []);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		void load();
@@ -74,7 +91,7 @@ export function useDashboardViewModel() {
 		(days: WindowPreset) => {
 			setPreset(days);
 			presetRef.current = days;
-			void load(days);
+			void load({ next: days });
 		},
 		[load],
 	);
@@ -114,6 +131,6 @@ export function useDashboardViewModel() {
 		staleReason: summary?.staleReason ?? null,
 		lastIngestAt: summary?.lastIngestAt ?? null,
 		empty,
-		reload: () => void load(),
+		reload: () => void load({ reanchor: true }),
 	};
 }

@@ -95,16 +95,75 @@ describe("useDashboardViewModel", () => {
 		});
 	});
 
-	it("reload repeats the current preset", async () => {
+	it("reload re-asks the server what today is", async () => {
+		// A tab left open across midnight must not stay anchored to yesterday,
+		// so reload drops the stored anchor and lets the server date the window.
 		const { result } = await mounted();
 		await act(async () => {
 			result.current.reload();
 		});
 		expect(fetchStatsSummary).toHaveBeenCalledTimes(2);
+		expect(fetchStatsSummary).toHaveBeenLastCalledWith(undefined);
+	});
+
+	it("reload re-applies a non-default preset against the fresh anchor", async () => {
+		const { result } = await mounted();
+		await act(async () => {
+			result.current.selectPreset(7);
+		});
+		vi.mocked(fetchStatsSummary).mockResolvedValue(
+			summary({ window: { from: "2026-06-30", to: "2026-07-27" } }),
+		);
+		await act(async () => {
+			result.current.reload();
+		});
+		// Anchored on the NEW day the server reported, not the old one.
 		expect(fetchStatsSummary).toHaveBeenLastCalledWith({
-			from: "2026-06-29",
+			from: "2026-07-21",
+			to: "2026-07-27",
+		});
+	});
+
+	it("a preset clicked before the first response still gets its own window", async () => {
+		// The first call cannot send a window — only the server knows what
+		// "today" is. Without a second round trip the 92 button would sit lit
+		// above 28 days of bars.
+		let settleFirst: ((s: StatsSummary) => void) | undefined;
+		vi.mocked(fetchStatsSummary).mockImplementationOnce(
+			() =>
+				new Promise<StatsSummary>((resolve) => {
+					settleFirst = resolve;
+				}),
+		);
+		const { result } = renderHook(() => useDashboardViewModel());
+
+		// The server echoes back the window it was asked for; the stub must too,
+		// or the zero-fill length would reflect the stub rather than the code.
+		vi.mocked(fetchStatsSummary).mockImplementation(async (opts) =>
+			summary(opts ? { window: opts } : {}),
+		);
+		await act(async () => {
+			result.current.selectPreset(92);
+		});
+		await act(async () => {
+			settleFirst?.(summary());
+			await Promise.resolve();
+		});
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		expect(fetchStatsSummary).toHaveBeenLastCalledWith({
+			from: "2026-04-26",
 			to: "2026-07-26",
 		});
+		expect(result.current.preset).toBe(92);
+		expect(result.current.daily).toHaveLength(92);
+	});
+
+	it("the default preset needs only one round trip", async () => {
+		// The server already applied the default; asking twice would be waste.
+		const { result } = await mounted();
+		expect(fetchStatsSummary).toHaveBeenCalledTimes(1);
+		expect(result.current.daily).toHaveLength(28);
 	});
 
 	it("ignores a stale response that lands after a newer one", async () => {
