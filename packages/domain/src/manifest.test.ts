@@ -11,8 +11,10 @@ import {
 	manifestSchema,
 	markArtifactComplete,
 	markScopeIncomplete,
+	missingRematchScopes,
 	planWindow,
 	readCursor,
+	rematchUniverse,
 	type Scope,
 } from "./manifest.js";
 
@@ -357,5 +359,120 @@ describe("findArtifactScope", () => {
 	test("returns null for a file the run did not produce", () => {
 		// A hand-dropped file must never be able to advance a cursor.
 		expect(findArtifactScope(manifest([scope()]), "stray.json")).toBeNull();
+	});
+});
+
+describe("rematchUniverse", () => {
+	test("each repo contributes a repo scope and its project scope", () => {
+		expect(
+			rematchUniverse([
+				{ id: "r1", projectExternalId: "p1" },
+				{ id: "r2", projectExternalId: "p2" },
+			]),
+		).toEqual([
+			{ kind: "repo", id: "r1" },
+			{ kind: "project", id: "p1" },
+			{ kind: "repo", id: "r2" },
+			{ kind: "project", id: "p2" },
+		]);
+	});
+
+	test("two repos in one project yield the project scope once", () => {
+		// Work items are project-scoped; counting the project twice would demand
+		// a scope the collector never creates, and stale would never clear.
+		expect(
+			rematchUniverse([
+				{ id: "r1", projectExternalId: "p1" },
+				{ id: "r2", projectExternalId: "p1" },
+			]),
+		).toEqual([
+			{ kind: "repo", id: "r1" },
+			{ kind: "project", id: "p1" },
+			{ kind: "repo", id: "r2" },
+		]);
+	});
+
+	test("a repo with no project GUID contributes only its repo scope", () => {
+		expect(rematchUniverse([{ id: "r1", projectExternalId: null }])).toEqual([
+			{ kind: "repo", id: "r1" },
+		]);
+	});
+
+	test("an empty binding set is an empty universe", () => {
+		expect(rematchUniverse([])).toEqual([]);
+	});
+});
+
+describe("missingRematchScopes", () => {
+	const withScopes = (
+		scopes: { kind: "repo" | "project"; id: string; fullRematch: boolean }[],
+	): Manifest => ({
+		schemaVersion: 1,
+		collectRunId: "01JCLECT00000000000000000J",
+		startedAt: 1_784_737_800,
+		scopes: scopes.map((s) => ({
+			kind: s.kind,
+			id: s.id,
+			field: s.kind === "repo" ? "prsClosedThrough" : "wiChangedThrough",
+			baseCursor: null,
+			from: "2026-07-01T00:00:00.000Z",
+			watermark: "2026-07-26T00:00:00.000Z",
+			commitEligible: true,
+			fullRematch: s.fullRematch,
+			status: "pending",
+			errors: [],
+			artifacts: [],
+		})) as Manifest["scopes"],
+	});
+
+	test("a manifest covering the whole universe has nothing missing", () => {
+		const m = withScopes([
+			{ kind: "repo", id: "r1", fullRematch: true },
+			{ kind: "project", id: "p1", fullRematch: true },
+		]);
+		expect(
+			missingRematchScopes(m, [
+				{ kind: "repo", id: "r1" },
+				{ kind: "project", id: "p1" },
+			]),
+		).toEqual([]);
+	});
+
+	test("a repo enabled after collection started is reported missing", () => {
+		// This is the drift that must keep scores_stale set: r2's scores were
+		// never recomputed, so clearing the global flag would call them fresh.
+		const m = withScopes([{ kind: "repo", id: "r1", fullRematch: true }]);
+		expect(
+			missingRematchScopes(m, [
+				{ kind: "repo", id: "r1" },
+				{ kind: "repo", id: "r2" },
+			]),
+		).toEqual([{ kind: "repo", id: "r2" }]);
+	});
+
+	test("a scope collected incrementally does not count as covered", () => {
+		// Only a full rematch recomputes history; an incremental pass over the
+		// same repo leaves the old scores in place.
+		const m = withScopes([{ kind: "repo", id: "r1", fullRematch: false }]);
+		expect(missingRematchScopes(m, [{ kind: "repo", id: "r1" }])).toEqual([
+			{ kind: "repo", id: "r1" },
+		]);
+	});
+
+	test("kind is part of identity, so a repo does not cover a like-named project", () => {
+		const m = withScopes([{ kind: "repo", id: "x", fullRematch: true }]);
+		expect(missingRematchScopes(m, [{ kind: "project", id: "x" }])).toEqual([
+			{ kind: "project", id: "x" },
+		]);
+	});
+
+	test("a repo removed mid-rematch is not reported: it is covered, not missing", () => {
+		// Unbinding a repo is not a reason to hold stale forever — its scopes
+		// landed, and nothing about them is unrecomputed.
+		const m = withScopes([
+			{ kind: "repo", id: "r1", fullRematch: true },
+			{ kind: "repo", id: "gone", fullRematch: true },
+		]);
+		expect(missingRematchScopes(m, [{ kind: "repo", id: "r1" }])).toEqual([]);
 	});
 });

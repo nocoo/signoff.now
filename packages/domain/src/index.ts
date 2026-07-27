@@ -47,8 +47,10 @@ export {
 	manifestSchema,
 	markArtifactComplete,
 	markScopeIncomplete,
+	missingRematchScopes,
 	planWindow,
 	readCursor,
+	rematchUniverse,
 	type Scope,
 	scopeSchema,
 } from "./manifest.js";

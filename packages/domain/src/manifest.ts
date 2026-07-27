@@ -297,3 +297,49 @@ export function markScopeIncomplete(
 		),
 	};
 }
+
+/**
+ * Scopes a full rematch would need to cover, given the currently-bound repos.
+ *
+ * A `full_rematch` clears the GLOBAL `scores_stale`, so it may only complete
+ * once every scope has landed. "Every scope" has to mean the universe as it is
+ * *now* — if a repo was enabled after collection started, its scores were never
+ * recomputed, and clearing the flag would declare them fresh.
+ */
+export function rematchUniverse(
+	repos: readonly {
+		id: string;
+		projectExternalId: string | null;
+	}[],
+): { kind: "repo" | "project"; id: string }[] {
+	const out = new Map<string, { kind: "repo" | "project"; id: string }>();
+	for (const r of repos) {
+		out.set(`repo\0${r.id}`, { kind: "repo", id: r.id });
+		if (r.projectExternalId) {
+			out.set(`project\0${r.projectExternalId}`, {
+				kind: "project",
+				id: r.projectExternalId,
+			});
+		}
+	}
+	return [...out.values()];
+}
+
+/**
+ * Scopes present in the live universe but missing from the manifest.
+ *
+ * Non-empty means the bindings moved mid-rematch, and `scores_stale` must stay
+ * set: a recorded universe going stale is exactly the condition that should
+ * PREVENT the clear, not one to work around.
+ */
+export function missingRematchScopes(
+	manifest: Manifest,
+	universe: readonly { kind: "repo" | "project"; id: string }[],
+): { kind: "repo" | "project"; id: string }[] {
+	const covered = new Set(
+		manifest.scopes
+			.filter((s) => s.fullRematch)
+			.map((s) => `${s.kind}\0${s.id}`),
+	);
+	return universe.filter((u) => !covered.has(`${u.kind}\0${u.id}`));
+}
