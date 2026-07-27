@@ -105,7 +105,9 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
   runs/{collectRunId}.json             # run manifest（见 §7.1）
 ```
 
-**写入方式**：一律 `write temp → fsync → rename` 原子替换，避免中断留下半截 JSON。
+**写入方式**：一律 `write temp → rename` 原子替换，避免中断留下半截 JSON。
+（**不调 `fsync`**：Bun 的 `write` 没暴露它，而 rename 在同一文件系统内已是原子的；
+断电这一级的持久性本项目不承诺 —— raw 丢了重采即可。）
 路径每段先做 `encodeURIComponent`，并断言解析后的绝对路径仍在 `.data/` 之下——
 repo 名可含 `/`、`..` 等字符，`paths.ts` 只去首尾斜杠，不防目录穿越。
 
@@ -125,7 +127,9 @@ workitem-updates/{wiId}/{fetchedAt}-{collectRunId}.json
 故文件名带上 `collectRunId`（ULID，单调且唯一）。
 
 threads 同样会变（评论可编辑/删除、投票可撤销），覆盖同样破坏可重建性。
-`latest.json` 为指针文件（内容是最新快照的文件名，非软链，便于跨平台）。
+**没有 `latest.json` 指针文件**：文件名里的 `{fetchedAt}-{collectRunId}` 已经
+按字典序单调，目录列表排最后一项即是最新，多一个需要同步维护的指针只会多一处
+可能说谎的地方。
 
 **WI 按 project 落盘**（01 §7.2）：多个绑定 repo 同属一个 project 时**只采一份**，用 project GUID 去重，禁止按 repo 重复拉。
 
@@ -149,13 +153,21 @@ threads 同样会变（评论可编辑/删除、投票可撤销），覆盖同�
 | `raw/iteration.ts` | `rawIterationSchema`（`id`/`createdDate`/`updatedDate`/`author`） |
 | `raw/workitem.ts` | `rawWorkItemSchema`（`id`/`fields`）、`rawWiUpdateSchema`（`rev`/`revisedDate`/`revisedBy`/`fields`） |
 
-**校验失败 → 整个 scope 标记为 incomplete**，不只是跳过该实体。
+**校验失败 → 不产生任何可 ingest 的产物**，不只是跳过该实体。
 
 01 §7.2 硬约束 3 是「落盘后必须验证，失败禁止 ingest」。若只跳过单个实体而让其余
 数据照常 ingest 并推进游标，那条坏实体就**永久跳过**了——下次增量窗口已经不含它。
-因此：任何 fetch / 分页 / schema / transform 失败都把所属 cursor scope 置为
-`incomplete`，该 scope **不产生可 ingest 的 manifest，也不推进游标**。修好后重跑
-同一窗口即可，因为游标没动。
+
+具体分两种机制，都满足「无可 ingest 产物 + 游标不动」：
+
+| 失败类型 | 机制 |
+|:---|:---|
+| 分页缺口（`problems`）、transform 异常（`anomalies`） | 所属 scope 置 `incomplete`，manifest 照写但该 scope 不可 ingest |
+| **raw schema 失败**（`parseRaw`） | 抛 `AdoError("bad_response")`，`collect` **整体退出**，**manifest 根本不写** |
+
+第二种更粗暴是有意的：schema 变了说明我们对 ADO 的理解已经过期，此时继续
+采其余 repo 只会产出一批基于错误假设的数据。两种情况修好后重跑同一窗口即可，
+因为游标都没动。
 
 ---
 
@@ -289,9 +301,11 @@ type WiTransformInput = Common & {
 3. **忽略 container**：`isContainer === true` 或 `uniqueName` 不含 `@` → 跳过，**不记 unmatched**（对齐 01 §4.1，避免评审组刷屏）。
    但**必须**在 run 报告里按原因（`container` / `non_email`）计数并留脱敏样本——
    否则 on-prem 的 `DOMAIN\alias` 这类真人身份会被静默吞掉且无人知晓。
-4. **`completed` 却没有 merge commit** → **不静默丢弃**：拉 PR 详情重试一次，
-   仍缺则记为异常并把 scope 置 `incomplete`。50 条实测样本中未出现，
+4. **`completed` 却没有 merge commit** → **不静默丢弃**：记为异常（`no_merge_commit`），
+   该 scope 置 `incomplete`。50 条实测样本中未出现，
    出现即说明假设有偏差，应当暴露而非掩盖。
+   （**不重拉 PR 详情**：列表接口返回的就是 PR 详情本身，同一个 URL 再取一次
+   只会得到同一份数据，重试是无意义的仪式。）
 5. **禁止**：用 `reviewers[].vote` 快照反推投票日、用 `System.ChangedDate` 伪造逐日 updated、用 `isDraft` 推断历史草稿状态。
 
 ### 6.5 客户端不算的东西
@@ -365,8 +379,13 @@ commitEligible = (baseCursor === null) || (from <= baseCursor)
 写 manifest 与写 `cursor.json` 是两次文件操作，中间可能崩。定死顺序：
 
 1. artifact ingest 成功 → 原子改写 manifest，把该 artifact 标 `complete`。
-2. 该 scope 全部 artifact 都 `complete` 且 `commitEligible` → 把 scope 标 `complete`（原子写）。
-3. 该 scope 确为 `complete` 后，才原子写 `cursor.json`。
+2. 该 scope 全部 artifact 都 `complete` → 把 scope 标 `complete`（原子写）。
+3. 该 scope 为 `complete` **且** `commitEligible` 时，才原子写 `cursor.json`。
+
+> `commitEligible` 是**第 3 步**的条件，不是第 2 步的。`markArtifactComplete`
+> 只看 artifact 是否齐全；`isScopeCommittable` 才把两者相与。分开是对的——
+> 一个 `commitEligible === false` 的 scope 数据完全有效、应当 ingest，
+> 只是不该推游标（§7.1.1）。
 
 > **实现现状（与上面三步一致，但不要读出多余承诺）**：第 3 步的判定用的是
 > 刚写出的 manifest 对象本身，**不是**重新从磁盘读一遍。两者在单写者约定下
@@ -374,8 +393,10 @@ commitEligible = (baseCursor === null) || (from <= baseCursor)
 > 而写失败会抛出、根本走不到第 3 步。
 
 崩溃恢复：**manifest 是唯一真相**，且**恢复由人驱动**——
-重新执行同一条 `ingest normalized <file> --manifest <manifest>` 即可，
-artifact 与 chunk 都是幂等的，已完成的部分不会重做。
+重新执行同一条 `ingest normalized <file> --manifest <manifest>` 即可。
+artifact 与 chunk 都是**幂等**的 —— 注意是幂等，**不是跳过**：重跑会把每个
+chunk 重新 POST 一遍，服务端按 digest 认出已完成的并返回成功而不重复写入。
+所以重跑是安全的，但不会更快。
 
 > **没有**启动时扫 `.data/meta/runs/` 自动补游标这回事，也**没有**
 > 由文件路径反查所属 manifest：`--manifest` 是必填参数，CLI 只读你指定的
@@ -428,8 +449,12 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
   incomplete，会让游标永久卡住，故已移除。keyset 分页可能是真正的解法，
   但需先实测 `maxTime` 的开闭区间语义与同秒大量记录的行为。
 
-去重键：PR 用 `pullRequestId`；**WI updates 必须用 `(wiId, rev)`** ——
+去重键：PR 用 `pullRequestId`；**WI updates 用 `update.id`**（回落 `rev`）——
 同一个 WI 天然有多条 revision，只按 `wiId` 去重会丢掉除首条外的全部更新。
+但也**不能**用 `(wiId, rev)`：§6.2.3 实测发现 `rev` 在真实数据里**不唯一**，
+同一个 `rev` 会返回多条 update 记录，按 `(wiId, rev)` 去重会丢掉其中真正带
+字段变更的那条。`update.id` 才是分页去重的真实主键；`rev` 的多条记录留到
+transform 里由 `chooseRevisionRecord` 挑选（优先 `fields` 非空者）。
 
 ### 7.4 游标文件
 
@@ -471,7 +496,7 @@ PR 三种状态**分别查**（`completed` / `abandoned` / `active`），因为
 | 403 | `ENV` | 提示**检查该 org/project 授权**——已认证但无权限，再 `az login` 无用 |
 | ADO 429 | 重试 | **优先读 `Retry-After`**；无该头再用指数退避（1s/2s/4s）+ 抖动，3 次后 `SERVER` |
 | ADO 5xx | 重试 | 指数退避（1s/2s/4s）+ 抖动，3 次后 `SERVER` |
-| raw zod 校验失败 | `CONTRACT` | 打印字段路径，不落该实体 |
+| raw zod 校验失败 | `CONTRACT` | 打印实体与字段路径；`collect` 整体退出，不写 manifest（见 §5） |
 | bootstrap 版本与库不符 | `CONTRACT` | 提示先 `settings pull` |
 | 网络中断 | `SERVER` | 已落盘 raw 保留，可续跑 |
 
