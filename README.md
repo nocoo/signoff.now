@@ -108,7 +108,14 @@ bun run signoff -- ingest normalized <artifact-2> --manifest <manifest>
 
 `scores_stale` 只在 manifest 里**所有** scope 都落地后才清除。少 ingest 一个
 artifact，stale 就一直挂着 —— 这不是故障，是它在如实报告「还没算完」。
-`ingest` 的输出会告诉你还差几个：`full_rematch: N scope(s) still pending`。
+`ingest` 的输出会告诉你还差多少，分两种：
+
+- `N artifact(s) still pending, cursor NOT advanced` —— 这个 **scope** 还有
+  artifact 没进（大 scope 会被拆成多份），游标不动；
+- `full_rematch: N scope(s) still pending` —— 该 scope 齐了，但**别的** scope
+  还没齐，所以 stale 不清。
+
+两句都不是错误，是它在如实报告进度。
 
 `--full` 与 `--repo` / `--no-wi` 同用会被直接拒绝：`scores_stale` 是**全局**
 标志，部分重算后清掉它，等于把没重算的仓也宣称为新鲜。

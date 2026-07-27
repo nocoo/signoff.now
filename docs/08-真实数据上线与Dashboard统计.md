@@ -169,10 +169,16 @@ SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
 FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
 WHERE c.status = 'prepared' AND r.config_version = ?
   AND (
-    json_array_length(c.dev_day_union_json) = 0
+    EXISTS (
+      SELECT 1 FROM json_each(c.dev_day_union_json) d
+      WHERE json_valid(d.value)
+        AND json_extract(d.value, '$.dayKey') BETWEEN :from AND :to
+    )
+    OR json_type(c.dev_day_union_json) <> 'array'
     OR EXISTS (
       SELECT 1 FROM json_each(c.dev_day_union_json) d
-      WHERE json_extract(d.value, '$.dayKey') BETWEEN :from AND :to
+      WHERE NOT json_valid(d.value)
+         OR json_extract(d.value, '$.dayKey') IS NULL
     )
   )
 ```
@@ -209,10 +215,18 @@ ingest 活得更久 —— 没有 id 就没人知道该去续跑或放弃哪个 
 按声明收窄就会把这些半写入的天当作已结算公布出去。按 union 收窄不会 ——
 它就是 resume 路径重算分数时用的同一份列表。
 
-**空 union 遮蔽所有窗口**：一个没有任何待算 dev-day 的 chunk 不应该存在于
-半途状态，所以 `[]` 说明存储状态不是我们以为的样子。
-（`json_array_length` 对 JSON **对象**同样返回 0 —— 实测确认，非假设 ——
-所以形状不对的 `json_valid` 载荷也落在这一支，不需要额外的 `IS NULL` 判断。）
+**空 union 不遮蔽任何窗口**：采集端**有意**产出零活动 artifact 来承载
+`unmatched` / `skipped`（`writeArtifacts`），且 `activities` 没有下限，
+所以 `[]` 是合法的 —— 这种 chunk 一天的分数都没碰，不可能与任何数字矛盾。
+
+真正要拦的是**读不懂**的 union：非数组（`json_type <> 'array'`），
+或**任意一条**条目读不出 `dayKey`。判据是「存在任何坏条目」而**不是**
+「全部都坏」—— 后者会让一条好条目替它损坏的兄弟洗白：
+`[{"dayKey":"1999-01-01"},"bad"]` 会照常公布 7 月，
+而那条读不出的很可能**就是**半写入的 7 月那天。
+
+`json_valid(d.value)` 不可省：`json_extract` 对标量条目会抛
+"malformed JSON"，那会变成 500 错误页 —— 本意是「暂缓显示」。
 
 **`finalize` 必须拒绝跨过 `prepared` chunk**（`finalizeRun`）。
 否则会形成单向门：`processIngestChunk` 对 finalized 的 run 在**到达**
@@ -325,7 +339,8 @@ bun run signoff -- ingest normalized <artifact> --manifest <manifest>
 
 README 的手册比这里多两节，都是实测/复审后补的：
 **卡住的 ingest 如何恢复**（重发同一 chunk）与**生产 Access 配置**
-（未配时 Worker fail-closed 返回 500，属预期而非故障）。
+（未配时受保护接口 fail-closed 返回 500，属预期而非故障；
+      `/api/live` 与 pipeline 机器端点走各自鉴权，不受影响）。
 
 **单写者**：同一时刻只跑一个 ingest（06 §5.7）。手册已显式写明。
 
