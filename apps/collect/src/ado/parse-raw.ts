@@ -50,29 +50,34 @@ function detail(e: unknown): string {
  * WIQL returns the matching ids. Reading this with an `as` cast turns a drifted
  * response into "no work items", which looks exactly like a quiet window — and
  * the cursor then advances past days that were never read.
+ *
+ * `workItems` is REQUIRED, not optional. ADO always sends the key (empty array
+ * when nothing matches), so `.optional()` bought no compatibility — it only let
+ * a renamed key validate as `{}` and reopen the exact silent-skip this schema
+ * exists to close. A genuinely empty result still parses: `{workItems: []}`.
  */
 export const wiqlResultSchema = z
 	.object({
-		workItems: z.array(z.object({ id: z.number() }).loose()).optional(),
+		workItems: z.array(z.object({ id: z.number() }).loose()),
 	})
 	.loose();
 
 /**
  * The state list behind closure detection. 06 decides closure by state
  * CATEGORY, never by name, so an unreadable list must not quietly degrade to
- * "nothing is closed".
+ * "nothing is closed" — every work item would then look permanently open.
+ *
+ * `value` is required for the same reason as above.
  */
 export const workItemStatesSchema = z
 	.object({
-		value: z
-			.array(
-				z
-					.object({
-						name: z.string().optional(),
-						category: z.string().optional(),
-					})
-					.loose(),
-			)
-			.optional(),
+		value: z.array(
+			z
+				.object({
+					name: z.string().optional(),
+					category: z.string().optional(),
+				})
+				.loose(),
+		),
 	})
 	.loose();

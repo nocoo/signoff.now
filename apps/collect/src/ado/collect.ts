@@ -325,7 +325,7 @@ async function collectProject(
 		stateCategories.set(
 			type,
 			new Map(
-				(res.value ?? [])
+				res.value
 					.filter((s) => s.name && s.category)
 					.map((s) => [s.name as string, s.category as string]),
 			),

@@ -162,7 +162,7 @@ export async function fetchWorkItemIds(
 				await q.client.post(adoUrl(q.base, "_apis/wit/wiql"), { query }),
 				"WIQL result",
 			);
-			for (const w of res.workItems ?? []) {
+			for (const w of res.workItems) {
 				ids.add(w.id);
 			}
 		} catch (e) {

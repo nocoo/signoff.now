@@ -311,6 +311,62 @@ describe("collect", () => {
 		expect((err as AdoError).message).toContain("pull requests");
 	});
 
+	test("an empty-object WIQL response is refused, not read as a quiet window", async () => {
+		// The most likely real drift: ADO renames the key, so the body arrives as
+		// `{}`. An optional field would accept it, the scope would report pending
+		// with no errors, and the cursor would advance over days never read.
+		const { fs } = memoryFs();
+		const client: AdoClient = {
+			...routedClient({}),
+			async post() {
+				return {};
+			},
+		};
+		const err = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).message).toContain("WIQL result");
+	});
+
+	test("a genuinely empty WIQL result is still accepted", async () => {
+		// Rejecting `{}` must not also reject "nothing matched", which is normal.
+		const { fs } = memoryFs();
+		const client: AdoClient = {
+			...routedClient({}),
+			async post() {
+				return { workItems: [] };
+			},
+		};
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
+		expect(manifest.scopes.every((sc) => sc.status === "pending")).toBe(true);
+	});
+
+	test("an empty-object state list is refused rather than closing nothing", async () => {
+		const { fs } = memoryFs();
+		const wi = {
+			id: 42,
+			fields: { "System.WorkItemType": "Bug", "System.State": "Active" },
+		};
+		const inner = routedClient({ wiqlIds: [42], workItem: wi });
+		const client: AdoClient = {
+			...inner,
+			async get(url: string) {
+				return url.includes("/workitemtypes/") ? {} : inner.get(url);
+			},
+		};
+		const err = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).message).toContain("states");
+	});
+
 	test("never writes the cursor", async () => {
 		const { fs, files } = memoryFs();
 		const client = routedClient({
