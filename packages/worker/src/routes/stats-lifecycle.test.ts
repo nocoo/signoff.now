@@ -314,6 +314,64 @@ describe("the in-flight guard over a real ingest", () => {
 		expect(mid.scoresStale).toBe(true);
 		expect(mid.totals.score).toBe(0);
 	});
+	test("finalizing while a chunk is prepared must not be a one-way door", async () => {
+		// The blackout scenario: chunk 0 crashes between phases, chunk 1 arrives
+		// with isFinalChunk and finalizes the run. The `finalized` check sits
+		// BEFORE the prepared-resume path, so resending chunk 0 is refused —
+		// leaving a prepared chunk nobody can complete and a Dashboard that is
+		// blank with no route back.
+		sqlite.beforeBatch("INSERT INTO scores", () => {
+			throw new Error("crash on chunk 0");
+		});
+		const c0 = await processIngestChunk(sqlite.db, body(), settings);
+		expect(c0.kind).not.toBe("ok");
+		expect(chunkStatuses()).toEqual([{ chunk_index: 0, status: "prepared" }]);
+
+		const c1 = await processIngestChunk(
+			sqlite.db,
+			body({
+				chunkIndex: 1,
+				isFinalChunk: true,
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt: 1_784_740_000,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "life@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 2 },
+					},
+				],
+			} as Partial<IngestBody>),
+			settings,
+		);
+
+		// Either finalization is refused while a chunk is prepared, or the
+		// prepared chunk stays resumable afterwards. One of the two must hold,
+		// or the blackout is permanent.
+		const runStatus = (
+			sqlite.raw
+				.query("SELECT status FROM ingest_runs WHERE id = ?")
+				.get(RUN) as { status: string }
+		).status;
+
+		if (runStatus === "finalized") {
+			const resume = await processIngestChunk(sqlite.db, body(), settings);
+			expect(resume.kind).toBe("ok");
+		} else {
+			expect(c1.kind).not.toBe("ok");
+		}
+
+		// Whichever branch held, the operator must be able to reach a state
+		// where the Dashboard publishes again.
+		await processIngestChunk(sqlite.db, body(), settings);
+		expect(chunkStatuses().every((c) => c.status === "completed")).toBe(true);
+		expect((await summary()).scoresStale).toBe(false);
+	});
+
 	test("the same ingest gives the heatmap and the Dashboard the same score", async () => {
 		// 08 §5.3's last invariant, and the one a manager hits first: they click
 		// a name on the Dashboard, land on the heatmap, and compare. Two

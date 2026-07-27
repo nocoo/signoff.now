@@ -826,18 +826,39 @@ export async function finalizeRun(
 	version: number,
 ): Promise<IngestWriteResult | { kind: "ok" }> {
 	const settingsVersionOk = `(SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'pipeline_config_version') = ?`;
+	// Refuse while any chunk is still `prepared`. Finalizing over one is a
+	// one-way door: `processIngestChunk` rejects a finalized run BEFORE it
+	// reaches the prepared-resume path, so that chunk could never be completed —
+	// leaving activities without scores, the stats guard permanently tripped,
+	// and no route back short of hand-editing D1.
+	const noPreparedChunk = `NOT EXISTS (
+      SELECT 1 FROM ingest_chunks WHERE run_id = ? AND status = 'prepared'
+    )`;
 	const res = await db
 		.prepare(
 			`UPDATE ingest_runs
        SET status = 'finalized', finished_at = unixepoch()
        WHERE id = ? AND status = 'chunked' AND config_version = ?
-         AND ${settingsVersionOk}`,
+         AND ${settingsVersionOk}
+         AND ${noPreparedChunk}`,
 		)
-		.bind(runId, version, version)
+		.bind(runId, version, version, runId)
 		.run();
 	const changes = res.meta?.changes ?? 0;
 	if (changes === 1) {
 		return { kind: "ok" };
+	}
+	const stranded = await db
+		.prepare(
+			"SELECT MIN(chunk_index) AS idx FROM ingest_chunks WHERE run_id = ? AND status = 'prepared'",
+		)
+		.bind(runId)
+		.first<{ idx: number | null }>();
+	if (stranded?.idx !== null && stranded?.idx !== undefined) {
+		return {
+			kind: "conflict",
+			error: `Cannot finalize: chunk ${stranded.idx} is still prepared; resend it first`,
+		};
 	}
 	const row = await db
 		.prepare(
