@@ -418,6 +418,34 @@ describe("fetchWorkItemIds", () => {
 		expect(days).toHaveLength(3);
 	});
 
+	test("the span stops doubling at the 720-day cap", async () => {
+		// Without a ceiling the span reaches decades and a single slice blows the
+		// result cap again, restarting the bisection it was meant to avoid.
+		const { client, queries } = openEndedClient({
+			oldest: "2010-01-01T00:00:00Z",
+			slice: () => ({ workItems: [] }),
+		});
+		await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+			maxOpenSteps: 12,
+		});
+		const days = queries
+			.map((q) => /\bChangedDate\] >= '(\d{4}-\d{2}-\d{2})'/.exec(q)?.[1])
+			.filter((d): d is string => d !== undefined);
+		const gaps = days
+			.slice(1)
+			.map(
+				(d, i) =>
+					(Date.parse(`${days[i]}T00:00:00Z`) - Date.parse(`${d}T00:00:00Z`)) /
+					86_400_000,
+			);
+		expect(Math.max(...gaps)).toBe(720);
+	});
+
 	test("a dormant project is swept to its floor, not declared empty", async () => {
 		// Everything predates the near slices. Guessing "3 empty slices = done"
 		// covered only 210 days, so a team that moved off a project months ago
@@ -561,6 +589,16 @@ describe("wiqlDay", () => {
 
 	test("an unparseable bound is a bug, not a query for all time", async () => {
 		// Silently widening to everything would hide the defect and hammer ADO.
-		expect(() => wiqlDay("not-a-date")).toThrow(AdoError);
+		const err = (() => {
+			try {
+				wiqlDay("not-a-date");
+			} catch (e) {
+				return e;
+			}
+		})();
+		expect(err).toBeInstanceOf(AdoError);
+		// The KIND is what decides the exit code: `bad_request` → CONTRACT.
+		// `toThrow(AdoError)` alone would accept any kind at all.
+		expect((err as AdoError).kind).toBe("bad_request");
 	});
 });
