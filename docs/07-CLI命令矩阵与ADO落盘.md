@@ -496,12 +496,21 @@ transform 产物是 `fixtureFileSchema` 形状（06 §6.2，`activities` 上限 
   不是复用 `ingest fixture` 的那份。
 - 单写者约定（06 §5.7）：CLI 帮助文本声明「同一时刻只跑一个 ingest」。
 - **`full_rematch` 不得提前清 stale**。`scores_stale` 是**全局**标志，不是 per-scope，
-  所以规则有两层：
+  所以规则有三层：
   1. `recompute/complete` 只在 manifest 里**所有** `fullRematch` scope 都
      committable 之后调用一次；
   2. `--full` **禁止**与 `--repo` / `--no-wi` 同用（CLI 直接拒绝），
      否则一个只含单 scope 的 manifest 会「全部完成」并清掉全局 stale，
-     而其余仓根本没重算。
+     而其余仓根本没重算；
+  3. **清 stale 前重新拉 bootstrap，比对仓库宇宙**。前两条只保证
+     「manifest 里记的都到齐了」，但 manifest 记的是**采集开始时**的宇宙 ——
+     采集与最后一次 ingest 之间新绑定或启用的仓根本不在里面，它的旧分数从未
+     重算，此时清 stale 等于宣称它是新的。故 `finishRematch` 比对
+     `rematchUniverse(live)` 与 manifest 的 `fullRematch` scope 集合：
+     - 有缺口 → `CONTRACT`，提示重跑 `collect --full`（游标不回退：数据确实落了）；
+     - bootstrap 本身失败 → `SERVER`，**不清**。「无法验证」不等于「已验证」，
+       在校验失败时清标志，正是这道校验要防的事；
+     - 采集期间被**解绑**的仓不算缺口 —— 它的 scope 落了地，没有任何未重算的东西。
 
 ---
 
