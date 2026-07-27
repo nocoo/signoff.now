@@ -487,3 +487,62 @@ describe("error body classification", () => {
 		});
 	});
 });
+
+describe("network failures", () => {
+	/** A fetch that throws N times before succeeding, as a dead link does. */
+	function flakyFetch(failures: number) {
+		let calls = 0;
+		const fetchFn: FetchFn = async () => {
+			calls++;
+			if (calls <= failures) {
+				throw new TypeError("fetch failed");
+			}
+			return {
+				status: 200,
+				headers: headers(),
+				text: async () => JSON.stringify({ ok: true }),
+			};
+		};
+		return { fetchFn, count: () => calls };
+	}
+
+	test("a dropped connection retries on the same budget as a 5xx", async () => {
+		const f = flakyFetch(2);
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn: f.fetchFn,
+			sleep: noSleep,
+		});
+		expect(await c.get("https://x/1")).toEqual({ ok: true });
+		expect(f.count()).toBe(3);
+	});
+
+	test("an exhausted retry budget throws AdoError('server'), not a bare Error", async () => {
+		// This is the difference between exiting SERVER ("retry later") and
+		// RUNTIME ("this is a bug"). Automation responds to those differently.
+		const f = flakyFetch(99);
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn: f.fetchFn,
+			sleep: noSleep,
+			maxRetries: 2,
+		});
+		const err = await c.get("https://x/1").catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).kind).toBe("server");
+		expect((err as AdoError).message).toContain("network failure");
+		expect(f.count()).toBe(3);
+	});
+
+	test("the retry budget is shared, not doubled", async () => {
+		const f = flakyFetch(99);
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn: f.fetchFn,
+			sleep: noSleep,
+			maxRetries: 0,
+		});
+		await c.get("https://x/1").catch(() => {});
+		expect(f.count()).toBe(1);
+	});
+});

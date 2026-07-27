@@ -72,11 +72,13 @@ function classifyErrorBody(body: string): {
 export type FetchFn = (
 	url: string,
 	init?: { method?: string; headers?: Record<string, string>; body?: string },
-) => Promise<{
+) => Promise<AdoResponse>;
+
+export type AdoResponse = {
 	status: number;
 	headers: { get(name: string): string | null };
 	text(): Promise<string>;
-}>;
+};
 
 export type SleepFn = (ms: number) => Promise<void>;
 
@@ -166,6 +168,67 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 		return 2 ** attempt * 1000 + jitter();
 	}
 
+	/**
+	 * One HTTP round trip; a dropped connection comes back as `{ failure }`
+	 * rather than throwing.
+	 *
+	 * Extracted so the retry loop stays readable: a transport failure and a 5xx
+	 * are the same situation from the caller's side, and both deserve the same
+	 * budget rather than two parallel error paths.
+	 */
+	async function attemptFetch(
+		method: string,
+		url: string,
+		bearer: string,
+		body?: unknown,
+	): Promise<{ res: AdoResponse } | { failure: string }> {
+		try {
+			return {
+				res: await opts.fetchFn(url, {
+					method,
+					headers: {
+						authorization: `Bearer ${bearer}`,
+						accept: "application/json",
+						...(body === undefined
+							? {}
+							: { "content-type": "application/json" }),
+					},
+					...(body === undefined ? {} : { body: JSON.stringify(body) }),
+				}),
+			};
+		} catch (e) {
+			return { failure: e instanceof Error ? e.message : "unknown" };
+		}
+	}
+
+	/** How a response is reported once the retry budget is spent. */
+	async function exhaustedError(
+		res: AdoResponse,
+		url: string,
+	): Promise<AdoError> {
+		if (res.status === 429) {
+			return new AdoError(
+				"rate_limited",
+				`Azure DevOps rate limit persisted for ${url}`,
+				429,
+			);
+		}
+		if (res.status < 500) {
+			const info = classifyErrorBody(await res.text());
+			return new AdoError(
+				info.kind,
+				info.message ?? `Azure DevOps returned ${res.status} for ${url}`,
+				res.status,
+				info.code,
+			);
+		}
+		return new AdoError(
+			"server",
+			`Azure DevOps returned ${res.status} for ${url}`,
+			res.status,
+		);
+	}
+
 	async function request(
 		method: "GET" | "POST",
 		url: string,
@@ -175,15 +238,20 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 
 		for (let attempt = 0; ; attempt++) {
 			const bearer = await acquireToken(Date.now());
-			const res = await opts.fetchFn(url, {
-				method,
-				headers: {
-					authorization: `Bearer ${bearer}`,
-					accept: "application/json",
-					...(body === undefined ? {} : { "content-type": "application/json" }),
-				},
-				...(body === undefined ? {} : { body: JSON.stringify(body) }),
-			});
+			const attempted = await attemptFetch(method, url, bearer, body);
+			if ("failure" in attempted) {
+				// Letting a transport error escape as a bare Error would exit
+				// RUNTIME and tell automation a flaky network is a code defect.
+				if (attempt < maxRetries) {
+					await sleep(retryDelayMs({ get: () => null }, attempt));
+					continue;
+				}
+				throw new AdoError(
+					"server",
+					`network failure for ${url}: ${attempted.failure}`,
+				);
+			}
+			const res = attempted.res;
 
 			if (res.status === 200) {
 				const text = await res.text();
@@ -233,29 +301,7 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 				continue;
 			}
 
-			if (res.status === 429) {
-				throw new AdoError(
-					"rate_limited",
-					`Azure DevOps rate limit persisted for ${url}`,
-					429,
-				);
-			}
-
-			if (res.status < 500) {
-				const info = classifyErrorBody(await res.text());
-				throw new AdoError(
-					info.kind,
-					info.message ?? `Azure DevOps returned ${res.status} for ${url}`,
-					res.status,
-					info.code,
-				);
-			}
-
-			throw new AdoError(
-				"server",
-				`Azure DevOps returned ${res.status} for ${url}`,
-				res.status,
-			);
+			throw await exhaustedError(res, url);
 		}
 	}
 
