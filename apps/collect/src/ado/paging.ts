@@ -153,7 +153,8 @@ export function wiqlDay(instant: string, addDays = 0): string {
 /**
  * The project's earliest `System.ChangedDate`.
  *
- * One extra query buys a real floor for open-ended sweeps, so the sweep no
+ * Two extra calls (a WIQL POST for the id, then a work-item GET for its
+ * `ChangedDate`) buy a real floor for open-ended sweeps, so the sweep no
  * longer has to guess where history ends.
  *
  * Failures are NOT caught here. Downgrading them to a `problems` entry would
@@ -296,7 +297,7 @@ export async function fetchWorkItemIds(
 	 * Cover an open-ended window by walking backwards from `to`.
 	 *
 	 * The floor is ASKED FOR, not guessed: WIQL can order by `ChangedDate ASC`,
-	 * so the project's oldest work item is one query away. An earlier version
+	 * so the project's oldest work item is two calls away. An earlier version
 	 * stopped after three consecutive empty slices — 210 days — which declared a
 	 * team that moved off a project eight months ago to have no history at all,
 	 * reported no problem, let the cursor advance, and let `--full` clear
