@@ -81,7 +81,7 @@ az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798
 | `signoff collect --dry-run` | 现状：读 bootstrap 缓存打印计划，不调 ADO |
 | `signoff collect` | **07 新增**：真实拉取 → 落盘 → 校验 → transform → 写 `.data/normalized/` + run manifest |
 | `signoff collect --repo <id>` | 只采集指定 repo（调试用） |
-| `signoff collect --since <date>` | 覆盖增量游标，强制从该日期起 |
+| `signoff collect --since <date>` | 覆盖增量游标，强制从该日期起。**不影响 `active` PR 的全量拉取**，故并不能显著缩短耗时（见 §8「限流与耗时」） |
 | `signoff collect --no-wi` | 跳过 Work Item（PR-only，加速调试） |
 | `signoff collect --full` | 忽略游标全量重采（配合 `full_rematch`）。**不可与 `--repo` / `--no-wi` 同用**：`scores_stale` 是全局的，部分重算会把没算的仓也标成新鲜 |
 | `signoff collect --offline` | **未实现**（04 §6.4 的期望；当前 bootstrap 不可达即失败） |
@@ -530,9 +530,22 @@ transform 里由 `chooseRevisionRecord` 挑选（优先 `fields` 非空者）。
 
 其余非 `AdoError` 的异常（真正的程序缺陷）仍为 `RUNTIME`。
 
-**限流**：当前实现是**串行**的（并发与 `--concurrency` 未实现）。threads/iterations
-是 per-PR 调用，PR 多时为主要耗时，大窗口会很慢 —— 用 `--since` 缩小窗口。
+**限流与耗时**：当前实现是**串行**的（并发与 `--concurrency` 未实现）。
 客户端已按 `Retry-After` / `X-RateLimit-Delay` 退避。
+
+**`--since` 并不能有效缩短耗时**，这一点必须说清楚，否则会误导使用者：
+
+- `--since` 只作用于 `completed` / `abandoned` 两个状态；
+- **`active` 是无窗口全量拉取的**（`from: null`）—— 因为 `pr.active` 要算的是
+  「此刻仍开着的 PR」，一个 2024 年创建、今天仍在活跃的 PR 必须算进来。
+  按 `queryTimeRangeType=created` 收窄会把它漏掉（实测该参数确实生效：
+  某真实仓 1000 → 747，但漏掉的正是长命 PR）；
+- 而 threads/iterations 是 **per-PR 两次调用**，PR 总数才是主导成本。
+
+实测量级（真实仓 `teams-modular-packages`，`--since` 两天窗口）：
+**2948 个 PR × 2 次调用 ≈ 6000 次串行请求，耗时以十分钟计**。
+这不是缺陷而是取舍，但要有预期：大仓的首次采集应当安排在能等的时候，
+真正的提速要靠并发（未实现），不是靠 `--since`。
 
 ---
 
