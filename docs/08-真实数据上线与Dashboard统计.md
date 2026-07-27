@@ -165,6 +165,8 @@ Score（Phase 3）提交在**两个不同的 batch** 里（`pipeline-ingest-writ
 SELECT COUNT(*) AS inFlight, MIN(r.id) AS runId
 FROM ingest_chunks c JOIN ingest_runs r ON r.id = c.run_id
 WHERE c.status = 'prepared' AND r.config_version = ?
+  AND COALESCE(json_extract(r.run_meta_json, '$.windowFrom'), '') <= :to
+  AND COALESCE(json_extract(r.run_meta_json, '$.windowTo'), '9999-12-31') >= :from
 ```
 
 只要有 chunk 处于 `prepared`，就按 stale 返回并给出
@@ -184,6 +186,23 @@ WHERE c.status = 'prepared' AND r.config_version = ?
 `prepared` 是**可恢复**状态，不是终态：CLI 重发同一 chunk 即可完成 Phase 3，
 守卫随之解除。`runId` 写进 `staleReason` 是因为这个状态可能比造成它的那次
 ingest 活得更久 —— 没有 id 就没人知道该去续跑或放弃哪个 run。
+
+**按窗口收窄**。上面的 SQL 还比对 run 的 `windowFrom`/`windowTo`
+（来自 `run_meta_json`，写入路径已校验）与请求窗口是否**相交**：
+一次卡住的 7 月 ingest 对 1 月的数字**不构成任何证据**，
+把所有窗口一起遮蔽会让「一个 run 卡住」看起来像「产品坏了」。
+两端边界都要判：完全早于和完全晚于都不算相交。
+
+反过来，**读不到窗口的 run 一律视为相交**（`COALESCE` 的两个兜底值）。
+「范围未知」不等于「范围无关」，猜成「在别处」正好会公布这道守卫要拦下的
+那种自相矛盾数字。
+
+**`finalize` 必须拒绝跨过 `prepared` chunk**（`finalizeRun`）。
+否则会形成单向门：`processIngestChunk` 对 finalized 的 run 在**到达**
+prepared-resume 分支**之前**就返回 `Run already finalized`，
+于是那个 chunk 永远无法完成 —— 活动已入库、分数永远算不出来、
+守卫永远解除不了，且除了手改 D1 没有任何出路。
+现在 finalize 会带上「chunk N 仍是 prepared，请先重发」拒绝。
 
 **零填充归属**：`daily` 的缺失日由 **Web ViewModel** 补 0，API 只返回有数据的
 天。API 不做是因为窗口边界属于展示决策；ViewModel 必须做，否则 CSS 条形序列
