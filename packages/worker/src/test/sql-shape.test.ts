@@ -408,3 +408,52 @@ describe("guardConditionFor regex literals", () => {
 		).toBe("`a)b` === x && n > 0");
 	});
 });
+
+describe("guardConditionFor comment-vs-regex ordering", () => {
+	test("a line comment containing a slash is a comment, not a regex", () => {
+		// `readParenSpan` tested for a regex BEFORE testing for a comment, so
+		// `// see a/b` opened a regex literal that swallowed the rest of the
+		// condition. The cap this guard forbids then became invisible and the
+		// test asserting its absence passed.
+		const src =
+			"if (a !== b && // see docs a/b (note)\n    n < 2) {\n return HITX;\n}";
+		expect(guardConditionFor(src, "HITX")).toContain("n < 2");
+	});
+
+	test("a block comment containing a slash is also a comment", () => {
+		const src = "if (a && /* see a/b */ n < 2) {\n return HITX;\n}";
+		expect(guardConditionFor(src, "HITX")).toContain("n < 2");
+	});
+});
+
+describe("isWriteInto offset alignment", () => {
+	test("a comment before the verb does not hide the write", () => {
+		// `at` indexes the NORMALIZED sql; slicing the RAW sql at it silently
+		// mismatches once a comment or collapsed whitespace shifts positions.
+		// The blanked target is found by counting blanks instead.
+		expect(
+			isWriteInto(
+				'/* audit note */ UPDATE "ingest_runs" SET a=1',
+				"ingest_runs",
+			),
+		).toBe(true);
+		expect(
+			isWriteInto(
+				'-- note\nINSERT INTO "ingest_runs" (a) VALUES (1)',
+				"ingest_runs",
+			),
+		).toBe(true);
+	});
+
+	test("counting blanks still picks the right one when several precede", () => {
+		expect(
+			isWriteInto(
+				`INSERT INTO "ingest_runs" (a) SELECT 'x', 'y' FROM t`,
+				"ingest_runs",
+			),
+		).toBe(true);
+		expect(
+			isWriteInto(`UPDATE t SET a='x' WHERE b='ingest_runs'`, "ingest_runs"),
+		).toBe(false);
+	});
+});

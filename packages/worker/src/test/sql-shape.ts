@@ -13,6 +13,14 @@ export type SqlShape = {
 	code: string;
 	/** Uppercased keyword sequence, whitespace-collapsed. */
 	tokens: string;
+	/**
+	 * What each blanked literal originally held, in source order.
+	 *
+	 * Recovering a quoted target by slicing the RAW sql at a normalized offset
+	 * silently mismatches — stripping comments and collapsing whitespace shifts
+	 * every position after them. Counting blanks is offset-free.
+	 */
+	blanks: string[];
 };
 
 /** Index just past a comment starting at `i`, or -1 if none starts there. */
@@ -66,6 +74,7 @@ function skipQuoted(sql: string, i: number): number {
 export function sqlShape(sql: string): SqlShape {
 	let out = "";
 	let i = 0;
+	const blanks: string[] = [];
 
 	while (i < sql.length) {
 		const afterComment = skipComment(sql, i);
@@ -77,6 +86,7 @@ export function sqlShape(sql: string): SqlShape {
 
 		const afterQuoted = skipQuoted(sql, i);
 		if (afterQuoted !== -1) {
+			blanks.push(sql.slice(i + 1, afterQuoted - 1));
 			out += sql[i] === "'" ? "''" : '""';
 			i = afterQuoted;
 			continue;
@@ -87,7 +97,7 @@ export function sqlShape(sql: string): SqlShape {
 	}
 
 	const code = out.replace(/\s+/g, " ").trim();
-	return { code, tokens: code.toUpperCase() };
+	return { code, tokens: code.toUpperCase(), blanks };
 }
 
 /**
@@ -102,7 +112,7 @@ export function sqlShape(sql: string): SqlShape {
  * `ingest_runs`, which is exactly backwards: it writes somewhere else.
  */
 export function isWriteInto(sql: string, table: string): boolean {
-	const { tokens } = sqlShape(sql);
+	const { tokens, blanks } = sqlShape(sql);
 	const T = table.toUpperCase();
 
 	// INSERT/REPLACE name the target after INTO; UPDATE names it immediately.
@@ -119,15 +129,15 @@ export function isWriteInto(sql: string, table: string): boolean {
 	if (new RegExp(`^${T}(?![A-Z0-9_])`).test(after)) {
 		return true;
 	}
-	// A blanked identifier sits where the target should be. Read the raw SQL at
-	// that same position to find out what it actually was.
-	if (!after.startsWith('""')) {
+	// A blanked identifier sits where the target should be. Which one it was is
+	// found by COUNTING blanks up to here, not by slicing the raw SQL at a
+	// normalized offset: comment removal and whitespace collapse shift every raw
+	// position, so `/* note */ UPDATE "ingest_runs"` read as no write at all.
+	if (!after.startsWith('""') && !after.startsWith("''")) {
 		return false;
 	}
-	const rawTarget = /^\s*["'`[]\s*([A-Za-z0-9_]+)\s*["'`\]]/.exec(
-		sql.slice(at),
-	);
-	return rawTarget?.[1]?.toUpperCase() === T;
+	const seen = (tokens.slice(0, at).match(/""|''/g) ?? []).length;
+	return blanks[seen]?.toUpperCase() === T;
 }
 
 /**
@@ -382,13 +392,10 @@ function readParenSpan(
 			i++;
 			continue;
 		}
-		// A regex literal can carry parens too: `if (/a)b/.test(x) && n > 0)`
-		// truncated to `/a`. Told apart from division by what precedes it —
-		// after a value, `/` divides; after an operator or `(`, it opens a regex.
-		if (ch === "/" && opensRegex(source, i)) {
-			i = endOfRegex(source, i);
-			continue;
-		}
+		// COMMENTS FIRST. `//` and `/*` both start with `/` in a position where
+		// a regex is legal, so testing for a regex first lexed `// see a/b` as a
+		// regex literal and swallowed the rest of the condition — hiding the very
+		// cap the guard was asserted to not have.
 		if (ch === "/" && source[i + 1] === "/") {
 			const nl = source.indexOf("\n", i);
 			i = nl === -1 ? source.length : nl;
@@ -397,6 +404,13 @@ function readParenSpan(
 		if (ch === "/" && source[i + 1] === "*") {
 			const close = source.indexOf("*/", i + 2);
 			i = close === -1 ? source.length : close + 2;
+			continue;
+		}
+		// A regex literal can carry parens too: `if (/a)b/.test(x) && n > 0)`
+		// truncated to `/a`. Told apart from division by what precedes it —
+		// after a value, `/` divides; after an operator or `(`, it opens a regex.
+		if (ch === "/" && opensRegex(source, i)) {
+			i = endOfRegex(source, i);
 			continue;
 		}
 		if (ch === "(") {
