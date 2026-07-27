@@ -142,7 +142,14 @@ export function isScopeCommittable(scope: Scope): boolean {
 	);
 }
 
-/** Apply a committable scope's watermark. Returns the cursor unchanged if not. */
+/**
+ * Apply a committable scope's watermark. Returns the cursor unchanged if not.
+ *
+ * A watermark older than what is already committed is refused: replaying an
+ * old manifest (crash recovery re-scans `.data/meta/runs/`) would otherwise
+ * move the cursor BACKWARDS and cause the next run to re-collect — or worse,
+ * to be considered ineligible and stall.
+ */
 export function commitScope(
 	cursor: Cursor,
 	scope: Scope,
@@ -150,6 +157,18 @@ export function commitScope(
 ): Cursor {
 	if (!isScopeCommittable(scope)) {
 		return cursor;
+	}
+	const current = readCursor(cursor, scope);
+	if (current !== null) {
+		const currentMs = Date.parse(current);
+		const nextMs = Date.parse(scope.watermark);
+		if (
+			Number.isFinite(currentMs) &&
+			Number.isFinite(nextMs) &&
+			nextMs <= currentMs
+		) {
+			return cursor;
+		}
 	}
 	if (scope.kind === "repo") {
 		return {

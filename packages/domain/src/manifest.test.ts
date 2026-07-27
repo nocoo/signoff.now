@@ -275,6 +275,32 @@ describe("commitScope", () => {
 		expect(after).toEqual(before);
 	});
 
+	test("a stale watermark never moves the cursor backwards", () => {
+		// Crash recovery re-scans .data/meta/runs/, so an OLD manifest can be
+		// replayed after a newer one already committed. Rewinding would make the
+		// next run re-collect, or stall it as ineligible.
+		const done = scope({
+			status: "complete",
+			artifacts: [artifact({ status: "complete" })],
+		});
+		const ahead = commitScope(emptyCursor(), done, "run-2");
+		const replayed = commitScope(
+			ahead,
+			{ ...done, watermark: "2026-07-01T00:00:00.000Z" },
+			"run-1",
+		);
+		expect(replayed).toEqual(ahead);
+	});
+
+	test("replaying the same watermark is a no-op, not a rewrite", () => {
+		const done = scope({
+			status: "complete",
+			artifacts: [artifact({ status: "complete" })],
+		});
+		const first = commitScope(emptyCursor(), done, "run-1");
+		expect(commitScope(first, done, "run-2")).toEqual(first);
+	});
+
 	test("readCursor reports null for a scope never collected", () => {
 		expect(readCursor(emptyCursor(), { kind: "repo", id: "x" })).toBeNull();
 		expect(readCursor(emptyCursor(), { kind: "project", id: "x" })).toBeNull();
