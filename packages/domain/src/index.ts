@@ -68,6 +68,11 @@ export {
 	transformPullRequests,
 	voteComment,
 } from "./transform/pr.js";
+export {
+	isClosingRevision,
+	transformWorkItems,
+	type WiTransformInput,
+} from "./transform/wi.js";
 export type {
 	AggregateScores,
 	BuildExternalRef,

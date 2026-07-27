@@ -50,7 +50,7 @@ export type TransformResult = {
 	anomalies: string[];
 };
 
-function emptySkips(): Record<SkipReason, number> {
+export function emptySkips(): Record<SkipReason, number> {
 	return {
 		container: 0,
 		non_email: 0,
@@ -76,7 +76,7 @@ export function toUnixSeconds(iso: string | null | undefined): number | null {
 	return s > 0 ? s : null;
 }
 
-type Resolved =
+export type Resolved =
 	| { kind: "developer"; developerId: string; uniqueName: string }
 	| { kind: "skip"; reason: SkipReason }
 	| { kind: "unmatched"; uniqueName: string };
