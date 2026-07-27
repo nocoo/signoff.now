@@ -10,6 +10,10 @@ export function createBunFs(): FsLike {
 		async writeFile(path, data) {
 			await Bun.write(path, data);
 		},
+		async rename(from, to) {
+			const { rename } = await import("node:fs/promises");
+			await rename(from, to);
+		},
 		async readFile(path) {
 			return await Bun.file(path).text();
 		},

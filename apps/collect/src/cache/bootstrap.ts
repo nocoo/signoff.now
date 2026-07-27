@@ -8,6 +8,8 @@ export type CachedBootstrap = BootstrapSnapshot & {
 export type FsLike = {
 	mkdir: (path: string, opts?: { recursive?: boolean }) => Promise<void>;
 	writeFile: (path: string, data: string) => Promise<void>;
+	/** Atomic replace; used to avoid publishing half-written JSON. */
+	rename?: (from: string, to: string) => Promise<void>;
 	readFile: (path: string) => Promise<string>;
 	stat: (path: string) => Promise<{ isDirectory: boolean } | null>;
 	/** Optional; used to clean doctor write probes. */
