@@ -312,6 +312,47 @@ export function guardConditionFor(
 	return expanded.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Whether the `/` at `idx` opens a regex literal rather than dividing.
+ *
+ * JS decides this by what came before: after a value (identifier, literal,
+ * closing bracket) it is division; after an operator, `(`, `,` or the start of
+ * an expression it opens a regex.
+ */
+function opensRegex(source: string, idx: number): boolean {
+	let k = idx - 1;
+	while (k >= 0 && /\s/.test(source[k] as string)) {
+		k--;
+	}
+	if (k < 0) {
+		return true;
+	}
+	const prev = source[k] as string;
+	return !/[A-Za-z0-9_$)\]]/.test(prev);
+}
+
+/** Index just past the closing `/` of the regex literal starting at `idx`. */
+function endOfRegex(source: string, idx: number): number {
+	let j = idx + 1;
+	let inClass = false;
+	while (j < source.length) {
+		const c = source[j];
+		if (c === "\\") {
+			j += 2;
+			continue;
+		}
+		if (c === "[") {
+			inClass = true;
+		} else if (c === "]") {
+			inClass = false;
+		} else if (c === "/" && !inClass) {
+			break;
+		}
+		j++;
+	}
+	return j + 1;
+}
+
 function readParenSpan(
 	source: string,
 	openIdx: number,
@@ -339,6 +380,13 @@ function readParenSpan(
 		if (ch === '"' || ch === "'" || ch === "`") {
 			quote = ch;
 			i++;
+			continue;
+		}
+		// A regex literal can carry parens too: `if (/a)b/.test(x) && n > 0)`
+		// truncated to `/a`. Told apart from division by what precedes it —
+		// after a value, `/` divides; after an operator or `(`, it opens a regex.
+		if (ch === "/" && opensRegex(source, i)) {
+			i = endOfRegex(source, i);
 			continue;
 		}
 		if (ch === "/" && source[i + 1] === "/") {

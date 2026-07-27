@@ -368,3 +368,43 @@ describe("guardConditionFor lexing", () => {
 		expect(guardConditionFor("return HIT;", "HIT")).toBeNull();
 	});
 });
+
+describe("guardConditionFor regex literals", () => {
+	test("a paren inside a regex does not truncate the condition", () => {
+		// `pipeline-ingest-write.ts:585` really does guard on a regex. It has no
+		// paren today, so adding one would have silently broken every structural
+		// assertion built on this helper.
+		expect(
+			guardConditionFor(
+				"if (/a)b/.test(x) && n > 0) {\n return HIT;\n}",
+				"HIT",
+			),
+		).toBe("/a)b/.test(x) && n > 0");
+	});
+
+	test("a slash inside a character class does not end the regex early", () => {
+		// `[/)]` is the discriminating case: ignoring character classes ends the
+		// literal at that inner slash, so the `)` after it is counted as
+		// structure and the condition is cut short.
+		expect(
+			guardConditionFor(
+				"if (/[/)]/.test(x) && n > 0) {\n return HIT;\n}",
+				"HIT",
+			),
+		).toBe("/[/)]/.test(x) && n > 0");
+	});
+
+	test("division is still division", () => {
+		// Treating every `/` as a regex opener would swallow the rest of the
+		// condition instead.
+		expect(
+			guardConditionFor("if (a / b > 0 && n > 0) {\n return HIT;\n}", "HIT"),
+		).toBe("a / b > 0 && n > 0");
+	});
+
+	test("a template literal carrying a paren survives", () => {
+		expect(
+			guardConditionFor("if (`a)b` === x && n > 0) {\n return HIT;\n}", "HIT"),
+		).toBe("`a)b` === x && n > 0");
+	});
+});
