@@ -6,9 +6,8 @@
 import { Command } from "commander";
 import { createBunFs } from "./cache/fs-bun.ts";
 import { collectDryRun } from "./commands/collect-dry-run.ts";
-import { validateCollectFlags } from "./commands/collect-flags.ts";
-import { exitCodeForError } from "./commands/exit-code-for-error.ts";
 import { ingestFixture } from "./commands/ingest-fixture.ts";
+import { runCollect } from "./commands/run-collect.ts";
 import { settingsPull } from "./commands/settings-pull.ts";
 import { settingsShow } from "./commands/settings-show.ts";
 import { loadEnv } from "./config/env.ts";
@@ -107,102 +106,28 @@ async function main(): Promise<void> {
 					process.exit(code);
 				}
 
-				// Validate flag combinations BEFORE any network call: a bad
-				// combination should fail instantly, not after a bootstrap round
-				// trip that might itself fail and mask the real problem.
-				const flags = validateCollectFlags(opts);
-				if (!flags.ok) {
-					log.error(flags.error);
-					process.exit(flags.code);
-				}
-
-				const client = createPipelineClient({
-					apiBase: env.apiBase,
-					writeToken: env.writeToken,
-				});
-				const snapshot = await client.bootstrap();
-				const repos = snapshot.repos
-					.filter((r) => r.provider === "ado" && r.externalId)
-					.filter((r) => !opts.repo || r.id === opts.repo)
-					.map((r) => ({
-						id: r.id,
-						org: r.org,
-						project: r.project,
-						name: r.name,
-						externalId: r.externalId as string,
-						projectExternalId: r.projectExternalId as string,
-					}));
-
-				if (repos.length === 0) {
-					log.error(
-						opts.repo
-							? `no enabled ADO repo with id ${opts.repo}`
-							: "no enabled ADO repos bound; add one in the web UI first",
-					);
-					process.exit(ExitCode.CONTRACT);
-				}
-				const missingGuid = repos.filter((r) => !r.projectExternalId);
-				if (missingGuid.length > 0) {
-					// Work items are project-scoped; without the GUID their activities
-					// would be rejected server-side (05 §5.5).
-					log.error(
-						`repos missing projectExternalId: ${missingGuid.map((r) => r.name).join(", ")}`,
-					);
-					process.exit(ExitCode.CONTRACT);
-				}
-
-				if (opts.full) {
-					log.info(
-						`full rematch over ${repos.length} repo(s) and their projects; scores stay stale until every scope is ingested`,
-					);
-				}
-
 				const { collect } = await import("./ado/collect.ts");
 				const { createAdoClient } = await import("./ado/client.ts");
 				const { createRawWriter } = await import("./ado/storage.ts");
 				const { ulid } = await import("./ado/ulid.ts");
 
-				const result = await collect({
-					client: createAdoClient({
-						exec: defaultExec,
-						fetchFn: fetch as never,
+				const code = await runCollect({
+					flags: opts,
+					client: createPipelineClient({
+						apiBase: env.apiBase,
+						writeToken: env.writeToken,
 					}),
 					fs,
-					writer: createRawWriter(fs, env.dataDir),
 					dataDir: env.dataDir,
-					collectRunId: ulid(),
-					nowSeconds: Math.floor(Date.now() / 1000),
-					repos,
-					developers: snapshot.developers.map((d) => ({
-						id: d.id,
-						alias: d.alias,
-					})),
-					settings: { emailSuffixes: snapshot.settings.emailSuffixes },
-					since: opts.since ?? null,
-					full: opts.full,
-					includeWorkItems: opts.wi !== false,
 					log,
-				}).catch((e: unknown) => {
-					// Keep the AdoError taxonomy alive to the process boundary:
-					// "log in again" and "retry later" need different responses.
-					log.error(e instanceof Error ? e.message : String(e));
-					process.exit(exitCodeForError(e));
+					nowSeconds: Math.floor(Date.now() / 1000),
+					collectRunId: ulid(),
+					collect,
+					makeAdoClient: () =>
+						createAdoClient({ exec: defaultExec, fetchFn: fetch as never }),
+					makeWriter: () => createRawWriter(fs, env.dataDir),
 				});
-
-				const blocked = result.manifest.scopes.filter(
-					(sc) => sc.status === "incomplete",
-				);
-				for (const sc of result.manifest.scopes) {
-					for (const a of sc.artifacts) {
-						log.info(`artifact ${a.path} (${a.activityCount} activities)`);
-					}
-				}
-				log.info(`manifest ${result.manifestPath}`);
-				log.info(
-					"next: signoff ingest normalized <artifact> --manifest <manifest>",
-				);
-				// The cursor is untouched by design; ingest owns the commit.
-				process.exit(blocked.length > 0 ? ExitCode.CONTRACT : ExitCode.OK);
+				process.exit(code);
 			},
 		);
 
