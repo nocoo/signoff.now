@@ -299,6 +299,13 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		// Anchor on the guard's OUTCOME, not on its condition text: a decoy `if`
 		// mentioning the same comparison cannot redirect the check, and local
 		// aliases are expanded so an index hidden behind one is still visible.
+		//
+		// This reads SOURCE, so it is only as trustworthy as a hand-rolled
+		// lexer can be — constructs like a regex after `return` inside an arrow,
+		// or a nested template literal, can still truncate the condition and
+		// hide a cap. It is kept as a fast, precise signal, but the behavioural
+		// sweep below is what actually holds the rule: that one walks several
+		// chunk indices and needs no source reading at all.
 		const cond = guardConditionFor(src, '"Chunk digest conflict"');
 		expect(cond).not.toBeNull();
 		// Any index term here bounds the guard to a prefix of the chunks.
@@ -339,6 +346,61 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 
 		expect(res.kind).toBe("conflict");
 		expect(snapshot()).toBe(before);
+	});
+
+	test("digest drift is refused at EVERY chunk index, not just early ones", async () => {
+		// Behavioural cover for the same rule the structural assertion above
+		// checks. A guard capped at any prefix (`chunkIndex < 2`, `< 4`, …) lets
+		// a later chunk overwrite a committed one, and a source-text assertion
+		// alone is only as trustworthy as its lexer. Walking several indices
+		// catches any cap without reading a line of source.
+		const chunkAt = (index: number, occurredAt: number) =>
+			body({
+				chunkIndex: index,
+				activities: [
+					{
+						type: "pr.created",
+						occurredAt,
+						provider: "ado",
+						org: ORG,
+						project: PROJECT,
+						repoId: REPO,
+						developerId: DEV,
+						matchedUniqueName: "integ@example.com",
+						sourceIds: { prRepoGuid: REPO_GUID, prId: 3000 + index },
+					},
+				],
+			} as Partial<IngestBody>);
+
+		// Lay down chunks 0..5 cleanly.
+		expect((await processIngestChunk(sqlite.db, body(), settings)).kind).toBe(
+			"ok",
+		);
+		for (let i = 1; i <= 5; i++) {
+			expect(
+				(
+					await processIngestChunk(
+						sqlite.db,
+						chunkAt(i, 1_784_737_900 + i),
+						settings,
+					)
+				).kind,
+			).toBe("ok");
+		}
+
+		// Now replay each one with different bytes. Every index must refuse.
+		for (let i = 0; i <= 5; i++) {
+			const before = snapshot();
+			const replay =
+				i === 0
+					? body({ activities: [] } as Partial<IngestBody>)
+					: chunkAt(i, 1_784_999_000 + i);
+			const res = await processIngestChunk(sqlite.db, replay, settings);
+			expect(`index ${i}: ${res.kind}`).toBe(`index ${i}: conflict`);
+			expect(`index ${i} rows`).toBe(
+				snapshot() === before ? `index ${i} rows` : `index ${i} MUTATED`,
+			);
+		}
 	});
 
 	test("chunk index gap → 400", async () => {
