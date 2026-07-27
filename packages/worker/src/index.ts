@@ -28,6 +28,7 @@ import {
 	reposRestoreRoute,
 } from "./routes/repos.js";
 import { settingsGetRoute, settingsPutRoute } from "./routes/settings.js";
+import { statsSummaryRoute } from "./routes/stats.js";
 import {
 	tagsArchiveRoute,
 	tagsCreateRoute,
@@ -60,6 +61,8 @@ app.put("/api/settings", settingsPutRoute);
 app.get("/api/pipeline/bootstrap", pipelineBootstrapRoute);
 app.post("/api/pipeline/ingest", pipelineIngestRoute);
 app.post("/api/pipeline/recompute/complete", pipelineRecomputeCompleteRoute);
+
+app.get("/api/stats/summary", statsSummaryRoute);
 
 app.get("/api/activity/heatmap", activityHeatmapRoute);
 app.get("/api/activity/timeline", activityTimelineRoute);
