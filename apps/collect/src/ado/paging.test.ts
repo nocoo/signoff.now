@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { exitCodeForError } from "../commands/exit-code-for-error.ts";
+import { ExitCode } from "../exit-codes.ts";
 import type { AdoClient } from "./client.ts";
 import { AdoError } from "./client.ts";
 import {
@@ -485,7 +487,7 @@ describe("fetchWorkItemIds", () => {
 		expect(r.problems[0]?.reason).toMatch(/System\.ChangedDate|\(.+\)/);
 	});
 
-	test("a failing floor probe reports the underlying error", async () => {
+	test("a failing floor probe keeps its error kind, not a generic problem", async () => {
 		const client: AdoClient = {
 			async get() {
 				return { value: [] };
@@ -499,21 +501,28 @@ describe("fetchWorkItemIds", () => {
 			},
 			invalidateToken() {},
 		};
-		const r = await fetchWorkItemIds({
+		// A `problems` entry only ever becomes CONTRACT. A 403 must reach
+		// `exitCodeForError` as `forbidden` → ENV ("grant access"), and a 503 as
+		// `server` → SERVER ("retry later"); collapsing both into CONTRACT tells
+		// automation the request was malformed, which is the one thing it wasn't.
+		const err = await fetchWorkItemIds({
 			client,
 			base,
 			project: "Alpha",
 			from: null,
 			watermark: "2026-07-26T00:00:00Z",
-		});
-		expect(r.problems).toHaveLength(1);
-		expect(r.problems[0]?.reason).toContain("no access to this project");
+		}).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(AdoError);
+		expect((err as AdoError).kind).toBe("forbidden");
+		expect(exitCodeForError(err)).toBe(ExitCode.ENV);
 	});
 
-	test("a project with no work items at all sweeps clean", async () => {
-		// Zero rows genuinely means empty: an inaccessible or misspelled project
-		// answers 400, not an empty list (measured against live ADO). So this
-		// must NOT be reported as a coverage gap.
+	test("a zero-row floor probe after a cap hit is a contradiction, not an empty project", async () => {
+		// This probe only runs BECAUSE the open query just failed with "more
+		// than 20k work items". A `$top=1 ASC` answering "none" contradicts
+		// that, so it cannot mean the project is empty — and treating it as
+		// empty advances the cursor and lets `--full` clear stale over a project
+		// that was never collected. That is R10 #1 returning through a new door.
 		const client: AdoClient = {
 			async get() {
 				return { value: [] };
@@ -534,8 +543,8 @@ describe("fetchWorkItemIds", () => {
 			from: null,
 			watermark: "2026-07-26T00:00:00Z",
 		});
-		expect(r.items).toEqual([]);
-		expect(r.problems).toEqual([]);
+		expect(r.problems).toHaveLength(1);
+		expect(r.problems[0]?.reason).toMatch(/contradict|inconsisten/i);
 	});
 
 	test("the backwards walk has a step budget and reports when it runs out", async () => {

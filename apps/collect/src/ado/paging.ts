@@ -170,10 +170,15 @@ async function oldestChangedDate(
 		);
 		const id = res.workItems[0]?.id;
 		if (id === undefined) {
-			// A project with no work items at all: the sweep is trivially whole.
-			// Zero rows really does mean empty — an inaccessible or misspelled
-			// project answers 400, not an empty list (measured against live ADO).
-			return { floor: new Date().toISOString() };
+			// This probe runs ONLY because the open query just failed with "more
+			// than 20k work items". A `$top=1 ASC` answering "none" contradicts
+			// that, so it cannot mean the project is empty. Reporting it as empty
+			// would advance the cursor over a project that was never collected —
+			// the silent truncation this whole path exists to prevent.
+			return {
+				error:
+					"the cap said >20k work items but the oldest-item probe returned none; the results are inconsistent",
+			};
 		}
 		const item = parseRaw(
 			oldestItemSchema,
@@ -189,10 +194,12 @@ async function oldestChangedDate(
 			? { floor: changed }
 			: { error: `work item ${id} has no readable System.ChangedDate` };
 	} catch (e) {
-		// Keep WHY. "could not determine the earliest work item" alone leaves the
-		// operator guessing between a permissions problem, a shape change, and a
-		// flaky network — three different next actions.
-		return { error: e instanceof Error ? e.message : "unknown" };
+		// Rethrow rather than downgrade to a `problems` entry. A `problems` entry
+		// only ever becomes an `incomplete` scope, i.e. CONTRACT — so a 403 and a
+		// 503 would both tell automation "your request is wrong" when the real
+		// answers are "grant access" and "retry later". Letting the AdoError
+		// through preserves the kind all the way to `exitCodeForError`.
+		throw e;
 	}
 }
 
