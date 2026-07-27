@@ -422,8 +422,20 @@ chunk 重新 POST 一遍，服务端按 digest 认出已完成的并返回成功
    因 ADO 索引是最终一致的）。
 2. 查询区间用**闭开区间** `[from - overlap, watermark)`，`overlap` 默认 1 小时。
    重叠部分靠 `external_ref` 幂等吸收（06 已保证同 ref 重放不重复计分）。
-3. WIQL **必须**同时带上下界：
-   `WHERE [System.ChangedDate] >= @from AND [System.ChangedDate] < @watermark`。
+3. WIQL **必须**同时带上下界，但**只能给日期、不能带时间**：
+   `WHERE [System.ChangedDate] >= '2026-07-01' AND [System.ChangedDate] <= '2026-07-27'`。
+
+   带上时间会被直接拒绝（真实 ADO 实测，非推测）：
+   > You cannot supply a time with the date when running a query using date precision.
+
+   因此 `wiqlDay()` 把 watermark 截到日：**下界向下取整、上界推到次日**，
+   即查询区间只会**变宽**不会变窄。反过来（窄一点）会永久漏掉工作项 ——
+   游标照样推进，下一个增量窗口从更晚开始，那些 WI 再也不会被看到。
+   注意上界因此是 `<=` 次日而不是 `<` 当日：日期精度丢掉时分秒后，
+   `< to` 会把 `to` 当天发生的一切排除在外。
+
+   二分时两个子窗口取整后会**重叠**，这是无害的 —— id 用 Set 去重；
+   而留空隙则会静默丢数据。
 4. 只有 scope 全部 artifact finalized 后，才把这个**预先算好的** watermark 提交为新游标——
    而不是提交「实际见到的最大值」。
 
