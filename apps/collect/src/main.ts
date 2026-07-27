@@ -6,6 +6,8 @@
 import { Command } from "commander";
 import { createBunFs } from "./cache/fs-bun.ts";
 import { collectDryRun } from "./commands/collect-dry-run.ts";
+import { validateCollectFlags } from "./commands/collect-flags.ts";
+import { exitCodeForError } from "./commands/exit-code-for-error.ts";
 import { ingestFixture } from "./commands/ingest-fixture.ts";
 import { settingsPull } from "./commands/settings-pull.ts";
 import { settingsShow } from "./commands/settings-show.ts";
@@ -108,17 +110,10 @@ async function main(): Promise<void> {
 				// Validate flag combinations BEFORE any network call: a bad
 				// combination should fail instantly, not after a bootstrap round
 				// trip that might itself fail and mask the real problem.
-				if (opts.full && opts.repo) {
-					log.error(
-						"--full recomputes every score, so it cannot be limited to one repo; run `--full` alone or drop `--full`",
-					);
-					process.exit(ExitCode.CONTRACT);
-				}
-				if (opts.full && opts.wi === false) {
-					log.error(
-						"--full cannot skip work items: their scores would stay stale while the flag says otherwise",
-					);
-					process.exit(ExitCode.CONTRACT);
+				const flags = validateCollectFlags(opts);
+				if (!flags.ok) {
+					log.error(flags.error);
+					process.exit(flags.code);
 				}
 
 				const client = createPipelineClient({
@@ -187,6 +182,11 @@ async function main(): Promise<void> {
 					full: opts.full,
 					includeWorkItems: opts.wi !== false,
 					log,
+				}).catch((e: unknown) => {
+					// Keep the AdoError taxonomy alive to the process boundary:
+					// "log in again" and "retry later" need different responses.
+					log.error(e instanceof Error ? e.message : String(e));
+					process.exit(exitCodeForError(e));
 				});
 
 				const blocked = result.manifest.scopes.filter(
