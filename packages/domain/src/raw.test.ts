@@ -119,6 +119,13 @@ describe("raw schemas reject payloads the transform cannot use", () => {
 		).toThrow();
 	});
 
+	test("an identity with an empty uniqueName still parses", () => {
+		// Live data contains these (deleted / system accounts). Rejecting them
+		// here would abort a whole page; the transform skips them instead.
+		const id = rawIdentitySchema.parse({ id: "g", uniqueName: "" });
+		expect(id.uniqueName).toBe("");
+	});
+
 	test("a work item revision without a revision number", () => {
 		expect(() =>
 			rawWiUpdateSchema.parse({ revisedDate: "2026-07-01T00:00:00Z" }),

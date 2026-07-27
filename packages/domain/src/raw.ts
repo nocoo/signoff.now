@@ -25,7 +25,10 @@ export const adoInstant = z
 export const rawIdentitySchema = z
 	.object({
 		id: z.string().min(1).optional(),
-		uniqueName: z.string().min(1).nullish(),
+		// Live payloads include identities with an empty uniqueName (deleted or
+		// system accounts). Accept them here; the transform skips anything that
+		// is not a matchable email (07 §6.4 rule 3).
+		uniqueName: z.string().nullish(),
 		displayName: z.string().nullish(),
 		isContainer: z.boolean().nullish(),
 	})
