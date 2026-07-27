@@ -124,14 +124,23 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 	}
 
 	const version = settings.pipelineConfigVersion;
+	const db = c.env.DB;
 
 	if (settings.scoresStale) {
-		// Stale short-circuits before any business query: showing numbers that
-		// no longer reflect the configuration is worse than showing none.
-		return c.json(staleBody(settings, window, null), 200);
+		// Stale short-circuits the aggregates: numbers that no longer reflect
+		// the configuration are worse than none. `lastIngestAt` still comes
+		// back — it answers "when did we last collect", not "what are the
+		// numbers" — so this path is 2 statements, not 1.
+		const last = await db
+			.prepare(
+				`SELECT MAX(finished_at) AS lastIngestAt FROM ingest_runs
+         WHERE config_version = ? AND status = 'finalized'`,
+			)
+			.bind(version)
+			.first<{ lastIngestAt: number | null }>();
+		return c.json(staleBody(settings, window, last?.lastIngestAt ?? null), 200);
 	}
 
-	const db = c.env.DB;
 	const results = await db.batch([
 		db
 			.prepare(
@@ -163,7 +172,7 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 			.bind(version, window.from, window.to),
 		db
 			.prepare(
-				`SELECT j.key AS type, COALESCE(SUM(CAST(j.value AS INTEGER)), 0) AS score
+				`SELECT j.key AS type, COALESCE(SUM(j.value), 0) AS score
          FROM scores s, json_each(s.breakdown_json) j
          WHERE s.config_version = ? AND s.day_key BETWEEN ? AND ?
          GROUP BY j.key`,
@@ -186,6 +195,17 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 			.prepare(
 				`SELECT MAX(finished_at) AS lastIngestAt FROM ingest_runs
          WHERE config_version = ? AND status = 'finalized'`,
+			)
+			.bind(version),
+		// Read inside the SAME batch as the aggregates so it describes the same
+		// snapshot. A run mid-flight means Activities may already be committed
+		// while their Scores are not: the ingest write path commits Phase 1 and
+		// Phase 3 in separate batches, so `byType.count` (from activities) can
+		// exceed `totals.activities` (from scores) for the duration.
+		db
+			.prepare(
+				`SELECT COUNT(*) AS inFlight FROM ingest_runs
+         WHERE config_version = ? AND status = 'chunked'`,
 			)
 			.bind(version),
 	]);
@@ -212,6 +232,7 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 	}>(4);
 	const lastIngestAt =
 		rows<{ lastIngestAt: number | null }>(5)[0]?.lastIngestAt ?? null;
+	const inFlight = rows<{ inFlight: number }>(6)[0]?.inFlight ?? 0;
 
 	// Counts and scores come from different tables on purpose; a type can appear
 	// in one and not the other (all its events folded away, or a zero weight).
@@ -225,7 +246,21 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 		}))
 		.sort((a, b) => b.score - a.score || a.type.localeCompare(b.type));
 
-	// Re-read the version after the aggregates: an ingest finishing mid-batch
+	if (inFlight > 0) {
+		// Mid-ingest the two tables disagree by construction, so publishing
+		// would show a manager numbers that contradict each other. Report it as
+		// unsettled rather than guessing which figure is right.
+		return c.json(
+			{
+				...staleBody(settings, window, lastIngestAt),
+				scoresStale: true,
+				staleReason: "an ingest is in progress; numbers are still settling",
+			} satisfies StatsSummary,
+			200,
+		);
+	}
+
+	// Re-read the version after the aggregates: a settings change mid-batch
 	// would otherwise let us publish a mixture of two configurations.
 	const after = await loadSettings(db);
 	if (

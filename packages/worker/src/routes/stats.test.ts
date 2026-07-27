@@ -396,6 +396,74 @@ describe("statsSummaryRoute", () => {
 		expect(body.lastIngestAt).toBe(1_784_700_000);
 	});
 
+	test("an ingest in flight reports unsettled rather than mismatched numbers", async () => {
+		seedDeveloper(DEV_A, "Ada", "ada");
+		// Activities land in Phase 1 and Scores in Phase 3, in SEPARATE batches.
+		// A snapshot between them sees more activities than scores, so byType
+		// count and totals.activities would contradict each other on the page.
+		seedActivity({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			type: "pr.merged",
+		});
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_runs
+           (id, started_at, status, config_version, mode, run_meta_json)
+         VALUES ('01JRUNINFLIGHT0000000000', 1, 'chunked', 1, 'incremental', '{}')`,
+			)
+			.run();
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(true);
+		expect(body.staleReason).toContain("ingest is in progress");
+		expect(body.totals).toEqual({
+			activities: 0,
+			score: 0,
+			activeDevelopers: 0,
+		});
+	});
+
+	test("a finalized run does not count as in flight", async () => {
+		seedDeveloper(DEV_A, "Ada", "ada");
+		seedScore({
+			developerId: DEV_A,
+			dayKey: "2026-07-02",
+			breakdown: { "pr.merged": 10 },
+			activityCount: 1,
+		});
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_runs
+           (id, started_at, finished_at, status, config_version, mode, run_meta_json)
+         VALUES ('01JRUNDONE00000000000000', 1, 2, 'finalized', 1, 'incremental', '{}')`,
+			)
+			.run();
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(false);
+		expect(body.totals.score).toBe(10);
+	});
+
+	test("stale still reports when data was last collected", async () => {
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_runs
+           (id, started_at, finished_at, status, config_version, mode, run_meta_json)
+         VALUES ('01JRUNSTALE0000000000000', 1, 1784700000, 'finalized', 1, 'incremental', '{}')`,
+			)
+			.run();
+		sqlite.raw
+			.query("UPDATE settings SET value = 'true' WHERE key = 'scores_stale'")
+			.run();
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		expect(body.scoresStale).toBe(true);
+		// "When did we last collect" is operational metadata, not a statistic,
+		// so it survives the stale short-circuit.
+		expect(body.lastIngestAt).toBe(1_784_700_000);
+	});
+
 	test("daily is ordered and one row per day", async () => {
 		seedDeveloper(DEV_A, "Ada", "ada");
 		seedDeveloper(DEV_B, "Bob", "bob");
