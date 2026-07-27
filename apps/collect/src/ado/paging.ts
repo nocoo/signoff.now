@@ -14,7 +14,7 @@
 
 import { adoListSchema, type RawPr, rawPrSchema } from "@signoff/domain";
 import { type AdoClient, AdoError, adoUrl } from "./client.ts";
-import { parseRaw, wiqlResultSchema } from "./parse-raw.ts";
+import { oldestItemSchema, parseRaw, wiqlResultSchema } from "./parse-raw.ts";
 
 export const PAGE_SIZE = 100;
 /** Refuse to loop forever if the server keeps handing back full pages. */
@@ -151,6 +151,45 @@ export function wiqlDay(instant: string, addDays = 0): string {
 }
 
 /**
+ * The project's earliest `System.ChangedDate`, or null if it cannot be read.
+ *
+ * One extra query buys a real floor for open-ended sweeps. Returning null on
+ * any doubt is deliberate: the caller reports a problem rather than treating
+ * "we could not check" as "there is nothing there".
+ */
+async function oldestChangedDate(q: WiqlQuery): Promise<string | null> {
+	try {
+		const res = parseRaw(
+			wiqlResultSchema,
+			await q.client.post(adoUrl(q.base, "_apis/wit/wiql", { $top: 1 }), {
+				query: `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${q.project.replace(/'/g, "''")}' ORDER BY [System.ChangedDate] ASC`,
+			}),
+			"oldest work item query",
+		);
+		const id = res.workItems[0]?.id;
+		if (id === undefined) {
+			// A project with no work items at all: the sweep is trivially whole.
+			return new Date().toISOString();
+		}
+		const item = parseRaw(
+			oldestItemSchema,
+			await q.client.get(
+				adoUrl(q.base, `_apis/wit/workitems/${id}`, {
+					fields: "System.ChangedDate",
+				}),
+			),
+			`work item ${id} changed date`,
+		);
+		const changed = item.fields["System.ChangedDate"];
+		return typeof changed === "string" && Number.isFinite(Date.parse(changed))
+			? changed
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Work item ids in `[from, watermark)`.
  *
  * WIQL has no continuation token: past ~20k rows it fails outright with
@@ -173,7 +212,13 @@ export async function fetchWorkItemIds(
 			`[System.TeamProject] = '${q.project.replace(/'/g, "''")}'`,
 		];
 		if (from) {
-			clauses.push(`[System.ChangedDate] >= '${wiqlDay(from)}'`);
+			// Back off ONE day. WIQL evaluates date precision in the
+			// ORGANIZATION's timezone, which we do not know: for a US-West org,
+			// `2026-07-01T04:00:00Z` is locally 2026-06-30, so flooring to
+			// `>= '2026-07-01'` would exclude it. The cursor advances either way,
+			// so that work item would be skipped for good. One extra day of
+			// overlap costs nothing — ids dedupe.
+			clauses.push(`[System.ChangedDate] >= '${wiqlDay(from, -1)}'`);
 		}
 		// `<=` with the day AFTER `to`, not `<` with `to`'s own day: date
 		// precision drops the time, so `< to` would exclude everything that
@@ -214,13 +259,24 @@ export async function fetchWorkItemIds(
 			const fromMs = Date.parse(from);
 			const toMs = Date.parse(to);
 			const midMs = Math.floor((fromMs + toMs) / 2);
-			if (!Number.isFinite(midMs) || midMs <= fromMs || midMs >= toMs) {
+			// Terminate in DAY space, because that is the space the query is
+			// issued in. A millisecond-only guard keeps splitting long after both
+			// halves round to the parent's own day range: measured 8191 calls for
+			// a 2-day window, 5 distinct queries, one repeated 4083 times, and
+			// 4096 near-identical `problems` entries serialized into the manifest.
+			const mid = Number.isFinite(midMs) ? new Date(midMs).toISOString() : null;
+			const narrows =
+				mid !== null &&
+				midMs > fromMs &&
+				midMs < toMs &&
+				wiqlDay(mid) > wiqlDay(from) &&
+				wiqlDay(mid, 1) < wiqlDay(to, 1);
+			if (!narrows) {
 				problems.push({
-					reason: `cannot split window ${from}..${to} any further`,
+					reason: `work item window ${from}..${to} is already one day wide and still exceeds the WIQL result cap`,
 				});
 				return;
 			}
-			const mid = new Date(midMs).toISOString();
 			await run(from, mid, depth + 1);
 			await run(mid, to, depth + 1);
 		}
@@ -229,30 +285,39 @@ export async function fetchWorkItemIds(
 	/**
 	 * Cover an open-ended window by walking backwards from `to`.
 	 *
-	 * Doubling the step keeps the call count logarithmic in how far back the
-	 * history goes, while each slice stays small enough to fit the WIQL cap.
-	 * Stops once a slice comes back empty AND we have reached the project's
-	 * earliest data — an empty slice alone is not enough, since a quiet month
-	 * says nothing about the year before it.
+	 * The floor is ASKED FOR, not guessed: WIQL can order by `ChangedDate ASC`,
+	 * so the project's oldest work item is one query away. An earlier version
+	 * stopped after three consecutive empty slices — 210 days — which declared a
+	 * team that moved off a project eight months ago to have no history at all,
+	 * reported no problem, let the cursor advance, and let `--full` clear
+	 * `scores_stale`. A confidently empty Dashboard is worse than a blank one.
+	 *
+	 * Doubling the span keeps the call count logarithmic in how far back the
+	 * history actually goes.
 	 */
 	const runOpenEnded = async (to: string, depth: number): Promise<void> => {
+		const floor = await oldestChangedDate(q);
+		if (floor === null) {
+			// No floor and no answer: say so rather than assume emptiness.
+			problems.push({
+				reason:
+					"could not determine the project's earliest work item, so an open-ended window cannot be proven covered",
+			});
+			return;
+		}
+
 		let end = to;
 		let spanDays = 30;
-		let emptyStreak = 0;
 		for (let step = 0; step < (q.maxOpenSteps ?? 60); step++) {
-			const startMs = Date.parse(end) - spanDays * 86_400_000;
-			const start = new Date(startMs).toISOString();
-			const before = ids.size;
-			await run(start, end, depth + 1);
-			if (ids.size === before) {
-				// Three consecutive empty slices ≈ 3 spans of silence. Work items
-				// do not reappear before that in any real project history.
-				if (++emptyStreak >= 3) {
-					return;
-				}
-			} else {
-				emptyStreak = 0;
+			if (Date.parse(end) <= Date.parse(floor)) {
+				return;
 			}
+			const startMs = Math.max(
+				Date.parse(end) - spanDays * 86_400_000,
+				Date.parse(floor),
+			);
+			const start = new Date(startMs).toISOString();
+			await run(start, end, depth + 1);
 			end = start;
 			spanDays = Math.min(spanDays * 2, 720);
 		}

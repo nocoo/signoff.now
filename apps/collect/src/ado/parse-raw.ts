@@ -81,3 +81,10 @@ export const workItemStatesSchema = z
 		),
 	})
 	.loose();
+
+/** Just enough of a work item to read one field off it. */
+export const oldestItemSchema = z
+	.object({
+		fields: z.record(z.string(), z.unknown()),
+	})
+	.loose();

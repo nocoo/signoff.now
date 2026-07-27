@@ -253,7 +253,11 @@ describe("fetchWorkItemIds", () => {
 		// WIQL compares at DATE precision and REJECTS a supplied time, so the
 		// bounds are days — widened, never narrowed, or work items whose day
 		// falls on the edge would be skipped for good.
-		expect(q).toContain(">= '2026-07-01'");
+		// BOTH ends round outward. The lower bound backs off a day because WIQL
+		// evaluates dates in the ORGANIZATION's timezone, which we cannot see:
+		// 04:00Z is the previous day in a US-West org, and the cursor advances
+		// regardless, so a floored bound would skip that item permanently.
+		expect(q).toContain(">= '2026-06-30'");
 		expect(q).toContain("<= '2026-07-27'");
 		expect(q).not.toMatch(/T\d\d:/);
 	});
@@ -297,68 +301,97 @@ describe("fetchWorkItemIds", () => {
 		// widens each side, so they overlap — harmless, since ids dedupe — but a
 		// gap between them would drop work items with nothing to reveal it.
 		const halves = bodies.slice(1).map((b) => (b as { query: string }).query);
-		expect(halves[0]).toContain(">= '2026-07-01'");
+		expect(halves[0]).toContain(">= '2026-06-30'");
 		expect(halves[1]).toContain("<= '2026-07-04'");
 		for (const q of halves) {
 			expect(q).not.toMatch(/T\d\d:/);
 		}
 	});
 
-	test("an unbounded window walks backwards instead of giving up", async () => {
-		// `--full` ALWAYS opens the window. Refusing here would mean a large
-		// project can never complete a full rematch, so `scores_stale` never
-		// clears and the Dashboard stays blank with no way out.
+	test("bisection stops when the DAY range stops narrowing", async () => {
+		// The termination guard compares milliseconds, but the query is issued in
+		// days. Once a span drops under ~1 day both halves round to the parent's
+		// own day range, so recursion continues while every child fires the
+		// identical query: measured 8191 calls, 5 distinct queries, one of them
+		// repeated 4083 times, and 4096 duplicate `problems` entries.
 		const tooLarge = new AdoError("result_too_large", "cap", 400, "VS402337");
-		const { client, bodies } = scripted([
-			tooLarge,
-			{ workItems: [{ id: 1 }] },
-			{ workItems: [] },
-			{ workItems: [] },
-			{ workItems: [] },
-		]);
+		const seen = new Map<string, number>();
+		let calls = 0;
+		const client: AdoClient = {
+			async get() {
+				return { value: [] };
+			},
+			async post(_u, body) {
+				calls++;
+				const q = (body as { query: string }).query;
+				seen.set(q, (seen.get(q) ?? 0) + 1);
+				throw tooLarge;
+			},
+			invalidateToken() {},
+		};
 		const r = await fetchWorkItemIds({
 			client,
 			base,
 			project: "Alpha",
-			from: null,
-			watermark: "2026-07-26T00:00:00Z",
+			from: "2026-07-01T00:00:00Z",
+			watermark: "2026-07-03T00:00:00Z",
 		});
-		expect(r.items).toEqual([1]);
-		expect(r.problems).toEqual([]);
-		// The first slice ends at the watermark; later ones walk further back.
-		const days = bodies
-			.slice(1)
-			.map(
-				(b) =>
-					/>= '(\d{4}-\d{2}-\d{2})'/.exec((b as { query: string }).query)?.[1],
-			);
-		const [first, second, third] = days;
-		expect(first).toBe("2026-06-26");
-		// The spans must DOUBLE, not merely recede. A fixed 30-day step also
-		// walks backwards, but takes ~120 calls per decade of history instead of
-		// ~8 — and each one is a round trip against a rate-limited API.
-		expect(second).toBe("2026-04-27");
-		expect(third).toBe("2025-12-28");
-		const gap = (a?: string, b?: string) =>
-			(Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) /
-			86_400_000;
-		expect(gap(second, first)).toBe(60);
-		expect(gap(third, second)).toBe(120);
+		// A 2-day window has at most 2 single-day leaves; anything beyond that is
+		// re-asking a question already answered.
+		expect(calls).toBeLessThanOrEqual(8);
+		expect(Math.max(...seen.values())).toBe(1);
+		// And the operator gets one actionable problem, not thousands.
+		expect(r.problems.length).toBeLessThanOrEqual(3);
 	});
 
-	test("three empty slices in a row end the backwards walk", async () => {
-		// One quiet month says nothing about the year before it, so a single
-		// empty slice must not stop the sweep.
-		const tooLarge = new AdoError("result_too_large", "cap", 400, "VS402337");
-		const { client, bodies } = scripted([
-			tooLarge,
-			{ workItems: [] },
-			{ workItems: [] },
-			{ workItems: [{ id: 7 }] },
-			{ workItems: [] },
-			{ workItems: [] },
-			{ workItems: [] },
-		]);
+	/**
+	 * A client that answers the floor probe (oldest work item) and then serves
+	 * scripted slices. The floor is what makes an open-ended sweep provable.
+	 */
+	function openEndedClient(opts: {
+		oldest: string | null;
+		slice?: (lo: string) => unknown;
+	}): { client: AdoClient; queries: string[] } {
+		const queries: string[] = [];
+		const client: AdoClient = {
+			async get(url) {
+				if (url.includes("/workitems/")) {
+					// `oldest: null` models a field we cannot read, which is NOT
+					// the same as a project with no work items.
+					return {
+						fields: opts.oldest ? { "System.ChangedDate": opts.oldest } : {},
+					};
+				}
+				return { value: [] };
+			},
+			async post(_u, body) {
+				const q = (body as { query: string }).query;
+				if (q.includes("ORDER BY [System.ChangedDate] ASC")) {
+					return { workItems: [{ id: 1 }] };
+				}
+				queries.push(q);
+				const lo = /\bChangedDate\] >= '(\d{4}-\d{2}-\d{2})'/.exec(q)?.[1];
+				// An open window (no lower bound) is what trips the cap and sends
+				// the caller into the backwards sweep.
+				if (lo === undefined) {
+					throw new AdoError("result_too_large", "cap", 400, "VS402337");
+				}
+				return opts.slice?.(lo) ?? { workItems: [] };
+			},
+			invalidateToken() {},
+		};
+		return { client, queries };
+	}
+
+	test("an unbounded window sweeps back to the project's real floor", async () => {
+		// `--full` ALWAYS opens the window. Refusing here meant a large project
+		// could never complete a full rematch, so `scores_stale` never cleared
+		// and the Dashboard stayed blank with no way out.
+		const { client, queries } = openEndedClient({
+			oldest: "2026-01-01T00:00:00Z",
+			slice: (lo) =>
+				lo === "2026-06-25" ? { workItems: [{ id: 7 }] } : { workItems: [] },
+		});
 		const r = await fetchWorkItemIds({
 			client,
 			base,
@@ -368,16 +401,66 @@ describe("fetchWorkItemIds", () => {
 		});
 		expect(r.items).toEqual([7]);
 		expect(r.problems).toEqual([]);
-		// 1 failed open call + 6 slices: the streak reset when id 7 appeared.
-		expect(bodies).toHaveLength(7);
+
+		// The first entry is the open query that tripped the cap; the sweep
+		// starts after it.
+		const days = queries
+			.map((q) => /\bChangedDate\] >= '(\d{4}-\d{2}-\d{2})'/.exec(q)?.[1])
+			.filter((d): d is string => d !== undefined);
+		// Spans must DOUBLE, not merely recede. A fixed 30-day step also walks
+		// backwards, but takes ~120 calls per decade instead of ~8 — each one a
+		// round trip against a rate-limited API.
+		expect(days[0]).toBe("2026-06-25");
+		expect(days[1]).toBe("2026-04-26");
+		// Clamped at the floor (2026-01-01) rather than sweeping into empty
+		// prehistory — the third span would otherwise reach 2025-12-27.
+		expect(days[2]).toBe("2025-12-31");
+		expect(days).toHaveLength(3);
+	});
+
+	test("a dormant project is swept to its floor, not declared empty", async () => {
+		// Everything predates the near slices. Guessing "3 empty slices = done"
+		// covered only 210 days, so a team that moved off a project months ago
+		// looked like it never existed — with no problem reported, the cursor
+		// advancing, and `--full` clearing stale over it.
+		const { client } = openEndedClient({
+			oldest: "2025-01-01T00:00:00Z",
+			slice: (lo) =>
+				lo < "2025-11-01" ? { workItems: [{ id: 3 }] } : { workItems: [] },
+		});
+		const r = await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+		});
+		expect(r.items).toEqual([3]);
+		expect(r.problems).toEqual([]);
+	});
+
+	test("an unreadable floor is reported rather than assumed empty", async () => {
+		// "We could not check" must never be recorded as "there is nothing
+		// there": the scope has to block the cursor.
+		const { client } = openEndedClient({ oldest: null });
+		const r = await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+		});
+		expect(r.problems).toHaveLength(1);
+		expect(r.problems[0]?.reason).toContain("earliest work item");
 	});
 
 	test("the backwards walk has a step budget and reports when it runs out", async () => {
-		const tooLarge = new AdoError("result_too_large", "cap", 400, "VS402337");
-		const { client } = scripted([
-			tooLarge,
-			...Array.from({ length: 10 }, (_, i) => ({ workItems: [{ id: i }] })),
-		]);
+		// A decade of history against a tiny budget. Never silently truncate:
+		// an unfinished sweep must block the cursor.
+		const { client } = openEndedClient({
+			oldest: "2015-06-04T00:00:00Z",
+			slice: () => ({ workItems: [{ id: 1 }] }),
+		});
 		const r = await fetchWorkItemIds({
 			client,
 			base,
@@ -386,7 +469,6 @@ describe("fetchWorkItemIds", () => {
 			watermark: "2026-07-26T00:00:00Z",
 			maxOpenSteps: 3,
 		});
-		// Never silently truncate: an unfinished sweep must block the cursor.
 		expect(r.problems).toHaveLength(1);
 		expect(r.problems[0]?.reason).toContain("step budget");
 	});
