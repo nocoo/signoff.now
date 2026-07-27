@@ -457,3 +457,33 @@ describe("isWriteInto offset alignment", () => {
 		).toBe(false);
 	});
 });
+
+describe("guardConditionFor marker anchoring", () => {
+	test("a marker in a comment does not select a decoy guard", () => {
+		// This returns a WRONG condition, not null: the caller compares it to
+		// what it expects and can pass on a guard that no longer exists.
+		const src =
+			'if (safe) {\n  // returns "Chunk digest conflict" on mismatch\n}\n' +
+			'if (chunk && body.chunkIndex < 2) {\n  return "Chunk digest conflict";\n}';
+		expect(guardConditionFor(src, '"Chunk digest conflict"')).toBe(
+			"chunk && body.chunkIndex < 2",
+		);
+	});
+
+	test("a marker that IS a string literal still anchors", () => {
+		// Callers anchor on the guard's OUTCOME, and that outcome is usually a
+		// returned string. Skipping strings would ignore every real anchor.
+		expect(
+			guardConditionFor('if (a && b) {\n  return "boom";\n}', '"boom"'),
+		).toBe("a && b");
+	});
+
+	test("an escaped quote inside a string keeps the parens balanced", () => {
+		// `"a\") b"` is ONE string containing a quote and a paren. Without escape
+		// handling the scanner ends it at the escaped quote, then counts the `)`
+		// as structure and cuts the condition short — hiding whatever follows.
+		const src = 'if (s === "a\\") b" && n > 0) {\n  return HITX;\n}';
+		const cond = guardConditionFor(src, "HITX");
+		expect(cond).toContain("n > 0");
+	});
+});

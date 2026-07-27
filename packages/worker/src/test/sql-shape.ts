@@ -261,8 +261,12 @@ export function guardConditionFor(
 	source: string,
 	bodyMarker: string,
 ): string | null {
-	const at = source.indexOf(bodyMarker);
-	if (at === -1) {
+	// A marker inside a COMMENT must not count: it used to select the enclosing
+	// decoy `if` and return ITS condition — a confidently wrong answer rather
+	// than a miss. Strings still count, because the outcome callers anchor on is
+	// usually a string literal.
+	const at = nonCommentOffsets(source, bodyMarker)[0];
+	if (at === undefined) {
 		return null;
 	}
 
@@ -363,6 +367,73 @@ function endOfRegex(source: string, idx: number): number {
 	return j + 1;
 }
 
+/**
+ * Index just past the non-code run starting at `i`, or `i` when code starts
+ * there.
+ *
+ * One scanner, used by every caller. Written twice it drifted: one copy handled
+ * `\\` escapes and the other did not, so `"a\\\\"` looked unterminated and the
+ * whole condition came back null.
+ */
+function skipNonCode(source: string, i: number): number {
+	const ch = source[i];
+	if (ch === "/" && source[i + 1] === "/") {
+		const nl = source.indexOf("\n", i);
+		return nl === -1 ? source.length : nl;
+	}
+	if (ch === "/" && source[i + 1] === "*") {
+		const close = source.indexOf("*/", i + 2);
+		return close === -1 ? source.length : close + 2;
+	}
+	if (ch === "/" && opensRegex(source, i)) {
+		return endOfRegex(source, i);
+	}
+	if (ch === '"' || ch === "'" || ch === "`") {
+		let j = i + 1;
+		while (j < source.length) {
+			if (source[j] === "\\") {
+				j += 2;
+				continue;
+			}
+			if (source[j] === ch) {
+				return j + 1;
+			}
+			j++;
+		}
+		return source.length;
+	}
+	return i;
+}
+
+/**
+ * Offsets of `needle` outside COMMENTS.
+ *
+ * A marker mentioned in a comment used to select the enclosing decoy `if` and
+ * return ITS condition — a confidently wrong answer, not a miss.
+ *
+ * Strings are deliberately NOT skipped: callers anchor on the guard's OUTCOME,
+ * and that outcome is usually a string literal (`'"Chunk digest conflict"'`).
+ * Skipping strings would ignore every real anchor and report no guard at all.
+ */
+function nonCommentOffsets(source: string, needle: string): number[] {
+	const out: number[] = [];
+	let i = 0;
+	while (i < source.length) {
+		const ch = source[i];
+		if (ch === "/" && (source[i + 1] === "/" || source[i + 1] === "*")) {
+			i = skipNonCode(source, i);
+			continue;
+		}
+		if (source.startsWith(needle, i)) {
+			out.push(i);
+			i += needle.length;
+			continue;
+		}
+		i++;
+	}
+	return out;
+}
+
 function readParenSpan(
 	source: string,
 	openIdx: number,
@@ -373,46 +444,16 @@ function readParenSpan(
 	}
 	let depth = 0;
 	const start = i;
-	// Parens inside a string or a comment are text, not structure. Counting
-	// them truncated `if (msg === "a) b" && n > 0)` to `msg === "a`, so a guard
-	// could be rewritten past the cut and the assertion would still pass.
-	let quote: string | null = null;
+	// Parens inside a string, comment, or regex are text, not structure.
+	// Counting them truncated `if (msg === "a) b" && n > 0)` to `msg === "a`,
+	// so a guard could be rewritten past the cut and the assertion still pass.
 	while (i < source.length) {
+		const skipped = skipNonCode(source, i);
+		if (skipped !== i) {
+			i = skipped;
+			continue;
+		}
 		const ch = source[i] as string;
-		const prev = source[i - 1];
-		if (quote) {
-			if (ch === quote && prev !== "\\") {
-				quote = null;
-			}
-			i++;
-			continue;
-		}
-		if (ch === '"' || ch === "'" || ch === "`") {
-			quote = ch;
-			i++;
-			continue;
-		}
-		// COMMENTS FIRST. `//` and `/*` both start with `/` in a position where
-		// a regex is legal, so testing for a regex first lexed `// see a/b` as a
-		// regex literal and swallowed the rest of the condition — hiding the very
-		// cap the guard was asserted to not have.
-		if (ch === "/" && source[i + 1] === "/") {
-			const nl = source.indexOf("\n", i);
-			i = nl === -1 ? source.length : nl;
-			continue;
-		}
-		if (ch === "/" && source[i + 1] === "*") {
-			const close = source.indexOf("*/", i + 2);
-			i = close === -1 ? source.length : close + 2;
-			continue;
-		}
-		// A regex literal can carry parens too: `if (/a)b/.test(x) && n > 0)`
-		// truncated to `/a`. Told apart from division by what precedes it —
-		// after a value, `/` divides; after an operator or `(`, it opens a regex.
-		if (ch === "/" && opensRegex(source, i)) {
-			i = endOfRegex(source, i);
-			continue;
-		}
 		if (ch === "(") {
 			depth++;
 		} else if (ch === ")") {
