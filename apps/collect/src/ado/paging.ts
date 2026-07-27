@@ -126,6 +126,8 @@ export type WiqlQuery = {
 	watermark: string;
 	/** Guard against unbounded recursion when a single instant is too large. */
 	maxDepth?: number;
+	/** Backwards steps allowed when the window has no lower bound. */
+	maxOpenSteps?: number;
 };
 
 /**
@@ -192,11 +194,21 @@ export async function fetchWorkItemIds(
 			if (!(e instanceof AdoError) || e.kind !== "result_too_large") {
 				throw e;
 			}
-			if (depth >= (q.maxDepth ?? 12) || from === null) {
-				// Without a lower bound there is nothing left to halve.
+			if (depth >= (q.maxDepth ?? 12)) {
 				problems.push({
 					reason: `work item window ${from ?? "(open)"}..${to} exceeds the WIQL result cap and cannot be split further`,
 				});
+				return;
+			}
+
+			if (from === null) {
+				// An open window still has a lower edge — we just have not found
+				// it yet. Walk backwards in widening steps until a slice fits,
+				// then keep walking past it. `--full` ALWAYS opens the window, so
+				// refusing here means a large project can never complete a full
+				// rematch, `scores_stale` never clears, and the Dashboard stays
+				// blank forever with no way out.
+				await runOpenEnded(to, depth);
 				return;
 			}
 			const fromMs = Date.parse(from);
@@ -212,6 +224,41 @@ export async function fetchWorkItemIds(
 			await run(from, mid, depth + 1);
 			await run(mid, to, depth + 1);
 		}
+	};
+
+	/**
+	 * Cover an open-ended window by walking backwards from `to`.
+	 *
+	 * Doubling the step keeps the call count logarithmic in how far back the
+	 * history goes, while each slice stays small enough to fit the WIQL cap.
+	 * Stops once a slice comes back empty AND we have reached the project's
+	 * earliest data — an empty slice alone is not enough, since a quiet month
+	 * says nothing about the year before it.
+	 */
+	const runOpenEnded = async (to: string, depth: number): Promise<void> => {
+		let end = to;
+		let spanDays = 30;
+		let emptyStreak = 0;
+		for (let step = 0; step < (q.maxOpenSteps ?? 60); step++) {
+			const startMs = Date.parse(end) - spanDays * 86_400_000;
+			const start = new Date(startMs).toISOString();
+			const before = ids.size;
+			await run(start, end, depth + 1);
+			if (ids.size === before) {
+				// Three consecutive empty slices ≈ 3 spans of silence. Work items
+				// do not reappear before that in any real project history.
+				if (++emptyStreak >= 3) {
+					return;
+				}
+			} else {
+				emptyStreak = 0;
+			}
+			end = start;
+			spanDays = Math.min(spanDays * 2, 720);
+		}
+		problems.push({
+			reason: `work item history before ${end} was not reached within the open-window step budget`,
+		});
 	};
 
 	await run(q.from, q.watermark, 0);

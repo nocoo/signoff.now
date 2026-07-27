@@ -304,9 +304,18 @@ describe("fetchWorkItemIds", () => {
 		}
 	});
 
-	test("an unbounded window that is too large is reported, not split", async () => {
+	test("an unbounded window walks backwards instead of giving up", async () => {
+		// `--full` ALWAYS opens the window. Refusing here would mean a large
+		// project can never complete a full rematch, so `scores_stale` never
+		// clears and the Dashboard stays blank with no way out.
 		const tooLarge = new AdoError("result_too_large", "cap", 400, "VS402337");
-		const { client } = scripted([tooLarge]);
+		const { client, bodies } = scripted([
+			tooLarge,
+			{ workItems: [{ id: 1 }] },
+			{ workItems: [] },
+			{ workItems: [] },
+			{ workItems: [] },
+		]);
 		const r = await fetchWorkItemIds({
 			client,
 			base,
@@ -314,9 +323,72 @@ describe("fetchWorkItemIds", () => {
 			from: null,
 			watermark: "2026-07-26T00:00:00Z",
 		});
-		// With no lower bound there is nothing to halve.
+		expect(r.items).toEqual([1]);
+		expect(r.problems).toEqual([]);
+		// The first slice ends at the watermark; later ones walk further back.
+		const days = bodies
+			.slice(1)
+			.map(
+				(b) =>
+					/>= '(\d{4}-\d{2}-\d{2})'/.exec((b as { query: string }).query)?.[1],
+			);
+		const [first, second, third] = days;
+		expect(first).toBe("2026-06-26");
+		// The spans must DOUBLE, not merely recede. A fixed 30-day step also
+		// walks backwards, but takes ~120 calls per decade of history instead of
+		// ~8 — and each one is a round trip against a rate-limited API.
+		expect(second).toBe("2026-04-27");
+		expect(third).toBe("2025-12-28");
+		const gap = (a?: string, b?: string) =>
+			(Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) /
+			86_400_000;
+		expect(gap(second, first)).toBe(60);
+		expect(gap(third, second)).toBe(120);
+	});
+
+	test("three empty slices in a row end the backwards walk", async () => {
+		// One quiet month says nothing about the year before it, so a single
+		// empty slice must not stop the sweep.
+		const tooLarge = new AdoError("result_too_large", "cap", 400, "VS402337");
+		const { client, bodies } = scripted([
+			tooLarge,
+			{ workItems: [] },
+			{ workItems: [] },
+			{ workItems: [{ id: 7 }] },
+			{ workItems: [] },
+			{ workItems: [] },
+			{ workItems: [] },
+		]);
+		const r = await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+		});
+		expect(r.items).toEqual([7]);
+		expect(r.problems).toEqual([]);
+		// 1 failed open call + 6 slices: the streak reset when id 7 appeared.
+		expect(bodies).toHaveLength(7);
+	});
+
+	test("the backwards walk has a step budget and reports when it runs out", async () => {
+		const tooLarge = new AdoError("result_too_large", "cap", 400, "VS402337");
+		const { client } = scripted([
+			tooLarge,
+			...Array.from({ length: 10 }, (_, i) => ({ workItems: [{ id: i }] })),
+		]);
+		const r = await fetchWorkItemIds({
+			client,
+			base,
+			project: "Alpha",
+			from: null,
+			watermark: "2026-07-26T00:00:00Z",
+			maxOpenSteps: 3,
+		});
+		// Never silently truncate: an unfinished sweep must block the cursor.
 		expect(r.problems).toHaveLength(1);
-		expect(r.problems[0]?.reason).toContain("cannot be split");
+		expect(r.problems[0]?.reason).toContain("step budget");
 	});
 
 	test("bisection stops at the depth limit rather than recursing forever", async () => {
