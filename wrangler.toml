@@ -8,6 +8,14 @@
 name = "signoff"
 main = "packages/worker/src/index.ts"
 compatibility_date = "2026-07-07"
+
+# Production entry point. Cloudflare provisions the DNS record and certificate
+# for a custom domain, so no separate DNS entry is needed.
+routes = [{ pattern = "signoff.hexly.ai", custom_domain = true }]
+
+# workers.dev stays on as a fallback: if the custom domain or its certificate
+# misbehaves, `signoff.<subdomain>.workers.dev` is still a way in to check
+# whether the Worker itself is healthy.
 workers_dev = true
 
 # Local: bun run dev:worker → :37042 with --local D1

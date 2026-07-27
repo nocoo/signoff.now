@@ -369,7 +369,9 @@ README 的手册比这里多两节，都是实测/复审后补的：
 **已完成（与环境无关的部分）**：
 
 - [x] 远端 apply 0007 + 0008 —— `wrangler d1 migrations list --remote` 显示无待应用项
-- [x] Worker + SPA 部署完成 —— `https://signoff.nocoo.workers.dev`
+- [x] Worker + SPA 部署完成 —— 已部署至 `workers.dev`；生产域名
+      `signoff.hexly.ai` 已写进 `wrangler.toml`，**随下次部署生效**
+      （`workers.dev` 保留为退路：自定义域名或证书出问题时仍可验证 Worker 本身）
 - [x] 生产 Settings 已核对 —— 后缀为 `microsoft.com`（非默认 `example.com`）、
       时区 `Asia/Shanghai`
 - [x] 灰度单仓 `collect` → `ingest normalized`，游标推进 —— **本地**对真实仓

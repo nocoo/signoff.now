@@ -139,8 +139,19 @@ bun run signoff -- ingest normalized <同一个 artifact> --manifest <同一个 
 部署后接口不通是预期行为，不是故障。
 （例外：`/api/live` 与 pipeline 机器端点走各自的鉴权，不经 Access。）
 
-1. Cloudflare Zero Trust → Access → Applications 建一个应用，指向 Worker 域名；
-2. 复制该应用的 **AUD**，与 team domain 一起配成 Worker 变量。
+1. Cloudflare Zero Trust → Access → Applications 建一个应用，指向
+   `signoff.hexly.ai`（生产域名；`workers.dev` 保留为退路）；
+2. 复制该应用的 **AUD**，与 team domain（形如 `<team>.cloudflareaccess.com`）
+   一起配成 Worker secret：
+
+```bash
+bunx wrangler secret put CF_ACCESS_AUD
+bunx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+```
+
+**两个都配齐再部署**。只配一个，`access-auth` 仍走
+「未配置 → 500」那条分支（`middleware/access-auth.ts:47`），
+线上会从「没配」变成「配了一半」，症状完全一样但更难查。
 
 ## 状态
 
