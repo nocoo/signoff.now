@@ -1,20 +1,28 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Developer, Team } from "@/models/entities";
+import { avatarColor } from "@/lib/avatar";
+import type { Developer, Tag, Team } from "@/models/entities";
 import {
 	archiveDeveloper,
 	createDeveloper,
+	createTag,
 	listDevelopers,
+	listTags,
 	listTeams,
 	patchDeveloper,
 	restoreDeveloper,
 } from "@/models/entitiesApi";
-import { useDevelopersViewModel } from "./useDevelopersViewModel";
+import {
+	type DeveloperDraft,
+	useDevelopersViewModel,
+} from "./useDevelopersViewModel";
 
 vi.mock("@/models/entitiesApi", () => ({
 	listDevelopers: vi.fn(),
 	listTeams: vi.fn(),
+	listTags: vi.fn(),
 	createDeveloper: vi.fn(),
+	createTag: vi.fn(),
 	patchDeveloper: vi.fn(),
 	archiveDeveloper: vi.fn(),
 	restoreDeveloper: vi.fn(),
@@ -26,6 +34,17 @@ const dev = (over: Partial<Developer> = {}): Developer => ({
 	alias: "ada",
 	avatarUrl: null,
 	teamIds: [],
+	tagIds: [],
+	createdAt: 1,
+	updatedAt: 1,
+	archivedAt: null,
+	...over,
+});
+
+const tag = (over: Partial<Tag> = {}): Tag => ({
+	id: "g1",
+	name: "frontend",
+	color: "#FFFFFF",
 	createdAt: 1,
 	updatedAt: 1,
 	archivedAt: null,
@@ -36,6 +55,7 @@ const team = (over: Partial<Team> = {}): Team => ({
 	id: "t1",
 	name: "Core",
 	avatarUrl: null,
+	tagIds: [],
 	createdAt: 1,
 	updatedAt: 1,
 	archivedAt: null,
@@ -45,6 +65,10 @@ const team = (over: Partial<Team> = {}): Team => ({
 beforeEach(() => {
 	vi.mocked(listDevelopers).mockReset().mockResolvedValue([dev()]);
 	vi.mocked(listTeams).mockReset().mockResolvedValue([team()]);
+	vi.mocked(listTags).mockReset().mockResolvedValue([tag()]);
+	vi.mocked(createTag)
+		.mockReset()
+		.mockResolvedValue(tag({ id: "g-new", name: "infra" }));
 	vi.mocked(createDeveloper).mockReset().mockResolvedValue(dev());
 	vi.mocked(patchDeveloper).mockReset().mockResolvedValue(dev());
 	vi.mocked(archiveDeveloper).mockReset().mockResolvedValue(undefined);
@@ -138,36 +162,104 @@ describe("filtering", () => {
 	});
 });
 
-describe("create", () => {
-	it("refuses an invalid draft without calling the API", async () => {
-		const { result } = await mounted();
-		let ok = true;
-		await act(async () => {
-			ok = await result.current.create("", "ada");
-		});
-		expect(ok).toBe(false);
-		expect(createDeveloper).not.toHaveBeenCalled();
-		expect(result.current.error).toMatch(/Name/);
+describe("submit (create and edit share one path)", () => {
+	const draft = (over: Partial<DeveloperDraft> = {}): DeveloperDraft => ({
+		name: "Bob",
+		alias: "bob",
+		avatarUrl: "",
+		teamIds: [],
+		tagIds: [],
+		...over,
 	});
 
-	it("creates then reloads", async () => {
+	it("creates when nothing is being edited", async () => {
 		const { result } = await mounted();
 		await act(async () => {
-			await result.current.create("Bob", "bob");
+			await result.current.submit(draft({ tagIds: ["g1"] }));
 		});
-		expect(createDeveloper).toHaveBeenCalledWith("Bob", "bob");
+		expect(createDeveloper).toHaveBeenCalledWith("Bob", "bob", {
+			avatarUrl: null,
+			teamIds: [],
+			tagIds: ["g1"],
+		});
+		expect(patchDeveloper).not.toHaveBeenCalled();
+	});
+
+	it("patches when a row is being edited", async () => {
+		const { result } = await mounted();
+		act(() => {
+			result.current.setEditing(dev());
+		});
+		await act(async () => {
+			await result.current.submit(draft({ name: "Ada", alias: "ada" }));
+		});
+		expect(patchDeveloper).toHaveBeenCalledWith("d1", {
+			name: "Ada",
+			alias: "ada",
+			avatarUrl: null,
+			teamIds: [],
+			tagIds: [],
+		});
+		expect(createDeveloper).not.toHaveBeenCalled();
+	});
+
+	it("sends a blank avatar as null, not an empty string", async () => {
+		// null is the API's one spelling of "no image"; "" would be a second.
+		const { result } = await mounted();
+		await act(async () => {
+			await result.current.submit(draft({ avatarUrl: "   " }));
+		});
+		expect(vi.mocked(createDeveloper).mock.calls[0]?.[2]).toMatchObject({
+			avatarUrl: null,
+		});
+	});
+
+	it("reloads after a successful write", async () => {
+		const { result } = await mounted();
+		await act(async () => {
+			await result.current.submit(draft());
+		});
 		expect(listDevelopers).toHaveBeenCalledTimes(2);
 	});
 
-	it("surfaces a failure and reports it did not succeed", async () => {
+	it("propagates a failure so the dialog can stay open", async () => {
+		// Swallowing it here would close the dialog and discard the edits.
 		vi.mocked(createDeveloper).mockRejectedValueOnce(new Error("taken"));
 		const { result } = await mounted();
-		let ok = true;
+		await expect(result.current.submit(draft())).rejects.toThrow("taken");
+	});
+});
+
+describe("addTag", () => {
+	it("derives the colour from the name and selects the new tag", async () => {
+		// The API requires a colour; asking for a hex value mid-edit is a worse
+		// trade than a stable generated one.
+		const { result } = await mounted();
+		let id = "";
 		await act(async () => {
-			ok = await result.current.create("Bob", "bob");
+			id = await result.current.addTag("infra");
 		});
-		expect(ok).toBe(false);
-		expect(result.current.error).toBe("taken");
+		expect(createTag).toHaveBeenCalledWith("infra", avatarColor("infra"));
+		expect(id).toBe("g-new");
+	});
+
+	it("adds it to the local list without a full reload", async () => {
+		const { result } = await mounted();
+		await act(async () => {
+			await result.current.addTag("infra");
+		});
+		expect(result.current.tags.map((t) => t.name)).toContain("infra");
+		// One load on mount; creating a tag must not trigger a second.
+		expect(listDevelopers).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the list sorted by name", async () => {
+		const { result } = await mounted();
+		await act(async () => {
+			await result.current.addTag("infra");
+		});
+		const names = result.current.tags.map((t) => t.name);
+		expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
 	});
 });
 
@@ -234,59 +326,5 @@ describe("archive / restore", () => {
 			await result.current.archive("d1");
 		});
 		expect(result.current.error).toBe("Request failed");
-	});
-});
-
-describe("submitEdit", () => {
-	it("does nothing when no row is being edited", async () => {
-		const { result } = await mounted();
-		await act(async () => {
-			await result.current.submitEdit({
-				name: "X",
-				alias: "x",
-				avatarUrl: "",
-				teamIds: [],
-			});
-		});
-		expect(patchDeveloper).not.toHaveBeenCalled();
-	});
-
-	it("sends a blank avatar as null, not an empty string", async () => {
-		// null is the API's one spelling of "no image"; "" would be a second.
-		const { result } = await mounted();
-		act(() => {
-			result.current.setEditing(dev());
-		});
-		await act(async () => {
-			await result.current.submitEdit({
-				name: "Ada",
-				alias: "ada",
-				avatarUrl: "   ",
-				teamIds: ["t1"],
-			});
-		});
-		expect(patchDeveloper).toHaveBeenCalledWith("d1", {
-			name: "Ada",
-			alias: "ada",
-			avatarUrl: null,
-			teamIds: ["t1"],
-		});
-	});
-
-	it("propagates a failure so the dialog can stay open", async () => {
-		// Swallowing it here would close the dialog and discard the edits.
-		vi.mocked(patchDeveloper).mockRejectedValueOnce(new Error("conflict"));
-		const { result } = await mounted();
-		act(() => {
-			result.current.setEditing(dev());
-		});
-		await expect(
-			result.current.submitEdit({
-				name: "Ada",
-				alias: "ada",
-				avatarUrl: "",
-				teamIds: [],
-			}),
-		).rejects.toThrow("conflict");
 	});
 });

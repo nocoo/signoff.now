@@ -13,6 +13,7 @@ const dev = (over: Partial<Developer> = {}): Developer => ({
 	alias: "ada",
 	avatarUrl: null,
 	teamIds: [],
+	tagIds: [],
 	createdAt: 1,
 	updatedAt: 1,
 	archivedAt: null,
@@ -28,6 +29,7 @@ describe("draftFrom", () => {
 			alias: "ada",
 			avatarUrl: "https://x/a.png",
 			teamIds: ["t1"],
+			tagIds: [],
 		});
 	});
 
@@ -41,6 +43,7 @@ describe("draftFrom", () => {
 			alias: "",
 			avatarUrl: "",
 			teamIds: [],
+			tagIds: [],
 		});
 	});
 });
@@ -51,6 +54,7 @@ describe("validateDraft", () => {
 		alias: "ada",
 		avatarUrl: "",
 		teamIds: [],
+		tagIds: [],
 		...over,
 	});
 
@@ -121,6 +125,49 @@ describe("useDeveloperEditViewModel", () => {
 			result.current.toggleTeam("t1");
 		});
 		expect(result.current.draft.teamIds).toEqual([]);
+	});
+
+	it("toggles a tag on and off", () => {
+		const { result } = mount(dev());
+		act(() => {
+			result.current.toggleTag("g1");
+		});
+		expect(result.current.draft.tagIds).toEqual(["g1"]);
+		act(() => {
+			result.current.toggleTag("g1");
+		});
+		expect(result.current.draft.tagIds).toEqual([]);
+	});
+
+	it("tags and teams do not interfere", () => {
+		// Both live on the same draft; a shared toggle that ignored the key
+		// would move ids between the two lists.
+		const { result } = mount(dev());
+		act(() => {
+			result.current.toggleTeam("t1");
+			result.current.toggleTag("g1");
+		});
+		expect(result.current.draft.teamIds).toEqual(["t1"]);
+		expect(result.current.draft.tagIds).toEqual(["g1"]);
+	});
+
+	it("selectTag keeps an already-selected tag selected", () => {
+		// Reusing toggleTag here would DESELECT a tag that was already on —
+		// exactly what happens when someone types the name of a tag they had
+		// already ticked. Two calls must not cancel out.
+		const { result } = mount(dev());
+		act(() => {
+			result.current.toggleTag("g1");
+		});
+		act(() => {
+			result.current.selectTag("g1");
+		});
+		expect(result.current.draft.tagIds).toEqual(["g1"]);
+	});
+
+	it("carries existing tags into the draft", () => {
+		const { result } = mount(dev({ tagIds: ["g1", "g2"] }));
+		expect(result.current.draft.tagIds).toEqual(["g1", "g2"]);
 	});
 
 	it("refuses to submit an invalid draft", async () => {

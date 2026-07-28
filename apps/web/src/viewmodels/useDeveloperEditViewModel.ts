@@ -8,6 +8,7 @@ const EMPTY: DeveloperDraft = {
 	alias: "",
 	avatarUrl: "",
 	teamIds: [],
+	tagIds: [],
 };
 
 export function draftFrom(developer: Developer | null): DeveloperDraft {
@@ -17,6 +18,7 @@ export function draftFrom(developer: Developer | null): DeveloperDraft {
 				alias: developer.alias,
 				avatarUrl: developer.avatarUrl ?? "",
 				teamIds: developer.teamIds,
+				tagIds: developer.tagIds,
 			}
 		: EMPTY;
 }
@@ -68,14 +70,28 @@ export function useDeveloperEditViewModel(
 		[],
 	);
 
-	const toggleTeam = useCallback(
-		(id: string) =>
+	/** Add or remove one id from a draft list. Shared by teams and tags. */
+	const toggle = useCallback(
+		(key: "teamIds" | "tagIds", id: string) =>
 			setDraft((d) => ({
 				...d,
-				teamIds: d.teamIds.includes(id)
-					? d.teamIds.filter((t) => t !== id)
-					: [...d.teamIds, id],
+				[key]: d[key].includes(id)
+					? d[key].filter((t) => t !== id)
+					: [...d[key], id],
 			})),
+		[],
+	);
+	const toggleTeam = useCallback(
+		(id: string) => toggle("teamIds", id),
+		[toggle],
+	);
+	const toggleTag = useCallback((id: string) => toggle("tagIds", id), [toggle]);
+	/** Select a tag that was just created, without toggling it off by mistake. */
+	const selectTag = useCallback(
+		(id: string) =>
+			setDraft((d) =>
+				d.tagIds.includes(id) ? d : { ...d, tagIds: [...d.tagIds, id] },
+			),
 		[],
 	);
 
@@ -103,5 +119,14 @@ export function useDeveloperEditViewModel(
 		}
 	}, [busy, draft, onSubmit, onDone]);
 
-	return { draft, setField, toggleTeam, error, busy, save };
+	return {
+		draft,
+		setField,
+		toggleTeam,
+		toggleTag,
+		selectTag,
+		error,
+		busy,
+		save,
+	};
 }

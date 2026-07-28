@@ -1,9 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Team } from "@/models/entities";
+import { avatarColor } from "@/lib/avatar";
+import type { Tag, Team } from "@/models/entities";
 import {
 	archiveTeam,
+	createTag,
 	createTeam,
+	listTags,
 	listTeams,
 	patchTeam,
 } from "@/models/entitiesApi";
@@ -16,15 +19,28 @@ import {
 
 vi.mock("@/models/entitiesApi", () => ({
 	listTeams: vi.fn(),
+	listTags: vi.fn(),
 	createTeam: vi.fn(),
+	createTag: vi.fn(),
 	patchTeam: vi.fn(),
 	archiveTeam: vi.fn(),
 }));
+
+const tag = (over: Partial<Tag> = {}): Tag => ({
+	id: "g1",
+	name: "frontend",
+	color: "#FFFFFF",
+	createdAt: 1,
+	updatedAt: 1,
+	archivedAt: null,
+	...over,
+});
 
 const team = (over: Partial<Team> = {}): Team => ({
 	id: "t1",
 	name: "Core",
 	avatarUrl: null,
+	tagIds: [],
 	createdAt: 1,
 	updatedAt: 1,
 	archivedAt: null,
@@ -33,6 +49,10 @@ const team = (over: Partial<Team> = {}): Team => ({
 
 beforeEach(() => {
 	vi.mocked(listTeams).mockReset().mockResolvedValue([team()]);
+	vi.mocked(listTags).mockReset().mockResolvedValue([tag()]);
+	vi.mocked(createTag)
+		.mockReset()
+		.mockResolvedValue(tag({ id: "g-new", name: "infra" }));
 	vi.mocked(createTeam).mockReset().mockResolvedValue(team());
 	vi.mocked(patchTeam).mockReset().mockResolvedValue(team());
 	vi.mocked(archiveTeam).mockReset().mockResolvedValue(undefined);
@@ -49,17 +69,30 @@ describe("teamDraftFrom / validateTeamDraft", () => {
 		expect(teamDraftFrom(team({ avatarUrl: "https://x/t.png" }))).toEqual({
 			name: "Core",
 			avatarUrl: "https://x/t.png",
+			tagIds: [],
 		});
 		expect(teamDraftFrom(team()).avatarUrl).toBe("");
-		expect(teamDraftFrom(null)).toEqual({ name: "", avatarUrl: "" });
+		expect(teamDraftFrom(null)).toEqual({
+			name: "",
+			avatarUrl: "",
+			tagIds: [],
+		});
 	});
 
 	it("requires a name and validates the avatar", () => {
-		expect(validateTeamDraft({ name: "  ", avatarUrl: "" })).toMatch(/Name/);
 		expect(
-			validateTeamDraft({ name: "Core", avatarUrl: "javascript:alert(1)" }),
+			validateTeamDraft({ name: "  ", avatarUrl: "", tagIds: [] }),
+		).toMatch(/Name/);
+		expect(
+			validateTeamDraft({
+				name: "Core",
+				avatarUrl: "javascript:alert(1)",
+				tagIds: [],
+			}),
 		).toMatch(/http/);
-		expect(validateTeamDraft({ name: "Core", avatarUrl: "" })).toBeNull();
+		expect(
+			validateTeamDraft({ name: "Core", avatarUrl: "", tagIds: [] }),
+		).toBeNull();
 	});
 });
 
@@ -173,6 +206,23 @@ describe("useTeamsViewModel", () => {
 		});
 	});
 
+	it("addTag derives a colour and keeps the list sorted", async () => {
+		const { result } = await mounted();
+		let id = "";
+		await act(async () => {
+			id = await result.current.addTag("infra");
+		});
+		expect(createTag).toHaveBeenCalledWith("infra", avatarColor("infra"));
+		expect(id).toBe("g-new");
+		const names = result.current.tags.map((t) => t.name);
+		expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
+	});
+
+	it("loads tags alongside teams", async () => {
+		const { result } = await mounted();
+		expect(result.current.tags).toHaveLength(1);
+	});
+
 	it("archives then reloads", async () => {
 		const { result } = await mounted();
 		await act(async () => {
@@ -194,22 +244,29 @@ describe("useTeamsViewModel", () => {
 	it("submitEdit does nothing without a row", async () => {
 		const { result } = await mounted();
 		await act(async () => {
-			await result.current.submitEdit({ name: "X", avatarUrl: "" });
+			await result.current.submitEdit({ name: "X", avatarUrl: "", tagIds: [] });
 		});
 		expect(patchTeam).not.toHaveBeenCalled();
 	});
 
-	it("submitEdit sends a blank avatar as null", async () => {
+	it("submitEdit sends a blank avatar as null and carries the tags", async () => {
+		// Non-empty tagIds on purpose: asserting [] here would pass just as well
+		// against a body that dropped the field entirely.
 		const { result } = await mounted();
 		act(() => {
 			result.current.setEditing(team());
 		});
 		await act(async () => {
-			await result.current.submitEdit({ name: "Core", avatarUrl: "  " });
+			await result.current.submitEdit({
+				name: "Core",
+				avatarUrl: "  ",
+				tagIds: ["g1", "g2"],
+			});
 		});
 		expect(patchTeam).toHaveBeenCalledWith("t1", {
 			name: "Core",
 			avatarUrl: null,
+			tagIds: ["g1", "g2"],
 		});
 	});
 });
@@ -243,6 +300,37 @@ describe("useTeamEditViewModel", () => {
 		});
 		rerender({ t: team({ id: "t1", name: "Core" }) });
 		expect(result.current.draft.name).toBe("typed");
+	});
+
+	it("toggles a tag on and off", () => {
+		const { result } = mount(team());
+		act(() => {
+			result.current.toggleTag("g1");
+		});
+		expect(result.current.draft.tagIds).toEqual(["g1"]);
+		act(() => {
+			result.current.toggleTag("g1");
+		});
+		expect(result.current.draft.tagIds).toEqual([]);
+	});
+
+	it("selectTag keeps an already-selected tag selected", () => {
+		// Reusing toggleTag here would DESELECT a tag that was already on —
+		// exactly what happens when someone types the name of a tag they had
+		// already ticked. Two calls must not cancel out.
+		const { result } = mount(team());
+		act(() => {
+			result.current.toggleTag("g1");
+		});
+		act(() => {
+			result.current.selectTag("g1");
+		});
+		expect(result.current.draft.tagIds).toEqual(["g1"]);
+	});
+
+	it("carries existing tags into the draft", () => {
+		const { result } = mount(team({ tagIds: ["g1"] }));
+		expect(result.current.draft.tagIds).toEqual(["g1"]);
 	});
 
 	it("refuses an invalid draft", async () => {

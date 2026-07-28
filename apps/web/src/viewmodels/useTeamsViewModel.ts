@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Team } from "@/models/entities";
+import { avatarColor } from "@/lib/avatar";
+import type { Tag, Team } from "@/models/entities";
 import { validateAvatarUrl } from "@/models/entities";
 import {
 	archiveTeam,
+	createTag,
 	createTeam,
+	listTags,
 	listTeams,
 	patchTeam,
 } from "@/models/entitiesApi";
 
-export type TeamDraft = { name: string; avatarUrl: string };
+export type TeamDraft = { name: string; avatarUrl: string; tagIds: string[] };
 
 export function teamDraftFrom(team: Team | null): TeamDraft {
-	return { name: team?.name ?? "", avatarUrl: team?.avatarUrl ?? "" };
+	return {
+		name: team?.name ?? "",
+		avatarUrl: team?.avatarUrl ?? "",
+		tagIds: team?.tagIds ?? [],
+	};
 }
 
 export function validateTeamDraft(draft: TeamDraft): string | null {
@@ -24,6 +31,7 @@ export function validateTeamDraft(draft: TeamDraft): string | null {
 /** Loading, creation and archival for the Teams page. */
 export function useTeamsViewModel() {
 	const [items, setItems] = useState<Team[]>([]);
+	const [tags, setTags] = useState<Tag[]>([]);
 	const [name, setName] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -36,9 +44,10 @@ export function useTeamsViewModel() {
 		// top of a post-mutation refresh and undo it on screen.
 		const mine = ++ticket.current;
 		try {
-			const next = await listTeams();
+			const [next, nextTags] = await Promise.all([listTeams(), listTags()]);
 			if (mine === ticket.current) {
 				setItems(next);
+				setTags(nextTags);
 				setError(null);
 			}
 		} catch (e) {
@@ -98,14 +107,25 @@ export function useTeamsViewModel() {
 			await patchTeam(editing.id, {
 				name: draft.name,
 				avatarUrl: draft.avatarUrl.trim() || null,
+				tagIds: draft.tagIds,
 			});
 			await reload();
 		},
 		[editing, reload],
 	);
 
+	const addTag = useCallback(async (tagName: string) => {
+		const tag = await createTag(tagName, avatarColor(tagName));
+		setTags((prev) =>
+			[...prev, tag].sort((a, b) => a.name.localeCompare(b.name)),
+		);
+		return tag.id;
+	}, []);
+
 	return {
 		items,
+		tags,
+		addTag,
 		name,
 		setName,
 		error,
@@ -147,6 +167,26 @@ export function useTeamEditViewModel(
 		[],
 	);
 
+	const toggleTag = useCallback(
+		(id: string) =>
+			setDraft((d) => ({
+				...d,
+				tagIds: d.tagIds.includes(id)
+					? d.tagIds.filter((t) => t !== id)
+					: [...d.tagIds, id],
+			})),
+		[],
+	);
+
+	/** Select a just-created tag without toggling it off by mistake. */
+	const selectTag = useCallback(
+		(id: string) =>
+			setDraft((d) =>
+				d.tagIds.includes(id) ? d : { ...d, tagIds: [...d.tagIds, id] },
+			),
+		[],
+	);
+
 	const save = useCallback(async () => {
 		if (busy) {
 			return false;
@@ -169,5 +209,5 @@ export function useTeamEditViewModel(
 		}
 	}, [busy, draft, onSubmit, onDone]);
 
-	return { draft, setField, error, busy, save };
+	return { draft, setField, toggleTag, selectTag, error, busy, save };
 }

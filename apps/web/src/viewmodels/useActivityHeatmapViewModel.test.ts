@@ -21,6 +21,7 @@ const dev = (id: string, name: string, avatarUrl: string | null = null) => ({
 	alias: name.toLowerCase(),
 	avatarUrl,
 	teamIds: [],
+	tagIds: [],
 	createdAt: 1,
 	updatedAt: 1,
 	archivedAt: null,

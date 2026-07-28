@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Developer, DeveloperFilter, Team } from "@/models/entities";
-import {
-	EMPTY_DEVELOPER_FILTER,
-	filterDevelopers,
-	validateDeveloperInput,
-} from "@/models/entities";
+import { avatarColor } from "@/lib/avatar";
+import type { Developer, DeveloperFilter, Tag, Team } from "@/models/entities";
+import { EMPTY_DEVELOPER_FILTER, filterDevelopers } from "@/models/entities";
 import {
 	archiveDeveloper,
 	createDeveloper,
+	createTag,
 	listDevelopers,
+	listTags,
 	listTeams,
 	patchDeveloper,
 	restoreDeveloper,
@@ -19,6 +18,7 @@ export type DeveloperDraft = {
 	alias: string;
 	avatarUrl: string;
 	teamIds: string[];
+	tagIds: string[];
 };
 
 /**
@@ -32,11 +32,14 @@ export type DeveloperDraft = {
 export function useDevelopersViewModel() {
 	const [items, setItems] = useState<Developer[]>([]);
 	const [teams, setTeams] = useState<Team[]>([]);
+	const [tags, setTags] = useState<Tag[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [filter, setFilter] = useState<DeveloperFilter>(EMPTY_DEVELOPER_FILTER);
 	const [editing, setEditing] = useState<Developer | null>(null);
+	// `null` closes the dialog; a Developer edits it; "new" opens it empty.
+	const [creating, setCreating] = useState(false);
 
 	// Every reload takes a ticket; only the newest one may publish. Without
 	// this a slow initial GET can land after a post-mutation reload and put the
@@ -50,9 +53,10 @@ export function useDevelopersViewModel() {
 		// fine and leave the page empty — the one screen where the roster is the
 		// entire point. Archived rows are always fetched and hidden by the
 		// filter, so switching status needs no round trip.
-		const [devs, tms] = await Promise.allSettled([
+		const [devs, tms, tgs] = await Promise.allSettled([
 			listDevelopers(true),
 			listTeams(),
+			listTags(),
 		]);
 		if (mine !== ticket.current) {
 			return;
@@ -63,7 +67,10 @@ export function useDevelopersViewModel() {
 		if (tms.status === "fulfilled") {
 			setTeams(tms.value);
 		}
-		const failed = [devs, tms].find((r) => r.status === "rejected");
+		if (tgs.status === "fulfilled") {
+			setTags(tgs.value);
+		}
+		const failed = [devs, tms, tgs].find((r) => r.status === "rejected");
 		setError(
 			failed === undefined
 				? null
@@ -86,6 +93,7 @@ export function useDevelopersViewModel() {
 		() => new Map(teams.map((t) => [t.id, t])),
 		[teams],
 	);
+	const tagsById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
 
 	/**
 	 * One mutation at a time. A double-clicked Archive would otherwise fire two
@@ -112,41 +120,53 @@ export function useDevelopersViewModel() {
 		[busy, reload],
 	);
 
-	const create = useCallback(
-		async (name: string, alias: string) => {
-			const invalid = validateDeveloperInput(name, alias);
-			if (invalid) {
-				setError(invalid);
-				return false;
-			}
-			return mutate(() => createDeveloper(name, alias));
-		},
-		[mutate],
-	);
-
-	const submitEdit = useCallback(
+	/**
+	 * Create and edit share one path: the dialog produces the same draft either
+	 * way, and both must throw on failure so it can stay open and explain
+	 * itself rather than close and drop the user's work.
+	 */
+	const submit = useCallback(
 		async (draft: DeveloperDraft) => {
-			if (!editing) {
-				return;
-			}
-			// Throws on failure so the dialog can keep itself open and show why;
-			// swallowing here would close it and drop the user's edits.
-			await patchDeveloper(editing.id, {
+			const body = {
 				name: draft.name,
 				alias: draft.alias,
 				// A blank field means "no avatar", which the API spells as null.
 				avatarUrl: draft.avatarUrl.trim() || null,
 				teamIds: draft.teamIds,
-			});
+				tagIds: draft.tagIds,
+			};
+			if (editing) {
+				await patchDeveloper(editing.id, body);
+			} else {
+				await createDeveloper(draft.name, draft.alias, {
+					avatarUrl: body.avatarUrl,
+					teamIds: body.teamIds,
+					tagIds: body.tagIds,
+				});
+			}
 			await reload();
 		},
 		[editing, reload],
 	);
 
+	/**
+	 * Create a tag and hand back its id, so the dialog can select it without a
+	 * round trip through the roster reload.
+	 */
+	const addTag = useCallback(async (name: string) => {
+		const tag = await createTag(name, avatarColor(name));
+		setTags((prev) =>
+			[...prev, tag].sort((a, b) => a.name.localeCompare(b.name)),
+		);
+		return tag.id;
+	}, []);
+
 	return {
 		items,
 		teams,
+		tags,
 		teamsById,
+		tagsById,
 		visible,
 		filter,
 		setFilter,
@@ -155,9 +175,16 @@ export function useDevelopersViewModel() {
 		error,
 		editing,
 		setEditing,
+		creating,
+		setCreating,
+		dialogOpen: creating || editing !== null,
+		closeDialog: () => {
+			setCreating(false);
+			setEditing(null);
+		},
 		reload,
-		create,
-		submitEdit,
+		submit,
+		addTag,
 		archive: (id: string) => mutate(() => archiveDeveloper(id)),
 		restore: (id: string) => mutate(() => restoreDeveloper(id)),
 	};
