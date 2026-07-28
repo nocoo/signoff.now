@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+	AVATAR_URL_MAX,
 	archiveDeveloperBatch,
 	batchChanges,
 	clearStaleCasStatements,
 	normalizeAlias,
+	normalizeAvatarUrl,
 	normalizeColor,
 	normalizeName,
 	restoreDeveloperBatch,
@@ -101,5 +103,44 @@ describe("batchChanges / settingsPutCasOutcome", () => {
 		expect(settingsPutCasOutcome(1)).toBe("ok");
 		expect(settingsPutCasOutcome(0)).toBe("conflict");
 		expect(settingsPutCasOutcome(2)).toBe("conflict");
+	});
+});
+
+describe("normalizeAvatarUrl", () => {
+	const kind = (r: ReturnType<typeof normalizeAvatarUrl>) =>
+		"absent" in r ? "absent" : "error" in r ? "error" : r.value;
+
+	test("an absent field is not the same as a cleared one", () => {
+		// Collapsing these would make every PATCH that omits avatarUrl wipe it.
+		expect(kind(normalizeAvatarUrl(undefined))).toBe("absent");
+		expect(kind(normalizeAvatarUrl(null))).toBeNull();
+	});
+
+	test("blank means cleared, so the UI has one empty case", () => {
+		expect(kind(normalizeAvatarUrl(""))).toBeNull();
+		expect(kind(normalizeAvatarUrl("   "))).toBeNull();
+	});
+
+	test("http(s) URLs pass through untouched", () => {
+		expect(kind(normalizeAvatarUrl("https://x/a.png"))).toBe("https://x/a.png");
+		expect(kind(normalizeAvatarUrl("  http://x/a.png  "))).toBe(
+			"http://x/a.png",
+		);
+	});
+
+	test("a script-bearing scheme is an ERROR, not silently dropped", () => {
+		// This value lands in an `<img src>` shown to every viewer. Returning
+		// "absent" would keep the old avatar and report success — the caller
+		// would never learn the URL was refused.
+		expect(kind(normalizeAvatarUrl("javascript:alert(1)"))).toBe("error");
+		expect(kind(normalizeAvatarUrl("data:image/png;base64,AAA"))).toBe("error");
+		expect(kind(normalizeAvatarUrl("not a url"))).toBe("error");
+		expect(kind(normalizeAvatarUrl(42))).toBe("error");
+	});
+
+	test("an over-long URL is refused rather than stored", () => {
+		expect(
+			kind(normalizeAvatarUrl(`https://x/${"a".repeat(AVATAR_URL_MAX)}`)),
+		).toBe("error");
 	});
 });

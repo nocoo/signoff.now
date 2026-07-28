@@ -5,6 +5,7 @@ export type DeveloperRow = {
 	id: string;
 	name: string;
 	alias: string;
+	avatar_url: string | null;
 	created_at: number;
 	updated_at: number;
 	archived_at: number | null;
@@ -13,6 +14,7 @@ export type DeveloperRow = {
 export type TeamRow = {
 	id: string;
 	name: string;
+	avatar_url: string | null;
 	created_at: number;
 	updated_at: number;
 	archived_at: number | null;
@@ -176,3 +178,53 @@ export function batchChanges(result: D1Result | undefined): number {
 }
 
 export { newId };
+
+/**
+ * Normalise an avatar URL from a request body.
+ *
+ * Three outcomes, kept distinct on purpose:
+ *   `{ absent: true }` — field not in the body; leave the stored value alone.
+ *   `{ value: null }`  — explicitly cleared, or blank. One stored form for "no
+ *                        image", so the UI has one case to handle.
+ *   `{ error }`        — present but unusable; the caller answers 400.
+ *
+ * Folding the last two together would silently drop a mistyped URL and report
+ * success. Only http(s) is accepted: a `javascript:` or `data:` URL rendered
+ * into an `<img src>` is a scripting vector, and this value is shown to every
+ * viewer of the page.
+ */
+export type AvatarUrlResult =
+	| { absent: true }
+	| { value: string | null }
+	| { error: string };
+
+export const AVATAR_URL_MAX = 2048;
+
+export function normalizeAvatarUrl(v: unknown): AvatarUrlResult {
+	if (v === undefined) {
+		return { absent: true };
+	}
+	if (v === null) {
+		return { value: null };
+	}
+	if (typeof v !== "string") {
+		return { error: "avatarUrl must be a string or null" };
+	}
+	const t = v.trim();
+	if (!t) {
+		return { value: null };
+	}
+	if (t.length > AVATAR_URL_MAX) {
+		return { error: `avatarUrl exceeds ${AVATAR_URL_MAX} characters` };
+	}
+	let u: URL;
+	try {
+		u = new URL(t);
+	} catch {
+		return { error: "avatarUrl must be an absolute http(s) URL" };
+	}
+	if (u.protocol !== "http:" && u.protocol !== "https:") {
+		return { error: "avatarUrl must use http or https" };
+	}
+	return { value: t };
+}
