@@ -228,3 +228,76 @@ export function normalizeAvatarUrl(v: unknown): AvatarUrlResult {
 	}
 	return { value: t };
 }
+
+/**
+ * Read a `teamIds` array from a request body.
+ *
+ * Absent means "leave memberships alone"; an empty array means "remove them
+ * all". Those are different intentions and a PATCH must be able to express
+ * both, so they are not folded together.
+ */
+export type TeamIdsResult =
+	| { absent: true }
+	| { value: string[] }
+	| { error: string };
+
+export const TEAM_IDS_MAX = 64;
+
+export function readTeamIds(v: unknown): TeamIdsResult {
+	if (v === undefined) {
+		return { absent: true };
+	}
+	if (!Array.isArray(v)) {
+		return { error: "teamIds must be an array" };
+	}
+	if (v.length > TEAM_IDS_MAX) {
+		return { error: `teamIds exceeds ${TEAM_IDS_MAX} entries` };
+	}
+	const out: string[] = [];
+	for (const raw of v) {
+		if (typeof raw !== "string" || !raw.trim()) {
+			return { error: "teamIds must contain non-empty strings" };
+		}
+		const id = raw.trim();
+		// Duplicates would hit the composite primary key and roll the whole
+		// batch back — a 500 for what is really a harmless repeated selection.
+		if (!out.includes(id)) {
+			out.push(id);
+		}
+	}
+	return { value: out };
+}
+
+/**
+ * Statements that make `developer_teams` match `teamIds` exactly.
+ *
+ * Delete-then-insert rather than a diff: the set is tiny, and a diff would need
+ * to read current state first, which cannot happen inside the same batch.
+ * `INSERT ... SELECT ... WHERE EXISTS` skips ids that name no live team, so a
+ * stale id from a client cannot fail the whole write.
+ */
+export function membershipStatements(
+	db: D1Database,
+	developerId: string,
+	teamIds: readonly string[],
+): D1PreparedStatement[] {
+	const stmts = [
+		db
+			.prepare("DELETE FROM developer_teams WHERE developer_id = ?")
+			.bind(developerId),
+	];
+	for (const teamId of teamIds) {
+		stmts.push(
+			db
+				.prepare(
+					`INSERT INTO developer_teams (developer_id, team_id, created_at)
+           SELECT ?, ?, unixepoch()
+           WHERE EXISTS (
+             SELECT 1 FROM teams WHERE id = ? AND archived_at IS NULL
+           )`,
+				)
+				.bind(developerId, teamId, teamId),
+		);
+	}
+	return stmts;
+}

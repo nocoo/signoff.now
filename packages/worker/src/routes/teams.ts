@@ -1,5 +1,10 @@
 import type { Context } from "hono";
-import { newId, normalizeName, type TeamRow } from "../lib/entities.js";
+import {
+	newId,
+	normalizeAvatarUrl,
+	normalizeName,
+	type TeamRow,
+} from "../lib/entities.js";
 import { asObjectBody, readJsonBody } from "../lib/http-body.js";
 import type { AppEnv } from "../types.js";
 
@@ -7,6 +12,7 @@ function mapTeam(r: TeamRow) {
 	return {
 		id: r.id,
 		name: r.name,
+		avatarUrl: r.avatar_url,
 		createdAt: r.created_at,
 		updatedAt: r.updated_at,
 		archivedAt: r.archived_at,
@@ -35,12 +41,17 @@ export async function teamsCreateRoute(c: Context<AppEnv>) {
 	if (!name) {
 		return c.json({ error: "name required" }, 400);
 	}
+	const avatar = normalizeAvatarUrl(b.avatarUrl);
+	if ("error" in avatar) {
+		return c.json({ error: avatar.error }, 400);
+	}
 	const id = newId();
 	try {
 		await c.env.DB.prepare(
-			`INSERT INTO teams (id, name, created_at, updated_at) VALUES (?, ?, unixepoch(), unixepoch())`,
+			`INSERT INTO teams (id, name, avatar_url, created_at, updated_at)
+       VALUES (?, ?, ?, unixepoch(), unixepoch())`,
 		)
-			.bind(id, name)
+			.bind(id, name, "absent" in avatar ? null : avatar.value)
 			.run();
 	} catch {
 		return c.json({ error: "Name already exists" }, 409);
@@ -53,6 +64,9 @@ export async function teamsCreateRoute(c: Context<AppEnv>) {
 
 export async function teamsPatchRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
+	if (!id) {
+		return c.json({ error: "Not found" }, 404);
+	}
 	const raw = await readJsonBody(c);
 	if (!raw.ok) {
 		return c.json({ error: "Invalid JSON body" }, 400);
@@ -65,11 +79,23 @@ export async function teamsPatchRoute(c: Context<AppEnv>) {
 	if (!name) {
 		return c.json({ error: "name required" }, 400);
 	}
+	const avatar = normalizeAvatarUrl(b.avatarUrl);
+	if ("error" in avatar) {
+		return c.json({ error: avatar.error }, 400);
+	}
+	// Keep the stored avatar when the field was absent, WITHOUT a second round
+	// trip to read it first — and without turning "not found" into a different
+	// status than this route already promised.
+	const keepAvatar = "absent" in avatar;
 	try {
 		const r = await c.env.DB.prepare(
-			`UPDATE teams SET name = ?, updated_at = unixepoch() WHERE id = ? AND archived_at IS NULL`,
+			`UPDATE teams
+       SET name = ?1,
+           avatar_url = CASE WHEN ?2 = 1 THEN avatar_url ELSE ?3 END,
+           updated_at = unixepoch()
+       WHERE id = ?4 AND archived_at IS NULL`,
 		)
-			.bind(name, id)
+			.bind(name, keepAvatar ? 1 : 0, keepAvatar ? null : avatar.value, id)
 			.run();
 		if (!r.meta.changes) {
 			return c.json({ error: "Not found" }, 404);
