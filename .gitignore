@@ -33,6 +33,8 @@ yarn.lock
 # Env variables
 .env
 .env.*
+# ...but the template must be tracked: it tells the next person what to fill in.
+!.env.example
 .envrc
 
 # Temporary files
