@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ingestBodySchema } from "./ingest.js";
+import { ingestBodySchema, MAX_CHUNK_INDEX } from "./ingest.js";
 
 const validBody = {
 	pipelineConfigVersion: 1,
@@ -117,5 +117,37 @@ describe("ingestBodySchema", () => {
 			extra: true,
 		});
 		expect(r.success).toBe(false);
+	});
+});
+
+describe("chunkIndex ceiling", () => {
+	const mk = (i: number) => ({
+		pipelineConfigVersion: 1,
+		runId: "01JAY7B4HXTMRP0VQZ0FKZH5E9",
+		chunkIndex: i,
+		isFinalChunk: false,
+		runMeta: {
+			startedAt: 1,
+			source: "fixture" as const,
+			windowFrom: "2026-07-01",
+			windowTo: "2026-07-02",
+			mode: "incremental" as const,
+		},
+		activities: [],
+		unmatchedIdentities: [],
+	});
+
+	test("the largest index a fixture can produce is accepted", () => {
+		expect(ingestBodySchema.safeParse(mk(0)).success).toBe(true);
+		expect(ingestBodySchema.safeParse(mk(MAX_CHUNK_INDEX)).success).toBe(true);
+	});
+
+	test("an index no fixture could produce is refused", () => {
+		// Harmless today because the write path refuses gaps, but the contract
+		// should state its own ceiling rather than lean on a downstream guard.
+		expect(ingestBodySchema.safeParse(mk(MAX_CHUNK_INDEX + 1)).success).toBe(
+			false,
+		);
+		expect(ingestBodySchema.safeParse(mk(99_999)).success).toBe(false);
 	});
 });

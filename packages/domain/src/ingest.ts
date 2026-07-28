@@ -16,11 +16,19 @@ export const unmatchedIdentitySchema = z
 	})
 	.strict();
 
+/** Largest chunk index a 5000-activity fixture can produce (5000/10 - 1). */
+export const MAX_CHUNK_INDEX = 499;
+
 export const ingestBodySchema = z
 	.object({
 		pipelineConfigVersion: z.number().int().positive(),
 		runId: z.string().regex(RUN_ID_RE),
-		chunkIndex: z.number().int().nonnegative(),
+		// Bounded, not merely non-negative. A fixture holds ≤5000 activities and
+		// a chunk ≤10, so 499 is the largest index the pipeline can legitimately
+		// produce. Leaving it open let a caller claim index 99999 — harmless
+		// today because the write path refuses gaps, but the contract should
+		// state the ceiling rather than rely on a downstream guard to imply it.
+		chunkIndex: z.number().int().nonnegative().max(MAX_CHUNK_INDEX),
 		isFinalChunk: z.boolean(),
 		runMeta: z
 			.object({
@@ -45,6 +53,7 @@ export const INGEST_MAX_PAYLOAD_BYTES = 512 * 1024;
 
 /** Max activities / unmatched per chunk (§5.2). */
 export const INGEST_MAX_ACTIVITIES = 10;
+
 export const INGEST_MAX_UNMATCHED = 10;
 
 /** File-level fixture (06 §6.2): may exceed per-chunk caps; CLI slices then re-validates. */
