@@ -252,7 +252,17 @@ export function normalizeAvatarUrl(v: unknown): AvatarUrlResult {
 	if (u.protocol !== "http:" && u.protocol !== "https:") {
 		return { error: "avatarUrl must use http or https" };
 	}
-	return { value: t };
+	// Credentials in an image URL are never legitimate here, and a stored
+	// `https://user:pw@host/x.png` would leak them to anyone who can read the
+	// roster — including via the browser's network log on every page view.
+	if (u.username || u.password) {
+		return { error: "avatarUrl must not carry credentials" };
+	}
+	// Store the PARSED form, not the raw input. `https:\\evil/x` and
+	// `https://evil/x` are the same request but different strings; keeping the
+	// raw text means the value that was validated is not the value that gets
+	// rendered. One canonical form removes that gap.
+	return { value: u.href };
 }
 
 /**
@@ -316,26 +326,23 @@ export function membershipStatements(
 	db: D1Database,
 	developerId: string,
 	teamIds: readonly string[],
-	opts?: { onlyIfLiveDeveloper?: boolean },
+	opts?: { onlyIfLiveDeveloper?: boolean; skipDelete?: boolean },
 ): D1PreparedStatement[] {
 	const live = opts?.onlyIfLiveDeveloper
 		? ` AND EXISTS (
              SELECT 1 FROM developers WHERE id = ?1 AND archived_at IS NULL
            )`
 		: "";
-	const stmts = [
-		db
-			.prepare(
-				`DELETE FROM developer_teams WHERE developer_id = ?1${
-					live
-						? ` AND EXISTS (
-             SELECT 1 FROM developers WHERE id = ?1 AND archived_at IS NULL
-           )`
-						: ""
-				}`,
-			)
-			.bind(developerId),
-	];
+	// On create the row is brand new, so there is nothing to delete — and that
+	// DELETE would spend one of D1's per-invocation statements matching zero
+	// rows on every single create.
+	const stmts = opts?.skipDelete
+		? []
+		: [
+				db
+					.prepare(`DELETE FROM developer_teams WHERE developer_id = ?1${live}`)
+					.bind(developerId),
+			];
 	for (const teamId of teamIds) {
 		stmts.push(
 			db

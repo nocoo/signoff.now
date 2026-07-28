@@ -197,6 +197,38 @@ describe("usableAvatarUrl", () => {
 		expect(usableAvatarUrl("data:text/html,<script>")).toBeNull();
 	});
 
+	it("rejects case-shifted and control-character scheme smuggling", () => {
+		// `new URL()` normalises all of these to javascript:/vbscript: before
+		// the protocol check, so none reaches the DOM. Asserted explicitly
+		// because "it happens to normalise" is not readable off the source.
+		const TAB = String.fromCharCode(9);
+		const NL = String.fromCharCode(10);
+		for (const bad of [
+			"JaVaScRiPt:alert(1)",
+			` java${TAB}script:alert(1)`,
+			`java${NL}script:alert(1)`,
+			"vbscript:msgbox(1)",
+			"DATA:text/html,<script>",
+			"javascript%3Aalert(1)",
+			"//evil/x",
+			"file:///etc/passwd",
+		]) {
+			expect(usableAvatarUrl(bad)).toBeNull();
+		}
+	});
+
+	it("rejects credentials", () => {
+		expect(usableAvatarUrl("https://user:pw@evil/x.png")).toBeNull();
+		expect(usableAvatarUrl("https://user@evil/x.png")).toBeNull();
+		// Empty username with a real password still ships the secret.
+		expect(usableAvatarUrl("https://:pw@evil/x.png")).toBeNull();
+	});
+
+	it("returns the parsed href, not the raw text", () => {
+		// Otherwise the string that was checked is not the string rendered.
+		expect(usableAvatarUrl("https:\\\\evil/x")).toBe("https://evil/x");
+	});
+
 	it("rejects an unparseable or missing value", () => {
 		expect(usableAvatarUrl("not a url")).toBeNull();
 		expect(usableAvatarUrl(null)).toBeNull();

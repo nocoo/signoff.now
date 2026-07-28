@@ -94,6 +94,11 @@ export function avatarInitial(name: string): string {
  * Only http(s) images are rendered. The server already refuses anything else on
  * write, but a row predating that check — or one written by another client —
  * must not put a `javascript:` URL into an `<img src>`.
+ *
+ * Returns the PARSED href so the value that passed the check is the value that
+ * gets rendered; `https:\\evil/x` and `https://evil/x` are the same request but
+ * different strings. Credentials are refused outright: they are never
+ * legitimate in an image URL and would leak to every viewer.
  */
 export function usableAvatarUrl(url: string | null | undefined): string | null {
 	if (!url) {
@@ -101,7 +106,10 @@ export function usableAvatarUrl(url: string | null | undefined): string | null {
 	}
 	try {
 		const u = new URL(url);
-		return u.protocol === "http:" || u.protocol === "https:" ? url : null;
+		if (u.protocol !== "http:" && u.protocol !== "https:") {
+			return null;
+		}
+		return u.username || u.password ? null : u.href;
 	} catch {
 		return null;
 	}

@@ -121,10 +121,13 @@ export async function developersCreateRoute(c: Context<AppEnv>) {
 			).bind(id, name, alias, "absent" in avatar ? null : avatar.value),
 			// On create, "absent" and "[]" mean the same thing: no memberships.
 			// The distinction only matters for PATCH, where absent must not wipe.
+			// `skipDelete`: the row was created by the statement above, so there
+			// is nothing to clear.
 			...membershipStatements(
 				c.env.DB,
 				id,
 				"absent" in teamIds ? [] : teamIds.value,
+				{ skipDelete: true },
 			),
 			...staleBumpStatements(c.env.DB, "developer created (match set)"),
 		]);
