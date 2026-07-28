@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	AVATAR_PALETTE,
 	avatarColor,
+	avatarColorHex,
 	avatarInitial,
 	hashName,
 	usableAvatarUrl,
@@ -234,5 +235,66 @@ describe("usableAvatarUrl", () => {
 		expect(usableAvatarUrl(null)).toBeNull();
 		expect(usableAvatarUrl(undefined)).toBeNull();
 		expect(usableAvatarUrl("")).toBeNull();
+	});
+});
+
+describe("avatarColorHex", () => {
+	it("produces the #RRGGBB the server will accept", () => {
+		// `tags.color` is validated against ^#[0-9A-Fa-f]{6}$ server-side. The
+		// CSS form (`hsl(10 62% 49%)`) is a 400, and that shipped once because
+		// the caller reached for avatarColor.
+		for (const name of ["infra", "frontend", "张伟", "a", ""]) {
+			expect(avatarColorHex(name)).toMatch(/^#[0-9A-F]{6}$/);
+		}
+	});
+
+	it("every palette swatch converts cleanly", () => {
+		// One bad entry would only surface for whichever names hash onto it.
+		const seen = new Set<string>();
+		for (let i = 0; i < 400; i++) {
+			seen.add(avatarColorHex(`name-${i}`));
+		}
+		for (const hex of seen) {
+			expect(hex).toMatch(/^#[0-9A-F]{6}$/);
+		}
+		expect(seen.size).toBeGreaterThan(20);
+	});
+
+	it("agrees with avatarColor on the underlying swatch", () => {
+		// Same hash, same palette entry — the two must not drift apart, or a
+		// tag's stored colour would differ from the dot previewing it.
+		const hslToHex = (hsl: string) => {
+			const [h, s, l] = hsl
+				.replace(/^hsl\(|\)$/g, "")
+				.split(" ")
+				.map((p) => Number.parseFloat(p))
+				.map((n, i) => (i === 0 ? n : n / 100)) as [number, number, number];
+			const c = (1 - Math.abs(2 * l - 1)) * s;
+			const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+			const m = l - c / 2;
+			const rgb = [
+				[c, x, 0],
+				[x, c, 0],
+				[0, c, x],
+				[0, x, c],
+				[x, 0, c],
+				[c, 0, x],
+			][Math.floor(h / 60) % 6] as [number, number, number];
+			return `#${rgb
+				.map((v) =>
+					Math.round((v + m) * 255)
+						.toString(16)
+						.padStart(2, "0"),
+				)
+				.join("")
+				.toUpperCase()}`;
+		};
+		for (const name of ["infra", "张伟", "ops"]) {
+			expect(avatarColorHex(name)).toBe(hslToHex(avatarColor(name)));
+		}
+	});
+
+	it("is stable for the same name", () => {
+		expect(avatarColorHex("infra")).toBe(avatarColorHex("infra"));
 	});
 });

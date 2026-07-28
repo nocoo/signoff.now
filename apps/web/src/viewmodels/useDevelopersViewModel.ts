@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { avatarColor } from "@/lib/avatar";
+import { avatarColorHex } from "@/lib/avatar";
 import type { Developer, DeveloperFilter, Tag, Team } from "@/models/entities";
 import { EMPTY_DEVELOPER_FILTER, filterDevelopers } from "@/models/entities";
 import {
@@ -154,7 +154,7 @@ export function useDevelopersViewModel() {
 	 * round trip through the roster reload.
 	 */
 	const addTag = useCallback(async (name: string) => {
-		const tag = await createTag(name, avatarColor(name));
+		const tag = await createTag(name, avatarColorHex(name));
 		setTags((prev) =>
 			[...prev, tag].sort((a, b) => a.name.localeCompare(b.name)),
 		);

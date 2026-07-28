@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { avatarColor } from "@/lib/avatar";
+import { avatarColorHex } from "@/lib/avatar";
 import type { Tag, Team } from "@/models/entities";
 import { validateAvatarUrl } from "@/models/entities";
 import {
@@ -115,7 +115,7 @@ export function useTeamsViewModel() {
 	);
 
 	const addTag = useCallback(async (tagName: string) => {
-		const tag = await createTag(tagName, avatarColor(tagName));
+		const tag = await createTag(tagName, avatarColorHex(tagName));
 		setTags((prev) =>
 			[...prev, tag].sort((a, b) => a.name.localeCompare(b.name)),
 		);

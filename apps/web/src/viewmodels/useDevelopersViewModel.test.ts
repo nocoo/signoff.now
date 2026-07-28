@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { avatarColor } from "@/lib/avatar";
+import { avatarColorHex } from "@/lib/avatar";
 import type { Developer, Tag, Team } from "@/models/entities";
 import {
 	archiveDeveloper,
@@ -239,7 +239,14 @@ describe("addTag", () => {
 		await act(async () => {
 			id = await result.current.addTag("infra");
 		});
-		expect(createTag).toHaveBeenCalledWith("infra", avatarColor("infra"));
+		// Assert the SHAPE, not just `avatarColorHex(...)` echoed back: the
+		// first version of this passed `avatarColor`, which returns
+		// `hsl(10 62% 49%)`. The server validates `^#[0-9A-Fa-f]{6}$`, so every
+		// inline tag creation was a 400 — and a test that compared the call
+		// against the same function could never notice.
+		const color = vi.mocked(createTag).mock.calls[0]?.[1] as string;
+		expect(color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+		expect(color).toBe(avatarColorHex("infra"));
 		expect(id).toBe("g-new");
 	});
 

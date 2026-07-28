@@ -70,6 +70,42 @@ export function avatarColor(name: string): string {
 }
 
 /**
+ * The same swatch as `avatarColor`, but as `#RRGGBB`.
+ *
+ * The palette is stored as HSL triples because CSS reads better that way, but
+ * anything persisted has to be hex: `tags.color` is validated against
+ * `^#[0-9A-Fa-f]{6}$` server-side, so an `hsl(...)` string is a 400.
+ */
+export function avatarColorHex(name: string): string {
+	const swatch = AVATAR_PALETTE[
+		hashName(name) % AVATAR_PALETTE.length
+	] as string;
+	const [h, s, l] = swatch
+		.split(" ")
+		.map((part) => Number.parseFloat(part))
+		.map((n, i) => (i === 0 ? n : n / 100)) as [number, number, number];
+
+	const c = (1 - Math.abs(2 * l - 1)) * s;
+	const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+	const m = l - c / 2;
+	const [r, g, b] = (
+		[
+			[c, x, 0],
+			[x, c, 0],
+			[0, c, x],
+			[0, x, c],
+			[x, 0, c],
+			[c, 0, x],
+		][Math.floor(h / 60) % 6] as [number, number, number]
+	).map((v) => Math.round((v + m) * 255));
+
+	return `#${[r, g, b]
+		.map((v) => (v as number).toString(16).padStart(2, "0"))
+		.join("")
+		.toUpperCase()}`;
+}
+
+/**
  * The glyph shown when there is no image.
  *
  * Latin names are commonly "Ada Lovelace", where the leading letter reads as
