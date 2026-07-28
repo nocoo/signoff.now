@@ -2,11 +2,23 @@ import { describe, expect, test } from "vitest";
 import {
 	type Developer,
 	EMPTY_DEVELOPER_FILTER,
+	EMPTY_REPO_FILTER,
+	EMPTY_TAG_FILTER,
+	EMPTY_TEAM_FILTER,
 	filterDevelopers,
+	filterRepos,
+	filterTags,
+	filterTeams,
 	parseDeveloper,
 	parseRepo,
 	parseTag,
 	parseTeam,
+	type Repo,
+	type RepoFilter,
+	type Tag,
+	type TagFilter,
+	type Team,
+	type TeamFilter,
 	validateAvatarUrl,
 	validateDeveloperInput,
 } from "./entities";
@@ -308,6 +320,189 @@ describe("filterDevelopers", () => {
 	test("does not mutate the input", () => {
 		const input = [...all];
 		filterDevelopers(input, { ...EMPTY_DEVELOPER_FILTER, keyword: "ada" });
+		expect(input).toEqual(all);
+	});
+});
+
+describe("filterTeams", () => {
+	const team = (over: Partial<Team>): Team => ({
+		id: "t",
+		name: "Core",
+		avatarUrl: null,
+		tagIds: [],
+		createdAt: 1,
+		updatedAt: 1,
+		archivedAt: null,
+		...over,
+	});
+	const core = team({ id: "1", name: "Core Platform", tagIds: ["g1"] });
+	const infra = team({ id: "2", name: "Infra" });
+	const gone = team({ id: "3", name: "Legacy", tagIds: ["g1"], archivedAt: 9 });
+	const all = [core, infra, gone];
+	const ids = (f: TeamFilter) => filterTeams(all, f).map((t) => t.id);
+
+	test("hides archived by default", () => {
+		expect(ids(EMPTY_TEAM_FILTER)).toEqual(["1", "2"]);
+	});
+
+	test("archived shows only archived", () => {
+		expect(ids({ ...EMPTY_TEAM_FILTER, status: "archived" })).toEqual(["3"]);
+	});
+
+	test("all shows both", () => {
+		expect(ids({ ...EMPTY_TEAM_FILTER, status: "all" })).toEqual([
+			"1",
+			"2",
+			"3",
+		]);
+	});
+
+	test("keyword matches the name case-insensitively", () => {
+		expect(ids({ ...EMPTY_TEAM_FILTER, keyword: "PLATF" })).toEqual(["1"]);
+	});
+
+	test("a blank keyword is not a filter", () => {
+		expect(ids({ ...EMPTY_TEAM_FILTER, keyword: "  " })).toEqual(["1", "2"]);
+	});
+
+	test("tag narrows to tagged teams", () => {
+		expect(ids({ ...EMPTY_TEAM_FILTER, tagId: "g1" })).toEqual(["1"]);
+	});
+
+	test("keyword and tag compose rather than override", () => {
+		expect(
+			ids({ ...EMPTY_TEAM_FILTER, keyword: "infra", tagId: "g1" }),
+		).toEqual([]);
+	});
+
+	test("does not mutate the input", () => {
+		const input = [...all];
+		filterTeams(input, { ...EMPTY_TEAM_FILTER, keyword: "core" });
+		expect(input).toEqual(all);
+	});
+});
+
+describe("filterTags", () => {
+	const tag = (over: Partial<Tag>): Tag => ({
+		id: "g",
+		name: "frontend",
+		color: "#FFFFFF",
+		createdAt: 1,
+		updatedAt: 1,
+		archivedAt: null,
+		...over,
+	});
+	const fe = tag({ id: "1", name: "Frontend" });
+	const be = tag({ id: "2", name: "Backend" });
+	const gone = tag({ id: "3", name: "Deprecated", archivedAt: 9 });
+	const all = [fe, be, gone];
+	const ids = (f: TagFilter) => filterTags(all, f).map((t) => t.id);
+
+	test("hides archived by default", () => {
+		expect(ids(EMPTY_TAG_FILTER)).toEqual(["1", "2"]);
+	});
+
+	test("archived shows only archived", () => {
+		expect(ids({ ...EMPTY_TAG_FILTER, status: "archived" })).toEqual(["3"]);
+	});
+
+	test("all shows both", () => {
+		expect(ids({ ...EMPTY_TAG_FILTER, status: "all" })).toEqual([
+			"1",
+			"2",
+			"3",
+		]);
+	});
+
+	test("keyword matches the name case-insensitively", () => {
+		expect(ids({ ...EMPTY_TAG_FILTER, keyword: "END" })).toEqual(["1", "2"]);
+	});
+
+	test("a blank keyword is not a filter", () => {
+		expect(ids({ ...EMPTY_TAG_FILTER, keyword: " " })).toEqual(["1", "2"]);
+	});
+
+	test("does not mutate the input", () => {
+		const input = [...all];
+		filterTags(input, { ...EMPTY_TAG_FILTER, keyword: "front" });
+		expect(input).toEqual(all);
+	});
+});
+
+describe("filterRepos", () => {
+	const repo = (over: Partial<Repo>): Repo => ({
+		id: "r",
+		provider: "ado",
+		org: "contoso",
+		project: "Widgets",
+		name: "api",
+		remoteUrl: null,
+		externalId: "guid-1",
+		projectExternalId: null,
+		enabled: true,
+		createdAt: 1,
+		updatedAt: 1,
+		archivedAt: null,
+		...over,
+	});
+	const api = repo({ id: "1", name: "api" });
+	const web = repo({ id: "2", name: "web", org: "fabrikam", enabled: false });
+	const gh = repo({
+		id: "3",
+		provider: "github",
+		project: "Tools",
+		name: "docs",
+	});
+	const gone = repo({ id: "4", name: "legacy", archivedAt: 9 });
+	const all = [api, web, gh, gone];
+	const ids = (f: RepoFilter) => filterRepos(all, f).map((r) => r.id);
+
+	test("hides archived by default", () => {
+		expect(ids(EMPTY_REPO_FILTER)).toEqual(["1", "2", "3"]);
+	});
+
+	test("archived shows only archived", () => {
+		expect(ids({ ...EMPTY_REPO_FILTER, status: "archived" })).toEqual(["4"]);
+	});
+
+	test("keyword matches the repo name", () => {
+		expect(ids({ ...EMPTY_REPO_FILTER, keyword: "API" })).toEqual(["1"]);
+	});
+
+	test("keyword also matches org and project", () => {
+		// Someone chasing a binding types what they see in the ADO URL, which is
+		// org/project far more often than the bare repo name.
+		expect(ids({ ...EMPTY_REPO_FILTER, keyword: "fabrikam" })).toEqual(["2"]);
+		expect(ids({ ...EMPTY_REPO_FILTER, keyword: "tools" })).toEqual(["3"]);
+	});
+
+	test("a blank keyword is not a filter", () => {
+		expect(ids({ ...EMPTY_REPO_FILTER, keyword: "  " })).toEqual([
+			"1",
+			"2",
+			"3",
+		]);
+	});
+
+	test("provider narrows to one provider", () => {
+		expect(ids({ ...EMPTY_REPO_FILTER, provider: "github" })).toEqual(["3"]);
+		expect(ids({ ...EMPTY_REPO_FILTER, provider: "ado" })).toEqual(["1", "2"]);
+	});
+
+	test("enabled narrows both ways", () => {
+		expect(ids({ ...EMPTY_REPO_FILTER, enabled: true })).toEqual(["1", "3"]);
+		expect(ids({ ...EMPTY_REPO_FILTER, enabled: false })).toEqual(["2"]);
+	});
+
+	test("provider and enabled compose rather than override", () => {
+		expect(
+			ids({ ...EMPTY_REPO_FILTER, provider: "ado", enabled: false }),
+		).toEqual(["2"]);
+	});
+
+	test("does not mutate the input", () => {
+		const input = [...all];
+		filterRepos(input, { ...EMPTY_REPO_FILTER, keyword: "api" });
 		expect(input).toEqual(all);
 	});
 });

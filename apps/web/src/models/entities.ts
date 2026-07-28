@@ -159,10 +159,13 @@ export function validateAvatarUrl(url: string): string | null {
 	return null;
 }
 
+/** Every roster-style filter offers the same three archive choices. */
+export type StatusFilter = "active" | "archived" | "all";
+
 export type DeveloperFilter = {
 	keyword: string;
 	/** `archived` is a distinct choice from "everything", not a superset. */
-	status: "active" | "archived" | "all";
+	status: StatusFilter;
 	teamId: string | null;
 	tagId: string | null;
 };
@@ -175,6 +178,30 @@ export const EMPTY_DEVELOPER_FILTER: DeveloperFilter = {
 };
 
 /**
+ * Shared by every list filter so the four pages cannot drift apart on what
+ * "Active" means — the bug this whole family exists to avoid is one page
+ * treating `archived` as a superset while the others treat it as a choice.
+ */
+function matchesStatus(
+	archivedAt: number | null,
+	status: StatusFilter,
+): boolean {
+	if (status === "active") {
+		return archivedAt === null;
+	}
+	if (status === "archived") {
+		return archivedAt !== null;
+	}
+	return true;
+}
+
+/** A blank keyword needs no special case: `includes("")` is true for all. */
+function matchesKeyword(fields: readonly string[], keyword: string): boolean {
+	const kw = keyword.trim().toLowerCase();
+	return fields.some((f) => f.toLowerCase().includes(kw));
+}
+
+/**
  * Narrow the roster by keyword, archive status and team.
  *
  * Kept out of the view so it is covered: the filter is the one piece here whose
@@ -185,12 +212,8 @@ export function filterDevelopers(
 	items: readonly Developer[],
 	filter: DeveloperFilter,
 ): Developer[] {
-	const kw = filter.keyword.trim().toLowerCase();
 	return items.filter((d) => {
-		if (filter.status === "active" && d.archivedAt !== null) {
-			return false;
-		}
-		if (filter.status === "archived" && d.archivedAt === null) {
+		if (!matchesStatus(d.archivedAt, filter.status)) {
 			return false;
 		}
 		if (filter.teamId !== null && !d.teamIds.includes(filter.teamId)) {
@@ -199,11 +222,88 @@ export function filterDevelopers(
 		if (filter.tagId !== null && !d.tagIds.includes(filter.tagId)) {
 			return false;
 		}
-		// A blank keyword needs no special case: `includes("")` is true for all.
 		// Alias as well as name: the alias is what the pipeline matches on, so
 		// it is what someone debugging a missing developer will search for.
-		return (
-			d.name.toLowerCase().includes(kw) || d.alias.toLowerCase().includes(kw)
-		);
+		return matchesKeyword([d.name, d.alias], filter.keyword);
+	});
+}
+
+export type TeamFilter = {
+	keyword: string;
+	status: StatusFilter;
+	tagId: string | null;
+};
+
+export const EMPTY_TEAM_FILTER: TeamFilter = {
+	keyword: "",
+	status: "active",
+	tagId: null,
+};
+
+export function filterTeams(
+	items: readonly Team[],
+	filter: TeamFilter,
+): Team[] {
+	return items.filter((t) => {
+		if (!matchesStatus(t.archivedAt, filter.status)) {
+			return false;
+		}
+		if (filter.tagId !== null && !t.tagIds.includes(filter.tagId)) {
+			return false;
+		}
+		return matchesKeyword([t.name], filter.keyword);
+	});
+}
+
+export type TagFilter = {
+	keyword: string;
+	status: StatusFilter;
+};
+
+export const EMPTY_TAG_FILTER: TagFilter = {
+	keyword: "",
+	status: "active",
+};
+
+export function filterTags(items: readonly Tag[], filter: TagFilter): Tag[] {
+	return items.filter(
+		(t) =>
+			matchesStatus(t.archivedAt, filter.status) &&
+			matchesKeyword([t.name], filter.keyword),
+	);
+}
+
+export type RepoFilter = {
+	keyword: string;
+	status: StatusFilter;
+	/** `null` is every provider, not a provider named "null". */
+	provider: string | null;
+	enabled: boolean | null;
+};
+
+export const EMPTY_REPO_FILTER: RepoFilter = {
+	keyword: "",
+	status: "active",
+	provider: null,
+	enabled: null,
+};
+
+export function filterRepos(
+	items: readonly Repo[],
+	filter: RepoFilter,
+): Repo[] {
+	return items.filter((r) => {
+		if (!matchesStatus(r.archivedAt, filter.status)) {
+			return false;
+		}
+		if (filter.provider !== null && r.provider !== filter.provider) {
+			return false;
+		}
+		if (filter.enabled !== null && r.enabled !== filter.enabled) {
+			return false;
+		}
+		// Org and project as well as name: a binding is identified in ADO by its
+		// org/project path, which is what someone will have in front of them.
+		return matchesKeyword([r.name, r.org, r.project], filter.keyword);
 	});
 }
