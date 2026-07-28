@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { avatarColorHex } from "@/lib/avatar";
-import type { Tag, Team } from "@/models/entities";
-import { validateAvatarUrl } from "@/models/entities";
+import type { Tag, Team, TeamFilter } from "@/models/entities";
+import {
+	EMPTY_TEAM_FILTER,
+	filterTeams,
+	validateAvatarUrl,
+} from "@/models/entities";
 import {
 	archiveTeam,
 	createTag,
@@ -9,6 +13,7 @@ import {
 	listTags,
 	listTeams,
 	patchTeam,
+	restoreTeam,
 } from "@/models/entitiesApi";
 
 export type TeamDraft = { name: string; avatarUrl: string; tagIds: string[] };
@@ -28,15 +33,17 @@ export function validateTeamDraft(draft: TeamDraft): string | null {
 	return validateAvatarUrl(draft.avatarUrl);
 }
 
-/** Loading, creation and archival for the Teams page. */
+/** Loading, filtering, create/edit and archival for the Teams page. */
 export function useTeamsViewModel() {
 	const [items, setItems] = useState<Team[]>([]);
 	const [tags, setTags] = useState<Tag[]>([]);
-	const [name, setName] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
+	const [filter, setFilter] = useState<TeamFilter>(EMPTY_TEAM_FILTER);
 	const [editing, setEditing] = useState<Team | null>(null);
+	// `creating` opens the dialog empty; `editing` opens it on a row.
+	const [creating, setCreating] = useState(false);
 	const ticket = useRef(0);
 
 	const reload = useCallback(async () => {
@@ -44,7 +51,9 @@ export function useTeamsViewModel() {
 		// top of a post-mutation refresh and undo it on screen.
 		const mine = ++ticket.current;
 		try {
-			const [next, nextTags] = await Promise.all([listTeams(), listTags()]);
+			// Archived rows are always fetched and hidden by the filter, so
+			// switching status needs no round trip.
+			const [next, nextTags] = await Promise.all([listTeams(true), listTags()]);
 			if (mine === ticket.current) {
 				setItems(next);
 				setTags(nextTags);
@@ -65,10 +74,14 @@ export function useTeamsViewModel() {
 		void reload();
 	}, [reload]);
 
+	const visible = useMemo(() => filterTeams(items, filter), [items, filter]);
+	const tagsById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
+
 	const mutate = useCallback(
 		async (run: () => Promise<unknown>) => {
-			// One write at a time: the page offers create on both Enter and a
-			// button, so the same submission can otherwise fire twice.
+			// One write at a time: a double-clicked Archive would otherwise fire
+			// two writes and surface the second one's error after the first had
+			// already succeeded.
 			if (busy) {
 				return false;
 			}
@@ -87,28 +100,27 @@ export function useTeamsViewModel() {
 		[busy, reload],
 	);
 
-	const create = useCallback(async () => {
-		if (!name.trim()) {
-			setError("Name is required");
-			return false;
-		}
-		const ok = await mutate(() => createTeam(name.trim()));
-		if (ok) {
-			setName("");
-		}
-		return ok;
-	}, [mutate, name]);
-
-	const submitEdit = useCallback(
+	/**
+	 * Create and edit share one path: the dialog produces the same draft either
+	 * way, and both must throw on failure so it can stay open and explain itself
+	 * rather than close and drop the user's work.
+	 */
+	const submit = useCallback(
 		async (draft: TeamDraft) => {
-			if (!editing) {
-				return;
-			}
-			await patchTeam(editing.id, {
-				name: draft.name,
+			const body = {
+				name: draft.name.trim(),
+				// A blank field means "no avatar", which the API spells as null.
 				avatarUrl: draft.avatarUrl.trim() || null,
 				tagIds: draft.tagIds,
-			});
+			};
+			if (editing) {
+				await patchTeam(editing.id, body);
+			} else {
+				await createTeam(body.name, {
+					avatarUrl: body.avatarUrl,
+					tagIds: body.tagIds,
+				});
+			}
 			await reload();
 		},
 		[editing, reload],
@@ -125,18 +137,27 @@ export function useTeamsViewModel() {
 	return {
 		items,
 		tags,
+		tagsById,
+		visible,
+		filter,
+		setFilter,
 		addTag,
-		name,
-		setName,
 		error,
 		loading,
 		busy,
 		editing,
 		setEditing,
+		creating,
+		setCreating,
+		dialogOpen: creating || editing !== null,
+		closeDialog: () => {
+			setCreating(false);
+			setEditing(null);
+		},
 		reload,
-		create,
-		submitEdit,
+		submit,
 		archive: (id: string) => mutate(() => archiveTeam(id)),
+		restore: (id: string) => mutate(() => restoreTeam(id)),
 	};
 }
 

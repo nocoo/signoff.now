@@ -20,6 +20,7 @@ import {
 export type { TeamDraft };
 
 export type TeamDialogProps = {
+	/** `null` means this is a create, not an edit. */
 	team: Team | null;
 	tags: Tag[];
 	open: boolean;
@@ -28,6 +29,13 @@ export type TeamDialogProps = {
 	onCreateTag: (name: string) => Promise<string>;
 };
 
+/**
+ * Create or edit one team: name, avatar and tags.
+ *
+ * One component for both, because the fields are identical — the page used to
+ * offer a name-only inline form for create, so a team could not be given an
+ * avatar or a tag until after it existed.
+ */
 export function TeamDialog({
 	team,
 	tags,
@@ -37,6 +45,7 @@ export function TeamDialog({
 	onCreateTag,
 }: TeamDialogProps) {
 	const vm = useTeamEditViewModel(team, onSubmit, () => onOpenChange(false));
+	const creating = team === null;
 
 	return (
 		<Dialog
@@ -50,7 +59,7 @@ export function TeamDialog({
 		>
 			<DialogContent className="max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
-					<DialogTitle>Edit team</DialogTitle>
+					<DialogTitle>{creating ? "Add team" : "Edit team"}</DialogTitle>
 					<DialogDescription>
 						Teams group developers for manager filters.
 					</DialogDescription>
@@ -73,6 +82,7 @@ export function TeamDialog({
 							<Input
 								id={id}
 								value={vm.draft.name}
+								placeholder="Team name"
 								onChange={(e) => vm.setField("name", e.target.value)}
 							/>
 						)}
@@ -117,7 +127,7 @@ export function TeamDialog({
 						Cancel
 					</Button>
 					<Button disabled={vm.busy} onClick={() => void vm.save()}>
-						{vm.busy ? "Saving…" : "Save"}
+						{vm.busy ? "Saving…" : creating ? "Create" : "Save"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

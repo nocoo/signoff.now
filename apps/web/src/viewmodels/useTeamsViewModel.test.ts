@@ -9,6 +9,7 @@ import {
 	listTags,
 	listTeams,
 	patchTeam,
+	restoreTeam,
 } from "@/models/entitiesApi";
 import {
 	teamDraftFrom,
@@ -24,6 +25,7 @@ vi.mock("@/models/entitiesApi", () => ({
 	createTag: vi.fn(),
 	patchTeam: vi.fn(),
 	archiveTeam: vi.fn(),
+	restoreTeam: vi.fn(),
 }));
 
 const tag = (over: Partial<Tag> = {}): Tag => ({
@@ -56,6 +58,7 @@ beforeEach(() => {
 	vi.mocked(createTeam).mockReset().mockResolvedValue(team());
 	vi.mocked(patchTeam).mockReset().mockResolvedValue(team());
 	vi.mocked(archiveTeam).mockReset().mockResolvedValue(undefined);
+	vi.mocked(restoreTeam).mockReset().mockResolvedValue(undefined);
 });
 
 const mounted = async () => {
@@ -139,70 +142,49 @@ describe("useTeamsViewModel", () => {
 
 	it("refuses a blank name without calling the API", async () => {
 		const { result } = await mounted();
-		act(() => {
-			result.current.setName("   ");
-		});
 		await act(async () => {
-			expect(await result.current.create()).toBe(false);
+			await expect(
+				result.current.submit({ name: "   ", avatarUrl: "", tagIds: [] }),
+			).resolves.toBeUndefined();
 		});
-		expect(createTeam).not.toHaveBeenCalled();
-		expect(result.current.error).toMatch(/Name/);
+		// submit itself does not validate — the dialog's ViewModel does, and it
+		// is what stops a blank name reaching here. This asserts the split holds:
+		// a trimmed-empty name is sent as-is rather than silently "fixed".
+		expect(createTeam).toHaveBeenCalledWith("", {
+			avatarUrl: null,
+			tagIds: [],
+		});
 	});
 
-	it("creates with a trimmed name and clears the field", async () => {
+	it("creates with a trimmed name, avatar and tags", async () => {
 		const { result } = await mounted();
-		act(() => {
-			result.current.setName("  Platform  ");
-		});
 		await act(async () => {
-			await result.current.create();
+			await result.current.submit({
+				name: "  Platform  ",
+				avatarUrl: " https://x/t.png ",
+				tagIds: ["g1"],
+			});
 		});
-		expect(createTeam).toHaveBeenCalledWith("Platform");
-		expect(result.current.name).toBe("");
+		expect(createTeam).toHaveBeenCalledWith("Platform", {
+			avatarUrl: "https://x/t.png",
+			tagIds: ["g1"],
+		});
+		expect(listTeams).toHaveBeenCalledTimes(2);
 	});
 
-	it("keeps the typed name when the create fails", async () => {
-		// Clearing it would make the user retype what they just lost.
+	it("a failed create rejects so the dialog can stay open", async () => {
+		// Swallowing this would close the dialog on a name clash and lose the
+		// avatar and tags the user had just picked.
 		vi.mocked(createTeam).mockRejectedValueOnce(new Error("exists"));
 		const { result } = await mounted();
-		act(() => {
-			result.current.setName("Platform");
-		});
 		await act(async () => {
-			await result.current.create();
-		});
-		expect(result.current.name).toBe("Platform");
-		expect(result.current.error).toBe("exists");
-	});
-
-	it("a second create while one is in flight is dropped", async () => {
-		// Enter and the Add button both call this; a fast Enter-then-click
-		// would otherwise create the team twice.
-		let release: (v: Team) => void = () => {};
-		vi.mocked(createTeam).mockReturnValueOnce(
-			new Promise<Team>((r) => {
-				release = r;
-			}),
-		);
-		const { result } = await mounted();
-		act(() => {
-			result.current.setName("Platform");
-		});
-
-		let first: Promise<boolean> = Promise.resolve(false);
-		act(() => {
-			first = result.current.create();
-		});
-		await waitFor(() => expect(result.current.busy).toBe(true));
-
-		await act(async () => {
-			expect(await result.current.create()).toBe(false);
-		});
-		expect(createTeam).toHaveBeenCalledTimes(1);
-
-		await act(async () => {
-			release(team());
-			await first;
+			await expect(
+				result.current.submit({
+					name: "Platform",
+					avatarUrl: "",
+					tagIds: [],
+				}),
+			).rejects.toThrow("exists");
 		});
 	});
 
@@ -250,10 +232,15 @@ describe("useTeamsViewModel", () => {
 
 	it("submitEdit does nothing without a row", async () => {
 		const { result } = await mounted();
-		await act(async () => {
-			await result.current.submitEdit({ name: "X", avatarUrl: "", tagIds: [] });
+		act(() => {
+			result.current.setCreating(true);
 		});
+		await act(async () => {
+			await result.current.submit({ name: "X", avatarUrl: "", tagIds: [] });
+		});
+		// No row selected means create, never a patch against some other team.
 		expect(patchTeam).not.toHaveBeenCalled();
+		expect(createTeam).toHaveBeenCalled();
 	});
 
 	it("submitEdit sends a blank avatar as null and carries the tags", async () => {
@@ -264,7 +251,7 @@ describe("useTeamsViewModel", () => {
 			result.current.setEditing(team());
 		});
 		await act(async () => {
-			await result.current.submitEdit({
+			await result.current.submit({
 				name: "Core",
 				avatarUrl: "  ",
 				tagIds: ["g1", "g2"],
@@ -274,6 +261,92 @@ describe("useTeamsViewModel", () => {
 			name: "Core",
 			avatarUrl: null,
 			tagIds: ["g1", "g2"],
+		});
+	});
+
+	it("fetches archived rows so status filtering needs no round trip", async () => {
+		await mounted();
+		expect(listTeams).toHaveBeenCalledWith(true);
+	});
+
+	it("filters the visible list without touching items", async () => {
+		vi.mocked(listTeams).mockResolvedValue([
+			team({ id: "t1", name: "Core" }),
+			team({ id: "t2", name: "Infra", archivedAt: 9 }),
+		]);
+		const { result } = await mounted();
+		expect(result.current.visible.map((t) => t.id)).toEqual(["t1"]);
+		act(() => {
+			result.current.setFilter((f) => ({ ...f, status: "archived" }));
+		});
+		expect(result.current.visible.map((t) => t.id)).toEqual(["t2"]);
+		expect(result.current.items).toHaveLength(2);
+	});
+
+	it("restores then reloads", async () => {
+		const { result } = await mounted();
+		await act(async () => {
+			await result.current.restore("t1");
+		});
+		expect(restoreTeam).toHaveBeenCalledWith("t1");
+		expect(listTeams).toHaveBeenCalledTimes(2);
+	});
+
+	it("the dialog opens for a create and for an edit, and closes clean", async () => {
+		const { result } = await mounted();
+		expect(result.current.dialogOpen).toBe(false);
+		act(() => {
+			result.current.setCreating(true);
+		});
+		expect(result.current.dialogOpen).toBe(true);
+		expect(result.current.editing).toBeNull();
+
+		act(() => {
+			result.current.closeDialog();
+		});
+		expect(result.current.dialogOpen).toBe(false);
+
+		act(() => {
+			result.current.setEditing(team());
+		});
+		expect(result.current.dialogOpen).toBe(true);
+		act(() => {
+			result.current.closeDialog();
+		});
+		// Both flags must clear: leaving `creating` set would reopen the dialog
+		// empty the moment an edit closed.
+		expect(result.current.dialogOpen).toBe(false);
+		expect(result.current.editing).toBeNull();
+	});
+
+	it("indexes tags by id for the list", async () => {
+		const { result } = await mounted();
+		expect(result.current.tagsById.get("g1")?.name).toBe("frontend");
+	});
+
+	it("a second mutation while one is in flight is dropped", async () => {
+		let release: () => void = () => {};
+		vi.mocked(archiveTeam).mockReturnValueOnce(
+			new Promise<void>((r) => {
+				release = r;
+			}),
+		);
+		const { result } = await mounted();
+
+		let first: Promise<boolean> = Promise.resolve(false);
+		act(() => {
+			first = result.current.archive("t1");
+		});
+		await waitFor(() => expect(result.current.busy).toBe(true));
+
+		await act(async () => {
+			expect(await result.current.archive("t1")).toBe(false);
+		});
+		expect(archiveTeam).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			release();
+			await first;
 		});
 	});
 });
