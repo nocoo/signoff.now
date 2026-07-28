@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { activitySchema, MAX_OCCURRED_AT } from "./activity.js";
+import { dayKey } from "./day-key.js";
 
 const prBase = {
 	occurredAt: 1720000123,
@@ -172,5 +173,22 @@ describe("occurredAt bounds", () => {
 			activitySchema.safeParse({ ...base, occurredAt: MAX_OCCURRED_AT })
 				.success,
 		).toBe(true);
+	});
+
+	test("the bound holds in every timezone, not just UTC", () => {
+		// Day keys are derived in the CONFIGURED timezone. Bounding at
+		// `9999-12-31T23:59:59Z` looked right and was not: under Asia/Shanghai —
+		// the production setting — that instant is already `10000-01-01`, which
+		// SQLite's `date()` rejects and the union guard reads as corruption.
+		for (const tz of [
+			"UTC",
+			"Asia/Shanghai",
+			"Pacific/Kiritimati",
+			"America/Los_Angeles",
+		]) {
+			const key = dayKey(MAX_OCCURRED_AT, tz);
+			expect(`${tz}: ${key}`).toBe(`${tz}: 9999-12-3${key.slice(-1)}`);
+			expect(key.startsWith("9999-")).toBe(true);
+		}
 	});
 });

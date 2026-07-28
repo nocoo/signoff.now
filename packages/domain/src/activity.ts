@@ -60,21 +60,28 @@ const metaSchema = z
 	});
 
 /**
- * Last epoch second inside year 9999 — the range SQLite's `date()` accepts.
- * `9999-12-31T23:59:59Z`.
+ * Latest `occurredAt` whose DAY KEY stays inside year 9999 in every timezone.
+ *
+ * `9999-12-31T23:59:59Z` was the obvious bound and the wrong one: day keys are
+ * computed in the configured timezone, not UTC, so under `Asia/Shanghai` — the
+ * production setting — that instant is already `10000-01-01`, which SQLite's
+ * `date()` rejects and the Dashboard's union guard reads as corruption. Backing
+ * off by the largest eastward offset in use (+14h, Pacific/Kiritimati) keeps
+ * the derived day inside range wherever it is derived.
  */
-export const MAX_OCCURRED_AT = 253_402_300_799;
+export const MAX_UTC_OFFSET_SECONDS = 14 * 60 * 60;
+export const MAX_OCCURRED_AT = 253_402_300_799 - MAX_UTC_OFFSET_SECONDS;
 
 const activityBase = {
 	// Bounded above, not merely positive. An unbounded epoch second yields day
-	// keys outside SQLite's `date()` range (253402300800 → `10000-01-01`), and
-	// the Dashboard's union guard then reads that as a corrupt entry and blanks
-	// the window. Refusing it here says what is actually wrong: the timestamp.
+	// keys outside SQLite's `date()` range, and the Dashboard's union guard then
+	// reads that as a corrupt entry and blanks the window. Refusing it here says
+	// what is actually wrong: the timestamp.
 	occurredAt: z
 		.number()
 		.int()
 		.positive()
-		.max(MAX_OCCURRED_AT, "occurredAt is beyond year 9999"),
+		.max(MAX_OCCURRED_AT, "occurredAt is beyond year 9999 in some timezone"),
 	provider: z.literal("ado"),
 	org: z.string().min(1),
 	project: z.string().min(1),
