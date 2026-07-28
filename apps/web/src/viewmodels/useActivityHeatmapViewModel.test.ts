@@ -1,12 +1,30 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchHeatmap, fetchTimeline } from "@/models/activityApi";
+import { listDevelopers } from "@/models/entitiesApi";
 import { useActivityHeatmapViewModel } from "./useActivityHeatmapViewModel";
 
 vi.mock("@/models/activityApi", () => ({
 	fetchHeatmap: vi.fn(),
 	fetchTimeline: vi.fn(),
 }));
+
+vi.mock("@/models/entitiesApi", () => ({
+	// Default to an empty roster: the tests that predate it assert on scores,
+	// not names, and must not have to know this call exists.
+	listDevelopers: vi.fn(() => Promise.resolve([])),
+}));
+
+const dev = (id: string, name: string, avatarUrl: string | null = null) => ({
+	id,
+	name,
+	alias: name.toLowerCase(),
+	avatarUrl,
+	teamIds: [],
+	createdAt: 1,
+	updatedAt: 1,
+	archivedAt: null,
+});
 
 const sample = {
 	pipelineConfigVersion: 1,
@@ -207,5 +225,70 @@ describe("useActivityHeatmapViewModel", () => {
 		});
 		expect(result.current.timelineError).toBe("more-fail");
 		expect(result.current.timelineItems).toHaveLength(1);
+	});
+});
+
+describe("resolving ids to people", () => {
+	beforeEach(() => {
+		vi.mocked(fetchHeatmap).mockResolvedValue(sample as never);
+	});
+
+	const mountedWithRoster = async () => {
+		const hook = renderHook(() => useActivityHeatmapViewModel());
+		// Flush the roster effect before asserting on it.
+		await act(async () => {
+			await Promise.resolve();
+		});
+		return hook;
+	};
+
+	it("names a developer and carries their avatar", async () => {
+		vi.mocked(listDevelopers).mockResolvedValue([
+			dev("d1", "Ada", "https://x/a.png"),
+		]);
+		const { result } = await mountedWithRoster();
+		expect(result.current.describe("d1")).toEqual({
+			developerId: "d1",
+			name: "Ada",
+			avatarUrl: "https://x/a.png",
+			known: true,
+		});
+	});
+
+	it("falls back to the bare id for an unknown developer", async () => {
+		// Scores can name a developer the roster no longer lists. Showing the id
+		// is worse than a name but far better than showing nothing.
+		vi.mocked(listDevelopers).mockResolvedValue([dev("d1", "Ada")]);
+		const { result } = await mountedWithRoster();
+		expect(result.current.describe("d9")).toEqual({
+			developerId: "d9",
+			name: "d9",
+			avatarUrl: null,
+			known: false,
+		});
+	});
+
+	it("a failed roster load leaves the scores readable", async () => {
+		// The roster is decoration; the heatmap is the point of the page.
+		vi.mocked(listDevelopers).mockRejectedValue(new Error("nope"));
+		const { result } = await mountedWithRoster();
+		expect(result.current.error).toBeNull();
+		expect(result.current.describe("d1").name).toBe("d1");
+		act(() => {
+			result.current.setDevs("d1,d2");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-31");
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		expect(result.current.levels).toHaveLength(2);
+	});
+
+	it("includes archived developers so old scores still resolve", async () => {
+		// A developer archived last month still owns last month's activity.
+		vi.mocked(listDevelopers).mockResolvedValue([dev("d1", "Ada")]);
+		await mountedWithRoster();
+		expect(vi.mocked(listDevelopers)).toHaveBeenCalledWith(true);
 	});
 });

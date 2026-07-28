@@ -20,6 +20,7 @@ export type StatsByType = { type: string; count: number; score: number };
 export type StatsTopDeveloper = {
 	developerId: string;
 	name: string;
+	avatarUrl: string | null;
 	score: number;
 	activityCount: number;
 };
@@ -115,6 +116,9 @@ export function parseStatsSummary(raw: unknown): StatsSummary {
 			return {
 				developerId: str(d.developerId, "topDevelopers.developerId"),
 				name: str(d.name, "topDevelopers.name"),
+				// Optional: a developer row deleted after scoring still shows,
+				// and older payloads predate the column entirely.
+				avatarUrl: typeof d.avatarUrl === "string" ? d.avatarUrl : null,
 				score: num(d.score, "topDevelopers.score"),
 				activityCount: num(d.activityCount, "topDevelopers.activityCount"),
 			};

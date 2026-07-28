@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
 	type HeatmapResponse,
 	type HeatmapRow,
@@ -7,6 +7,8 @@ import {
 	type TimelineResponse,
 } from "@/models/activity";
 import { fetchHeatmap, fetchTimeline } from "@/models/activityApi";
+import type { Developer } from "@/models/entities";
+import { listDevelopers } from "@/models/entitiesApi";
 
 export function useActivityHeatmapViewModel() {
 	const [devs, setDevs] = useState("");
@@ -20,6 +22,26 @@ export function useActivityHeatmapViewModel() {
 	const [data, setData] = useState<HeatmapResponse | null>(null);
 	const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
 	const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
+	const [roster, setRoster] = useState<Developer[]>([]);
+
+	// The heatmap keys on developer ids, but a manager reads names. Loading the
+	// roster here rather than in the view keeps the id → person mapping — and
+	// the fallback when a score has no matching row — inside the coverage gate.
+	useEffect(() => {
+		let live = true;
+		void listDevelopers(true)
+			.then((d) => {
+				if (live) {
+					setRoster(d);
+				}
+			})
+			// A missing roster degrades to bare ids; it must not blank the page,
+			// which is the only place the scores can be read at all.
+			.catch(() => undefined);
+		return () => {
+			live = false;
+		};
+	}, []);
 
 	const load = useCallback(async () => {
 		const ids = devs
@@ -100,7 +122,21 @@ export function useActivityHeatmapViewModel() {
 			.sort((a, b) => b.total - a.total);
 	})();
 
+	const byId = new Map(roster.map((d) => [d.id, d]));
+	/** Avatar-and-name for an id, or the bare id when nobody matches. */
+	const describe = (developerId: string) => {
+		const d = byId.get(developerId);
+		return {
+			developerId,
+			name: d?.name ?? developerId,
+			avatarUrl: d?.avatarUrl ?? null,
+			known: d !== undefined,
+		};
+	};
+
 	return {
+		roster,
+		describe,
 		devs,
 		setDevs,
 		from,

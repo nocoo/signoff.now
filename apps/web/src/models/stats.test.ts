@@ -42,6 +42,45 @@ describe("parseStatsSummary", () => {
 		expect(s.lastIngestAt).toBe(1_784_700_000);
 	});
 
+	test("carries a developer avatar through", () => {
+		const s = parseStatsSummary(
+			raw({
+				topDevelopers: [
+					{
+						developerId: "d1",
+						name: "Ada",
+						avatarUrl: "https://x/a.png",
+						score: 1,
+						activityCount: 1,
+					},
+				],
+			}),
+		);
+		expect(s.topDevelopers[0]?.avatarUrl).toBe("https://x/a.png");
+	});
+
+	test("a missing or non-string avatar is null, not an error", () => {
+		// Unlike the numbers, an absent avatar is normal: the developer row may
+		// have been deleted after scoring, or the payload may predate the column.
+		// Throwing here would blank the whole dashboard over a missing picture.
+		expect(parseStatsSummary(raw()).topDevelopers[0]?.avatarUrl).toBeNull();
+		expect(
+			parseStatsSummary(
+				raw({
+					topDevelopers: [
+						{
+							developerId: "d1",
+							name: "Ada",
+							avatarUrl: 42,
+							score: 1,
+							activityCount: 1,
+						},
+					],
+				}),
+			).topDevelopers[0]?.avatarUrl,
+		).toBeNull();
+	});
+
 	test("a malformed scoresStale is refused, not read as trustworthy", () => {
 		// This flag decides whether numbers get published at all. Every wrong
 		// value must fail loudly; silently resolving to `false` shows a manager

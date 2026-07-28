@@ -19,7 +19,13 @@ const summary = (over: Partial<StatsSummary> = {}): StatsSummary => ({
 		{ type: "pr.vote", count: 2, score: 10 },
 	],
 	topDevelopers: [
-		{ developerId: "d1", name: "Ada", score: 30, activityCount: 3 },
+		{
+			developerId: "d1",
+			name: "Ada",
+			avatarUrl: null,
+			score: 30,
+			activityCount: 3,
+		},
 	],
 	daily: [{ dayKey: "2026-07-26", score: 40, activityCount: 5 }],
 	lastIngestAt: 1_784_700_000,
