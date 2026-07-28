@@ -25,8 +25,12 @@ import {
 	listTeams,
 	patchDeveloper,
 	patchRepo,
+	patchTag,
 	patchTeam,
 	restoreDeveloper,
+	restoreRepo,
+	restoreTag,
+	restoreTeam,
 } from "./entitiesApi";
 
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
@@ -173,6 +177,36 @@ describe("tags", () => {
 		expect(call()[0]).toBe("/api/tags/g1/archive");
 		expect(call()[1]?.method).toBe("POST");
 	});
+
+	it("restores by id", async () => {
+		await restoreTag("g1");
+		expect(call()[0]).toBe("/api/tags/g1/restore");
+		expect(call()[1]?.method).toBe("POST");
+	});
+
+	it("patches name and colour", async () => {
+		vi.mocked(apiFetch).mockResolvedValue({
+			id: "g1",
+			name: "be",
+			color: "#000000",
+		});
+		await patchTag("g1", { name: "be", color: "#000000" });
+		expect(call()[0]).toBe("/api/tags/g1");
+		expect(call()[1]?.method).toBe("PATCH");
+		expect(body()).toEqual({ name: "be", color: "#000000" });
+	});
+
+	it("patches only the key it was given", async () => {
+		// A colour-only edit must not resend a name: the server reads absence as
+		// "leave alone", and sending one turns an edit into a rename.
+		vi.mocked(apiFetch).mockResolvedValue({
+			id: "g1",
+			name: "fe",
+			color: "#111111",
+		});
+		await patchTag("g1", { color: "#111111" });
+		expect(body()).toEqual({ color: "#111111" });
+	});
 });
 
 describe("repos", () => {
@@ -234,12 +268,24 @@ describe("repos", () => {
 		await archiveRepo("r1");
 		expect(call()[0]).toBe("/api/repos/r1/archive");
 	});
+
+	it("restores by id", async () => {
+		await restoreRepo("r1");
+		expect(call()[0]).toBe("/api/repos/r1/restore");
+		expect(call()[1]?.method).toBe("POST");
+	});
 });
 
 describe("teams archive and me", () => {
 	it("archives a team", async () => {
 		await archiveTeam("t1");
 		expect(call()[0]).toBe("/api/teams/t1/archive");
+		expect(call()[1]?.method).toBe("POST");
+	});
+
+	it("restores a team", async () => {
+		await restoreTeam("t1");
+		expect(call()[0]).toBe("/api/teams/t1/restore");
 		expect(call()[1]?.method).toBe("POST");
 	});
 

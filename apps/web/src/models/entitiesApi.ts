@@ -92,6 +92,10 @@ export async function archiveTeam(id: string): Promise<void> {
 	await apiFetch(`/api/teams/${id}/archive`, { method: "POST" });
 }
 
+export async function restoreTeam(id: string): Promise<void> {
+	await apiFetch(`/api/teams/${id}/restore`, { method: "POST" });
+}
+
 export async function listTags(includeArchived = false): Promise<Tag[]> {
 	const q = includeArchived ? "?includeArchived=1" : "";
 	const raw = await apiFetch<{ items: unknown[] }>(`/api/tags${q}`);
@@ -106,8 +110,23 @@ export async function createTag(name: string, color: string): Promise<Tag> {
 	return parseTag(raw);
 }
 
+export async function patchTag(
+	id: string,
+	body: { name?: string; color?: string },
+): Promise<Tag> {
+	const raw = await apiFetch<unknown>(`/api/tags/${id}`, {
+		method: "PATCH",
+		body: JSON.stringify(body),
+	});
+	return parseTag(raw);
+}
+
 export async function archiveTag(id: string): Promise<void> {
 	await apiFetch(`/api/tags/${id}/archive`, { method: "POST" });
+}
+
+export async function restoreTag(id: string): Promise<void> {
+	await apiFetch(`/api/tags/${id}/restore`, { method: "POST" });
 }
 
 export async function listRepos(includeArchived = false): Promise<Repo[]> {
@@ -152,6 +171,10 @@ export async function patchRepo(
 
 export async function archiveRepo(id: string): Promise<void> {
 	await apiFetch(`/api/repos/${id}/archive`, { method: "POST" });
+}
+
+export async function restoreRepo(id: string): Promise<void> {
+	await apiFetch(`/api/repos/${id}/restore`, { method: "POST" });
 }
 
 export interface MeResponse {
