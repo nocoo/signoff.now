@@ -18,20 +18,30 @@ export async function listDevelopers(
 	return raw.items.map(parseDeveloper);
 }
 
+export type DeveloperWriteBody = {
+	name?: string;
+	alias?: string;
+	/** `null` clears a stored avatar; omitting the key leaves it alone. */
+	avatarUrl?: string | null;
+	/** Omitting leaves memberships alone; `[]` removes them all. */
+	teamIds?: string[];
+};
+
 export async function createDeveloper(
 	name: string,
 	alias: string,
+	extra: Omit<DeveloperWriteBody, "name" | "alias"> = {},
 ): Promise<Developer> {
 	const raw = await apiFetch<unknown>("/api/developers", {
 		method: "POST",
-		body: JSON.stringify({ name, alias }),
+		body: JSON.stringify({ name, alias, ...extra }),
 	});
 	return parseDeveloper(raw);
 }
 
 export async function patchDeveloper(
 	id: string,
-	body: { name?: string; alias?: string },
+	body: DeveloperWriteBody,
 ): Promise<Developer> {
 	const raw = await apiFetch<unknown>(`/api/developers/${id}`, {
 		method: "PATCH",
@@ -44,16 +54,34 @@ export async function archiveDeveloper(id: string): Promise<void> {
 	await apiFetch(`/api/developers/${id}/archive`, { method: "POST" });
 }
 
+export async function restoreDeveloper(id: string): Promise<void> {
+	await apiFetch(`/api/developers/${id}/restore`, { method: "POST" });
+}
+
 export async function listTeams(includeArchived = false): Promise<Team[]> {
 	const q = includeArchived ? "?includeArchived=1" : "";
 	const raw = await apiFetch<{ items: unknown[] }>(`/api/teams${q}`);
 	return raw.items.map(parseTeam);
 }
 
-export async function createTeam(name: string): Promise<Team> {
+export async function createTeam(
+	name: string,
+	extra: { avatarUrl?: string | null } = {},
+): Promise<Team> {
 	const raw = await apiFetch<unknown>("/api/teams", {
 		method: "POST",
-		body: JSON.stringify({ name }),
+		body: JSON.stringify({ name, ...extra }),
+	});
+	return parseTeam(raw);
+}
+
+export async function patchTeam(
+	id: string,
+	body: { name?: string; avatarUrl?: string | null },
+): Promise<Team> {
+	const raw = await apiFetch<unknown>(`/api/teams/${id}`, {
+		method: "PATCH",
+		body: JSON.stringify(body),
 	});
 	return parseTeam(raw);
 }
