@@ -32,10 +32,17 @@ function mount(db: D1Database) {
 const DEV_A = "01K0STATSDEVA0000000000000";
 const DEV_B = "01K0STATSDEVB0000000000000";
 
-function seedDeveloper(id: string, name: string, alias: string) {
+function seedDeveloper(
+	id: string,
+	name: string,
+	alias: string,
+	avatarUrl: string | null = null,
+) {
 	sqlite.raw
-		.query("INSERT INTO developers (id, name, alias) VALUES (?,?,?)")
-		.run(id, name, alias);
+		.query(
+			"INSERT INTO developers (id, name, alias, avatar_url) VALUES (?,?,?,?)",
+		)
+		.run(id, name, alias, avatarUrl);
 }
 
 /** Insert a score row exactly as the ingest write path would. */
@@ -333,6 +340,26 @@ describe("statsSummaryRoute", () => {
 		const body = await summary("?from=2026-07-01&to=2026-07-10");
 		expect(body.topDevelopers.map((d) => d.name)).toEqual(["Ada", "Bob"]);
 		expect(body.topDevelopers[0]?.developerId).toBe(DEV_A);
+	});
+
+	test("a developer's avatar rides along with the ranking", async () => {
+		// Without this the dashboard would have to fetch the roster separately
+		// just to draw a picture next to a name it already has.
+		seedDeveloper(DEV_A, "Ada", "ada", "https://x/a.png");
+		seedDeveloper(DEV_B, "Bob", "bob");
+		for (const developerId of [DEV_A, DEV_B]) {
+			seedScore({
+				developerId,
+				dayKey: "2026-07-02",
+				breakdown: { "pr.merged": 10 },
+				activityCount: 1,
+			});
+		}
+
+		const body = await summary("?from=2026-07-01&to=2026-07-10");
+		const by = new Map(body.topDevelopers.map((d) => [d.name, d.avatarUrl]));
+		expect(by.get("Ada")).toBe("https://x/a.png");
+		expect(by.get("Bob")).toBeNull();
 	});
 
 	test("activeDevelopers counts people with events, even at zero score", async () => {

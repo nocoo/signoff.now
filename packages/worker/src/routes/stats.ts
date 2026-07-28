@@ -29,6 +29,7 @@ export type StatsSummary = {
 	topDevelopers: {
 		developerId: string;
 		name: string;
+		avatarUrl: string | null;
 		score: number;
 		activityCount: number;
 	}[];
@@ -182,11 +183,12 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 			.prepare(
 				`SELECT s.developer_id AS developerId,
                 COALESCE(d.name, s.developer_id) AS name,
+                d.avatar_url AS avatarUrl,
                 COALESCE(SUM(s.total), 0) AS score,
                 COALESCE(SUM(s.activity_count), 0) AS activityCount
          FROM scores s LEFT JOIN developers d ON d.id = s.developer_id
          WHERE s.config_version = ? AND s.day_key BETWEEN ? AND ?
-         GROUP BY s.developer_id
+         GROUP BY s.developer_id, d.name, d.avatar_url
          ORDER BY score DESC, s.developer_id ASC
          LIMIT ?`,
 			)
@@ -290,6 +292,7 @@ export async function statsSummaryRoute(c: Context<AppEnv>) {
 	const topDevelopers = rows<{
 		developerId: string;
 		name: string;
+		avatarUrl: string | null;
 		score: number;
 		activityCount: number;
 	}>(4);
