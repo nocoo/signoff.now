@@ -75,27 +75,37 @@ export async function teamsPatchRoute(c: Context<AppEnv>) {
 	if (!b) {
 		return c.json({ error: "Invalid payload" }, 400);
 	}
-	const name = normalizeName(b.name);
-	if (!name) {
+	// PATCH is partial on every field, matching the developer route: sending
+	// only `avatarUrl` must not be rejected for "name required". A present but
+	// blank name is still an error — that is a mistake, not an omission.
+	const renaming = b.name !== undefined;
+	const name = renaming ? normalizeName(b.name) : null;
+	if (renaming && !name) {
 		return c.json({ error: "name required" }, 400);
 	}
 	const avatar = normalizeAvatarUrl(b.avatarUrl);
 	if ("error" in avatar) {
 		return c.json({ error: avatar.error }, 400);
 	}
-	// Keep the stored avatar when the field was absent, WITHOUT a second round
-	// trip to read it first — and without turning "not found" into a different
-	// status than this route already promised.
+	// Keep the stored values when their fields were absent, WITHOUT a second
+	// round trip to read them first — and without turning "not found" into a
+	// different status than this route already promised.
 	const keepAvatar = "absent" in avatar;
 	try {
 		const r = await c.env.DB.prepare(
 			`UPDATE teams
-       SET name = ?1,
-           avatar_url = CASE WHEN ?2 = 1 THEN avatar_url ELSE ?3 END,
+       SET name = CASE WHEN ?1 = 1 THEN ?2 ELSE name END,
+           avatar_url = CASE WHEN ?3 = 1 THEN avatar_url ELSE ?4 END,
            updated_at = unixepoch()
-       WHERE id = ?4 AND archived_at IS NULL`,
+       WHERE id = ?5 AND archived_at IS NULL`,
 		)
-			.bind(name, keepAvatar ? 1 : 0, keepAvatar ? null : avatar.value, id)
+			.bind(
+				renaming ? 1 : 0,
+				name,
+				keepAvatar ? 1 : 0,
+				keepAvatar ? null : avatar.value,
+				id,
+			)
 			.run();
 		if (!r.meta.changes) {
 			return c.json({ error: "Not found" }, 404);

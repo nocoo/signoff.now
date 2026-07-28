@@ -265,6 +265,32 @@ describe("team avatars", () => {
 		expect(await res.json()).toMatchObject({ avatarUrl: null });
 	});
 
+	test("an avatar-only PATCH does not demand a name", async () => {
+		// The developer route accepts any subset of fields; teams must too, or
+		// "change just the picture" is a 400 on one entity and fine on the other.
+		const t = (await (await postTeam({ name: "Zeta" })).json()) as {
+			id: string;
+		};
+		const res = await patchTeam(t.id, { avatarUrl: "https://x/t.png" });
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			name: "Zeta",
+			avatarUrl: "https://x/t.png",
+		});
+	});
+
+	test("a blank name is still refused", async () => {
+		// Absent means "leave it"; present-but-empty is a mistake worth reporting.
+		const t = (await (await postTeam({ name: "Eta" })).json()) as {
+			id: string;
+		};
+		expect((await patchTeam(t.id, { name: "  " })).status).toBe(400);
+	});
+
+	test("a PATCH on a missing team is still 404, not 200", async () => {
+		expect((await patchTeam("nope", { avatarUrl: null })).status).toBe(404);
+	});
+
 	test("a script-bearing team avatar is refused", async () => {
 		expect(
 			(await postTeam({ name: "Eps", avatarUrl: "javascript:alert(1)" }))
