@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useId } from "react";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,9 +12,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Team } from "@/models/entities";
-import { validateAvatarUrl } from "@/models/entities";
+import {
+	type TeamDraft,
+	useTeamEditViewModel,
+} from "@/viewmodels/useTeamsViewModel";
 
-export type TeamDraft = { name: string; avatarUrl: string };
+export type { TeamDraft };
 
 export type TeamDialogProps = {
 	team: Team | null;
@@ -31,40 +34,18 @@ export function TeamDialog({
 }: TeamDialogProps) {
 	const nameId = useId();
 	const avatarId = useId();
-	const [draft, setDraft] = useState<TeamDraft>({ name: "", avatarUrl: "" });
-	const [error, setError] = useState<string | null>(null);
-	const [busy, setBusy] = useState(false);
-
-	useEffect(() => {
-		if (open && team) {
-			setDraft({ name: team.name, avatarUrl: team.avatarUrl ?? "" });
-			setError(null);
-		}
-	}, [open, team]);
-
-	const save = async () => {
-		if (!draft.name.trim()) {
-			setError("Name is required");
-			return;
-		}
-		const invalid = validateAvatarUrl(draft.avatarUrl);
-		if (invalid) {
-			setError(invalid);
-			return;
-		}
-		setBusy(true);
-		try {
-			await onSubmit(draft);
-			onOpenChange(false);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Save failed");
-		} finally {
-			setBusy(false);
-		}
-	};
+	const vm = useTeamEditViewModel(team, onSubmit, () => onOpenChange(false));
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				// Not closable mid-save; see DeveloperDialog for why.
+				if (!vm.busy) {
+					onOpenChange(next);
+				}
+			}}
+		>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Edit team</DialogTitle>
@@ -75,8 +56,8 @@ export function TeamDialog({
 
 				<div className="flex items-center gap-3">
 					<EntityAvatar
-						name={draft.name}
-						avatarUrl={draft.avatarUrl}
+						name={vm.draft.name}
+						avatarUrl={vm.draft.avatarUrl}
 						size="lg"
 					/>
 					<p className="text-xs text-muted-foreground">
@@ -89,37 +70,37 @@ export function TeamDialog({
 						<Label htmlFor={nameId}>Name</Label>
 						<Input
 							id={nameId}
-							value={draft.name}
-							onChange={(e) =>
-								setDraft((d) => ({ ...d, name: e.target.value }))
-							}
+							value={vm.draft.name}
+							onChange={(e) => vm.setField("name", e.target.value)}
 						/>
 					</div>
 					<div className="space-y-1.5">
 						<Label htmlFor={avatarId}>Avatar URL</Label>
 						<Input
 							id={avatarId}
-							value={draft.avatarUrl}
+							value={vm.draft.avatarUrl}
 							placeholder="https://…"
-							onChange={(e) =>
-								setDraft((d) => ({ ...d, avatarUrl: e.target.value }))
-							}
+							onChange={(e) => vm.setField("avatarUrl", e.target.value)}
 						/>
 					</div>
 				</div>
 
-				{error ? (
+				{vm.error ? (
 					<p role="alert" className="text-sm text-destructive">
-						{error}
+						{vm.error}
 					</p>
 				) : null}
 
 				<DialogFooter>
-					<Button variant="outline" onClick={() => onOpenChange(false)}>
+					<Button
+						variant="outline"
+						disabled={vm.busy}
+						onClick={() => onOpenChange(false)}
+					>
 						Cancel
 					</Button>
-					<Button disabled={busy} onClick={() => void save()}>
-						{busy ? "Saving…" : "Save"}
+					<Button disabled={vm.busy} onClick={() => void vm.save()}>
+						{vm.busy ? "Saving…" : "Save"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

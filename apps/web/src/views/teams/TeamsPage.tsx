@@ -1,5 +1,4 @@
 import { UsersRound } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityLabel } from "@/components/EntityAvatar";
@@ -7,36 +6,11 @@ import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Team } from "@/models/entities";
-import {
-	archiveTeam,
-	createTeam,
-	listTeams,
-	patchTeam,
-} from "@/models/entitiesApi";
-import { TeamDialog, type TeamDraft } from "./TeamDialog";
+import { useTeamsViewModel } from "@/viewmodels/useTeamsViewModel";
+import { TeamDialog } from "./TeamDialog";
 
 export function TeamsPage() {
-	const [items, setItems] = useState<Team[]>([]);
-	const [name, setName] = useState("");
-	const [error, setError] = useState<string | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [editing, setEditing] = useState<Team | null>(null);
-
-	const reload = useCallback(async () => {
-		try {
-			setItems(await listTeams());
-			setError(null);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Load failed");
-		} finally {
-			setLoading(false);
-		}
-	}, []);
-
-	useEffect(() => {
-		void reload();
-	}, [reload]);
+	const vm = useTeamsViewModel();
 
 	return (
 		<div className="space-y-6">
@@ -44,47 +18,35 @@ export function TeamsPage() {
 				title="Teams"
 				description="Organize developers into multi-membership groups for filtering."
 			/>
-			{error ? <AlertBanner variant="error">{error}</AlertBanner> : null}
+			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5">
 				<div className="flex max-w-md flex-col gap-2 sm:flex-row">
 					<Input
 						placeholder="Team name"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
+						value={vm.name}
+						onChange={(e) => vm.setName(e.target.value)}
 						onKeyDown={(e) => {
+							// Enter and the button go through the same guarded path, so
+							// a fast Enter-then-click cannot create the team twice.
 							if (e.key === "Enter") {
 								e.preventDefault();
-								void createTeam(name)
-									.then(() => {
-										setName("");
-										return reload();
-									})
-									.catch((err: Error) => setError(err.message));
+								void vm.create();
 							}
 						}}
 					/>
-					<Button
-						onClick={() =>
-							void createTeam(name)
-								.then(() => {
-									setName("");
-									return reload();
-								})
-								.catch((e: Error) => setError(e.message))
-						}
-					>
-						Add
+					<Button disabled={vm.busy} onClick={() => void vm.create()}>
+						{vm.busy ? "Adding…" : "Add"}
 					</Button>
 				</div>
 			</section>
 
-			{loading ? (
+			{vm.loading ? (
 				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
 					<Skeleton className="h-10 w-full" />
 					<Skeleton className="h-10 w-full" />
 				</div>
-			) : items.length === 0 ? (
+			) : vm.items.length === 0 ? (
 				<div className="rounded-[var(--radius-card)] bg-secondary">
 					<EmptyState
 						icon={UsersRound}
@@ -94,7 +56,7 @@ export function TeamsPage() {
 				</div>
 			) : (
 				<ul className="rounded-[var(--radius-card)] bg-secondary divide-y divide-border">
-					{items.map((t) => (
+					{vm.items.map((t) => (
 						<li
 							key={t.id}
 							className="flex items-center justify-between px-4 py-3 text-sm hover:bg-background/50"
@@ -104,18 +66,15 @@ export function TeamsPage() {
 								<Button
 									variant="outline"
 									size="sm"
-									onClick={() => setEditing(t)}
+									onClick={() => vm.setEditing(t)}
 								>
 									Edit
 								</Button>
 								<Button
 									variant="destructive"
 									size="sm"
-									onClick={() =>
-										void archiveTeam(t.id)
-											.then(reload)
-											.catch((e: Error) => setError(e.message))
-									}
+									disabled={vm.busy}
+									onClick={() => void vm.archive(t.id)}
 								>
 									Archive
 								</Button>
@@ -126,23 +85,14 @@ export function TeamsPage() {
 			)}
 
 			<TeamDialog
-				team={editing}
-				open={editing !== null}
+				team={vm.editing}
+				open={vm.editing !== null}
 				onOpenChange={(o) => {
 					if (!o) {
-						setEditing(null);
+						vm.setEditing(null);
 					}
 				}}
-				onSubmit={async (draft: TeamDraft) => {
-					if (!editing) {
-						return;
-					}
-					await patchTeam(editing.id, {
-						name: draft.name,
-						avatarUrl: draft.avatarUrl.trim() || null,
-					});
-					await reload();
-				}}
+				onSubmit={vm.submitEdit}
 			/>
 		</div>
 	);

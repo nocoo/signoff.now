@@ -1,5 +1,5 @@
 import { Users } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
@@ -8,109 +8,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Developer, DeveloperFilter, Team } from "@/models/entities";
-import {
-	EMPTY_DEVELOPER_FILTER,
-	filterDevelopers,
-	validateDeveloperInput,
-} from "@/models/entities";
-import {
-	archiveDeveloper,
-	createDeveloper,
-	listDevelopers,
-	listTeams,
-	patchDeveloper,
-	restoreDeveloper,
-} from "@/models/entitiesApi";
-import { DeveloperDialog, type DeveloperDraft } from "./DeveloperDialog";
+import type { DeveloperFilter } from "@/models/entities";
+import { useDevelopersViewModel } from "@/viewmodels/useDevelopersViewModel";
+import { DeveloperDialog } from "./DeveloperDialog";
 
 export function DevelopersPage() {
-	const [items, setItems] = useState<Developer[]>([]);
-	const [teams, setTeams] = useState<Team[]>([]);
-	const [error, setError] = useState<string | null>(null);
+	const vm = useDevelopersViewModel();
+	// Only the "add developer" inputs are local: they are transient text that
+	// nothing outside this form reads.
 	const [name, setName] = useState("");
 	const [alias, setAlias] = useState("");
-	const [busy, setBusy] = useState(false);
-	const [loading, setLoading] = useState(true);
-	const [filter, setFilter] = useState<DeveloperFilter>(EMPTY_DEVELOPER_FILTER);
-	const [editing, setEditing] = useState<Developer | null>(null);
 	const searchId = useId();
 	const statusId = useId();
 	const teamId = useId();
 
-	const reload = useCallback(async () => {
-		// Archived rows are fetched always and hidden by the filter, so
-		// switching status does not need a round trip.
-		//
-		// allSettled, not all: the team list only decorates the roster and fills
-		// one filter. Letting it reject would throw away developers that loaded
-		// fine and leave the page empty — the one screen where the roster is the
-		// entire point.
-		const [devs, tms] = await Promise.allSettled([
-			listDevelopers(true),
-			listTeams(),
-		]);
-		if (devs.status === "fulfilled") {
-			setItems(devs.value);
-		}
-		if (tms.status === "fulfilled") {
-			setTeams(tms.value);
-		}
-		const failed = [devs, tms].find((r) => r.status === "rejected");
-		setError(
-			failed === undefined
-				? null
-				: failed.reason instanceof Error
-					? failed.reason.message
-					: "Load failed",
-		);
-		setLoading(false);
-	}, []);
-
-	useEffect(() => {
-		void reload();
-	}, [reload]);
-
-	const visible = useMemo(
-		() => filterDevelopers(items, filter),
-		[items, filter],
-	);
-	const teamName = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
-
 	const onCreate = async () => {
-		const v = validateDeveloperInput(name, alias);
-		if (v) {
-			setError(v);
-			return;
-		}
-		setBusy(true);
-		try {
-			await createDeveloper(name, alias);
+		if (await vm.create(name, alias)) {
 			setName("");
 			setAlias("");
-			await reload();
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Create failed");
-		} finally {
-			setBusy(false);
 		}
 	};
-
-	const onSubmitEdit = async (draft: DeveloperDraft) => {
-		if (!editing) {
-			return;
-		}
-		await patchDeveloper(editing.id, {
-			name: draft.name,
-			alias: draft.alias,
-			avatarUrl: draft.avatarUrl.trim() || null,
-			teamIds: draft.teamIds,
-		});
-		await reload();
-	};
-
-	const run = (p: Promise<unknown>) =>
-		void p.then(reload).catch((e: Error) => setError(e.message));
 
 	return (
 		<div className="space-y-6">
@@ -119,7 +36,7 @@ export function DevelopersPage() {
 				description="Roster used for identity matching (alias + email suffix)."
 			/>
 
-			{error ? <AlertBanner variant="error">{error}</AlertBanner> : null}
+			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
 				<h2 className="font-display text-base font-semibold">Add developer</h2>
@@ -143,8 +60,8 @@ export function DevelopersPage() {
 						/>
 					</div>
 				</div>
-				<Button disabled={busy} onClick={() => void onCreate()}>
-					{busy ? "Creating…" : "Create"}
+				<Button disabled={vm.busy} onClick={() => void onCreate()}>
+					{vm.busy ? "Creating…" : "Create"}
 				</Button>
 			</section>
 
@@ -154,10 +71,10 @@ export function DevelopersPage() {
 					<Input
 						id={searchId}
 						className="w-56"
-						value={filter.keyword}
+						value={vm.filter.keyword}
 						placeholder="Name or alias"
 						onChange={(e) =>
-							setFilter((f) => ({ ...f, keyword: e.target.value }))
+							vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
 						}
 					/>
 				</div>
@@ -166,9 +83,9 @@ export function DevelopersPage() {
 					<select
 						id={statusId}
 						className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-						value={filter.status}
+						value={vm.filter.status}
 						onChange={(e) =>
-							setFilter((f) => ({
+							vm.setFilter((f) => ({
 								...f,
 								status: e.target.value as DeveloperFilter["status"],
 							}))
@@ -184,13 +101,13 @@ export function DevelopersPage() {
 					<select
 						id={teamId}
 						className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-						value={filter.teamId ?? ""}
+						value={vm.filter.teamId ?? ""}
 						onChange={(e) =>
-							setFilter((f) => ({ ...f, teamId: e.target.value || null }))
+							vm.setFilter((f) => ({ ...f, teamId: e.target.value || null }))
 						}
 					>
 						<option value="">All teams</option>
-						{teams.map((t) => (
+						{vm.teams.map((t) => (
 							<option key={t.id} value={t.id}>
 								{t.name}
 							</option>
@@ -198,23 +115,23 @@ export function DevelopersPage() {
 					</select>
 				</div>
 				<p className="ml-auto text-xs text-muted-foreground">
-					{visible.length} of {items.length}
+					{vm.visible.length} of {vm.items.length}
 				</p>
 			</section>
 
-			{loading ? (
+			{vm.loading ? (
 				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
 					<Skeleton className="h-8 w-full" />
 					<Skeleton className="h-8 w-full" />
 					<Skeleton className="h-8 w-2/3" />
 				</div>
-			) : visible.length === 0 ? (
+			) : vm.visible.length === 0 ? (
 				<div className="rounded-[var(--radius-card)] bg-secondary">
 					<EmptyState
 						icon={Users}
-						title={items.length === 0 ? "No developers yet" : "No matches"}
+						title={vm.items.length === 0 ? "No developers yet" : "No matches"}
 						description={
-							items.length === 0
+							vm.items.length === 0
 								? "Add a display name and alias. Matching uses alias@suffix from Settings."
 								: "No developer matches the current filters."
 						}
@@ -235,7 +152,7 @@ export function DevelopersPage() {
 							</tr>
 						</thead>
 						<tbody>
-							{visible.map((d) => (
+							{vm.visible.map((d) => (
 								<tr
 									key={d.id}
 									className="border-b border-border last:border-0 hover:bg-background/50"
@@ -253,7 +170,7 @@ export function DevelopersPage() {
 												<span className="text-xs text-muted-foreground">—</span>
 											) : (
 												d.teamIds.map((id) => {
-													const t = teamName.get(id);
+													const t = vm.teamsById.get(id);
 													return t ? (
 														<span
 															key={id}
@@ -275,7 +192,7 @@ export function DevelopersPage() {
 										<Button
 											variant="outline"
 											size="sm"
-											onClick={() => setEditing(d)}
+											onClick={() => vm.setEditing(d)}
 										>
 											Edit
 										</Button>
@@ -283,7 +200,8 @@ export function DevelopersPage() {
 											<Button
 												variant="destructive"
 												size="sm"
-												onClick={() => run(archiveDeveloper(d.id))}
+												disabled={vm.busy}
+												onClick={() => void vm.archive(d.id)}
 											>
 												Archive
 											</Button>
@@ -291,7 +209,8 @@ export function DevelopersPage() {
 											<Button
 												variant="outline"
 												size="sm"
-												onClick={() => run(restoreDeveloper(d.id))}
+												disabled={vm.busy}
+												onClick={() => void vm.restore(d.id)}
 											>
 												Restore
 											</Button>
@@ -305,15 +224,15 @@ export function DevelopersPage() {
 			)}
 
 			<DeveloperDialog
-				developer={editing}
-				teams={teams}
-				open={editing !== null}
+				developer={vm.editing}
+				teams={vm.teams}
+				open={vm.editing !== null}
 				onOpenChange={(o) => {
 					if (!o) {
-						setEditing(null);
+						vm.setEditing(null);
 					}
 				}}
-				onSubmit={onSubmitEdit}
+				onSubmit={vm.submitEdit}
 			/>
 		</div>
 	);
