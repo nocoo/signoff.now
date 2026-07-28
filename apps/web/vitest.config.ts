@@ -23,8 +23,13 @@ export default defineConfig({
 			exclude: [
 				"src/**/*.{test,spec}.{ts,tsx}",
 				"src/**/*.d.ts",
-				// HTTP clients: thin wrappers, mocked in ViewModel tests
-				"src/models/*Api.ts",
+				// HTTP clients still without contract tests. Listed one by one
+				// rather than as `*Api.ts`: entitiesApi has them now and is in
+				// the gate, and each name left here is visible debt rather than
+				// a pattern that silently swallows new files.
+				"src/models/activityApi.ts",
+				"src/models/settingsApi.ts",
+				"src/models/statsApi.ts",
 			],
 			thresholds: {
 				statements: 95,
