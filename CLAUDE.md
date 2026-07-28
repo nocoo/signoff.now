@@ -80,6 +80,27 @@ the `.env.*` rule, or the template would be ignored too.
 
 ## Retrospective
 
+### 2026-07-28 — 采集产物绑定环境，跨环境重放必然 422
+
+**背景**：把一份 06:59 采集的 artifact ingest 到生产，得到 `HTTP 422`。
+
+**原因**：artifact 里的 `developerId` / `repoId` 是**采集当时那个环境的主键**。生产的
+developer 行创建于 01:44 UTC、repo 是 `9f9ff2bc…`，而 artifact 里写的是
+`05ab05e8…` / `7614d977…` —— 两边对不上，服务端按 05 §5.5 拒收。
+
+**做对的**：
+
+- 服务端拒收是**正确行为**，不是 bug。核对后确认 `activities` 仍为 0、游标未推进，
+  422 干净回滚，没有留下半截状态。
+- 没有去改服务端放宽校验，而是重新采集。
+
+**规则化提醒**：
+
+- **artifact 不是环境无关的**。换目标环境（或目标环境的 roster/repo 重建过）之后，
+  旧 artifact 必须**重新采集**，不能重放。
+- ingest 报 422 先查**主键是否属于目标环境**，再怀疑数据本身。
+- 判断"有没有写脏"要直接查 `activities` 计数与游标，别靠 CLI 退出码推测。
+
 ### 2026-07-19 — 05 文档职责越界与 Ingest 契约错误
 
 **背景**：写 `docs/05-管线铺垫与Ingest实现.md` 时,把"05 铺垫 + 06 实装"混成"05 实施 P1..P4",且 Ingest 契约包含多处技术错误。经 Codex review + 用户认可,重写为「06 开工前置契约」。
