@@ -94,6 +94,24 @@
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-sm: calc(var(--radius) - 4px);
 
+	/*
+	 * Control tokens. Every form control on the site derives from these rather
+	 * than repeating utility strings, which is how four different label gaps
+	 * (space-y-1 / 1.5 / 2 / mt-1) and two different paddings ended up on
+	 * screen at once.
+	 *
+	 * --control-pad-trailing is deliberately larger than the leading pad: a
+	 * select draws a chevron in that space, and matching the two makes the
+	 * glyph sit against the border.
+	 */
+	--control-h: 2.25rem; /* 36px — the one control height */
+	--control-h-sm: 2rem; /* 32px — dense rows, e.g. the tag picker */
+	--control-pad-x: 0.75rem;
+	--control-pad-trailing: 2rem; /* room for a chevron, not a squeeze */
+	--control-gap: 0.375rem; /* label → control */
+	--control-gap-x: 0.75rem; /* control → control, side by side */
+	--control-radius: var(--radius-md);
+
 	--animate-accordion-down: accordion-down 0.2s ease-out;
 	--animate-accordion-up: accordion-up 0.2s ease-out;
 	--animate-collapsible-down: collapsible-down 0.2s ease-out;
