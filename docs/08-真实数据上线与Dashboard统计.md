@@ -9,10 +9,13 @@
 **08 只做「让真实数据在生产环境里被看见」；采集规则、计分算法、Ingest 协议一律不动。**
 
 - ✅ 08 做：远端上线流程、Dashboard 统计 API 与视图、运维手册、真实数据验收
-- ❌ 08 不做：改 Activity type / 权重 / external_ref / 表结构 / 采集规则
+- ❌ 08 不做：改 Activity type / 权重 / external_ref / 采集规则
 - ⚠️ 08 **确实新增两个索引**（`0007`，纯 `CREATE INDEX`，不动任何列；
-  `0008` 只重建其中一个的定义）：见 §3.5。这是对「不改 schema」边界的一处
+  `0008` 只重建其中一个的定义）：见 §3.6。这是对「不改 schema」边界的一处
   显式豁免，理由是没有它们按 type 聚合会全表扫描。
+- ⚠️ 08 **也确实加了两列**（`0009`：`developers.avatar_url`、`teams.avatar_url`，
+  纯 `ADD COLUMN` 可空，不重写任何行）：见 §3.5。同样是显式豁免 ——
+  这两列不参与身份匹配与计分，只影响展示。
 
 ---
 
@@ -294,7 +297,40 @@ View 里，逃出了覆盖率门禁。08 把它改成三层，逻辑落到 Model
 一旦 Dashboard 需要多序列、坐标轴或交互式 tooltip，就按 01 §8 引入 Recharts，
 而不是继续堆 CSS。
 
-### 3.5 Migration 0007 / 0008（索引）
+### 3.5 头像与团队归属（2026-07-28 追加）
+
+Migration **0009** 给 `developers` / `teams` 各加一列 `avatar_url TEXT`（可空）。
+`NULL` 表示"没有自定义图"，UI 回退到生成头像；不用空串，避免同一含义两种写法。
+
+| 层 | 文件 | 职责 |
+|:---|:---|:---|
+| lib | `web/src/lib/avatar.ts` | 36 色板、FNV-1a 姓名 hash、首字母、URL 白名单 |
+| 组件 | `web/src/components/EntityAvatar.tsx` | `EntityAvatar` / `EntityLabel`（头像 + 名字） |
+| Model | `web/src/models/entities.ts` | `validateAvatarUrl`、`filterDevelopers`、成员关系解析 |
+
+几条**踩过才知道**的约束：
+
+1. **只接受 http(s)**。这个值最终进 `<img src>`，`javascript:` / `data:` 是
+   脚本注入面。服务端 `normalizeAvatarUrl` 与前端 `usableAvatarUrl` 各挡一道 ——
+   前端那道是防历史脏数据，不是边界。
+2. **只有 alias 变更才 bump `pipeline_config_version`**。头像、团队、显示名
+   都不影响身份匹配集合；为换头像触发全量重算是荒唐的。已在生产实测：
+   连续改头像 / 团队 / 姓名后 version 仍为 3。
+3. **`teamIds` 缺省 ≠ 空数组**。缺省是"别动成员关系"，`[]` 是"清空"。
+   PATCH 必须能表达两者，所以两种结果在类型上就是分开的。
+4. **重复或失效的 team id 不是错误**。写入用
+   `INSERT ... SELECT ... WHERE EXISTS`，指向已归档/不存在团队的 id 被跳过，
+   重复 id 在读取时就去重 —— 否则复合主键会让整个 batch 回滚，
+   用户只是多点了一下就收到 500。
+5. **色板的 36 档亮度不是同一个值**。白字要过 WCAG AA(4.5:1)，
+   黄绿区必须比蓝区暗得多，逐 hue 算出来的。
+6. **姓名 hash 用 FNV-1a 而非码点相加**。中文姓名字符集中，相加会让
+   「张伟」「张威」撞色。均匀性用 500 个真实姓名做**卡方检验**判定
+   （df=35，临界 49.8）：FNV 得 31.2，相加得 53.7，只 XOR 得 87.1。
+   不要用"最大桶 ≤ N"当阈值 —— 180 名字散进 36 桶时最大桶中位数就有 10，
+   这种阈值不是在测 hash，是在测运气。
+
+### 3.6 Migration 0007 / 0008（索引）
 
 `EXPLAIN QUERY PLAN` 实测：按 type 聚合会选中 `idx_activities_config_version`，
 然后**扫遍该版本全部行**再过滤日期。0006 只恢复了 `day_key` / `type` /
@@ -408,14 +444,15 @@ README 的手册比这里多两节，都是实测/复审后补的：
 - [ ] **远端** `activities` / `scores` 有真实行，`external_ref` 无重复
 - [ ] 上面三项「本地实测」在**生产**上重跑一遍
 
-> 生产 bootstrap 现在返回 `developers: 0, repos: 0` —— 库是空的，
-> 但**不是 Access 没配好**。`MACHINE_ROUTES`（`middleware/entry-control.ts:13`）
-> 只放行 bootstrap / ingest / recompute / live / me 五条，
-> **CRUD 对机器一律 403**（实测 `GET`/`POST /api/repos` 均为 403）。
+> **已过时（2026-07-28 修正）**：生产 bootstrap 曾返回 `developers: 0, repos: 0`，
+> 当时的结论是"第一批实体必须由**人**登录 Web UI 创建"。
+> 现在生产已有 2 个 developer 与 1 个 repo，且**自动化也能建** —— 用 Access
+> **service token** 调 `signoff.hexly.ai` 的 CRUD（见 README「Service Token」）。
 >
-> 这是有意的：机器不该能凭 token 凭空创建开发者或仓库绑定。
-> 所以生产的第一批实体必须由**人**登录 `signoff.hexly.ai` 在 Web UI 里建，
-> 之后 CLI 才有可采的 scope。
+> 仍然成立的部分：`MACHINE_ROUTES`（`middleware/entry-control.ts`）只放行
+> bootstrap / ingest / recompute / live / me 五条，**ingest token 对 CRUD 一律 403**。
+> 机器不该能凭泄漏的 ingest token 凭空创建开发者。service token 是另一条路径、
+> 另一个可撤销身份，边界没有被削弱。
 
 ### 5.2 对账 SQL（逐字段，非只看页面）
 
