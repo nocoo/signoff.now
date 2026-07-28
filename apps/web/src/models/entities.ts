@@ -4,6 +4,7 @@ export interface Developer {
 	alias: string;
 	avatarUrl: string | null;
 	teamIds: string[];
+	tagIds: string[];
 	createdAt: number;
 	updatedAt: number;
 	archivedAt: number | null;
@@ -13,6 +14,7 @@ export interface Team {
 	id: string;
 	name: string;
 	avatarUrl: string | null;
+	tagIds: string[];
 	createdAt: number;
 	updatedAt: number;
 	archivedAt: number | null;
@@ -43,6 +45,11 @@ export interface Repo {
 	archivedAt: number | null;
 }
 
+/** A non-array (or missing) list is `[]`, never per-character garbage. */
+function idList(v: unknown): string[] {
+	return Array.isArray(v) ? v.map(String) : [];
+}
+
 /** `null` for absent, missing or non-string — the UI has one "no image" case. */
 function optionalText(v: unknown): string | null {
 	return v === null || v === undefined || typeof v !== "string" ? null : v;
@@ -57,7 +64,8 @@ export function parseDeveloper(raw: unknown): Developer {
 		avatarUrl: optionalText(r.avatarUrl),
 		// A developer created before memberships existed has no field at all;
 		// an empty list keeps every consumer from guarding for undefined.
-		teamIds: Array.isArray(r.teamIds) ? r.teamIds.map(String) : [],
+		teamIds: idList(r.teamIds),
+		tagIds: idList(r.tagIds),
 		createdAt: Number(r.createdAt),
 		updatedAt: Number(r.updatedAt),
 		archivedAt: r.archivedAt === null ? null : Number(r.archivedAt),
@@ -70,6 +78,7 @@ export function parseTeam(raw: unknown): Team {
 		id: String(r.id),
 		name: String(r.name),
 		avatarUrl: optionalText(r.avatarUrl),
+		tagIds: idList(r.tagIds),
 		createdAt: Number(r.createdAt),
 		updatedAt: Number(r.updatedAt),
 		archivedAt: r.archivedAt === null ? null : Number(r.archivedAt),
@@ -155,12 +164,14 @@ export type DeveloperFilter = {
 	/** `archived` is a distinct choice from "everything", not a superset. */
 	status: "active" | "archived" | "all";
 	teamId: string | null;
+	tagId: string | null;
 };
 
 export const EMPTY_DEVELOPER_FILTER: DeveloperFilter = {
 	keyword: "",
 	status: "active",
 	teamId: null,
+	tagId: null,
 };
 
 /**
@@ -183,6 +194,9 @@ export function filterDevelopers(
 			return false;
 		}
 		if (filter.teamId !== null && !d.teamIds.includes(filter.teamId)) {
+			return false;
+		}
+		if (filter.tagId !== null && !d.tagIds.includes(filter.tagId)) {
 			return false;
 		}
 		// A blank keyword needs no special case: `includes("")` is true for all.

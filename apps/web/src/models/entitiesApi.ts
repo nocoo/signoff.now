@@ -25,6 +25,8 @@ export type DeveloperWriteBody = {
 	avatarUrl?: string | null;
 	/** Omitting leaves memberships alone; `[]` removes them all. */
 	teamIds?: string[];
+	/** Same absent-vs-empty rule as teamIds. */
+	tagIds?: string[];
 };
 
 export async function createDeveloper(
@@ -66,7 +68,7 @@ export async function listTeams(includeArchived = false): Promise<Team[]> {
 
 export async function createTeam(
 	name: string,
-	extra: { avatarUrl?: string | null } = {},
+	extra: { avatarUrl?: string | null; tagIds?: string[] } = {},
 ): Promise<Team> {
 	const raw = await apiFetch<unknown>("/api/teams", {
 		method: "POST",
@@ -77,7 +79,7 @@ export async function createTeam(
 
 export async function patchTeam(
 	id: string,
-	body: { name?: string; avatarUrl?: string | null },
+	body: { name?: string; avatarUrl?: string | null; tagIds?: string[] },
 ): Promise<Team> {
 	const raw = await apiFetch<unknown>(`/api/teams/${id}`, {
 		method: "PATCH",

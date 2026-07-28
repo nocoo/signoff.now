@@ -168,6 +168,12 @@ describe("parseDeveloper profile fields", () => {
 		expect(parseDeveloper({ ...base, avatarUrl: 42 }).avatarUrl).toBeNull();
 	});
 
+	test("tagIds parse like teamIds", () => {
+		expect(parseDeveloper({ ...base, tagIds: ["g1"] }).tagIds).toEqual(["g1"]);
+		expect(parseDeveloper(base).tagIds).toEqual([]);
+		expect(parseDeveloper({ ...base, tagIds: "g1" }).tagIds).toEqual([]);
+	});
+
 	test("team avatars parse the same way", () => {
 		expect(
 			parseTeam({
@@ -209,6 +215,7 @@ describe("filterDevelopers", () => {
 		alias: "ada",
 		avatarUrl: null,
 		teamIds: [],
+		tagIds: [],
 		createdAt: 1,
 		updatedAt: 1,
 		archivedAt: null,
@@ -221,7 +228,13 @@ describe("filterDevelopers", () => {
 		alias: "bstone",
 		teamIds: ["t1"],
 	});
-	const gone = dev({ id: "3", name: "Old Hand", alias: "old", archivedAt: 99 });
+	const gone = dev({
+		id: "3",
+		name: "Old Hand",
+		alias: "old",
+		tagIds: ["g1"],
+		archivedAt: 99,
+	});
 	const all = [ada, bob, gone];
 	const ids = (f: Parameters<typeof filterDevelopers>[1]) =>
 		filterDevelopers(all, f).map((d) => d.id);
@@ -263,15 +276,33 @@ describe("filterDevelopers", () => {
 		]);
 	});
 
+	test("tag narrows to tagged developers", () => {
+		// "3" carries g1 but is archived, so the default status filter hides it.
+		expect(ids({ ...EMPTY_DEVELOPER_FILTER, tagId: "g1" })).toEqual([]);
+		expect(
+			ids({ ...EMPTY_DEVELOPER_FILTER, status: "all", tagId: "g1" }),
+		).toEqual(["3"]);
+	});
+
+	test("team and tag compose rather than override", () => {
+		// Both set means BOTH must match; treating the second as a replacement
+		// would quietly widen the result.
+		expect(
+			ids({ ...EMPTY_DEVELOPER_FILTER, teamId: "t1", tagId: "g1" }),
+		).toEqual([]);
+	});
+
 	test("team narrows to members", () => {
 		expect(ids({ ...EMPTY_DEVELOPER_FILTER, teamId: "t1" })).toEqual(["2"]);
 	});
 
 	test("filters compose rather than override", () => {
-		expect(ids({ keyword: "bob", status: "active", teamId: "t1" })).toEqual([
-			"2",
-		]);
-		expect(ids({ keyword: "ada", status: "active", teamId: "t1" })).toEqual([]);
+		expect(
+			ids({ keyword: "bob", status: "active", teamId: "t1", tagId: null }),
+		).toEqual(["2"]);
+		expect(
+			ids({ keyword: "ada", status: "active", teamId: "t1", tagId: null }),
+		).toEqual([]);
 	});
 
 	test("does not mutate the input", () => {
