@@ -24,6 +24,7 @@ describe("accessAuth middleware", () => {
 				auth: c.get("accessAuthenticated") === true,
 				email: c.get("accessEmail") ?? null,
 				name: c.get("accessName") ?? null,
+				service: c.get("accessService") === true,
 			}),
 		);
 		return a;
@@ -44,6 +45,7 @@ describe("accessAuth middleware", () => {
 			auth: false,
 			email: null,
 			name: null,
+			service: false,
 		});
 	});
 
@@ -92,6 +94,7 @@ describe("accessAuth middleware", () => {
 		setAccessJwtVerifierForTests(async () => ({
 			email: "ada@example.com",
 			name: "Ada",
+			service: false,
 		}));
 		const res = await app(accessEnv).request(
 			"http://signoff.example.com/api/settings",
@@ -108,6 +111,7 @@ describe("accessAuth middleware", () => {
 			auth: true,
 			email: "ada@example.com",
 			name: "Ada",
+			service: false,
 		});
 	});
 
@@ -125,5 +129,32 @@ describe("accessAuth middleware", () => {
 			},
 		);
 		expect(res.status).toBe(403);
+	});
+
+	test("a verified service token marks the context as a service", async () => {
+		// Without this the flag never reaches `/api/me`, and an automated
+		// session renders exactly like a person's.
+		setAccessJwtVerifierForTests(async () => ({
+			email: null,
+			name: "e367826f93b8d71185e03fe518aff3b4.access",
+			service: true,
+		}));
+
+		const res = await app(accessEnv).request(
+			"http://signoff.example.com/api/settings",
+			{
+				headers: {
+					host: "signoff.example.com",
+					"cf-access-jwt-assertion": "t",
+				},
+			},
+		);
+		expect(await res.json()).toMatchObject({
+			auth: true,
+			email: null,
+			name: "e367826f93b8d71185e03fe518aff3b4.access",
+			service: true,
+		});
+		setAccessJwtVerifierForTests(null);
 	});
 });

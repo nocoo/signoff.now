@@ -15,6 +15,8 @@ export type Variables = {
 	accessAuthenticated?: boolean;
 	accessEmail?: string | null;
 	accessName?: string | null;
+	/** True when a service token authenticated, not a person. */
+	accessService?: boolean;
 };
 
 export type AppEnv = { Bindings: Bindings; Variables: Variables };

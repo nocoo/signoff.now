@@ -65,6 +65,7 @@ export async function accessAuth(c: Context<AppEnv>, next: Next) {
 		c.set("accessAuthenticated", true);
 		c.set("accessEmail", principal.email);
 		c.set("accessName", principal.name);
+		c.set("accessService", principal.service);
 	} catch {
 		return c.json({ error: "Invalid Access JWT" }, 403);
 	}
