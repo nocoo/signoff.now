@@ -22,6 +22,7 @@ import {
 } from "../test/sqlite-d1.ts";
 import { processIngestChunk } from "./pipeline-ingest-write.ts";
 import type { AppSettings } from "./settings.ts";
+import { sha256Hex, stableStringify } from "./stable-json.ts";
 
 const DEV = "01K0INTEG06DEV0000000000000";
 const REPO = "01K0INTEG06REPO000000000000";
@@ -348,6 +349,12 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
+	// Third arg is a per-test timeout: 1000 sha256+sqlite round-trips plus
+	// `bun test --coverage` instrumentation on Linux runners can blow bun's 5s
+	// default (STU-2238). 30s is runner headroom for this exhaustive
+	// behavioural test only — it is NOT a complexity gate. Any O(n²)
+	// implementation that still completes within 30s would slip through
+	// unnoticed. Guard complexity in review, not by wall-clock.
 	test("digest drift is refused at EVERY chunk index, not just early ones", async () => {
 		// Behavioural cover for the same rule the structural assertion above
 		// checks. A guard capped at any prefix (`chunkIndex < 2`, `< 4`, …) lets
@@ -374,8 +381,8 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 
 		// Sampling was not enough, twice over. First 0..5 missed a cap at
 		// `chunkIndex < 6`; then laying down 1..499 but replaying only nine of
-		// them missed `chunkIndex !== 7`. Any index left unreplayed is an index a
-		// cap can hide in, so every one that was written gets replayed.
+		// them missed `chunkIndex !== 7`. Any index left unreplayed is an index
+		// a cap can hide in, so every one that was written gets replayed.
 		expect((await processIngestChunk(sqlite.db, body(), settings)).kind).toBe(
 			"ok",
 		);
@@ -393,19 +400,94 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		}
 
 		// Now replay each with different bytes. Every index must refuse — a cap
-		// anywhere in the range would let a later chunk overwrite a committed one.
+		// anywhere in the range would let a later chunk overwrite a committed
+		// one.
+		//
+		// Cost budget: snapshot() reads five whole tables and JSON-stringifies
+		// them, and after 500 writes those tables are heavy. Calling it twice
+		// per iteration (500 iters) made the whole sweep O(n²) and blew past
+		// the 5s bun test default on CI (STU-2238). Take ONE snapshot up
+		// front, do a cheap per-iteration `res.kind === "conflict"` sweep, and
+		// take ONE snapshot at the end — the invariant we care about is "no
+		// replay mutated state", and any mutation shows up in the final
+		// comparison. A guard capped at some prefix would still leak through
+		// `res.kind`, so the per-iteration check retains its regression cover.
+		const before = snapshot();
 		for (let i = 0; i <= LAST_INDEX; i++) {
-			const before = snapshot();
 			const replay =
 				i === 0
 					? body({ activities: [] } as Partial<IngestBody>)
 					: chunkAt(i, 1_784_999_000 + i);
 			const res = await processIngestChunk(sqlite.db, replay, settings);
 			expect(`index ${i}: ${res.kind}`).toBe(`index ${i}: conflict`);
-			expect(`index ${i} rows`).toBe(
-				snapshot() === before ? `index ${i} rows` : `index ${i} MUTATED`,
-			);
 		}
+		expect(snapshot()).toBe(before);
+	}, 30_000);
+
+	test("digest drift is refused at an arbitrarily high chunk index", async () => {
+		// The sweep above proves no cap hides inside 0..499. This test seeds a
+		// completed chunk directly at index 10_000 and replays with drifted
+		// bytes — cheap proof that a cap like `chunkIndex < 500` planted just
+		// beyond the sweep would still be caught, without extending the sweep.
+		const HIGH_INDEX = 10_000;
+
+		expect((await processIngestChunk(sqlite.db, body(), settings)).kind).toBe(
+			"ok",
+		);
+
+		const original = body({
+			chunkIndex: HIGH_INDEX,
+			activities: [
+				{
+					type: "pr.created",
+					occurredAt: 1_784_800_000,
+					provider: "ado",
+					org: ORG,
+					project: PROJECT,
+					repoId: REPO,
+					developerId: DEV,
+					matchedUniqueName: "integ@example.com",
+					sourceIds: { prRepoGuid: REPO_GUID, prId: 9_000_000 },
+				},
+			],
+		} as Partial<IngestBody>);
+		const originalDigest = await sha256Hex(stableStringify(original));
+
+		// Fabricate a completed chunk row at the high index. Uses only the
+		// columns the guard reads (status + digest), so we do not need to seed
+		// the intermediate 1..9_999 chunks — the guard is index-agnostic and
+		// looks up (run_id, chunk_index) directly.
+		const runId = original.runId;
+		sqlite.raw
+			.query(
+				`INSERT INTO ingest_chunks
+           (run_id, chunk_index, status, digest, dev_day_union_json, finished_at)
+         VALUES (?, ?, 'completed', ?, '[]', unixepoch())`,
+			)
+			.run(runId, HIGH_INDEX, originalDigest);
+
+		const before = snapshot();
+
+		const drifted = body({
+			chunkIndex: HIGH_INDEX,
+			activities: [
+				{
+					type: "pr.created",
+					occurredAt: 1_784_999_999,
+					provider: "ado",
+					org: ORG,
+					project: PROJECT,
+					repoId: REPO,
+					developerId: DEV,
+					matchedUniqueName: "integ@example.com",
+					sourceIds: { prRepoGuid: REPO_GUID, prId: 9_000_001 },
+				},
+			],
+		} as Partial<IngestBody>);
+		const res = await processIngestChunk(sqlite.db, drifted, settings);
+
+		expect(res.kind).toBe("conflict");
+		expect(snapshot()).toBe(before);
 	});
 
 	test("digest drift is refused whatever the chunk's size", async () => {
