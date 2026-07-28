@@ -158,6 +158,31 @@ bun run signoff -- ingest normalized <同一个 artifact> --manifest <同一个 
 部署后接口不通是预期行为，不是故障。
 （例外：`/api/live` 与 pipeline 机器端点走各自的鉴权，不经 Access。）
 
+### Service Token（自动化访问管理接口）
+
+CLI 的 pipeline token 只能走 ingest 那五条路由。要让脚本调用 **CRUD**
+（建 Developer / Repo 等），得让它以 Access 身份进来 —— 用 Service Token，
+而不是共享某个人的浏览器会话：
+
+1. Zero Trust → Access → **Service Auth** → 建 Service Token，
+   记下 `Client ID` 和 `Client Secret`（Secret 只显示一次）；
+2. 打开保护 `signoff.hexly.ai` 的那个 Access Application → Policies →
+   新增一条 **Service Auth** 策略，Include 选 `Service Token` → 选中刚建的那个。
+   （不加这条策略，Token 会被拒。）
+
+调用时带两个头：
+
+```bash
+curl -H "CF-Access-Client-Id: <id>" \
+     -H "CF-Access-Client-Secret: <secret>" \
+     https://signoff.hexly.ai/api/repos
+```
+
+Worker 侧不需要额外配置：Access 验证通过后签发的 JWT 走同一条 JWKS 校验。
+但**身份形状不同** —— Service Token 的 JWT **没有 `email`**、`sub` 是空串，
+唯一标识是 `common_name`（即 Client ID）。`principalFromPayload` 认这个字段并
+把 `service: true` 透到 `/api/me`，否则审计里会出现一个没有名字的调用者。
+
 **两个生产域名，一个 Worker，两条鉴权路径**：
 
 | 域名 | 谁用 | 鉴权 |
