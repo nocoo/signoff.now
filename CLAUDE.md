@@ -80,6 +80,38 @@ the `.env.*` rule, or the template would be ignored too.
 
 ## Retrospective
 
+### 2026-07-28 — D1 batch 不因 0 行回滚；预读回写会吞掉并发修改
+
+**背景**：Codex review 指出 developer PATCH 两处缺陷，**本地都复现了**。
+
+**缺陷 1（预读回写 / lost update）**：PATCH 先 `SELECT` 整行，再把 name/alias/
+avatar 三个标量**全部**写回。两个只改不同字段的请求并发时，后落地的那个会用自己
+读到的旧值覆盖对方刚写的新值，而**两个都返回 200**。实测：avatar-only + alias-only
+并发后 avatar 丢失。
+→ 改为 SQL 内 `CASE WHEN ?n = 1 THEN ? ELSE 列 END`，只写请求真正提到的列，不预读。
+
+**缺陷 2（batch 不回滚）**：`UPDATE ... WHERE archived_at IS NULL` 命中 0 行时，
+**D1 不会回滚同一 batch 的后续语句**（只有报错才回滚）。实测：membership INSERT
+提交了、`pipeline_config_version` 也 +1 了，然后路由返回 404 —— 一次没人要求的
+版本 bump，会让 Dashboard 一直 stale。
+→ 每条依赖语句自带守卫。
+
+**守卫选型（重要）**：`changes()` 报告的是**上一条改行语句**，含义随语句顺序变化。
+夹在中间的语句一多就会悄悄失效。因此新增 `onlyIfLive: {table, id}`，用
+`EXISTS(SELECT 1 FROM <表> WHERE id=? AND archived_at IS NULL)` —— **与顺序无关**。
+`changes()` 版本保留给 archive/restore 那种"紧跟其后"的场景。
+
+**规则化提醒**：
+
+- **D1 batch 只在报错时回滚**，`changes === 0` 不回滚。凡是"前一条决定后面该不该做"
+  的 batch，后面每一条都必须自带 SQL 守卫。
+- **PATCH 不要预读整行再全量回写**。只写请求点名的列，并发修改才能叠加而非互相覆盖。
+- **`changes()` 是位置相关的**，别在多语句 batch 中间用；要顺序无关就用 EXISTS。
+- **验证安全修复时先怀疑测试脚手架**。这轮 shell 循环里 `$u` 展开导致一次假的
+  "生产 200 通过"，换成逐条 single-quote 后三种凭据 URL 全是 400。
+- **变异测试要覆盖谓词的每个分支**：`u.username || u.password` 把后半截删掉后测试
+  仍然全绿（`https://:pw@host` 没被测到），补了用例才杀掉。
+
 ### 2026-07-28 — 采集产物绑定环境，跨环境重放必然 422
 
 **背景**：把一份 06:59 采集的 artifact ingest 到生产，得到 `HTTP 422`。
