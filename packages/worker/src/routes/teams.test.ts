@@ -87,7 +87,9 @@ describe("teams routes", () => {
 	});
 
 	test("create 409 unique", async () => {
-		const db = createMockD1({ runError: new Error("unique") });
+		// The INSERT now rides in a batch with the tag links, so the unique
+		// violation surfaces from batch() rather than run().
+		const db = createMockD1({ batchError: new Error("unique") });
 		const res = await mount(db).request("http://x/api/teams", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -157,7 +159,7 @@ describe("teams routes", () => {
 	test("patch 409 and restore 404", async () => {
 		expect(
 			(
-				await mount(createMockD1({ runError: new Error("u") })).request(
+				await mount(createMockD1({ batchError: new Error("u") })).request(
 					"http://x/api/teams/t1",
 					{
 						method: "PATCH",

@@ -3,41 +3,49 @@ import {
 	archiveDeveloperBatch,
 	batchChanges,
 	type DeveloperRow,
-	membershipStatements,
+	LINK_TABLES,
+	linkStatements,
 	newId,
 	normalizeAlias,
 	normalizeAvatarUrl,
 	normalizeName,
-	readTeamIds,
+	readIdList,
 	restoreDeveloperBatch,
 	staleBumpStatements,
 } from "../lib/entities.js";
 import { asObjectBody, readJsonBody } from "../lib/http-body.js";
 import type { AppEnv } from "../types.js";
 
-function mapDev(r: DeveloperRow, teamIds: string[] = []) {
+function mapDev(
+	r: DeveloperRow,
+	teamIds: string[] = [],
+	tagIds: string[] = [],
+) {
 	return {
 		id: r.id,
 		name: r.name,
 		alias: r.alias,
 		avatarUrl: r.avatar_url,
 		teamIds,
+		tagIds,
 		createdAt: r.created_at,
 		updatedAt: r.updated_at,
 		archivedAt: r.archived_at,
 	};
 }
 
-/** `developerId → teamIds`, in one query rather than one per developer. */
-async function teamsByDeveloper(
+/** `developerId → linked ids`, in one query rather than one per developer. */
+async function linksByDeveloper(
 	db: D1Database,
+	kind: "developerTeams" | "developerTags",
 ): Promise<Map<string, string[]>> {
+	const t = LINK_TABLES[kind];
 	const res = await db
 		.prepare(
-			`SELECT dt.developer_id AS d, dt.team_id AS t
-       FROM developer_teams dt
-       JOIN teams te ON te.id = dt.team_id AND te.archived_at IS NULL
-       ORDER BY te.name COLLATE NOCASE`,
+			`SELECT l.${t.ownerCol} AS d, l.${t.targetCol} AS t
+       FROM ${t.table} l
+       JOIN ${t.targetTable} x ON x.id = l.${t.targetCol} AND x.archived_at IS NULL
+       ORDER BY x.name COLLATE NOCASE`,
 		)
 		.all<{ d: string; t: string }>();
 	const out = new Map<string, string[]>();
@@ -52,22 +60,35 @@ async function teamsByDeveloper(
 	return out;
 }
 
-/** The live team ids of one developer, in the same order the list route uses. */
-async function teamIdsOf(
+/** The live linked ids of one developer, ordered as the list route orders them. */
+async function linkIdsOf(
 	db: D1Database,
+	kind: "developerTeams" | "developerTags",
 	developerId: string,
 ): Promise<string[]> {
+	const t = LINK_TABLES[kind];
 	const res = await db
 		.prepare(
-			`SELECT dt.team_id AS t
-       FROM developer_teams dt
-       JOIN teams te ON te.id = dt.team_id AND te.archived_at IS NULL
-       WHERE dt.developer_id = ?
-       ORDER BY te.name COLLATE NOCASE`,
+			`SELECT l.${t.targetCol} AS t
+       FROM ${t.table} l
+       JOIN ${t.targetTable} x ON x.id = l.${t.targetCol} AND x.archived_at IS NULL
+       WHERE l.${t.ownerCol} = ?
+       ORDER BY x.name COLLATE NOCASE`,
 		)
 		.bind(developerId)
 		.all<{ t: string }>();
 	return (res.results ?? []).map((r) => r.t);
+}
+
+/** Both link sets for one developer, fetched together. */
+async function linksOf(
+	db: D1Database,
+	developerId: string,
+): Promise<[string[], string[]]> {
+	return Promise.all([
+		linkIdsOf(db, "developerTeams", developerId),
+		linkIdsOf(db, "developerTags", developerId),
+	]);
 }
 
 export async function developersListRoute(c: Context<AppEnv>) {
@@ -75,13 +96,14 @@ export async function developersListRoute(c: Context<AppEnv>) {
 	const sql = includeArchived
 		? `SELECT * FROM developers ORDER BY name COLLATE NOCASE`
 		: `SELECT * FROM developers WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE`;
-	const [res, memberships] = await Promise.all([
+	const [res, teams, tags] = await Promise.all([
 		c.env.DB.prepare(sql).all<DeveloperRow>(),
-		teamsByDeveloper(c.env.DB),
+		linksByDeveloper(c.env.DB, "developerTeams"),
+		linksByDeveloper(c.env.DB, "developerTags"),
 	]);
 	return c.json({
 		items: (res.results ?? []).map((r) =>
-			mapDev(r, memberships.get(r.id) ?? []),
+			mapDev(r, teams.get(r.id) ?? [], tags.get(r.id) ?? []),
 		),
 	});
 }
@@ -104,9 +126,13 @@ export async function developersCreateRoute(c: Context<AppEnv>) {
 	if ("error" in avatar) {
 		return c.json({ error: avatar.error }, 400);
 	}
-	const teamIds = readTeamIds(b.teamIds);
+	const teamIds = readIdList(b.teamIds, "teamIds");
 	if ("error" in teamIds) {
 		return c.json({ error: teamIds.error }, 400);
+	}
+	const tagIds = readIdList(b.tagIds, "tagIds");
+	if ("error" in tagIds) {
+		return c.json({ error: tagIds.error }, 400);
 	}
 
 	const id = newId();
@@ -123,10 +149,18 @@ export async function developersCreateRoute(c: Context<AppEnv>) {
 			// The distinction only matters for PATCH, where absent must not wipe.
 			// `skipDelete`: the row was created by the statement above, so there
 			// is nothing to clear.
-			...membershipStatements(
+			...linkStatements(
 				c.env.DB,
+				"developerTeams",
 				id,
 				"absent" in teamIds ? [] : teamIds.value,
+				{ skipDelete: true },
+			),
+			...linkStatements(
+				c.env.DB,
+				"developerTags",
+				id,
+				"absent" in tagIds ? [] : tagIds.value,
 				{ skipDelete: true },
 			),
 			...staleBumpStatements(c.env.DB, "developer created (match set)"),
@@ -137,10 +171,8 @@ export async function developersCreateRoute(c: Context<AppEnv>) {
 	const row = await c.env.DB.prepare(`SELECT * FROM developers WHERE id = ?`)
 		.bind(id)
 		.first<DeveloperRow>();
-	return c.json(
-		mapDev(row as DeveloperRow, await teamIdsOf(c.env.DB, id)),
-		201,
-	);
+	const [teams, tags] = await linksOf(c.env.DB, id);
+	return c.json(mapDev(row as DeveloperRow, teams, tags), 201);
 }
 
 export async function developersPatchRoute(c: Context<AppEnv>) {
@@ -171,9 +203,13 @@ export async function developersPatchRoute(c: Context<AppEnv>) {
 	if ("error" in avatar) {
 		return c.json({ error: avatar.error }, 400);
 	}
-	const teamIds = readTeamIds(b.teamIds);
+	const teamIds = readIdList(b.teamIds, "teamIds");
 	if ("error" in teamIds) {
 		return c.json({ error: teamIds.error }, 400);
+	}
+	const tagIds = readIdList(b.tagIds, "tagIds");
+	if ("error" in tagIds) {
+		return c.json({ error: tagIds.error }, 400);
 	}
 	const keepAvatar = "absent" in avatar;
 
@@ -205,12 +241,18 @@ export async function developersPatchRoute(c: Context<AppEnv>) {
 	// reason: comparing against a pre-read value can bump for a no-op rename,
 	// or miss a real one that landed in between.
 	const aliasMayChange = realiasing;
-	const memberships =
-		"absent" in teamIds
+	const links = [
+		...("absent" in teamIds
 			? []
-			: membershipStatements(c.env.DB, id, teamIds.value, {
-					onlyIfLiveDeveloper: true,
-				});
+			: linkStatements(c.env.DB, "developerTeams", id, teamIds.value, {
+					onlyIfLiveOwner: true,
+				})),
+		...("absent" in tagIds
+			? []
+			: linkStatements(c.env.DB, "developerTags", id, tagIds.value, {
+					onlyIfLiveOwner: true,
+				})),
+	];
 
 	try {
 		// D1 does NOT roll a batch back when a statement matches zero rows — it
@@ -223,7 +265,7 @@ export async function developersPatchRoute(c: Context<AppEnv>) {
 		// silently change meaning if these were ever reordered.
 		const results = await c.env.DB.batch([
 			update,
-			...memberships,
+			...links,
 			...(aliasMayChange
 				? staleBumpStatements(c.env.DB, "developer.alias updated", {
 						onlyIfLive: { table: "developers", id },
@@ -243,7 +285,8 @@ export async function developersPatchRoute(c: Context<AppEnv>) {
 	if (!row || row.archived_at !== null) {
 		return c.json({ error: "Not found" }, 404);
 	}
-	return c.json(mapDev(row, await teamIdsOf(c.env.DB, id)));
+	const [teams, tags] = await linksOf(c.env.DB, id);
+	return c.json(mapDev(row, teams, tags));
 }
 
 export async function developersArchiveRoute(c: Context<AppEnv>) {

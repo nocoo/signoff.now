@@ -15,7 +15,7 @@ import {
 	developersListRoute,
 	developersPatchRoute,
 } from "./developers.js";
-import { teamsCreateRoute, teamsPatchRoute } from "./teams.js";
+import { teamsCreateRoute, teamsListRoute, teamsPatchRoute } from "./teams.js";
 
 let sqlite: SqliteD1;
 
@@ -28,6 +28,7 @@ function mount() {
 	app.get("/api/developers", developersListRoute);
 	app.post("/api/developers", developersCreateRoute);
 	app.patch("/api/developers/:id", developersPatchRoute);
+	app.get("/api/teams", teamsListRoute);
 	app.post("/api/teams", teamsCreateRoute);
 	app.patch("/api/teams/:id", teamsPatchRoute);
 	return app;
@@ -54,6 +55,15 @@ async function patch(id: string, body: unknown): Promise<Response> {
 	});
 }
 
+function seedTag(id: string, name: string, archived = false) {
+	sqlite.raw
+		.query(
+			`INSERT INTO tags (id, name, color, created_at, updated_at, archived_at)
+       VALUES (?, ?, '#FFFFFF', unixepoch(), unixepoch(), ?)`,
+		)
+		.run(id, name, archived ? 1 : null);
+}
+
 function seedTeam(id: string, name: string, archived = false) {
 	sqlite.raw
 		.query(
@@ -76,6 +86,8 @@ beforeEach(() => {
 	sqlite = createSqliteD1();
 	seedTeam("t-alpha", "Alpha");
 	seedTeam("t-beta", "Beta");
+	seedTag("g-fe", "frontend");
+	seedTag("g-be", "backend");
 });
 
 describe("avatar urls", () => {
@@ -379,5 +391,184 @@ describe("concurrent edits (Codex review, 2026-07-28)", () => {
 			teamIds: ["t-alpha"],
 		});
 		expect(version()).toBe(before);
+	});
+});
+
+describe("tags on developers", () => {
+	test("a create stores and echoes tag ids", async () => {
+		const res = await post({
+			name: "Ada",
+			alias: "ada",
+			tagIds: ["g-be", "g-fe"],
+		});
+		expect(res.status).toBe(201);
+		// Ordered by tag name, so the UI renders a stable list.
+		expect(await res.json()).toMatchObject({ tagIds: ["g-be", "g-fe"] });
+	});
+
+	test("tags and teams are independent", async () => {
+		// One list must not clear the other: they are separate join tables and
+		// a PATCH naming only one has nothing to say about the other.
+		const dev = await created({
+			name: "Ada",
+			alias: "ada",
+			teamIds: ["t-alpha"],
+			tagIds: ["g-fe"],
+		});
+		const res = await patch(dev.id, { tagIds: ["g-be"] });
+		expect(await res.json()).toMatchObject({
+			teamIds: ["t-alpha"],
+			tagIds: ["g-be"],
+		});
+	});
+
+	test("omitting tagIds on PATCH leaves them alone", async () => {
+		const dev = await created({ name: "Ada", alias: "ada", tagIds: ["g-fe"] });
+		const res = await patch(dev.id, { name: "Ada L" });
+		expect(await res.json()).toMatchObject({ tagIds: ["g-fe"] });
+	});
+
+	test("an empty array removes them all", async () => {
+		const dev = await created({ name: "Ada", alias: "ada", tagIds: ["g-fe"] });
+		const res = await patch(dev.id, { tagIds: [] });
+		expect(await res.json()).toMatchObject({ tagIds: [] });
+	});
+
+	test("an unknown tag id is skipped, not fatal", async () => {
+		const res = await post({
+			name: "Ada",
+			alias: "ada",
+			tagIds: ["g-fe", "g-missing"],
+		});
+		expect(res.status).toBe(201);
+		expect(await res.json()).toMatchObject({ tagIds: ["g-fe"] });
+	});
+
+	test("an ARCHIVED tag is not attached", async () => {
+		// Separate from the unknown-id case: an archived tag still EXISTS, so
+		// only the `archived_at IS NULL` half of the guard rejects it. Folding
+		// the two into one test let a mutation that drops that half survive —
+		// the row would be written and then hidden by the read-side JOIN, so
+		// the response looked identical while the table quietly filled up.
+		seedTag("g-gone", "gone", true);
+		const res = await post({ name: "Ada", alias: "ada", tagIds: ["g-gone"] });
+		expect(res.status).toBe(201);
+		expect(await res.json()).toMatchObject({ tagIds: [] });
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) AS n FROM developer_tags").get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	test("an ARCHIVED team is not attached either", async () => {
+		seedTeam("t-gone2", "Gone", true);
+		const res = await post({
+			name: "Bob",
+			alias: "bob",
+			teamIds: ["t-gone2"],
+		});
+		expect(res.status).toBe(201);
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) AS n FROM developer_teams").get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	test("a bad tagIds payload names the right field", async () => {
+		// "teamIds must be an array" for a tagIds mistake would send the caller
+		// to the wrong field.
+		const res = await post({ name: "A", alias: "a", tagIds: "g-fe" });
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			error: "tagIds must be an array",
+		});
+	});
+
+	test("tagging does NOT bump the config version", async () => {
+		// Tags are labels; they change nothing about who owns which activity.
+		const dev = await created({ name: "Ada", alias: "ada" });
+		const before = version();
+		await patch(dev.id, { tagIds: ["g-fe"] });
+		expect(version()).toBe(before);
+	});
+
+	test("the list route reports each developer's tags", async () => {
+		await post({ name: "Ada", alias: "ada", tagIds: ["g-fe"] });
+		await post({ name: "Bob", alias: "bob" });
+		const body = (await (
+			await mount().request("http://x/api/developers")
+		).json()) as { items: { alias: string; tagIds: string[] }[] };
+		const by = new Map(body.items.map((i) => [i.alias, i.tagIds]));
+		expect(by.get("ada")).toEqual(["g-fe"]);
+		expect(by.get("bob")).toEqual([]);
+	});
+
+	test("a PATCH on an archived developer writes no tags", async () => {
+		const dev = await created({ name: "Ada", alias: "ada" });
+		sqlite.raw
+			.query("UPDATE developers SET archived_at = unixepoch() WHERE id = ?")
+			.run(dev.id);
+		expect((await patch(dev.id, { tagIds: ["g-fe"] })).status).toBe(404);
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT COUNT(*) AS n FROM developer_tags WHERE developer_id = ?",
+				)
+				.get(dev.id),
+		).toMatchObject({ n: 0 });
+	});
+});
+
+describe("tags on teams", () => {
+	const postTeam = (body: unknown) =>
+		mount().request("http://x/api/teams", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	const patchTeam = (id: string, body: unknown) =>
+		mount().request(`http://x/api/teams/${id}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		});
+
+	test("a create stores and echoes tag ids", async () => {
+		const res = await postTeam({ name: "Core", tagIds: ["g-fe"] });
+		expect(res.status).toBe(201);
+		expect(await res.json()).toMatchObject({ tagIds: ["g-fe"] });
+	});
+
+	test("omitting tagIds on PATCH leaves them alone", async () => {
+		const t = (await (
+			await postTeam({ name: "Core", tagIds: ["g-fe"] })
+		).json()) as { id: string };
+		const res = await patchTeam(t.id, { name: "Core Team" });
+		expect(await res.json()).toMatchObject({
+			name: "Core Team",
+			tagIds: ["g-fe"],
+		});
+	});
+
+	test("an empty array clears them", async () => {
+		const t = (await (
+			await postTeam({ name: "Core", tagIds: ["g-fe"] })
+		).json()) as { id: string };
+		const res = await patchTeam(t.id, { tagIds: [] });
+		expect(await res.json()).toMatchObject({ tagIds: [] });
+	});
+
+	test("a PATCH on a missing team writes no tags", async () => {
+		expect((await patchTeam("nope", { tagIds: ["g-fe"] })).status).toBe(404);
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) AS n FROM team_tags").get(),
+		).toMatchObject({ n: 0 });
+	});
+
+	test("the list route reports each team's tags", async () => {
+		await postTeam({ name: "Core", tagIds: ["g-fe"] });
+		const body = (await (
+			await mount().request("http://x/api/teams")
+		).json()) as { items: { name: string; tagIds: string[] }[] };
+		const core = body.items.find((i) => i.name === "Core");
+		expect(core?.tagIds).toEqual(["g-fe"]);
 	});
 });
