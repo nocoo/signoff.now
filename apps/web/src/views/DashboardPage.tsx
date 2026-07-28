@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
+import { EntityAvatar } from "@/components/EntityAvatar";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard, StatGrid } from "@/components/StatCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -253,9 +254,14 @@ export function DashboardPage() {
 								<li key={d.developerId} className="flex justify-between gap-3">
 									<Link
 										to={`/activity?dev=${d.developerId}`}
-										className="text-primary hover:underline truncate"
+										className="flex min-w-0 items-center gap-2 text-primary hover:underline"
 									>
-										{d.name}
+										<EntityAvatar
+											name={d.name}
+											avatarUrl={d.avatarUrl}
+											size="sm"
+										/>
+										<span className="truncate">{d.name}</span>
 									</Link>
 									<span className="text-muted-foreground shrink-0">
 										{d.score} · {d.activityCount}

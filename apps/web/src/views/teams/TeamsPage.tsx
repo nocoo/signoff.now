@@ -2,18 +2,26 @@ import { UsersRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
+import { EntityLabel } from "@/components/EntityAvatar";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Team } from "@/models/entities";
-import { archiveTeam, createTeam, listTeams } from "@/models/entitiesApi";
+import {
+	archiveTeam,
+	createTeam,
+	listTeams,
+	patchTeam,
+} from "@/models/entitiesApi";
+import { TeamDialog, type TeamDraft } from "./TeamDialog";
 
 export function TeamsPage() {
 	const [items, setItems] = useState<Team[]>([]);
 	const [name, setName] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [editing, setEditing] = useState<Team | null>(null);
 
 	const reload = useCallback(async () => {
 		try {
@@ -91,22 +99,51 @@ export function TeamsPage() {
 							key={t.id}
 							className="flex items-center justify-between px-4 py-3 text-sm hover:bg-background/50"
 						>
-							<span className="font-medium">{t.name}</span>
-							<Button
-								variant="destructive"
-								size="sm"
-								onClick={() =>
-									void archiveTeam(t.id)
-										.then(reload)
-										.catch((e: Error) => setError(e.message))
-								}
-							>
-								Archive
-							</Button>
+							<EntityLabel name={t.name} avatarUrl={t.avatarUrl} />
+							<span className="space-x-2">
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setEditing(t)}
+								>
+									Edit
+								</Button>
+								<Button
+									variant="destructive"
+									size="sm"
+									onClick={() =>
+										void archiveTeam(t.id)
+											.then(reload)
+											.catch((e: Error) => setError(e.message))
+									}
+								>
+									Archive
+								</Button>
+							</span>
 						</li>
 					))}
 				</ul>
 			)}
+
+			<TeamDialog
+				team={editing}
+				open={editing !== null}
+				onOpenChange={(o) => {
+					if (!o) {
+						setEditing(null);
+					}
+				}}
+				onSubmit={async (draft: TeamDraft) => {
+					if (!editing) {
+						return;
+					}
+					await patchTeam(editing.id, {
+						name: draft.name,
+						avatarUrl: draft.avatarUrl.trim() || null,
+					});
+					await reload();
+				}}
+			/>
 		</div>
 	);
 }

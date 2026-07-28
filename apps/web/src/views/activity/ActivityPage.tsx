@@ -1,3 +1,4 @@
+import { EntityLabel } from "@/components/EntityAvatar";
 import { PageHeader } from "@/components/PageHeader";
 import { heatmapColor } from "@/lib/palette";
 import { useActivityHeatmapViewModel } from "@/viewmodels/useActivityHeatmapViewModel";
@@ -75,15 +76,22 @@ export function ActivityPage() {
 				<div className="rounded-md border border-border p-3">
 					<p className="mb-2 text-sm font-medium">Developer totals</p>
 					<ul className="flex flex-wrap gap-3 text-sm">
-						{vm.comparison.map((c) => (
-							<li
-								key={c.developerId}
-								className="rounded-md bg-secondary px-3 py-1.5 font-mono text-xs"
-							>
-								{c.developerId}:{" "}
-								<span className="font-sans font-medium">{c.total}</span>
-							</li>
-						))}
+						{vm.comparison.map((c) => {
+							const who = vm.describe(c.developerId);
+							return (
+								<li
+									key={c.developerId}
+									className="flex items-center gap-2 rounded-md bg-secondary px-3 py-1.5"
+								>
+									<EntityLabel
+										name={who.name}
+										avatarUrl={who.avatarUrl}
+										size="sm"
+									/>
+									<span className="font-medium">{c.total}</span>
+								</li>
+							);
+						})}
 					</ul>
 				</div>
 			) : null}
@@ -106,8 +114,12 @@ export function ActivityPage() {
 									key={`${r.developerId}-${r.dayKey}`}
 									className="border-b border-border/60"
 								>
-									<td className="px-3 py-2 font-mono text-xs">
-										{r.developerId}
+									<td className="px-3 py-2">
+										<EntityLabel
+											name={vm.describe(r.developerId).name}
+											avatarUrl={vm.describe(r.developerId).avatarUrl}
+											size="sm"
+										/>
 									</td>
 									<td className="px-3 py-2">{r.dayKey}</td>
 									<td className="px-3 py-2">{r.total}</td>
