@@ -34,6 +34,44 @@ bun run gitinfo -- --help
 bun run pulse -- --help
 ```
 
+## Production access
+
+Two hosts, one Worker, two auth paths — see README「运维手册」for the full setup.
+
+| Host | Caller | Auth |
+|:-----|:-------|:-----|
+| `signoff.hexly.ai` | people, and automation needing **CRUD** | Cloudflare Access |
+| `signoff-ingest.hexly.ai` | CLI ingest | `SIGNOFF_PIPELINE_WRITE_TOKEN` |
+
+**The pipeline token cannot create entities.** `MACHINE_ROUTES`
+(`middleware/entry-control.ts`) whitelists only bootstrap / ingest /
+recompute / live / me; every CRUD route answers 403. That is deliberate — a
+leaked ingest token should be able to write activity data, never to add an
+identity to the roster and start scoring it.
+
+So automation that needs CRUD authenticates as an Access **service token**:
+
+```bash
+curl -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+     -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://signoff.hexly.ai/api/repos
+```
+
+Two things that cost time when they were missing:
+
+- Creating the token is **not enough**. The Application protecting
+  `signoff.hexly.ai` needs a **Service Auth** policy including that token, or
+  Access answers 302 (measured — the redirect still carries the right AUD, so
+  it looks like a credential problem and is not).
+- A service-token JWT has **no `email`** and an empty `sub`; the only
+  identifier is `common_name`. `principalFromPayload` reads it and sets
+  `service: true`, otherwise `/api/me` reports a blank identity and an
+  automated session is indistinguishable from a person's.
+
+Credentials live in `.env` (gitignored, chmod 600). `.env.example` documents
+the shape and is tracked — `.gitignore` has an explicit `!.env.example` after
+the `.env.*` rule, or the template would be ignored too.
+
 ## Quality
 
 - TDD; Biome 0 warnings

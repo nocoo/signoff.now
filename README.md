@@ -168,7 +168,15 @@ CLI 的 pipeline token 只能走 ingest 那五条路由。要让脚本调用 **C
    记下 `Client ID` 和 `Client Secret`（Secret 只显示一次）；
 2. 打开保护 `signoff.hexly.ai` 的那个 Access Application → Policies →
    新增一条 **Service Auth** 策略，Include 选 `Service Token` → 选中刚建的那个。
-   （不加这条策略，Token 会被拒。）
+
+**第 2 步不能省，且它的失败长得像凭证错**。只建 Token 不加策略时，
+Access 返回 **302** 跳登录页 —— 而那个跳转 URL 里的 `kid` 仍然是本应用正确的
+AUD，所以看起来像 Token 无效。判据是：请求根本没到 Worker（Worker 会回
+401/403，不会回 302）。
+
+凭证存放：写进 `.env`（已 gitignore、chmod 600），照 `.env.example` 填。
+**不要**用 `wrangler secret` —— 那是 Worker **运行时**的配置，
+而 Client ID/Secret 是**客户端**凭证。
 
 调用时带两个头：
 

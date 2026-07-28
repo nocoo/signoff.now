@@ -391,7 +391,18 @@ README 的手册比这里多两节，都是实测/复审后补的：
 - [x] `CF_ACCESS_AUD` / `CF_ACCESS_TEAM_DOMAIN` / `SIGNOFF_PIPELINE_WRITE_TOKEN`
       三个 secret 已配；JWKS 端点实测有效
 
-**等待人工在生产 Web UI 建实体绑定**：
+**生产实体已建（2026-07-28，经 Access service token）**：
+`yongzhanyu` / `nocoli` 两个 developer + `domoreexp/Teamspace/workshop-v7`
+一个 repo 绑定。建实体触发版本 bump 到 3 并置 `scores_stale`（04 §3.2），
+故随后走 `collect --full`。
+
+> **CRUD 不再只能靠人**：pipeline token 仍然进不来（`MACHINE_ROUTES` 只放行
+> 五条，CRUD 一律 403），但自动化可以用 Cloudflare Access **service token**
+> 以 Access 身份调用管理接口 —— 见 README「Service Token」。
+> 这没有削弱边界：service token 是 Access 签发、可随时撤销的独立身份，
+> 与 ingest token 各管一段。
+
+**剩余（依赖上面这批数据采集完成）**：
 
 - [ ] **每个启用 scope** 都完成一次**生产**基线采集
 - [ ] **远端** `activities` / `scores` 有真实行，`external_ref` 无重复
