@@ -349,12 +349,13 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
-	// Third arg is a per-test timeout: even the O(n) refactor spends real time
-	// on 1000 sha256+sqlite round-trips, and `bun test --coverage` on CI adds
-	// enough instrumentation overhead to blow the 5s bun default (STU-2238).
-	// 30s gives the sweep genuine headroom on the slowest Actions runner without
-	// masking a real O(n²) regression — locally it still finishes under a
-	// second, with or without coverage.
+	// Third arg is a per-test timeout: 1000 sha256+sqlite round-trips plus
+	// `bun test --coverage` instrumentation on Linux runners can blow bun's 5s
+	// default (STU-2238). 30s is runner headroom for this exhaustive
+	// behavioural test only — it is NOT a complexity gate. A latent O(n²) that
+	// still finished under 30s (the pre-refactor version did around 5s at 500
+	// iterations) would slip through it unnoticed. Guard complexity in review,
+	// not by wall-clock.
 	test("digest drift is refused at EVERY chunk index, not just early ones", async () => {
 		// Behavioural cover for the same rule the structural assertion above
 		// checks. A guard capped at any prefix (`chunkIndex < 2`, `< 4`, …) lets
