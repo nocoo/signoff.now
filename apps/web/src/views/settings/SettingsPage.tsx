@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
+import { Field } from "@/components/Field";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	DEFAULT_ACTIVITY_WEIGHTS,
@@ -102,14 +102,15 @@ export function SettingsPage() {
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
 				<h2 className="font-display text-base font-semibold">Timezone</h2>
-				<div className="max-w-md space-y-2">
-					<Label htmlFor="tz">IANA timezone</Label>
-					<Input
-						id="tz"
-						value={form.timezone}
-						onChange={(e) => patch({ timezone: e.target.value })}
-					/>
-				</div>
+				<Field label="IANA timezone" className="max-w-md">
+					{(id) => (
+						<Input
+							id={id}
+							value={form.timezone}
+							onChange={(e) => patch({ timezone: e.target.value })}
+						/>
+					)}
+				</Field>
 			</section>
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">

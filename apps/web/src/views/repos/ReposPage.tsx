@@ -2,10 +2,10 @@ import { GitBranch } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
+import { Field } from "@/components/Field";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Repo } from "@/models/entities";
 import {
@@ -58,38 +58,54 @@ export function ReposPage() {
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-4">
 				<h2 className="font-display text-base font-semibold">Bind repo</h2>
-				<div className="grid max-w-2xl gap-3 sm:grid-cols-2">
-					<div className="space-y-1.5">
-						<Label>Org</Label>
-						<Input value={org} onChange={(e) => setOrg(e.target.value)} />
-					</div>
-					<div className="space-y-1.5">
-						<Label>Project</Label>
-						<Input
-							value={project}
-							onChange={(e) => setProject(e.target.value)}
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label>Repo name</Label>
-						<Input value={name} onChange={(e) => setName(e.target.value)} />
-					</div>
-					<div className="space-y-1.5">
-						<Label>ADO repository GUID</Label>
-						<Input
-							value={externalId}
-							onChange={(e) => setExternalId(e.target.value)}
-							placeholder="xxxxxxxx-xxxx-…"
-						/>
-					</div>
-					<div className="space-y-1.5 sm:col-span-2">
-						<Label>ADO project GUID (optional)</Label>
-						<Input
-							value={projectExternalId}
-							onChange={(e) => setProjectExternalId(e.target.value)}
-							placeholder="Project GUID for WI external_ref — same project must match"
-						/>
-					</div>
+				<div className="grid max-w-2xl gap-(--control-gap-x) sm:grid-cols-2">
+					<Field label="Org">
+						{(id) => (
+							<Input
+								id={id}
+								value={org}
+								onChange={(e) => setOrg(e.target.value)}
+							/>
+						)}
+					</Field>
+					<Field label="Project">
+						{(id) => (
+							<Input
+								id={id}
+								value={project}
+								onChange={(e) => setProject(e.target.value)}
+							/>
+						)}
+					</Field>
+					<Field label="Repo name">
+						{(id) => (
+							<Input
+								id={id}
+								value={name}
+								onChange={(e) => setName(e.target.value)}
+							/>
+						)}
+					</Field>
+					<Field label="ADO repository GUID">
+						{(id) => (
+							<Input
+								id={id}
+								value={externalId}
+								onChange={(e) => setExternalId(e.target.value)}
+								placeholder="xxxxxxxx-xxxx-…"
+							/>
+						)}
+					</Field>
+					<Field label="ADO project GUID (optional)" className="sm:col-span-2">
+						{(id) => (
+							<Input
+								id={id}
+								value={projectExternalId}
+								onChange={(e) => setProjectExternalId(e.target.value)}
+								placeholder="Project GUID for WI external_ref — same project must match"
+							/>
+						)}
+					</Field>
 				</div>
 				<Button
 					onClick={() =>

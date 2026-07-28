@@ -1,12 +1,12 @@
 import { Users } from "lucide-react";
-import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
+import { Field } from "@/components/Field";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DeveloperFilter } from "@/models/entities";
 import { useDevelopersViewModel } from "@/viewmodels/useDevelopersViewModel";
@@ -14,10 +14,6 @@ import { DeveloperDialog } from "./DeveloperDialog";
 
 export function DevelopersPage() {
 	const vm = useDevelopersViewModel();
-	const searchId = useId();
-	const statusId = useId();
-	const teamId = useId();
-	const tagId = useId();
 
 	return (
 		<div className="space-y-6">
@@ -28,74 +24,74 @@ export function DevelopersPage() {
 
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-3">
-				<div className="space-y-1.5">
-					<Label htmlFor={searchId}>Search</Label>
-					<Input
-						id={searchId}
-						className="w-56"
-						value={vm.filter.keyword}
-						placeholder="Name or alias"
-						onChange={(e) =>
-							vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
-						}
-					/>
-				</div>
-				<div className="space-y-1.5">
-					<Label htmlFor={statusId}>Status</Label>
-					<select
-						id={statusId}
-						className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-						value={vm.filter.status}
-						onChange={(e) =>
-							vm.setFilter((f) => ({
-								...f,
-								status: e.target.value as DeveloperFilter["status"],
-							}))
-						}
-					>
-						<option value="active">Active</option>
-						<option value="archived">Archived</option>
-						<option value="all">All</option>
-					</select>
-				</div>
-				<div className="space-y-1.5">
-					<Label htmlFor={teamId}>Team</Label>
-					<select
-						id={teamId}
-						className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-						value={vm.filter.teamId ?? ""}
-						onChange={(e) =>
-							vm.setFilter((f) => ({ ...f, teamId: e.target.value || null }))
-						}
-					>
-						<option value="">All teams</option>
-						{vm.teams.map((t) => (
-							<option key={t.id} value={t.id}>
-								{t.name}
-							</option>
-						))}
-					</select>
-				</div>
-				<div className="space-y-1.5">
-					<Label htmlFor={tagId}>Tag</Label>
-					<select
-						id={tagId}
-						className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-						value={vm.filter.tagId ?? ""}
-						onChange={(e) =>
-							vm.setFilter((f) => ({ ...f, tagId: e.target.value || null }))
-						}
-					>
-						<option value="">All tags</option>
-						{vm.tags.map((t) => (
-							<option key={t.id} value={t.id}>
-								{t.name}
-							</option>
-						))}
-					</select>
-				</div>
-				<div className="ml-auto flex items-center gap-3">
+			<section className="flex flex-wrap items-end gap-(--control-gap-x)">
+				<Field label="Search" className="w-56">
+					{(id) => (
+						<Input
+							id={id}
+							value={vm.filter.keyword}
+							placeholder="Name or alias"
+							onChange={(e) =>
+								vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
+							}
+						/>
+					)}
+				</Field>
+				<Field label="Status" className="w-36">
+					{(id) => (
+						<Select
+							id={id}
+							value={vm.filter.status}
+							onChange={(e) =>
+								vm.setFilter((f) => ({
+									...f,
+									status: e.target.value as DeveloperFilter["status"],
+								}))
+							}
+						>
+							<option value="active">Active</option>
+							<option value="archived">Archived</option>
+							<option value="all">All</option>
+						</Select>
+					)}
+				</Field>
+				<Field label="Team" className="w-44">
+					{(id) => (
+						<Select
+							id={id}
+							value={vm.filter.teamId ?? ""}
+							onChange={(e) =>
+								vm.setFilter((f) => ({ ...f, teamId: e.target.value || null }))
+							}
+						>
+							<option value="">All teams</option>
+							{vm.teams.map((t) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</Select>
+					)}
+				</Field>
+				<Field label="Tag" className="w-44">
+					{(id) => (
+						<Select
+							id={id}
+							value={vm.filter.tagId ?? ""}
+							onChange={(e) =>
+								vm.setFilter((f) => ({ ...f, tagId: e.target.value || null }))
+							}
+						>
+							<option value="">All tags</option>
+							{vm.tags.map((t) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</Select>
+					)}
+				</Field>
+				<div className="ml-auto flex items-center gap-3 pb-0.5">
 					<p className="text-xs text-muted-foreground">
 						{vm.visible.length} of {vm.items.length}
 					</p>

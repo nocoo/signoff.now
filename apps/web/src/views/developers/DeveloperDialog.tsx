@@ -1,5 +1,5 @@
-import { useId } from "react";
 import { EntityAvatar } from "@/components/EntityAvatar";
+import { Field } from "@/components/Field";
 import { TagPicker } from "@/components/TagPicker";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,6 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { Developer, Tag, Team } from "@/models/entities";
 import { useDeveloperEditViewModel } from "@/viewmodels/useDeveloperEditViewModel";
 import type { DeveloperDraft } from "@/viewmodels/useDevelopersViewModel";
@@ -45,9 +44,6 @@ export function DeveloperDialog({
 	onSubmit,
 	onCreateTag,
 }: DeveloperDialogProps) {
-	const nameId = useId();
-	const aliasId = useId();
-	const avatarId = useId();
 	const vm = useDeveloperEditViewModel(developer, onSubmit, () =>
 		onOpenChange(false),
 	);
@@ -85,37 +81,40 @@ export function DeveloperDialog({
 					</p>
 				</div>
 
-				<div className="space-y-3">
-					<div className="space-y-1.5">
-						<Label htmlFor={nameId}>Name</Label>
-						<Input
-							id={nameId}
-							value={vm.draft.name}
-							placeholder="Display name"
-							onChange={(e) => vm.setField("name", e.target.value)}
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor={aliasId}>Alias</Label>
-						<Input
-							id={aliasId}
-							value={vm.draft.alias}
-							placeholder="ada"
-							onChange={(e) => vm.setField("alias", e.target.value)}
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor={avatarId}>Avatar URL</Label>
-						<Input
-							id={avatarId}
-							value={vm.draft.avatarUrl}
-							placeholder="https://…"
-							onChange={(e) => vm.setField("avatarUrl", e.target.value)}
-						/>
-					</div>
+				<div className="flex flex-col gap-4">
+					<Field label="Name">
+						{(id) => (
+							<Input
+								id={id}
+								value={vm.draft.name}
+								placeholder="Display name"
+								onChange={(e) => vm.setField("name", e.target.value)}
+							/>
+						)}
+					</Field>
+					<Field label="Alias">
+						{(id) => (
+							<Input
+								id={id}
+								value={vm.draft.alias}
+								placeholder="ada"
+								onChange={(e) => vm.setField("alias", e.target.value)}
+							/>
+						)}
+					</Field>
+					<Field label="Avatar URL">
+						{(id) => (
+							<Input
+								id={id}
+								value={vm.draft.avatarUrl}
+								placeholder="https://…"
+								onChange={(e) => vm.setField("avatarUrl", e.target.value)}
+							/>
+						)}
+					</Field>
 
 					{teams.length > 0 ? (
-						<fieldset className="space-y-1.5">
+						<fieldset className="flex flex-col gap-(--control-gap)">
 							<legend className="text-sm font-medium">Teams</legend>
 							<div className="flex flex-wrap gap-2">
 								{teams.map((t) => {
@@ -145,7 +144,7 @@ export function DeveloperDialog({
 						</fieldset>
 					) : null}
 
-					<fieldset className="space-y-1.5">
+					<fieldset className="flex flex-col gap-(--control-gap)">
 						<legend className="text-sm font-medium">Tags</legend>
 						<TagPicker
 							tags={tags}

@@ -21,7 +21,7 @@ export function TeamsPage() {
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5">
-				<div className="flex max-w-md flex-col gap-2 sm:flex-row">
+				<div className="flex max-w-md flex-col gap-(--control-gap-x) sm:flex-row">
 					<Input
 						placeholder="Team name"
 						value={vm.name}

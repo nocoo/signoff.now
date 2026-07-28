@@ -1,5 +1,5 @@
-import { useId } from "react";
 import { EntityAvatar } from "@/components/EntityAvatar";
+import { Field } from "@/components/Field";
 import { TagPicker } from "@/components/TagPicker";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,6 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { Tag, Team } from "@/models/entities";
 import {
 	type TeamDraft,
@@ -37,8 +36,6 @@ export function TeamDialog({
 	onSubmit,
 	onCreateTag,
 }: TeamDialogProps) {
-	const nameId = useId();
-	const avatarId = useId();
 	const vm = useTeamEditViewModel(team, onSubmit, () => onOpenChange(false));
 
 	return (
@@ -70,26 +67,28 @@ export function TeamDialog({
 					</p>
 				</div>
 
-				<div className="space-y-3">
-					<div className="space-y-1.5">
-						<Label htmlFor={nameId}>Name</Label>
-						<Input
-							id={nameId}
-							value={vm.draft.name}
-							onChange={(e) => vm.setField("name", e.target.value)}
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor={avatarId}>Avatar URL</Label>
-						<Input
-							id={avatarId}
-							value={vm.draft.avatarUrl}
-							placeholder="https://…"
-							onChange={(e) => vm.setField("avatarUrl", e.target.value)}
-						/>
-					</div>
+				<div className="flex flex-col gap-4">
+					<Field label="Name">
+						{(id) => (
+							<Input
+								id={id}
+								value={vm.draft.name}
+								onChange={(e) => vm.setField("name", e.target.value)}
+							/>
+						)}
+					</Field>
+					<Field label="Avatar URL">
+						{(id) => (
+							<Input
+								id={id}
+								value={vm.draft.avatarUrl}
+								placeholder="https://…"
+								onChange={(e) => vm.setField("avatarUrl", e.target.value)}
+							/>
+						)}
+					</Field>
 
-					<fieldset className="space-y-1.5">
+					<fieldset className="flex flex-col gap-(--control-gap)">
 						<legend className="text-sm font-medium">Tags</legend>
 						<TagPicker
 							tags={tags}

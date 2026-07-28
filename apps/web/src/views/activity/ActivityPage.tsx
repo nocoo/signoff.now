@@ -1,5 +1,8 @@
 import { EntityLabel } from "@/components/EntityAvatar";
+import { Field } from "@/components/Field";
 import { PageHeader } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { heatmapColor } from "@/lib/palette";
 import { useActivityHeatmapViewModel } from "@/viewmodels/useActivityHeatmapViewModel";
 
@@ -27,44 +30,42 @@ export function ActivityPage() {
 				</div>
 			) : null}
 
-			<div className="grid gap-3 sm:grid-cols-4">
-				<label className="text-sm sm:col-span-2">
-					<span className="text-muted-foreground">Developer ids</span>
-					<input
-						className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-						value={vm.devs}
-						onChange={(e) => vm.setDevs(e.target.value)}
-						placeholder="id1,id2"
-					/>
-				</label>
-				<label className="text-sm">
-					<span className="text-muted-foreground">From</span>
-					<input
-						type="date"
-						className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-						value={vm.from}
-						onChange={(e) => vm.setFrom(e.target.value)}
-					/>
-				</label>
-				<label className="text-sm">
-					<span className="text-muted-foreground">To</span>
-					<input
-						type="date"
-						className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-						value={vm.to}
-						onChange={(e) => vm.setTo(e.target.value)}
-					/>
-				</label>
+			<div className="grid gap-(--control-gap-x) sm:grid-cols-4">
+				<Field label="Developer ids" className="sm:col-span-2">
+					{(id) => (
+						<Input
+							id={id}
+							value={vm.devs}
+							onChange={(e) => vm.setDevs(e.target.value)}
+							placeholder="id1,id2"
+						/>
+					)}
+				</Field>
+				<Field label="From">
+					{(id) => (
+						<Input
+							id={id}
+							type="date"
+							value={vm.from}
+							onChange={(e) => vm.setFrom(e.target.value)}
+						/>
+					)}
+				</Field>
+				<Field label="To">
+					{(id) => (
+						<Input
+							id={id}
+							type="date"
+							value={vm.to}
+							onChange={(e) => vm.setTo(e.target.value)}
+						/>
+					)}
+				</Field>
 			</div>
 
-			<button
-				type="button"
-				className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-				disabled={vm.loading}
-				onClick={() => void vm.load()}
-			>
+			<Button disabled={vm.loading} onClick={() => void vm.load()}>
 				{vm.loading ? "Loading…" : "Load heatmap"}
-			</button>
+			</Button>
 
 			{vm.rosterError ? (
 				<p className="text-sm text-muted-foreground" role="status">
@@ -159,24 +160,25 @@ export function ActivityPage() {
 					Single-developer activity list (settings timezone day keys). Uses the
 					same date range as heatmap.
 				</p>
-				<div className="flex flex-wrap items-end gap-3">
-					<label className="text-sm min-w-[16rem] flex-1">
-						<span className="text-muted-foreground">Developer id</span>
-						<input
-							className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
-							value={vm.timelineDev}
-							onChange={(e) => vm.setTimelineDev(e.target.value)}
-							placeholder="single developer id"
-						/>
-					</label>
-					<button
-						type="button"
-						className="inline-flex h-9 items-center rounded-md border border-border bg-background px-4 text-sm font-medium disabled:opacity-50"
+				<div className="flex flex-wrap items-end gap-(--control-gap-x)">
+					<Field label="Developer id" className="min-w-[16rem] flex-1">
+						{(id) => (
+							<Input
+								id={id}
+								className="font-mono"
+								value={vm.timelineDev}
+								onChange={(e) => vm.setTimelineDev(e.target.value)}
+								placeholder="single developer id"
+							/>
+						)}
+					</Field>
+					<Button
+						variant="outline"
 						disabled={vm.timelineLoading}
 						onClick={() => void vm.loadTimeline()}
 					>
 						{vm.timelineLoading ? "Loading…" : "Load timeline"}
-					</button>
+					</Button>
 				</div>
 
 				{vm.timelineError ? (
@@ -209,14 +211,13 @@ export function ActivityPage() {
 				) : null}
 
 				{vm.timeline?.nextCursor ? (
-					<button
-						type="button"
-						className="inline-flex h-9 items-center rounded-md border border-border bg-background px-4 text-sm disabled:opacity-50"
+					<Button
+						variant="outline"
 						disabled={vm.timelineLoading}
 						onClick={() => void vm.loadTimeline({ more: true })}
 					>
 						Load more
-					</button>
+					</Button>
 				) : null}
 			</section>
 		</div>

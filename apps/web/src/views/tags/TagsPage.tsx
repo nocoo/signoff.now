@@ -40,7 +40,7 @@ export function TagsPage() {
 			{error ? <AlertBanner variant="error">{error}</AlertBanner> : null}
 
 			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5">
-				<div className="flex max-w-lg flex-wrap gap-2">
+				<div className="flex max-w-lg flex-wrap gap-(--control-gap-x)">
 					<Input
 						placeholder="Tag name"
 						value={name}
