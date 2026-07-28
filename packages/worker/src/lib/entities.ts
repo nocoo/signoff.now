@@ -272,27 +272,29 @@ export function normalizeAvatarUrl(v: unknown): AvatarUrlResult {
  * all". Those are different intentions and a PATCH must be able to express
  * both, so they are not folded together.
  */
-export type TeamIdsResult =
+export type IdListResult =
 	| { absent: true }
 	| { value: string[] }
 	| { error: string };
 
-export const TEAM_IDS_MAX = 64;
+export const ID_LIST_MAX = 64;
+/** @deprecated use ID_LIST_MAX */
+export const TEAM_IDS_MAX = ID_LIST_MAX;
 
-export function readTeamIds(v: unknown): TeamIdsResult {
+export function readIdList(v: unknown, field = "teamIds"): IdListResult {
 	if (v === undefined) {
 		return { absent: true };
 	}
 	if (!Array.isArray(v)) {
-		return { error: "teamIds must be an array" };
+		return { error: `${field} must be an array` };
 	}
-	if (v.length > TEAM_IDS_MAX) {
-		return { error: `teamIds exceeds ${TEAM_IDS_MAX} entries` };
+	if (v.length > ID_LIST_MAX) {
+		return { error: `${field} exceeds ${ID_LIST_MAX} entries` };
 	}
 	const out: string[] = [];
 	for (const raw of v) {
 		if (typeof raw !== "string" || !raw.trim()) {
-			return { error: "teamIds must contain non-empty strings" };
+			return { error: `${field} must contain non-empty strings` };
 		}
 		const id = raw.trim();
 		// Duplicates would hit the composite primary key and roll the whole
@@ -304,33 +306,72 @@ export function readTeamIds(v: unknown): TeamIdsResult {
 	return { value: out };
 }
 
+/** Back-compat alias; new call sites pass the field name explicitly. */
+export function readTeamIds(v: unknown): IdListResult {
+	return readIdList(v, "teamIds");
+}
+
 /**
- * Statements that make `developer_teams` match `teamIds` exactly.
+ * The three join tables all have the same shape: an owner column, a target
+ * column, and a composite primary key. Describing them here rather than writing
+ * three near-identical builders means a fix to the guard logic cannot land on
+ * one and miss the others.
+ */
+export const LINK_TABLES = {
+	developerTeams: {
+		table: "developer_teams",
+		ownerCol: "developer_id",
+		targetCol: "team_id",
+		ownerTable: "developers",
+		targetTable: "teams",
+	},
+	developerTags: {
+		table: "developer_tags",
+		ownerCol: "developer_id",
+		targetCol: "tag_id",
+		ownerTable: "developers",
+		targetTable: "tags",
+	},
+	teamTags: {
+		table: "team_tags",
+		ownerCol: "team_id",
+		targetCol: "tag_id",
+		ownerTable: "teams",
+		targetTable: "tags",
+	},
+} as const;
+
+export type LinkKind = keyof typeof LINK_TABLES;
+
+/**
+ * Statements that make a join table match `targetIds` exactly for one owner.
  *
  * Delete-then-insert rather than a diff: the set is tiny, and a diff would need
  * to read current state first, which cannot happen inside the same batch.
- * `INSERT ... SELECT ... WHERE EXISTS` skips ids that name no live team, so a
+ * `INSERT ... SELECT ... WHERE EXISTS` skips ids that name no live target, so a
  * stale id from a client cannot fail the whole write.
  *
- * Pass `onlyIfLiveDeveloper` when these ride in a batch behind a PATCH's UPDATE.
+ * Pass `onlyIfLiveOwner` when these ride in a batch behind a PATCH's UPDATE.
  * D1 rolls a batch back on error but NOT on a statement that matched zero rows,
- * so without it a PATCH against a just-archived developer would commit
- * membership changes and then answer 404.
+ * so without it a PATCH against a just-archived owner would commit link changes
+ * and then answer 404.
  *
- * The guard is an EXISTS on the developer row rather than SQLite `changes()`:
+ * The guard is an EXISTS on the owner row rather than SQLite `changes()`:
  * `changes()` reports the previous row-modifying statement, so its meaning
  * depends on where these land in the batch. EXISTS tests the same condition the
  * UPDATE itself requires and is order-independent.
  */
-export function membershipStatements(
+export function linkStatements(
 	db: D1Database,
-	developerId: string,
-	teamIds: readonly string[],
-	opts?: { onlyIfLiveDeveloper?: boolean; skipDelete?: boolean },
+	kind: LinkKind,
+	ownerId: string,
+	targetIds: readonly string[],
+	opts?: { onlyIfLiveOwner?: boolean; skipDelete?: boolean },
 ): D1PreparedStatement[] {
-	const live = opts?.onlyIfLiveDeveloper
+	const t = LINK_TABLES[kind];
+	const live = opts?.onlyIfLiveOwner
 		? ` AND EXISTS (
-             SELECT 1 FROM developers WHERE id = ?1 AND archived_at IS NULL
+             SELECT 1 FROM ${t.ownerTable} WHERE id = ?1 AND archived_at IS NULL
            )`
 		: "";
 	// On create the row is brand new, so there is nothing to delete — and that
@@ -340,21 +381,34 @@ export function membershipStatements(
 		? []
 		: [
 				db
-					.prepare(`DELETE FROM developer_teams WHERE developer_id = ?1${live}`)
-					.bind(developerId),
+					.prepare(`DELETE FROM ${t.table} WHERE ${t.ownerCol} = ?1${live}`)
+					.bind(ownerId),
 			];
-	for (const teamId of teamIds) {
+	for (const targetId of targetIds) {
 		stmts.push(
 			db
 				.prepare(
-					`INSERT INTO developer_teams (developer_id, team_id, created_at)
+					`INSERT INTO ${t.table} (${t.ownerCol}, ${t.targetCol}, created_at)
            SELECT ?1, ?2, unixepoch()
            WHERE EXISTS (
-             SELECT 1 FROM teams WHERE id = ?2 AND archived_at IS NULL
+             SELECT 1 FROM ${t.targetTable} WHERE id = ?2 AND archived_at IS NULL
            )${live}`,
 				)
-				.bind(developerId, teamId),
+				.bind(ownerId, targetId),
 		);
 	}
 	return stmts;
+}
+
+/** Back-compat alias for the developer↔team case. */
+export function membershipStatements(
+	db: D1Database,
+	developerId: string,
+	teamIds: readonly string[],
+	opts?: { onlyIfLiveDeveloper?: boolean; skipDelete?: boolean },
+): D1PreparedStatement[] {
+	return linkStatements(db, "developerTeams", developerId, teamIds, {
+		onlyIfLiveOwner: opts?.onlyIfLiveDeveloper,
+		skipDelete: opts?.skipDelete,
+	});
 }
