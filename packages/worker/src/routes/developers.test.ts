@@ -268,8 +268,13 @@ describe("developers routes", () => {
 	});
 
 	test("patch after update returns not found if reloaded archived", async () => {
+		// The PATCH no longer pre-reads the row (that read-modify-write lost
+		// concurrent edits), so the reload after the UPDATE is the only read —
+		// and it is the last line of defence when the row was archived in
+		// between. Against a real DB the UPDATE's own `archived_at IS NULL`
+		// would already have matched zero rows; this mock forces changes: 1 to
+		// exercise the reload check on its own.
 		const archived = { ...sampleDev, archived_at: 9 };
-		let n = 0;
 		const db = createMockD1({ runChanges: 1 });
 		const base = db.prepare.bind(db);
 		db.prepare = ((sql: string) => {
@@ -282,10 +287,7 @@ describe("developers routes", () => {
 			const origBind = stmt.bind.bind(stmt);
 			stmt.bind = (...a: unknown[]) => {
 				const b = origBind(...a);
-				b.first = async () => {
-					n += 1;
-					return n === 1 ? sampleDev : archived;
-				};
+				b.first = async () => archived;
 				b.run = async () =>
 					({ success: true, meta: { changes: 1 } }) as D1Result;
 				return b;

@@ -79,31 +79,57 @@ export function normalizeColor(color: unknown): string | null {
  * Atomic config version +1 and stale flags (no pre-read RMW).
  * Prefer same `db.batch` as entity INSERT.
  *
- * When chained after an entity UPDATE, pass `onlyIfPreviousChanges: true` so
- * bump statements use SQLite `changes() > 0` and no-op if the UPDATE matched 0 rows.
+ * Two mutually exclusive guards, for batches where an earlier statement may
+ * match zero rows (D1 rolls back on error, never on `changes === 0`):
+ *
+ * - `onlyIfPreviousChanges` — SQLite `changes() > 0`. Correct only when these
+ *   statements come DIRECTLY after the gating write, since `changes()` reports
+ *   whichever row-modifying statement ran last.
+ * - `onlyIfLive` — an EXISTS on the row itself. Order-independent, so use it
+ *   when other statements sit in between.
  */
 export function staleBumpStatements(
 	db: D1Database,
 	reason: string,
-	opts?: { onlyIfPreviousChanges?: boolean },
+	opts?: {
+		onlyIfPreviousChanges?: boolean;
+		onlyIfLive?: { table: "developers" | "teams" | "repos"; id: string };
+	},
 ): D1PreparedStatement[] {
-	const guard = opts?.onlyIfPreviousChanges ? " AND changes() > 0" : "";
+	if (opts?.onlyIfPreviousChanges && opts?.onlyIfLive) {
+		throw new Error("staleBumpStatements: pick one guard, not both");
+	}
+	const live = opts?.onlyIfLive;
+	const guard = opts?.onlyIfPreviousChanges
+		? " AND changes() > 0"
+		: live
+			? ` AND EXISTS (SELECT 1 FROM ${live.table} WHERE id = ? AND archived_at IS NULL)`
+			: "";
+	// The EXISTS form takes a bound id; the others take none. Keeping the
+	// binding next to the guard stops the two from drifting apart.
+	const bind = <T extends D1PreparedStatement>(s: T, extra: unknown[] = []) =>
+		live ? s.bind(...extra, live.id) : extra.length ? s.bind(...extra) : s;
 	return [
-		db.prepare(
-			`UPDATE settings
+		bind(
+			db.prepare(
+				`UPDATE settings
        SET value = CAST(value AS INTEGER) + 1, updated_at = unixepoch()
        WHERE key = 'pipeline_config_version'${guard}`,
+			),
 		),
-		db.prepare(
-			`UPDATE settings SET value = 'true', updated_at = unixepoch()
+		bind(
+			db.prepare(
+				`UPDATE settings SET value = 'true', updated_at = unixepoch()
        WHERE key = 'scores_stale'${guard}`,
+			),
 		),
-		db
-			.prepare(
+		bind(
+			db.prepare(
 				`UPDATE settings SET value = ?, updated_at = unixepoch()
          WHERE key = 'scores_stale_reason'${guard}`,
-			)
-			.bind(jsonText(reason)),
+			),
+			[jsonText(reason)],
+		),
 	];
 }
 
@@ -275,15 +301,39 @@ export function readTeamIds(v: unknown): TeamIdsResult {
  * to read current state first, which cannot happen inside the same batch.
  * `INSERT ... SELECT ... WHERE EXISTS` skips ids that name no live team, so a
  * stale id from a client cannot fail the whole write.
+ *
+ * Pass `onlyIfLiveDeveloper` when these ride in a batch behind a PATCH's UPDATE.
+ * D1 rolls a batch back on error but NOT on a statement that matched zero rows,
+ * so without it a PATCH against a just-archived developer would commit
+ * membership changes and then answer 404.
+ *
+ * The guard is an EXISTS on the developer row rather than SQLite `changes()`:
+ * `changes()` reports the previous row-modifying statement, so its meaning
+ * depends on where these land in the batch. EXISTS tests the same condition the
+ * UPDATE itself requires and is order-independent.
  */
 export function membershipStatements(
 	db: D1Database,
 	developerId: string,
 	teamIds: readonly string[],
+	opts?: { onlyIfLiveDeveloper?: boolean },
 ): D1PreparedStatement[] {
+	const live = opts?.onlyIfLiveDeveloper
+		? ` AND EXISTS (
+             SELECT 1 FROM developers WHERE id = ?1 AND archived_at IS NULL
+           )`
+		: "";
 	const stmts = [
 		db
-			.prepare("DELETE FROM developer_teams WHERE developer_id = ?")
+			.prepare(
+				`DELETE FROM developer_teams WHERE developer_id = ?1${
+					live
+						? ` AND EXISTS (
+             SELECT 1 FROM developers WHERE id = ?1 AND archived_at IS NULL
+           )`
+						: ""
+				}`,
+			)
 			.bind(developerId),
 	];
 	for (const teamId of teamIds) {
@@ -291,12 +341,12 @@ export function membershipStatements(
 			db
 				.prepare(
 					`INSERT INTO developer_teams (developer_id, team_id, created_at)
-           SELECT ?, ?, unixepoch()
+           SELECT ?1, ?2, unixepoch()
            WHERE EXISTS (
-             SELECT 1 FROM teams WHERE id = ? AND archived_at IS NULL
-           )`,
+             SELECT 1 FROM teams WHERE id = ?2 AND archived_at IS NULL
+           )${live}`,
 				)
-				.bind(developerId, teamId, teamId),
+				.bind(developerId, teamId),
 		);
 	}
 	return stmts;

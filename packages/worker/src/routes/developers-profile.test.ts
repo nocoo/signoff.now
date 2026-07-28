@@ -298,3 +298,86 @@ describe("team avatars", () => {
 		).toBe(400);
 	});
 });
+
+describe("concurrent edits (Codex review, 2026-07-28)", () => {
+	// These run sequentially, not via Promise.all: the SQLite test shim cannot
+	// nest transactions, so overlapping batches throw "cannot start a
+	// transaction within a transaction" — a harness limit, not a D1 behaviour.
+	// Sequencing still exercises the real defect, because the bug was that each
+	// PATCH wrote back scalars it had read BEFORE the other one landed.
+
+	test("an alias PATCH does not clobber an avatar set just before it", async () => {
+		// Both routes used to pre-read the row and write all three scalars back,
+		// so the second one copied its stale copy of the other's field over the
+		// fresh value — and both answered 200. Only the columns a request
+		// actually named may be written.
+		const dev = await created({ name: "Ada", alias: "ada" });
+		expect((await patch(dev.id, { avatarUrl: "https://x/a.png" })).status).toBe(
+			200,
+		);
+		expect((await patch(dev.id, { alias: "ada2" })).status).toBe(200);
+
+		const row = sqlite.raw
+			.query(
+				"SELECT alias, avatar_url AS avatarUrl FROM developers WHERE id = ?",
+			)
+			.get(dev.id) as { alias: string; avatarUrl: string | null };
+		expect(row).toEqual({ alias: "ada2", avatarUrl: "https://x/a.png" });
+	});
+
+	test("a teams PATCH does not clobber a name set just before it", async () => {
+		const dev = await created({ name: "Ada", alias: "ada" });
+		await patch(dev.id, { name: "Ada Lovelace" });
+		await patch(dev.id, { teamIds: ["t-alpha"] });
+		const res = await patch(dev.id, {});
+		expect(await res.json()).toMatchObject({
+			name: "Ada Lovelace",
+			teamIds: ["t-alpha"],
+		});
+	});
+
+	test("a PATCH on a row archived first commits NOTHING", async () => {
+		// D1 rolls a batch back on error but NOT on a statement matching zero
+		// rows. Without a guard on each dependent statement, the membership
+		// write and the version bump both committed and the route then answered
+		// 404 — a version bump nobody asked for, blocking the dashboard.
+		const dev = await created({ name: "Ada", alias: "ada" });
+		sqlite.raw
+			.query("UPDATE developers SET archived_at = unixepoch() WHERE id = ?")
+			.run(dev.id);
+		const before = version();
+
+		const res = await patch(dev.id, { alias: "ada2", teamIds: ["t-alpha"] });
+		expect(res.status).toBe(404);
+
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT COUNT(*) AS n FROM developer_teams WHERE developer_id = ?",
+				)
+				.get(dev.id),
+		).toMatchObject({ n: 0 });
+		expect(version()).toBe(before);
+		expect(
+			sqlite.raw.query("SELECT alias FROM developers WHERE id = ?").get(dev.id),
+		).toMatchObject({ alias: "ada" });
+	});
+
+	test("an empty PATCH body changes nothing and does not bump", async () => {
+		const dev = await created({
+			name: "Ada",
+			alias: "ada",
+			avatarUrl: "https://x/a.png",
+			teamIds: ["t-alpha"],
+		});
+		const before = version();
+		const res = await patch(dev.id, {});
+		expect(await res.json()).toMatchObject({
+			name: "Ada",
+			alias: "ada",
+			avatarUrl: "https://x/a.png",
+			teamIds: ["t-alpha"],
+		});
+		expect(version()).toBe(before);
+	});
+});
