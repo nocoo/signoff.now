@@ -349,6 +349,12 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		expect(snapshot()).toBe(before);
 	});
 
+	// Third arg is a per-test timeout: even the O(n) refactor spends real time
+	// on 1000 sha256+sqlite round-trips, and `bun test --coverage` on CI adds
+	// enough instrumentation overhead to blow the 5s bun default (STU-2238).
+	// 30s gives the sweep genuine headroom on the slowest Actions runner without
+	// masking a real O(n²) regression — locally it still finishes under a
+	// second, with or without coverage.
 	test("digest drift is refused at EVERY chunk index, not just early ones", async () => {
 		// Behavioural cover for the same rule the structural assertion above
 		// checks. A guard capped at any prefix (`chunkIndex < 2`, `< 4`, …) lets
@@ -400,7 +406,7 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 		// Cost budget: snapshot() reads five whole tables and JSON-stringifies
 		// them, and after 500 writes those tables are heavy. Calling it twice
 		// per iteration (500 iters) made the whole sweep O(n²) and blew past
-		// the 5s bun test default on CI (#STU-2238). Take ONE snapshot up
+		// the 5s bun test default on CI (STU-2238). Take ONE snapshot up
 		// front, do a cheap per-iteration `res.kind === "conflict"` sweep, and
 		// take ONE snapshot at the end — the invariant we care about is "no
 		// replay mutated state", and any mutation shows up in the final
@@ -416,7 +422,7 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 			expect(`index ${i}: ${res.kind}`).toBe(`index ${i}: conflict`);
 		}
 		expect(snapshot()).toBe(before);
-	});
+	}, 30_000);
 
 	test("digest drift is refused at an arbitrarily high chunk index", async () => {
 		// The sweep above proves no cap hides inside 0..499. This test seeds a
