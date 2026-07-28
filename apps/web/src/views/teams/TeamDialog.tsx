@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { EntityAvatar } from "@/components/EntityAvatar";
+import { TagPicker } from "@/components/TagPicker";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -11,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Team } from "@/models/entities";
+import type { Tag, Team } from "@/models/entities";
 import {
 	type TeamDraft,
 	useTeamEditViewModel,
@@ -21,16 +22,20 @@ export type { TeamDraft };
 
 export type TeamDialogProps = {
 	team: Team | null;
+	tags: Tag[];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (draft: TeamDraft) => Promise<void>;
+	onCreateTag: (name: string) => Promise<string>;
 };
 
 export function TeamDialog({
 	team,
+	tags,
 	open,
 	onOpenChange,
 	onSubmit,
+	onCreateTag,
 }: TeamDialogProps) {
 	const nameId = useId();
 	const avatarId = useId();
@@ -46,7 +51,7 @@ export function TeamDialog({
 				}
 			}}
 		>
-			<DialogContent>
+			<DialogContent className="max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Edit team</DialogTitle>
 					<DialogDescription>
@@ -83,6 +88,19 @@ export function TeamDialog({
 							onChange={(e) => vm.setField("avatarUrl", e.target.value)}
 						/>
 					</div>
+
+					<fieldset className="space-y-1.5">
+						<legend className="text-sm font-medium">Tags</legend>
+						<TagPicker
+							tags={tags}
+							selected={vm.draft.tagIds}
+							onToggle={vm.toggleTag}
+							disabled={vm.busy}
+							onCreate={async (name) => {
+								vm.selectTag(await onCreateTag(name));
+							}}
+						/>
+					</fieldset>
 				</div>
 
 				{vm.error ? (

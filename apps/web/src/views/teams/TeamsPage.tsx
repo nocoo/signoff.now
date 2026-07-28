@@ -61,7 +61,21 @@ export function TeamsPage() {
 							key={t.id}
 							className="flex items-center justify-between px-4 py-3 text-sm hover:bg-background/50"
 						>
-							<EntityLabel name={t.name} avatarUrl={t.avatarUrl} />
+							<span className="flex min-w-0 items-center gap-2">
+								<EntityLabel name={t.name} avatarUrl={t.avatarUrl} />
+								{t.tagIds.map((id) => {
+									const g = vm.tags.find((x) => x.id === id);
+									return g ? (
+										<span
+											key={id}
+											className="rounded-full px-2 py-0.5 text-xs text-white"
+											style={{ backgroundColor: g.color }}
+										>
+											{g.name}
+										</span>
+									) : null;
+								})}
+							</span>
 							<span className="space-x-2">
 								<Button
 									variant="outline"
@@ -86,6 +100,7 @@ export function TeamsPage() {
 
 			<TeamDialog
 				team={vm.editing}
+				tags={vm.tags}
 				open={vm.editing !== null}
 				onOpenChange={(o) => {
 					if (!o) {
@@ -93,6 +108,7 @@ export function TeamsPage() {
 					}
 				}}
 				onSubmit={vm.submitEdit}
+				onCreateTag={vm.addTag}
 			/>
 		</div>
 	);

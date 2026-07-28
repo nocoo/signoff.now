@@ -1,5 +1,5 @@
 import { Users } from "lucide-react";
-import { useId, useState } from "react";
+import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
@@ -14,20 +14,10 @@ import { DeveloperDialog } from "./DeveloperDialog";
 
 export function DevelopersPage() {
 	const vm = useDevelopersViewModel();
-	// Only the "add developer" inputs are local: they are transient text that
-	// nothing outside this form reads.
-	const [name, setName] = useState("");
-	const [alias, setAlias] = useState("");
 	const searchId = useId();
 	const statusId = useId();
 	const teamId = useId();
-
-	const onCreate = async () => {
-		if (await vm.create(name, alias)) {
-			setName("");
-			setAlias("");
-		}
-	};
+	const tagId = useId();
 
 	return (
 		<div className="space-y-6">
@@ -37,33 +27,6 @@ export function DevelopersPage() {
 			/>
 
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
-
-			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
-				<h2 className="font-display text-base font-semibold">Add developer</h2>
-				<div className="grid gap-3 sm:grid-cols-2">
-					<div className="space-y-1.5">
-						<Label htmlFor="dev-name">Name</Label>
-						<Input
-							id="dev-name"
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							placeholder="Display name"
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label htmlFor="dev-alias">Alias</Label>
-						<Input
-							id="dev-alias"
-							value={alias}
-							onChange={(e) => setAlias(e.target.value)}
-							placeholder="ada"
-						/>
-					</div>
-				</div>
-				<Button disabled={vm.busy} onClick={() => void onCreate()}>
-					{vm.busy ? "Creating…" : "Create"}
-				</Button>
-			</section>
 
 			<section className="flex flex-wrap items-end gap-3">
 				<div className="space-y-1.5">
@@ -114,9 +77,30 @@ export function DevelopersPage() {
 						))}
 					</select>
 				</div>
-				<p className="ml-auto text-xs text-muted-foreground">
-					{vm.visible.length} of {vm.items.length}
-				</p>
+				<div className="space-y-1.5">
+					<Label htmlFor={tagId}>Tag</Label>
+					<select
+						id={tagId}
+						className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+						value={vm.filter.tagId ?? ""}
+						onChange={(e) =>
+							vm.setFilter((f) => ({ ...f, tagId: e.target.value || null }))
+						}
+					>
+						<option value="">All tags</option>
+						{vm.tags.map((t) => (
+							<option key={t.id} value={t.id}>
+								{t.name}
+							</option>
+						))}
+					</select>
+				</div>
+				<div className="ml-auto flex items-center gap-3">
+					<p className="text-xs text-muted-foreground">
+						{vm.visible.length} of {vm.items.length}
+					</p>
+					<Button onClick={() => vm.setCreating(true)}>Add developer</Button>
+				</div>
 			</section>
 
 			{vm.loading ? (
@@ -147,6 +131,9 @@ export function DevelopersPage() {
 								</th>
 								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
 									Teams
+								</th>
+								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+									Tags
 								</th>
 								<th className="px-4 py-3" />
 							</tr>
@@ -181,6 +168,26 @@ export function DevelopersPage() {
 																avatarUrl={t.avatarUrl}
 																size="sm"
 															/>
+															{t.name}
+														</span>
+													) : null;
+												})
+											)}
+										</span>
+									</td>
+									<td className="px-4 py-3">
+										<span className="flex flex-wrap items-center gap-1.5">
+											{d.tagIds.length === 0 ? (
+												<span className="text-xs text-muted-foreground">—</span>
+											) : (
+												d.tagIds.map((id) => {
+													const t = vm.tagsById.get(id);
+													return t ? (
+														<span
+															key={id}
+															className="rounded-full px-2 py-0.5 text-xs text-white"
+															style={{ backgroundColor: t.color }}
+														>
 															{t.name}
 														</span>
 													) : null;
@@ -226,13 +233,15 @@ export function DevelopersPage() {
 			<DeveloperDialog
 				developer={vm.editing}
 				teams={vm.teams}
-				open={vm.editing !== null}
+				tags={vm.tags}
+				open={vm.dialogOpen}
 				onOpenChange={(o) => {
 					if (!o) {
-						vm.setEditing(null);
+						vm.closeDialog();
 					}
 				}}
-				onSubmit={vm.submitEdit}
+				onSubmit={vm.submit}
+				onCreateTag={vm.addTag}
 			/>
 		</div>
 	);
