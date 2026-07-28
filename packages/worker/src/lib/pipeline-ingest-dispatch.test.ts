@@ -372,15 +372,15 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 				],
 			} as Partial<IngestBody>);
 
-		// Sampling 0..5 was not enough: a cap at `chunkIndex < 6` sat just past
-		// the range and passed. Chunks hold ≤10 activities and a fixture holds
-		// ≤5000, so index 499 is the real ceiling — walk the boundaries of the
-		// whole reachable range, not a prefix of it.
+		// Sampling was not enough, twice over. First 0..5 missed a cap at
+		// `chunkIndex < 6`; then laying down 1..499 but replaying only nine of
+		// them missed `chunkIndex !== 7`. Any index left unreplayed is an index a
+		// cap can hide in, so every one that was written gets replayed.
 		expect((await processIngestChunk(sqlite.db, body(), settings)).kind).toBe(
 			"ok",
 		);
-		const INDICES = [1, 2, 5, 6, 10, 99, 100, 499];
-		for (let i = 1; i <= 499; i++) {
+		const LAST_INDEX = 499;
+		for (let i = 1; i <= LAST_INDEX; i++) {
 			expect(
 				(
 					await processIngestChunk(
@@ -394,7 +394,7 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 
 		// Now replay each with different bytes. Every index must refuse — a cap
 		// anywhere in the range would let a later chunk overwrite a committed one.
-		for (const i of [0, ...INDICES]) {
+		for (let i = 0; i <= LAST_INDEX; i++) {
 			const before = snapshot();
 			const replay =
 				i === 0
