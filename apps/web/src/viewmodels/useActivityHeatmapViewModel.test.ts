@@ -251,7 +251,6 @@ describe("resolving ids to people", () => {
 			developerId: "d1",
 			name: "Ada",
 			avatarUrl: "https://x/a.png",
-			known: true,
 		});
 	});
 
@@ -264,8 +263,28 @@ describe("resolving ids to people", () => {
 			developerId: "d9",
 			name: "d9",
 			avatarUrl: null,
-			known: false,
 		});
+	});
+
+	it("a roster failure is surfaced and retryable", async () => {
+		// Swallowing it left a page full of ULIDs with no explanation and no
+		// way to recover short of a reload.
+		vi.mocked(listDevelopers).mockRejectedValueOnce(new Error("boom"));
+		const { result } = await mountedWithRoster();
+		expect(result.current.rosterError).toBe("boom");
+
+		vi.mocked(listDevelopers).mockResolvedValue([dev("d1", "Ada")]);
+		await act(async () => {
+			await result.current.reloadRoster();
+		});
+		expect(result.current.rosterError).toBeNull();
+		expect(result.current.describe("d1").name).toBe("Ada");
+	});
+
+	it("coerces a non-Error roster rejection", async () => {
+		vi.mocked(listDevelopers).mockRejectedValueOnce("nope");
+		const { result } = await mountedWithRoster();
+		expect(result.current.rosterError).toBe("Roster unavailable");
 	});
 
 	it("a failed roster load leaves the scores readable", async () => {

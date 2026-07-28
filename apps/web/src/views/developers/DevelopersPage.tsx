@@ -39,21 +39,32 @@ export function DevelopersPage() {
 	const teamId = useId();
 
 	const reload = useCallback(async () => {
-		try {
-			// Archived rows are fetched always and hidden by the filter, so
-			// switching status does not need a round trip.
-			const [devs, tms] = await Promise.all([
-				listDevelopers(true),
-				listTeams(),
-			]);
-			setItems(devs);
-			setTeams(tms);
-			setError(null);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Load failed");
-		} finally {
-			setLoading(false);
+		// Archived rows are fetched always and hidden by the filter, so
+		// switching status does not need a round trip.
+		//
+		// allSettled, not all: the team list only decorates the roster and fills
+		// one filter. Letting it reject would throw away developers that loaded
+		// fine and leave the page empty — the one screen where the roster is the
+		// entire point.
+		const [devs, tms] = await Promise.allSettled([
+			listDevelopers(true),
+			listTeams(),
+		]);
+		if (devs.status === "fulfilled") {
+			setItems(devs.value);
 		}
+		if (tms.status === "fulfilled") {
+			setTeams(tms.value);
+		}
+		const failed = [devs, tms].find((r) => r.status === "rejected");
+		setError(
+			failed === undefined
+				? null
+				: failed.reason instanceof Error
+					? failed.reason.message
+					: "Load failed",
+		);
+		setLoading(false);
 	}, []);
 
 	useEffect(() => {

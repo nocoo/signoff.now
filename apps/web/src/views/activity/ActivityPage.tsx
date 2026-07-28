@@ -66,6 +66,19 @@ export function ActivityPage() {
 				{vm.loading ? "Loading…" : "Load heatmap"}
 			</button>
 
+			{vm.rosterError ? (
+				<p className="text-sm text-muted-foreground" role="status">
+					Names unavailable ({vm.rosterError}); showing ids.{" "}
+					<button
+						type="button"
+						className="underline"
+						onClick={() => void vm.reloadRoster()}
+					>
+						Retry
+					</button>
+				</p>
+			) : null}
+
 			{vm.error ? (
 				<p className="text-sm text-destructive" role="alert">
 					{vm.error}

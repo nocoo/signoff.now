@@ -23,25 +23,27 @@ export function useActivityHeatmapViewModel() {
 	const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
 	const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
 	const [roster, setRoster] = useState<Developer[]>([]);
+	const [rosterError, setRosterError] = useState<string | null>(null);
 
 	// The heatmap keys on developer ids, but a manager reads names. Loading the
 	// roster here rather than in the view keeps the id → person mapping — and
 	// the fallback when a score has no matching row — inside the coverage gate.
-	useEffect(() => {
-		let live = true;
-		void listDevelopers(true)
-			.then((d) => {
-				if (live) {
-					setRoster(d);
-				}
-			})
+	const loadRoster = useCallback(async () => {
+		try {
+			setRoster(await listDevelopers(true));
+			setRosterError(null);
+		} catch (e) {
 			// A missing roster degrades to bare ids; it must not blank the page,
-			// which is the only place the scores can be read at all.
-			.catch(() => undefined);
-		return () => {
-			live = false;
-		};
+			// which is the only place the scores can be read at all. But it is
+			// surfaced rather than swallowed, so "why are these all ULIDs?" has
+			// a visible answer and a retry.
+			setRosterError(e instanceof Error ? e.message : "Roster unavailable");
+		}
 	}, []);
+
+	useEffect(() => {
+		void loadRoster();
+	}, [loadRoster]);
 
 	const load = useCallback(async () => {
 		const ids = devs
@@ -130,12 +132,12 @@ export function useActivityHeatmapViewModel() {
 			developerId,
 			name: d?.name ?? developerId,
 			avatarUrl: d?.avatarUrl ?? null,
-			known: d !== undefined,
 		};
 	};
 
 	return {
-		roster,
+		rosterError,
+		reloadRoster: loadRoster,
 		describe,
 		devs,
 		setDevs,
