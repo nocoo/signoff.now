@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/icon-rounded.png" alt="signoff.now logo" width="180" height="180" />
+</p>
+
 # signoff.now
 
 围绕**开发者**与 **Git 仓库**的数据可视化与分析平台。
@@ -222,3 +226,5 @@ bunx wrangler secret put CF_ACCESS_TEAM_DOMAIN
 Web dashboard（含活跃度统计）+ Settings / Developers / Teams / Tags / Repos CRUD 可本地运行；
 pipeline bootstrap / ingest / complete 全部可用；`signoff collect` 可对真实 ADO 采集。
 生产环境的 `/api/*` 需要先配好 Access（见「运维手册」末条）。
+
+Logo assets and usage: [guide](docs/09-logo-usage.md) · [identity study](https://hexly.ai/logos/signoff-now).

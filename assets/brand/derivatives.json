@@ -1,0 +1,70 @@
+{
+	"source": "logo.png",
+	"files": [
+		{
+			"path": "apps/web/public/logo-24.png",
+			"role": "transparent",
+			"size": 24,
+			"sha256": "bfe1828452edb30f8993a5055797b461cd2b588f7d3c2a79897fdd64dfdce000"
+		},
+		{
+			"path": "apps/web/public/logo-32.png",
+			"role": "transparent",
+			"size": 32,
+			"sha256": "6e1048dbff206c3b8e29718750547912e8d45acb2b7f9fab8ec49b2a8f8f5e23"
+		},
+		{
+			"path": "apps/web/public/logo-48.png",
+			"role": "transparent",
+			"size": 48,
+			"sha256": "3418410175265d161224c411537e90d428614659e25188ffd0c7b98e50a45113"
+		},
+		{
+			"path": "apps/web/public/logo-64.png",
+			"role": "transparent",
+			"size": 64,
+			"sha256": "c82bc86752745762499e97cf3605077f69728ef0e905ac00739e629eb4cd51ee"
+		},
+		{
+			"path": "apps/web/public/logo-128.png",
+			"role": "transparent",
+			"size": 128,
+			"sha256": "514d490869bb2cdbfe685ec11389bb639f528445f444a89495d0430a809967cc"
+		},
+		{
+			"path": "apps/web/public/logo-192.png",
+			"role": "transparent",
+			"size": 192,
+			"sha256": "76ee44a0b36e43f6691913caa1eda4d9bd6094b4c11dba0faf80fca2fe622b65"
+		},
+		{
+			"path": "apps/web/public/logo-256.png",
+			"role": "transparent",
+			"size": 256,
+			"sha256": "09a6e99a38a132edc705577962eb2af1c224bc5a1646b40221e65b736bc83301"
+		},
+		{
+			"path": "apps/web/public/logo-512.png",
+			"role": "transparent",
+			"size": 512,
+			"sha256": "4b131b6d600b9256ac6923bed2b2e4c8a3edc698ea53a5a617bbfc46f7220e0e"
+		},
+		{
+			"path": "apps/web/public/favicon.png",
+			"role": "transparent",
+			"size": 32,
+			"sha256": "6e1048dbff206c3b8e29718750547912e8d45acb2b7f9fab8ec49b2a8f8f5e23"
+		},
+		{
+			"path": "apps/web/public/favicon.ico",
+			"role": "transparent",
+			"sha256": "c9b1353dab60987d7bffba6cdf70a5bdadc720b61ea8123291f03f6e8f170339"
+		},
+		{
+			"path": "apps/web/public/apple-touch-icon.png",
+			"role": "platform-tile",
+			"size": 180,
+			"sha256": "7fc3d2eefbb8057a2413678f761359f29e4632a4f5d1b3dc5ae6b769afee3e48"
+		}
+	]
+}
