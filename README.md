@@ -1,188 +1,83 @@
 <p align="center">
-  <img src="assets/brand/icon-rounded.png" alt="signoff.now logo" width="180" height="180" />
+  <img src="assets/brand/icon-rounded.png" width="128" alt="signoff.now logo" />
+</p>
+<h1 align="center">signoff.now</h1>
+<p align="center">面向管理者的 Azure DevOps 开发活动分析控制台。</p>
+<p align="center">
+  <a href="https://signoff.hexly.ai">站点</a> ·
+  <a href="docs/README.en.md">English</a>
 </p>
 
-# signoff.now
+## 这是什么
 
-围绕**开发者**与 **Git 仓库**的数据可视化与分析平台。
+signoff.now 将已登记开发者在 Azure DevOps 中的 PR、评审投票和工作项活动汇总到 Web 控制台。管理者在本机运行 CLI，保留采集原始数据、标准化文件和 manifest，再通过 Worker 写入 Cloudflare D1。Web 管理人员、团队、标签、仓库和计分设置，展示按日积分与活动明细。
 
-管理者在本机采集 Azure DevOps 数据，写入 Cloudflare D1；Web 配置实体与 Settings，**只读**展示 Activity / Score（管线写入）。
+项目面向单实例使用，目前的主采集管线支持 Azure DevOps。积分依据可配置权重和事件折叠规则计算，适合结合具体活动了解参与情况，不能单独代表代码质量或个人产出。仓库内另有 `gitinfo` 和 `pulse` 辅助 CLI；后者的 GitHub 查询能力独立于主采集管线。
 
-## 文档
+## 功能
 
-| 文档 | 说明 |
-|:-----|:-----|
-| **[docs/01-项目定位.md](./docs/01-项目定位.md)** | 产品定位（**从这里读起**） |
-| **[docs/02-数据结构与D1.md](./docs/02-数据结构与D1.md)** | D1 schema |
-| **[docs/03-Web模块模板.md](./docs/03-Web模块模板.md)** | Web basalt 模板 + Worker/Access |
-| **[docs/04-Settings设计.md](./docs/04-Settings设计.md)** | Settings CRUD 与 CLI 读路径 |
-| **[docs/05-管线铺垫与Ingest实现.md](./docs/05-管线铺垫与Ingest实现.md)** | 06 开工前置契约（Ingest / 域包 / CLI 骨架） |
-| **[docs/06-Activity重建与Score算法.md](./docs/06-Activity重建与Score算法.md)** | Activity 写入、折叠规则与计分 |
-| **[docs/07-CLI命令矩阵与ADO落盘.md](./docs/07-CLI命令矩阵与ADO落盘.md)** | 真实 ADO 采集：命令矩阵、落盘、游标 |
-| **[docs/08-真实数据上线与Dashboard统计.md](./docs/08-真实数据上线与Dashboard统计.md)** | 上线顺序、Dashboard 统计 API、运维手册 |
+- **维护分析范围**：管理 Developer、Team、Tag 和 Repo，支持归档与恢复；用开发者 alias 与 Settings 中的邮箱后缀匹配 ADO 身份。
+- **采集并保留来源**：按仓库采集 PR、线程与迭代，按项目采集工作项和更新记录；原始数据、标准化活动和采集清单落在本机 `.data/`。
+- **查看活动变化**：Dashboard 提供 7 / 28 / 92 天概览、每日趋势、活动类型分布和开发者积分列表；Activity 页面支持多人按日对比和单人分页时间线。
+- **按明确规则计分**：处理 PR 与工作项的八类活动，按配置时区归日；同一开发者同日的同一 PR 作者事件、同一工作项更新按规则折叠。配置过期或相关写入未完成时，页面会提示并暂缓显示受影响的数字。
+- **继续未完成的写入**：manifest 记录每份 artifact 的进度；同一 scope 全部写入后才提交采集游标，重发原文件可继续中断的 ingest。
 
-## 部署前提
+## 使用
 
-- **Cloudflare Workers Paid plan**（05 起冻结）。Ingest 一次请求最坏 ≈ 71 D1 statement，超过 Free tier 每 invocation 50 的上限。详见 [docs/05 §5.2](./docs/05-管线铺垫与Ingest实现.md)。
+打开[站点](https://signoff.hexly.ai)，通过该部署的 Cloudflare Access 验证后进入控制台。先建立开发者和启用的 ADO 仓库绑定，填写仓库及项目 GUID，并在 Settings 配置邮箱后缀、时区和权重。实体也可以通过下文的 Access Service Token 管理接口建立。
 
-## 本地运行（Dashboard + Settings CRUD）
+采集在本机执行。先按[开发](#开发)安装依赖，准备 Azure CLI，执行 `az login`，并确认登录账号可读取所绑定的 ADO 项目。CLI 通过 `az account get-access-token` 获取 ADO REST API 所需的访问令牌。
 
-```bash
-# 0. 依赖
-bun install
+### 运维手册
 
-# 1. 本地 D1 migrations
-bun run db:migrate:local
+同一时刻只运行一个 `ingest`，避免并发聚合覆盖。CLI 默认访问本地 `http://127.0.0.1:37042`；连接现有生产部署时，在已被 Git 忽略的 `.env` 中填写：
 
-# 2. 同时起 Vite (:7042) + Worker (:37042, local D1)
-bun run dev:all
-
-# 或分开：
-# bun run dev:worker   # 终端 1
-# bun run dev          # 终端 2
-
-# 3. 浏览器
-#    https://signoff.dev.hexly.ai   （Caddy TLS，推荐）
-#    或 http://localhost:7042
-```
-
-生产 Worker 静态资源：`bun run build:web` 产出 `apps/web/dist`，由 `wrangler.toml` `[assets]` 挂载（SPA fallback）。deploy / dry-run 前必须先 build web。
-
-`POST /api/pipeline/ingest` **已实装**（06）：分块写 Activity、二次读回、聚合 Score、finalize。
-单写者约定 —— 同一时刻只跑一个 ingest（06 §5.7）。
-
-本地鉴权：Worker 对 `localhost` / `127.0.0.1` / `*.dev.hexly.ai` 跳过 Access（与 bat 一致）。侧栏显示 **Dev (anonymous)**。生产需配置 `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD`。
-
-| 端口 | 用途 |
-|-----:|:-----|
-| 7042 | Vite SPA |
-| 37042 | Worker + local D1 |
-
-## 包
-
-| 包 | 说明 |
-|:---|:-----|
-| `apps/web` | Dashboard SPA |
-| `packages/worker` | Hono API（settings + 实体 CRUD） |
-| `packages/db` | D1 migrations |
-| `apps/gitinfo` / `apps/pulse` | 质量标杆 CLI |
-
-## 常用命令
-
-```bash
-bun run test:coverage
-bun run lint
-bun run typecheck
-bun run security
-```
-
-## 运维手册
-
-单写者约定：**同一时刻只跑一个 `ingest`**（06 §5.7）。并发 ingest 会用旧的
-聚合覆盖新的。
-
-### 指向生产
-
-CLI 默认打本地 `127.0.0.1:37042`。要对生产采集，把这两项放进 `.env`
-（已 gitignore）：
-
-```bash
+```dotenv
 SIGNOFF_API_BASE=https://signoff-ingest.hexly.ai
-SIGNOFF_PIPELINE_WRITE_TOKEN=<Worker 上同名 secret 的值>
+SIGNOFF_PIPELINE_WRITE_TOKEN=<matching Worker secret>
 ```
 
-**机器域名不能拿来开 Web**：它绕过 Access 是为了让 CLI 带 token 写入，
-人要看 Dashboard 请走 `signoff.hexly.ai`。
+`.env.example` 提供生产连接及自动化凭据模板。将 `.env` 权限设为 `600`；本地开发使用默认回环地址即可。
 
-**生产的第一批实体必须由人建**。`MACHINE_ROUTES`
-（`middleware/entry-control.ts`）只放行 bootstrap / ingest /
-recompute / live / me —— **CRUD 对机器一律 403**，机器不该能凭 token
-凭空造出开发者或仓库绑定。所以新环境的顺序是：人登录
-`signoff.hexly.ai` → 建 Developer / Repo → CLI 才有可采的 scope。
+| 生产入口 | 用途 | 认证 |
+| --- | --- | --- |
+| `signoff.hexly.ai` | Web 与实体 / Settings 管理接口 | Cloudflare Access |
+| `signoff-ingest.hexly.ai` | CLI bootstrap、ingest、recompute | Pipeline token |
 
-### 一次增量采集
+机器入口只允许管线接口及 `live` / `me`，pipeline token 不能用于实体 CRUD；浏览器端的 Access 身份也不能调用管线接口。
+
+#### 首次采集与全量重算
+
+初次建档，或权重、邮箱后缀、时区等变更使分数过期后，运行全量采集。以下示例中的路径与 `repo-id` 需替换为实际值：
 
 ```bash
-bun run signoff -- doctor                     # az 登录、.data 可写、bootstrap 可达
-bun run signoff -- settings pull               # 刷新本地 bootstrap 缓存
-bun run signoff -- collect --repo <repoId>     # 采集 → .data/normalized/ + manifest
-bun run signoff -- ingest normalized <artifact> --manifest <manifest>
+bun run signoff -- doctor
+bun run signoff -- settings pull
+bun run signoff -- collect --full
+# 对 collect 输出的每一份 artifact，使用同一份 manifest 依次执行：
+bun run signoff -- ingest normalized "path/to/artifact.json" --manifest "path/to/manifest.json"
 ```
 
-`collect` **不会**推进游标 —— 它无从知道数据是否真的入库。游标由 `ingest`
-在整个 scope 落地后提交（07 §7.1.2）。
+`--full` 不能与 `--repo` 或 `--no-wi` 同用。采集可能按仓库、项目及活动数量拆成多份 artifact；只有所有所需 scope 都完整写入，CLI 才会请求清除 `scores_stale`。增量写入无法清除这一标志。
 
-耗时预期：`--since` 只收窄 `completed`/`abandoned`，**`active` 是全量拉取**，
-而 threads/iterations 是 per-PR 调用。大仓首次采集以十分钟计（07 §8）。
-
-### 配置变更后的全量重算
-
-改 Settings（权重 / 后缀 / 时区）会 bump `pipeline_config_version` 并置
-`scores_stale`。**增量 ingest 清不掉 stale**，必须走全量：
+#### 日常增量与恢复
 
 ```bash
-bun run signoff -- collect --full              # 不可与 --repo / --no-wi 同用
-# collect 会打印 EVERY artifact —— 每个 repo scope 一个、每个 project scope 一个，
-# 超过 5000 条活动的再拆分。**逐个** ingest，一个都不能漏：
-bun run signoff -- ingest normalized <artifact-1> --manifest <manifest>
-bun run signoff -- ingest normalized <artifact-2> --manifest <manifest>
-# …直到最后一个
+bun run signoff -- collect --repo repo-id
+bun run signoff -- ingest normalized "path/to/artifact.json" --manifest "path/to/manifest.json"
 ```
 
-`scores_stale` 只在 manifest 里**所有** scope 都落地后才清除。少 ingest 一个
-artifact，stale 就一直挂着 —— 这不是故障，是它在如实报告「还没算完」。
-`ingest` 的输出会告诉你还差多少，分两种：
+`collect` 本身不推进游标。提示 `artifact(s) still pending` 表示当前 scope 尚未齐全；`full_rematch: scope(s) still pending` 表示其他 scope 仍未完成。继续处理 manifest 中的剩余文件即可。
 
-- `N artifact(s) still pending, cursor NOT advanced` —— 这个 **scope** 还有
-  artifact 没进（大 scope 会被拆成多份），游标不动；
-- `full_rematch: N scope(s) still pending` —— 该 scope 齐了，但**别的** scope
-  还没齐，所以 stale 不清。
+若写入中断，或 Dashboard 持续提示 ingest 尚在进行，重发同一 artifact 和 manifest。已完成的 chunk 可幂等重放；尚未完成的 chunk 会继续处理。artifact 绑定采集环境的开发者和仓库 ID，不能直接跨环境重放。
 
-两句都不是错误，是它在如实报告进度。
+`--since <date>` 可调整增量起点，但 active PR 仍全量拉取，且线程和迭代需要逐个 PR 查询；大仓库的采集时间取决于 PR 数量和 ADO 响应。
 
-`--full` 与 `--repo` / `--no-wi` 同用会被直接拒绝：`scores_stale` 是**全局**
-标志，部分重算后清掉它，等于把没重算的仓也宣称为新鲜。
+### Service Token
 
-### 卡住的 ingest
+自动化管理实体时，创建 Cloudflare Access Service Token，并在保护 `signoff.hexly.ai` 的 Access Application 中添加包含该 token 的 **Service Auth** 策略。只创建 token、未添加策略时，请求仍可能被重定向到登录页。
 
-Dashboard 显示「an ingest is in progress; numbers are still settling (run …)」
-且长时间不消失时，说明有 chunk 停在 `prepared`（Phase 1 已写活动、Phase 3
-的分数没算完）。**重发同一个 chunk 即可**——artifact 与 chunk 都是幂等的：
-
-```bash
-bun run signoff -- ingest normalized <同一个 artifact> --manifest <同一个 manifest>
-```
-
-这期间该 run 涉及的日期会被扣住不发布；不涉及的日期照常显示。
-
-### 生产环境 Access
-
-生产的受保护接口需要 `CF_ACCESS_TEAM_DOMAIN` 与 `CF_ACCESS_AUD`。
-**未配置时 Worker 返回 500 而不是放行**（03 §8，fail-closed），所以线上首次
-部署后接口不通是预期行为，不是故障。
-（例外：`/api/live` 与 pipeline 机器端点走各自的鉴权，不经 Access。）
-
-### Service Token（自动化访问管理接口）
-
-CLI 的 pipeline token 只能走 ingest 那五条路由。要让脚本调用 **CRUD**
-（建 Developer / Repo 等），得让它以 Access 身份进来 —— 用 Service Token，
-而不是共享某个人的浏览器会话：
-
-1. Zero Trust → Access → **Service Auth** → 建 Service Token，
-   记下 `Client ID` 和 `Client Secret`（Secret 只显示一次）；
-2. 打开保护 `signoff.hexly.ai` 的那个 Access Application → Policies →
-   新增一条 **Service Auth** 策略，Include 选 `Service Token` → 选中刚建的那个。
-
-**第 2 步不能省，且它的失败长得像凭证错**。只建 Token 不加策略时，
-Access 返回 **302** 跳登录页 —— 而那个跳转 URL 里的 `kid` 仍然是本应用正确的
-AUD，所以看起来像 Token 无效。判据是：请求根本没到 Worker（Worker 会回
-401/403，不会回 302）。
-
-凭证存放：写进 `.env`（已 gitignore、chmod 600），照 `.env.example` 填。
-**不要**用 `wrangler secret` —— 那是 Worker **运行时**的配置，
-而 Client ID/Secret 是**客户端**凭证。
-
-调用时带两个头：
+将客户端凭据保存在 `.env` 的 `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`，请求携带对应的两个头：
 
 ```bash
 curl -H "CF-Access-Client-Id: <id>" \
@@ -190,41 +85,87 @@ curl -H "CF-Access-Client-Id: <id>" \
      https://signoff.hexly.ai/api/repos
 ```
 
-Worker 侧不需要额外配置：Access 验证通过后签发的 JWT 走同一条 JWKS 校验。
-但**身份形状不同** —— Service Token 的 JWT **没有 `email`**、`sub` 是空串，
-唯一标识是 `common_name`（即 Client ID）。`principalFromPayload` 认这个字段并
-把 `service: true` 透到 `/api/me`，否则审计里会出现一个没有名字的调用者。
+这组凭据用于请求管理入口，不是 Worker secret。Access 验证后签发的 JWT 由 Worker 校验；服务身份通过 `common_name` 识别，并在 `/api/me` 标记为 `service: true`。
 
-**两个生产域名，一个 Worker，两条鉴权路径**：
+## 开发
 
-| 域名 | 谁用 | 鉴权 |
-|:---|:---|:---|
-| `signoff.hexly.ai` | 人（浏览器） | Cloudflare Access（未登录 → 302 跳登录页） |
-| `signoff-ingest.hexly.ai` | CLI | pipeline token，**不经 Access** |
+准备 Bun（仓库 `packageManager` 与 CI 固定为 1.3.6）、Node.js 22.12+ 和 Git。Vite / Vitest 使用 Node.js，CLI 使用 Bun。
 
-拆开不是为了好看：`isMachineEndpoint`（`middleware/entry-control.ts`）
-认 `signoff-ingest` 前缀并让该主机跳过 Access，机器才能在没有浏览器会话的
-情况下写入。合成一个域名就意味着主域名上存在一条 Access 看不见的写入路径。
+```bash
+git clone https://github.com/nocoo/signoff.now.git
+cd signoff.now
+bun install --frozen-lockfile
+bun run build:web
+bun run --cwd packages/worker wrangler d1 migrations apply signoff-db --config ../../wrangler.toml --local
+bun run --cwd packages/worker dev --local-upstream localhost
+```
 
-1. Cloudflare Zero Trust → Access → Applications 建一个应用，指向
-   `signoff.hexly.ai`（**只保护它，不要包含 ingest 域名**；
-   `workers.dev` 保留为退路）；
-2. 复制该应用的 **AUD**，与 team domain（形如 `<team>.cloudflareaccess.com`）
-   一起配成 Worker secret：
+在另一个终端从仓库根目录运行前端：
+
+```bash
+bun run dev
+```
+
+打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。上述命令使用 worker workspace 已安装的 Wrangler，`--local-upstream localhost` 使 Worker 保留本地主机名并进入开发认证分支。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
+
+本地回环地址与 `*.dev.hexly.ai` 使用开发认证分支，无须生产 Access 或 pipeline 凭据。`.env.example` 预填生产机器域名，只在需要连接已有部署时复制并填写。
+
+`bun run build:web` 先做前端类型检查，再生成 `apps/web/dist`；Worker 同时提供 API 和这些 SPA 静态资源。代码检查使用 `bun run lint`、`bun run typecheck`；`bun run security` 需要已安装 `osv-scanner` 和 `gitleaks`。
+
+| 路径 | 职责 |
+| --- | --- |
+| `apps/web` | React 页面、客户端 model 与 viewmodel |
+| `apps/collect` | ADO 采集、文件落盘与 ingest CLI |
+| `packages/domain` | 身份匹配、事件转换、分块契约与计分规则 |
+| `packages/worker` / `packages/db` | Hono API、D1 写入与 SQL migrations |
+| `apps/gitinfo` / `apps/pulse` | 本地 Git 与 GitHub 查询辅助工具 |
+
+### 部署配置
+
+当前部署约定使用 Cloudflare Workers Paid plan、D1 和 Cloudflare Access。自托管时先调整 [wrangler.toml](wrangler.toml) 的 D1 数据库 ID 与域名，按[上线文档](docs/08-真实数据上线与Dashboard统计.md)应用远端 migrations 并构建 Web。
+
+为 Web 域名配置整域 Access Application；机器域名独立使用 pipeline token，其首个域名标签必须为 `signoff-ingest`，与当前路由识别逻辑一致。Worker 需要以下 secrets：
 
 ```bash
 bunx wrangler secret put CF_ACCESS_AUD
 bunx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 ```
 
-**两个都配齐再部署**。只配一个，`access-auth` 仍走
-「未配置 → 500」那条分支（`middleware/access-auth.ts:47`），
-线上会从「没配」变成「配了一半」，症状完全一样但更难查。
+前两项分别来自 Access Application 的 AUD 与完整 team domain（如 `example.cloudflareaccess.com`，不含协议）。受保护 API 缺任意一项会返回 `500`；`/api/live` 和机器管线入口走各自的访问规则。`SIGNOFF_PIPELINE_READ_TOKEN` 可单独设置为只读管线凭据，未设置时读请求沿用 write token。当前配置保留 `workers.dev` 作为备用入口。
 
-## 状态
+## 测试
 
-Web dashboard（含活跃度统计）+ Settings / Developers / Teams / Tags / Repos CRUD 可本地运行；
-pipeline bootstrap / ingest / complete 全部可用；`signoff collect` 可对真实 ADO 采集。
-生产环境的 `/api/*` 需要先配好 Access（见「运维手册」末条）。
+| 层次 | 运行方法 | 前提 |
+| --- | --- | --- |
+| 单元与 API handler | `bun run test` | 已安装依赖；各 workspace 使用 Bun test 或 Vitest |
+| 覆盖率 | `bun run test:coverage` | 同上 |
+| Git 子进程集成 | `bun run --cwd apps/gitinfo test:integration` | 本机可运行 Git |
+| 本地采集管线 fixture | `PATH="$PWD/packages/worker/node_modules/.bin:$PATH" bash scripts/e2e-06-local.sh` | 新的默认本地 D1，且 Worker 已运行 |
 
-Logo assets and usage: [guide](docs/09-logo-usage.md) · [identity study](https://hexly.ai/logos/signoff-now).
+管线 fixture 测试请使用独立测试副本，先执行 `bun run build:web`，再在另一终端运行 `bun run --cwd packages/worker dev --local-upstream localhost`。测试命令的 PATH 让原脚本使用 workspace 已安装的 Wrangler。脚本会应用本地 migrations、种入测试实体、写入 `.data/` 并验证 ingest、热力图和时间线；它要求初始 Settings（配置版本 `1`），会改写该副本的本地数据。
+
+## 技术栈
+
+| 技术 | 用途 |
+| --- | --- |
+| ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Bun](https://img.shields.io/badge/Bun-000000?logo=bun&logoColor=white) | 应用逻辑、CLI 与 monorepo 脚本 |
+| ![React](https://img.shields.io/badge/React-149ECA?logo=react&logoColor=white) ![Radix UI](https://img.shields.io/badge/Radix_UI-161618?logo=radixui&logoColor=white) | 控制台页面与交互组件 |
+| ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white) | 界面样式与主题 |
+| ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white) | 本地开发与 SPA 构建 |
+| ![Hono](https://img.shields.io/badge/Hono-E36002?logo=hono&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-F38020?logo=cloudflareworkers&logoColor=white) | API 路由、中间件与静态资源托管 |
+| ![Cloudflare D1](https://img.shields.io/badge/Cloudflare_D1-F38020?logo=cloudflare&logoColor=white) | 实体、Settings、活动与积分存储 |
+| ![Cloudflare Access](https://img.shields.io/badge/Cloudflare_Access-F38020?logo=cloudflare&logoColor=white) | Web 入口和管理 API 身份认证 |
+| ![Azure DevOps](https://img.shields.io/badge/Azure_DevOps-0078D7) | PR、评审与工作项数据来源 |
+| ![Vitest](https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white) ![Bun test](https://img.shields.io/badge/Bun_test-000000?logo=bun&logoColor=white) | 各 workspace 测试 |
+
+## 文档
+
+- [文档索引](docs/README.md)：产品定位、D1、Web、Settings 与管线设计。
+- [采集命令、落盘与游标](docs/07-CLI命令矩阵与ADO落盘.md) · [Activity 与 Score 规则](docs/06-Activity重建与Score算法.md)。
+- [上线与 Dashboard 统计](docs/08-真实数据上线与Dashboard统计.md)：部署、查询和对账说明。
+- [辅助 CLI](docs/cli/README.md) · [Logo 使用](docs/09-logo-usage.md) · [品牌展示](https://hexly.ai/logos/signoff-now)。
+
+## 许可证
+
+[MIT](LICENSE)
