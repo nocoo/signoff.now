@@ -12,12 +12,12 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
 		"@types/bun": "^1.3.11",
-		"@vitest/coverage-v8": "^4.1.8",
+		"@vitest/coverage-v8": "^4.1.11",
 		"husky": "^9.0.0",
 		"lint-staged": "^16.4.0",
 		"turbo": "^2.9.18",
 		"typescript": "7.0.2",
-		"vitest": "^4.1.8"
+		"vitest": "^4.1.11"
 	},
 	"scripts": {
 		"dev": "turbo run dev --filter=@signoff/web",
@@ -55,7 +55,7 @@
 		"js-yaml": "^4.2.0",
 		"nanoid": "^3.3.18",
 		"postcss": "^8.5.23",
-		"sharp": "^0.35.0",
+		"sharp": "^0.35.4",
 		"tar": "^7.5.16",
 		"tmp": "^0.2.6",
 		"undici": "^6.28.0",
