@@ -43,6 +43,13 @@ Two hosts, one Worker, two auth paths — see README「运维手册」for the fu
 | `signoff.hexly.ai` | people, and automation needing **CRUD** | Cloudflare Access |
 | `signoff-ingest.hexly.ai` | CLI ingest | `SIGNOFF_PIPELINE_WRITE_TOKEN` |
 
+`GET /api/live` is public in the Worker on both hosts. It checks D1, returns
+`status: "ok"` and the root package version on success, or HTTP 503 with bounded
+failure data. Every response uses `Cache-Control: no-store`. Keep the root,
+Worker, and web package versions aligned when releasing this service. The human
+hostname also needs an Access application scoped to `signoff.hexly.ai/api/live`
+with a Bypass / Everyone policy; business paths retain Access and JWT checks.
+
 **The pipeline token cannot create entities.** `MACHINE_ROUTES`
 (`middleware/entry-control.ts`) whitelists only bootstrap / ingest /
 recompute / live / me; every CRUD route answers 403. That is deliberate — a
