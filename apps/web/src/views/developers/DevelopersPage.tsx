@@ -1,13 +1,12 @@
+import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { Users } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { Field } from "@/components/Field";
-import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SelectControl as Select } from "@/components/SelectControl";
+import { Skeleton } from "@/components/Skeleton";
 import type { DeveloperFilter } from "@/models/entities";
 import { useDevelopersViewModel } from "@/viewmodels/useDevelopersViewModel";
 import { DeveloperDialog } from "./DeveloperDialog";
@@ -24,7 +23,7 @@ export function DevelopersPage() {
 
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-(--control-gap-x)">
+			<section className="flex flex-wrap items-end gap-3">
 				<Field label="Search" className="w-56">
 					{(id) => (
 						<Input
@@ -42,10 +41,10 @@ export function DevelopersPage() {
 						<Select
 							id={id}
 							value={vm.filter.status}
-							onChange={(e) =>
+							onChange={(value) =>
 								vm.setFilter((f) => ({
 									...f,
-									status: e.target.value as DeveloperFilter["status"],
+									status: value as DeveloperFilter["status"],
 								}))
 							}
 						>
@@ -60,8 +59,8 @@ export function DevelopersPage() {
 						<Select
 							id={id}
 							value={vm.filter.teamId ?? ""}
-							onChange={(e) =>
-								vm.setFilter((f) => ({ ...f, teamId: e.target.value || null }))
+							onChange={(value) =>
+								vm.setFilter((f) => ({ ...f, teamId: value || null }))
 							}
 						>
 							<option value="">All teams</option>
@@ -78,8 +77,8 @@ export function DevelopersPage() {
 						<Select
 							id={id}
 							value={vm.filter.tagId ?? ""}
-							onChange={(e) =>
-								vm.setFilter((f) => ({ ...f, tagId: e.target.value || null }))
+							onChange={(value) =>
+								vm.setFilter((f) => ({ ...f, tagId: value || null }))
 							}
 						>
 							<option value="">All tags</option>
@@ -92,7 +91,7 @@ export function DevelopersPage() {
 					)}
 				</Field>
 				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						{vm.visible.length} of {vm.items.length}
 					</p>
 					<Button onClick={() => vm.setCreating(true)}>Add developer</Button>
@@ -100,13 +99,13 @@ export function DevelopersPage() {
 			</section>
 
 			{vm.loading ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
+				<LayerCard className="space-y-2">
 					<Skeleton className="h-8 w-full" />
 					<Skeleton className="h-8 w-full" />
 					<Skeleton className="h-8 w-2/3" />
-				</div>
+				</LayerCard>
 			) : vm.visible.length === 0 ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none">
 					<EmptyState
 						icon={Users}
 						title={vm.items.length === 0 ? "No developers yet" : "No matches"}
@@ -116,19 +115,19 @@ export function DevelopersPage() {
 								: "No developer matches the current filters."
 						}
 					/>
-				</div>
+				</LayerCard>
 			) : (
-				<div className="overflow-x-auto rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none" className="overflow-x-auto">
 					<table className="w-full text-sm">
 						<thead>
-							<tr className="border-b border-border text-left">
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+							<tr className="border-b border-basalt-border text-left">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Developer
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Teams
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Tags
 								</th>
 								<th className="px-4 py-3" />
@@ -138,7 +137,7 @@ export function DevelopersPage() {
 							{vm.visible.map((d) => (
 								<tr
 									key={d.id}
-									className="border-b border-border last:border-0 hover:bg-background/50"
+									className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
 								>
 									<td className="px-4 py-3">
 										<EntityLabel
@@ -150,14 +149,16 @@ export function DevelopersPage() {
 									<td className="px-4 py-3">
 										<span className="flex flex-wrap items-center gap-1.5">
 											{d.teamIds.length === 0 ? (
-												<span className="text-xs text-muted-foreground">—</span>
+												<span className="text-xs text-basalt-muted-foreground">
+													—
+												</span>
 											) : (
 												d.teamIds.map((id) => {
 													const t = vm.teamsById.get(id);
 													return t ? (
 														<span
 															key={id}
-															className="flex items-center gap-1 rounded-full bg-background px-2 py-0.5 text-xs"
+															className="flex items-center gap-1 rounded-full bg-basalt-background px-2 py-0.5 text-xs"
 														>
 															<EntityAvatar
 																name={t.name}
@@ -174,7 +175,9 @@ export function DevelopersPage() {
 									<td className="px-4 py-3">
 										<span className="flex flex-wrap items-center gap-1.5">
 											{d.tagIds.length === 0 ? (
-												<span className="text-xs text-muted-foreground">—</span>
+												<span className="text-xs text-basalt-muted-foreground">
+													—
+												</span>
 											) : (
 												d.tagIds.map((id) => {
 													const t = vm.tagsById.get(id);
@@ -223,7 +226,7 @@ export function DevelopersPage() {
 							))}
 						</tbody>
 					</table>
-				</div>
+				</LayerCard>
 			)}
 
 			<DeveloperDialog

@@ -1,15 +1,15 @@
-import { Field } from "@/components/Field";
-import { Button } from "@/components/ui/button";
 import {
+	Button,
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+	Input,
+} from "@nocoo/basalt";
+import { Field } from "@/components/Field";
+import { SelectControl as Select } from "@/components/SelectControl";
 import type { Repo } from "@/models/entities";
 import {
 	type RepoDraft,
@@ -66,7 +66,7 @@ export function RepoDialog({
 							<Select
 								id={id}
 								value={vm.draft.provider}
-								onChange={(e) => vm.setField("provider", e.target.value)}
+								onChange={(value) => vm.setField("provider", value)}
 							>
 								<option value="ado">Azure DevOps</option>
 								<option value="github">GitHub</option>
@@ -78,9 +78,7 @@ export function RepoDialog({
 							<Select
 								id={id}
 								value={vm.draft.enabled ? "yes" : "no"}
-								onChange={(e) =>
-									vm.setField("enabled", e.target.value === "yes")
-								}
+								onChange={(value) => vm.setField("enabled", value === "yes")}
 							>
 								<option value="yes">Enabled</option>
 								<option value="no">Disabled</option>
@@ -148,7 +146,7 @@ export function RepoDialog({
 				</div>
 
 				{vm.error ? (
-					<p role="alert" className="text-sm text-destructive">
+					<p role="alert" className="text-sm text-basalt-destructive">
 						{vm.error}
 					</p>
 				) : null}

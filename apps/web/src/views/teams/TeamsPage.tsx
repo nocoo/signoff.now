@@ -1,13 +1,12 @@
+import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { UsersRound } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityLabel } from "@/components/EntityAvatar";
 import { Field } from "@/components/Field";
-import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SelectControl as Select } from "@/components/SelectControl";
+import { Skeleton } from "@/components/Skeleton";
 import type { StatusFilter } from "@/models/entities";
 import { useTeamsViewModel } from "@/viewmodels/useTeamsViewModel";
 import { TeamDialog } from "./TeamDialog";
@@ -23,7 +22,7 @@ export function TeamsPage() {
 			/>
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-(--control-gap-x)">
+			<section className="flex flex-wrap items-end gap-3">
 				<Field label="Search" className="w-56">
 					{(id) => (
 						<Input
@@ -41,10 +40,10 @@ export function TeamsPage() {
 						<Select
 							id={id}
 							value={vm.filter.status}
-							onChange={(e) =>
+							onChange={(value) =>
 								vm.setFilter((f) => ({
 									...f,
-									status: e.target.value as StatusFilter,
+									status: value as StatusFilter,
 								}))
 							}
 						>
@@ -59,8 +58,8 @@ export function TeamsPage() {
 						<Select
 							id={id}
 							value={vm.filter.tagId ?? ""}
-							onChange={(e) =>
-								vm.setFilter((f) => ({ ...f, tagId: e.target.value || null }))
+							onChange={(value) =>
+								vm.setFilter((f) => ({ ...f, tagId: value || null }))
 							}
 						>
 							<option value="">All tags</option>
@@ -73,7 +72,7 @@ export function TeamsPage() {
 					)}
 				</Field>
 				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						{vm.visible.length} of {vm.items.length}
 					</p>
 					<Button onClick={() => vm.setCreating(true)}>Add team</Button>
@@ -81,12 +80,12 @@ export function TeamsPage() {
 			</section>
 
 			{vm.loading ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
+				<LayerCard className="space-y-2">
 					<Skeleton className="h-10 w-full" />
 					<Skeleton className="h-10 w-full" />
-				</div>
+				</LayerCard>
 			) : vm.visible.length === 0 ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none">
 					<EmptyState
 						icon={UsersRound}
 						title={vm.items.length === 0 ? "No teams" : "No matches"}
@@ -96,16 +95,16 @@ export function TeamsPage() {
 								: "No team matches the current filters."
 						}
 					/>
-				</div>
+				</LayerCard>
 			) : (
-				<div className="overflow-x-auto rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none" className="overflow-x-auto">
 					<table className="w-full text-sm">
 						<thead>
-							<tr className="border-b border-border text-left">
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+							<tr className="border-b border-basalt-border text-left">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Team
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Tags
 								</th>
 								<th className="px-4 py-3" />
@@ -115,7 +114,7 @@ export function TeamsPage() {
 							{vm.visible.map((t) => (
 								<tr
 									key={t.id}
-									className="border-b border-border last:border-0 hover:bg-background/50"
+									className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
 								>
 									<td className="px-4 py-3">
 										<EntityLabel name={t.name} avatarUrl={t.avatarUrl} />
@@ -123,7 +122,9 @@ export function TeamsPage() {
 									<td className="px-4 py-3">
 										<span className="flex flex-wrap items-center gap-1.5">
 											{t.tagIds.length === 0 ? (
-												<span className="text-xs text-muted-foreground">—</span>
+												<span className="text-xs text-basalt-muted-foreground">
+													—
+												</span>
 											) : (
 												t.tagIds.map((id) => {
 													const g = vm.tagsById.get(id);
@@ -172,7 +173,7 @@ export function TeamsPage() {
 							))}
 						</tbody>
 					</table>
-				</div>
+				</LayerCard>
 			)}
 
 			<TeamDialog

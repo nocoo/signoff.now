@@ -1,12 +1,11 @@
+import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { GitBranch } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { Field } from "@/components/Field";
-import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SelectControl as Select } from "@/components/SelectControl";
+import { Skeleton } from "@/components/Skeleton";
 import type { StatusFilter } from "@/models/entities";
 import { useReposViewModel } from "@/viewmodels/useReposViewModel";
 import { RepoDialog } from "./RepoDialog";
@@ -27,7 +26,7 @@ export function ReposPage() {
 			/>
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-(--control-gap-x)">
+			<section className="flex flex-wrap items-end gap-3">
 				<Field label="Search" className="w-56">
 					{(id) => (
 						<Input
@@ -45,10 +44,10 @@ export function ReposPage() {
 						<Select
 							id={id}
 							value={vm.filter.status}
-							onChange={(e) =>
+							onChange={(value) =>
 								vm.setFilter((f) => ({
 									...f,
-									status: e.target.value as StatusFilter,
+									status: value as StatusFilter,
 								}))
 							}
 						>
@@ -63,10 +62,10 @@ export function ReposPage() {
 						<Select
 							id={id}
 							value={vm.filter.provider ?? ""}
-							onChange={(e) =>
+							onChange={(value) =>
 								vm.setFilter((f) => ({
 									...f,
-									provider: e.target.value || null,
+									provider: value || null,
 								}))
 							}
 						>
@@ -90,11 +89,10 @@ export function ReposPage() {
 										? "yes"
 										: "no"
 							}
-							onChange={(e) =>
+							onChange={(value) =>
 								vm.setFilter((f) => ({
 									...f,
-									enabled:
-										e.target.value === "" ? null : e.target.value === "yes",
+									enabled: value === "" ? null : value === "yes",
 								}))
 							}
 						>
@@ -105,7 +103,7 @@ export function ReposPage() {
 					)}
 				</Field>
 				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						{vm.visible.length} of {vm.items.length}
 					</p>
 					<Button onClick={() => vm.setCreating(true)}>Bind repo</Button>
@@ -113,12 +111,12 @@ export function ReposPage() {
 			</section>
 
 			{vm.loading ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
+				<LayerCard className="space-y-2">
 					<Skeleton className="h-10 w-full" />
 					<Skeleton className="h-10 w-full" />
-				</div>
+				</LayerCard>
 			) : vm.visible.length === 0 ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none">
 					<EmptyState
 						icon={GitBranch}
 						title={vm.items.length === 0 ? "No repos bound" : "No matches"}
@@ -128,25 +126,25 @@ export function ReposPage() {
 								: "No repo matches the current filters."
 						}
 					/>
-				</div>
+				</LayerCard>
 			) : (
-				<div className="overflow-x-auto rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none" className="overflow-x-auto">
 					<table className="w-full text-sm">
 						<thead>
-							<tr className="border-b border-border text-left">
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+							<tr className="border-b border-basalt-border text-left">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Org / Project
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Name
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Repo GUID
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Project GUID
 								</th>
-								<th className="px-4 py-3 text-xs font-medium text-muted-foreground">
+								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Collection
 								</th>
 								<th className="px-4 py-3" />
@@ -156,23 +154,25 @@ export function ReposPage() {
 							{vm.visible.map((r) => (
 								<tr
 									key={r.id}
-									className="border-b border-border last:border-0 hover:bg-background/50"
+									className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
 								>
 									<td className="px-4 py-3">
 										{r.org} / {r.project}
 									</td>
 									<td className="px-4 py-3 font-medium">{r.name}</td>
-									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+									<td className="px-4 py-3 font-mono text-xs text-basalt-muted-foreground">
 										{r.externalId ?? "—"}
 									</td>
-									<td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+									<td className="px-4 py-3 font-mono text-xs text-basalt-muted-foreground">
 										{r.projectExternalId ?? "—"}
 									</td>
 									<td className="px-4 py-3 text-xs">
 										{r.enabled ? (
 											"Enabled"
 										) : (
-											<span className="text-muted-foreground">Disabled</span>
+											<span className="text-basalt-muted-foreground">
+												Disabled
+											</span>
 										)}
 									</td>
 									<td className="px-4 py-3 text-right space-x-2">
@@ -207,7 +207,7 @@ export function ReposPage() {
 							))}
 						</tbody>
 					</table>
-				</div>
+				</LayerCard>
 			)}
 
 			<RepoDialog

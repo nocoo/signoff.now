@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@nocoo/basalt";
 import { avatarColor, avatarInitial, usableAvatarUrl } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 
@@ -63,7 +63,7 @@ export function EntityLabel({
 			<span className="min-w-0">
 				<span className="block truncate font-medium">{name}</span>
 				{secondary ? (
-					<span className="block truncate font-mono text-xs text-muted-foreground">
+					<span className="block truncate font-mono text-xs text-basalt-muted-foreground">
 						{secondary}
 					</span>
 				) : null}

@@ -1,25 +1,25 @@
 # 03 — Web 模块模板
 
-> 状态：设计稿（实现清单）  
+> 状态：已实装
 > 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)  
-> 范围：`apps/web` + Worker 服务端的**工程模板**——从哪抄、怎么分层、怎么测、怎么卡门禁、CF Access 怎么验  
+> 范围：`apps/web` + Worker 服务端的**工程模板**——如何消费官方包、怎么分层、怎么测、怎么卡门禁、CF Access 怎么验
 > 不在本文：Settings 字段语义（→ [04](./04-Settings设计.md)）、Activity 计分算法、具体页面文案
 
 ---
 
 ## 1. 目标
 
-signoff Web **只有一套模板：basalt**（`../basalt`）。
+signoff Web **只有一套设计系统：官方 npm 包 `@nocoo/basalt`**。
 
 | 角色 | 仓库 | 是什么 | 对 signoff 的意义 |
 |:-----|:-----|:-------|:------------------|
-| **模板** | **basalt** | 设计系统 + Vite/React SPA 工程范式（tokens、Dashboard 壳、MVVM、覆盖率门、hooks 形态） | **唯一**前端/视觉/分层规范来源；从这里拷贝与对齐 |
+| **设计系统** | **`@nocoo/basalt`** | 发布版组件、tokens、Dashboard 壳与机器可读契约 | **唯一**前端/视觉规范来源；按包导入，不复制源码 |
 | **参考实现** | **bat** | **basalt 家族里的另一个应用**（已声明 design system = Basalt），把 basalt SPA 接到 CF Worker + Access + D1 跑通了 | **不是第二套模板**；需要「Vite 如何挂 Worker / Access / 双入口 / 六维门」时对照代码与文档 |
 
 关系一句话：
 
 ```
-basalt  ──(模板 / 规范)──►  signoff apps/web
+@nocoo/basalt  ──(npm 包 / 规范)──►  signoff apps/web
    │
    └──  bat  ──(同一 basalt 体系下的完整应用参考)──►  signoff 的 Worker/Access/部署写法可对照 bat
 ```
@@ -37,22 +37,22 @@ Web **只读** Activity/Score；**可写** Developer / Team / Tag / Repo / Setti
 
 ## 2. 模板与参考实现怎么用
 
-### 2.1 basalt = 模板（唯一）
+### 2.1 `@nocoo/basalt` = 设计系统（唯一）
 
-signoff 的 UI、分层、测试门禁口径 **以 basalt 为准**，不要另起设计语言或第二套 MVVM。
+signoff 的 UI 与组件契约 **以已锁定的 `@nocoo/basalt` 发布版为准**，不要另起设计语言。MVVM 与测试门禁仍由本仓库负责。
 
-| 资产 | basalt 位置 | signoff 用法 |
-|:-----|:------------|:-------------|
-| 3-tier 亮度 token | `src/index.css` `:root` / `.dark` | **原样拷贝** token 语义；不要另起一套灰阶 |
-| Dashboard 壳 | `src/components/DashboardLayout.tsx` + `AppSidebar.tsx` | 改导航项为 Dashboard / Developers / Repos / Teams / Tags / Settings |
-| shadcn primitives | `src/components/ui/*` | 按需 `components.json` 同步；禁止每页手写 button |
+| 资产 | 包入口 | signoff 用法 |
+|:-----|:-------|:-------------|
+| L0–L3 与图表 token | `@nocoo/basalt/styles/tailwind` | CSS 扫描包的 `dist`，使用 `basalt-*` utilities；不重声明 token |
+| Dashboard 壳 | `components/app-shell`、`components/app-header` 与根 `Sidebar` | 应用只提供导航、品牌、版本、身份和页面 body |
+| 基础控件 | `@nocoo/basalt` 与 `components/*` | 直接导入；应用 adapter 只处理业务值映射，不复制控件样式 |
 | MVVM | `src/models/*` + `src/viewmodels/use*ViewModel.ts` + `src/pages/*` | 业务页一律此三层（见 §4） |
 | 覆盖率门 | `vitest.config.ts` `include: models/viewmodels/lib`，阈值 95 | Web 同策略；View/Page 排除 |
 | pre-commit / pre-push | `.husky/*` + `osv-scanner.toml` | 对齐 monorepo 根 hooks（见 §7） |
-| 主题 | `ThemeToggle` system→light→dark | 一期保留；与 basalt 三态一致 |
+| 主题 | `ThemeProvider` + `ThemeToggle` | 使用 `signoff-theme` 保留既有用户偏好 |
 | Vite dev 形态 | `vite.config.ts`（port / `allowedHosts` / Caddy 域名） | 端口表见 [04 §4.2](./04-Settings设计.md)；范式同 basalt |
 
-basalt 本体是 **demo SPA**（无生产 Access / D1）。登录页（`/login`、`/badge-login`）仅视觉参考；**生产鉴权走 Access 边缘拦截**，不自建账号密码。  
+Basalt 不拥有生产 Access / D1。登录页 recipe 仅视觉参考；**生产鉴权走 Access 边缘拦截**，不自建账号密码。
 「如何把 basalt 式 SPA 接到 Worker + Access」——看 **bat 参考实现**，不另造模板。
 
 ### 2.2 bat = basalt 应用上的 Vite / Worker 参考实现
@@ -97,15 +97,13 @@ apps/web/                          # @signoff/web — Vite SPA（basalt 形态�
 ├── index.html
 ├── vite.config.ts
 ├── vitest.config.ts               # coverage 门：models + viewmodels + lib ≥95%
-├── components.json                # shadcn
 └── src/
     ├── main.tsx
-    ├── App.tsx                    # Router + DashboardLayout 壳
-    ├── index.css                  # basalt tokens（L0/L1/L2 + chart/heatmap）
+    ├── App.tsx                    # Router + Basalt providers
+    ├── index.css                  # Basalt Tailwind 合同 + 应用字体
     ├── components/
-    │   ├── ui/                    # shadcn
-    │   ├── DashboardLayout.tsx
-    │   └── AppSidebar.tsx
+    │   ├── layout/                # 应用导航数据与 Basalt 壳组合
+    │   └── *                      # 业务组合；基础控件来自 npm 包
     ├── models/                    # 纯 TS：类型、parse、校验、副作用策略（无 React）
     ├── viewmodels/                # useXxxViewModel：组装 model + fetch + UI 状态
     ├── views/ 或 pages/           # 纯展示；不写业务规则
@@ -225,38 +223,39 @@ signoff Settings 页的对应关系见 [04 §4.3](./04-Settings设计.md)；其�
 - 字体：正文 Inter 14px 量级；展示标题可用 DM Sans；图标 Lucide **1.5px** stroke。  
 - 圆角：`--radius: 0.75rem`（12px 基），卡片 `rounded-widget` 一类统一类名。
 
-### 5.2 三层亮度（L0 / L1 / L2）
+### 5.2 Basalt 亮度层级（L0 / L1 / L2 / L3）
 
 | 层 | Token | 用途 | Light（示意） | Dark（示意） |
 |:---|:------|:-----|:--------------|:-------------|
-| **L0** | `--background` | 页面底、侧栏底 | `220 14% 94%` | `0 0% 9%`（#171717） |
-| **L1** | `--card` | 主内容面板 | `220 14% 97%` | `0 0% 10.6%`（#1b1b1b） |
-| **L2** | `--secondary` | 内嵌卡片、控件底 | `0 0% 100%` | `0 0% 12.2%`（#1f1f1f） |
+| **L0** | `--basalt-background` | 页面底、侧栏底 | 由包定义 | 由包定义 |
+| **L1** | `--basalt-card` | `ContentIsland` / Dialog / Sheet | 由包定义 | 由包定义 |
+| **L2** | `--basalt-secondary` | 第一层 `LayerCard` | 由包定义 | 由包定义 |
+| **L3** | `--basalt-bright` | `LayerCard.Well` / 嵌套卡片 | 由包定义 | 由包定义 |
 
-布局骨架（basalt `DashboardLayout`）：
+布局骨架（Basalt `AppShell`）：
 
 ```
-div.bg-background (L0)
-├── AppSidebar
-└── main
-    ├── header (h-14)
-    └── content panel → bg-card (L1) 内再放 L2 卡片
+AppShell (L0)
+├── Sidebar
+└── AppMain
+    ├── AppHeader (h-14)
+    └── ContentIsland (L1) 内放 LayerCard (L2/L3)
 ```
 
-热力图与图表：直接复用 basalt 的 `--heatmap-*` 与 24 色 `--chart-*`；Activity 强度映射到 heatmap scale，**不要**硬编码 hex。
+热力图与图表：从 Basalt chart subpath 导入。Activity 强度映射到官方四档 heatmap scale；图表使用固定五色循环，**不要**按旧 24 色索引或硬编码 hex。
 
 ### 5.3 组件与交互
 
-- 侧栏：桌面可折叠；移动端 drawer + backdrop blur（basalt 已实现，直接移植）  
+- 侧栏：桌面可折叠；移动端使用 Basalt `Sheet`；壳和交互由包提供
 - `⌘K` 命令面板：二期；一期可用侧栏导航  
-- Toast：sonner 或 basalt 同类  
+- Toast：全局只挂一个 Basalt `Toaster`
 - 空态 / 加载：L1 面板内 skeleton，禁止整页白闪无结构  
 - 无障碍：保留 skip-to-main；表单 label 与错误 `aria-invalid`
 
 ### 5.4 与 basalt 家族应用（含 bat）的关系
 
 bat 等项目已声明 design system = **Basalt**——它们是**同一模板下的应用**，不是并列模板。  
-signoff 与它们共享 token 语义；**组件与 token 从 basalt 模板拷贝**进 `apps/web`，不跨仓 import bat/basalt 源码路径。
+signoff 与它们共享发布包契约；**组件与 token 从 `@nocoo/basalt` 导入**，不跨仓 import 源码路径，也不保留复制式 `components/ui`。
 
 ---
 
@@ -567,7 +566,7 @@ CLI 读 Settings：见 [04 §6](./04-Settings设计.md)——经 **已鉴权 HTT
 
 | PR | 内容 | 验收 |
 |:---|:-----|:-----|
-| W1 | 从 **basalt 模板**拷 tokens + DashboardLayout + 空路由壳 | 视觉 L0/L1；无业务 |
+| W1 | 安装 **`@nocoo/basalt`**，接入 styles + AppShell + 空路由壳 | 视觉 L0/L1；无业务 |
 | W2 | `models/` + `viewmodels/` 目录约定 + vitest include 收窄 | coverage 门绿（basalt 口径） |
 | W3 | Worker 骨架（对照 bat）：entryControl（含 `isLocalhost` / machine 白名单）+ accessAuth + pipelineAuth + `/api/live` + `/api/me` | 单测 + §8.8 host 矩阵 |
 | W4 | Settings API + Web MVVM 页 | 对 04 验收清单 |
@@ -579,7 +578,7 @@ CLI 读 Settings：见 [04 §6](./04-Settings设计.md)——经 **已鉴权 HTT
 ## 11. 验收清单
 
 - [ ] 文档明确：**模板只有 basalt**；bat 是 basalt 应用参考实现，不是第二模板  
-- [ ] `apps/web` 使用 basalt L0/L1/L2 token 与布局壳  
+- [x] `apps/web` 使用官方 Basalt L0–L3 token 与布局壳
 - [ ] 业务页 MVVM 三层（basalt）；View 无业务规则  
 - [ ] Model/ViewModel/lib 覆盖率 ≥95%，View 排除  
 - [ ] 根 husky：pre-commit L1+G1；pre-push G2（+ 后续 L2）  
@@ -607,7 +606,7 @@ CLI 读 Settings：见 [04 §6](./04-Settings设计.md)——经 **已鉴权 HTT
 
 | 路径 | 角色 | 用途 |
 |:-----|:-----|:-----|
-| `../basalt` | **模板** | 设计语言、MVVM、coverage、tokens、Vite SPA 结构 |
+| `@nocoo/basalt` | **npm 设计系统** | 发布版 components、tokens、壳、chart 色阶与兼容契约 |
 | `../bat` | **basalt 家族参考应用** | Vite+Worker 部署、Access、双入口、六维门 |
 | `../bat/packages/worker/src/middleware/*` | 同上 | Access / entry-control 实现细节 |
 | `../bat/docs/06-ui.md`、`07-testing.md`、`02-architecture.md` | 同上 | 叙事对照 |

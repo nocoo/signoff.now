@@ -189,9 +189,8 @@ describe("ReposPage", () => {
 	it("offers only the providers actually bound", async () => {
 		render(<ReposPage />);
 		await screen.findByText("api");
-		const options = within(screen.getByLabelText("Provider")).getAllByRole(
-			"option",
-		);
+		fireEvent.click(screen.getByLabelText("Provider"));
+		const options = await screen.findAllByRole("option");
 		expect(options.map((o) => o.textContent)).toEqual([
 			"All providers",
 			"Azure DevOps",
@@ -202,9 +201,8 @@ describe("ReposPage", () => {
 		render(<ReposPage />);
 		await screen.findByText("api");
 
-		fireEvent.change(screen.getByLabelText("Collection"), {
-			target: { value: "no" },
-		});
+		fireEvent.click(screen.getByLabelText("Collection"));
+		fireEvent.click(await screen.findByRole("option", { name: "Disabled" }));
 		await waitFor(() => expect(counter()).toBe("0 of 1"));
 		expect(screen.getByText("No matches")).toBeTruthy();
 	});

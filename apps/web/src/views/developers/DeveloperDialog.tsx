@@ -1,16 +1,16 @@
-import { EntityAvatar } from "@/components/EntityAvatar";
-import { Field } from "@/components/Field";
-import { TagPicker } from "@/components/TagPicker";
-import { Button } from "@/components/ui/button";
 import {
+	Button,
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+	Input,
+} from "@nocoo/basalt";
+import { EntityAvatar } from "@/components/EntityAvatar";
+import { Field } from "@/components/Field";
+import { TagPicker } from "@/components/TagPicker";
 import type { Developer, Tag, Team } from "@/models/entities";
 import { useDeveloperEditViewModel } from "@/viewmodels/useDeveloperEditViewModel";
 import type { DeveloperDraft } from "@/viewmodels/useDevelopersViewModel";
@@ -76,7 +76,7 @@ export function DeveloperDialog({
 						avatarUrl={vm.draft.avatarUrl}
 						size="lg"
 					/>
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						Falls back to an initial on a colour derived from the name.
 					</p>
 				</div>
@@ -114,7 +114,7 @@ export function DeveloperDialog({
 					</Field>
 
 					{teams.length > 0 ? (
-						<fieldset className="flex flex-col gap-(--control-gap)">
+						<fieldset className="flex flex-col gap-1.5">
 							<legend className="text-sm font-medium">Teams</legend>
 							<div className="flex flex-wrap gap-2">
 								{teams.map((t) => {
@@ -127,8 +127,8 @@ export function DeveloperDialog({
 											onClick={() => vm.toggleTeam(t.id)}
 											className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
 												on
-													? "border-primary bg-primary/10 text-foreground"
-													: "border-border text-muted-foreground hover:bg-secondary"
+													? "border-basalt-primary bg-basalt-primary/10 text-basalt-foreground"
+													: "border-basalt-border text-basalt-muted-foreground hover:bg-basalt-secondary"
 											}`}
 										>
 											<EntityAvatar
@@ -144,7 +144,7 @@ export function DeveloperDialog({
 						</fieldset>
 					) : null}
 
-					<fieldset className="flex flex-col gap-(--control-gap)">
+					<fieldset className="flex flex-col gap-1.5">
 						<legend className="text-sm font-medium">Tags</legend>
 						<TagPicker
 							tags={tags}
@@ -159,7 +159,7 @@ export function DeveloperDialog({
 				</div>
 
 				{vm.error ? (
-					<p role="alert" className="text-sm text-destructive">
+					<p role="alert" className="text-sm text-basalt-destructive">
 						{vm.error}
 					</p>
 				) : null}

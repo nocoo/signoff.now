@@ -42,17 +42,17 @@ describe("views use the shared controls", () => {
 	});
 
 	it("no page hand-rolls a control with border + height utilities", () => {
-		// e.g. `h-9 rounded-md border border-border bg-background px-2` — one
+		// e.g. `h-9 rounded-md border border-basalt-border px-2` — one
 		// page's idea of a control, drifting from Input by a padding step.
 		expect(
 			offenders((src) =>
-				/className="[^"]*\bh-9\b[^"]*\bborder-border\b/.test(src),
+				/className="[^"]*\bh-9\b[^"]*\bborder-basalt-border\b/.test(src),
 			),
 		).toEqual([]);
 	});
 
 	it("no page sets its own label gap", () => {
-		// Field owns --control-gap. A page choosing space-y-1.5 next to another
+		// Basalt Field owns label spacing. A page choosing space-y-1.5 next to another
 		// choosing space-y-2 is how the same form ended up with two gaps.
 		expect(
 			offenders(

@@ -1,19 +1,10 @@
+import { Banner } from "@nocoo/basalt/components/banner";
 import { AlertTriangle, Info, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 const VARIANTS = {
-	error: {
-		wrap: "border-destructive/30 bg-destructive/10 text-destructive",
-		Icon: XCircle,
-	},
-	warning: {
-		wrap: "border-warning/40 bg-warning/10 text-foreground",
-		Icon: AlertTriangle,
-	},
-	info: {
-		wrap: "border-primary/30 bg-primary/10 text-foreground",
-		Icon: Info,
-	},
+	error: { variant: "error", Icon: XCircle },
+	warning: { variant: "alert", Icon: AlertTriangle },
+	info: { variant: "default", Icon: Info },
 } as const;
 
 export function AlertBanner({
@@ -25,18 +16,15 @@ export function AlertBanner({
 	children: React.ReactNode;
 	className?: string;
 }) {
-	const { wrap, Icon } = VARIANTS[variant];
+	const { variant: basaltVariant, Icon } = VARIANTS[variant];
 	return (
-		<div
-			className={cn(
-				"flex gap-3 rounded-[var(--radius-widget)] border px-4 py-3 text-sm",
-				wrap,
-				className,
-			)}
+		<Banner
+			variant={basaltVariant}
+			icon={<Icon className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
+			className={className}
 			role={variant === "error" ? "alert" : "status"}
 		>
-			<Icon className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={1.5} aria-hidden />
-			<div className="min-w-0 flex-1">{children}</div>
-		</div>
+			{children}
+		</Banner>
 	);
 }

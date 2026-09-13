@@ -1,3 +1,17 @@
+import {
+	Button,
+	ContentIsland,
+	Sheet,
+	SheetContent,
+	SheetTitle,
+	ThemeToggle,
+} from "@nocoo/basalt";
+import { AppHeader } from "@nocoo/basalt/components/app-header";
+import {
+	AppMain,
+	AppSkipLink,
+	AppShell as BasaltAppShell,
+} from "@nocoo/basalt/components/app-shell";
 import { Menu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router";
@@ -5,15 +19,31 @@ import { Github } from "@/components/icons/github";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
 import { fetchMe } from "@/models/entitiesApi";
-import { Breadcrumbs } from "./breadcrumbs";
 import { Sidebar } from "./sidebar";
-import { SidebarProvider, useSidebar } from "./sidebar-context";
-import { ThemeToggle } from "./theme-toggle";
 
-function AppShellInner() {
+const SIDEBAR_KEY = "signoff-sidebar-collapsed";
+
+function storedSidebarState(): boolean {
+	try {
+		return localStorage.getItem(SIDEBAR_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function persistSidebarState(collapsed: boolean): void {
+	try {
+		localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+	} catch {
+		// Keep the in-memory state when storage is unavailable.
+	}
+}
+
+export function AppShell() {
 	const isMobile = useIsMobile();
-	const { mobileOpen, setMobileOpen } = useSidebar();
 	const location = useLocation();
+	const [collapsed, setCollapsed] = useState(storedSidebarState);
+	const [mobileOpen, setMobileOpen] = useState(false);
 	const [userLabel, setUserLabel] = useState("Loading…");
 	const [userEmail, setUserEmail] = useState<string | undefined>();
 
@@ -34,108 +64,87 @@ function AppShellInner() {
 			});
 	}, []);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: close drawer on navigate
-	useEffect(() => {
-		setMobileOpen(false);
-	}, [location.pathname, setMobileOpen]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: navigation closes the mobile drawer
+	useEffect(() => setMobileOpen(false), [location.pathname]);
 
-	useEffect(() => {
-		if (mobileOpen) {
-			document.body.style.overflow = "hidden";
-		} else {
-			document.body.style.overflow = "";
-		}
-		return () => {
-			document.body.style.overflow = "";
-		};
-	}, [mobileOpen]);
-
-	const breadcrumbs = breadcrumbsFromPathname(location.pathname);
+	const setDesktopCollapsed = (next: boolean) => {
+		setCollapsed(next);
+		persistSidebarState(next);
+	};
+	const trail = breadcrumbsFromPathname(location.pathname);
+	const current = trail[trail.length - 1]?.label ?? "Dashboard";
+	const ancestors = trail.slice(0, -1);
 
 	return (
-		<div className="flex min-h-screen w-full bg-background">
-			<a
-				href="#main-content"
-				className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
-			>
-				Skip to main content
-			</a>
-
-			{!isMobile && <Sidebar userLabel={userLabel} userEmail={userEmail} />}
-
-			{isMobile && mobileOpen ? (
-				<>
-					{/* biome-ignore lint/a11y/useSemanticElements: backdrop overlay */}
-					<div
-						role="button"
-						tabIndex={0}
-						aria-label="Close sidebar"
-						className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
-						onClick={() => setMobileOpen(false)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
-								e.preventDefault();
-								setMobileOpen(false);
-							}
-						}}
-					/>
-					<div className="fixed inset-y-0 left-0 z-50 w-[260px]">
-						<Sidebar userLabel={userLabel} userEmail={userEmail} />
-					</div>
-				</>
-			) : null}
-
-			<main
-				id="main-content"
-				className="flex flex-1 flex-col min-h-screen min-w-0"
-			>
-				<header className="flex h-14 shrink-0 items-center justify-between px-4 md:px-6">
-					<div className="flex items-center gap-3 min-w-0">
-						{isMobile ? (
-							<button
-								type="button"
+		<BasaltAppShell>
+			<AppSkipLink>Skip to main content</AppSkipLink>
+			{!isMobile ? (
+				<Sidebar
+					collapsed={collapsed}
+					userLabel={userLabel}
+					userEmail={userEmail}
+					onToggle={() => setDesktopCollapsed(!collapsed)}
+				/>
+			) : (
+				<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+					<SheetContent
+						side="left"
+						className="w-[260px] max-w-[260px] border-0 bg-basalt-background p-0"
+					>
+						<SheetTitle className="sr-only">Navigation</SheetTitle>
+						<Sidebar
+							collapsed={false}
+							userLabel={userLabel}
+							userEmail={userEmail}
+							onToggle={() => setMobileOpen(false)}
+							onNavigate={() => setMobileOpen(false)}
+						/>
+					</SheetContent>
+				</Sheet>
+			)}
+			<AppMain>
+				<AppHeader
+					leading={
+						isMobile ? (
+							<Button
+								variant="ghost"
+								size="icon"
+								className="h-8 w-8"
 								onClick={() => setMobileOpen(true)}
 								aria-label="Open navigation"
-								className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
 							>
 								<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
-							</button>
-						) : null}
-						<Breadcrumbs items={breadcrumbs} />
-					</div>
-					<div className="flex items-center gap-1">
-						<a
-							href="https://github.com/nocoo/signoff.now"
-							target="_blank"
-							rel="noopener noreferrer"
-							aria-label="GitHub repository"
-							className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-						>
-							<Github
-								className="h-[18px] w-[18px]"
-								aria-hidden
-								strokeWidth={1.5}
-							/>
-						</a>
-						<ThemeToggle />
-					</div>
-				</header>
-
-				{/* Floating island (Basalt AppShell) */}
-				<div className="flex-1 px-2 pb-2 md:px-3 md:pb-3 min-h-0">
-					<div className="h-full rounded-[16px] md:rounded-[var(--radius-island)] bg-card p-3 md:p-5 overflow-y-auto">
+							</Button>
+						) : null
+					}
+					breadcrumbs={ancestors}
+					title={current}
+					actions={
+						<>
+							<Button variant="ghost" size="icon" asChild>
+								<a
+									href="https://github.com/nocoo/signoff.now"
+									target="_blank"
+									rel="noopener noreferrer"
+									aria-label="GitHub repository"
+								>
+									<Github
+										className="h-[18px] w-[18px]"
+										aria-hidden
+										strokeWidth={1.5}
+									/>
+								</a>
+							</Button>
+							<ThemeToggle aria-label="Change theme" />
+						</>
+					}
+				/>
+				<div className="flex min-h-0 flex-1 flex-col px-2 pb-2 md:px-3 md:pb-3">
+					<ContentIsland>
 						<Outlet />
-					</div>
+					</ContentIsland>
 				</div>
-			</main>
-		</div>
-	);
-}
-
-export function AppShell() {
-	return (
-		<SidebarProvider>
-			<AppShellInner />
-		</SidebarProvider>
+			</AppMain>
+		</BasaltAppShell>
 	);
 }

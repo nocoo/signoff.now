@@ -1,49 +1,34 @@
-/**
- * Control geometry, asserted rather than eyeballed.
- *
- * These are the specific defects that shipped: a select whose chevron sat hard
- * against the right border, four different label→control gaps in one app, and
- * labels with no `htmlFor` at all. jsdom does not do layout, so this checks the
- * contract that produces the layout — which token each control resolves to —
- * not pixel positions.
- */
-
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { Input } from "@nocoo/basalt";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { Field } from "./Field";
-import { Input } from "./ui/input";
-import { Select } from "./ui/select";
+import { SelectControl } from "./SelectControl";
 
 describe("Field", () => {
 	it("wires the label to the control it renders", () => {
-		// A <Label> with no htmlFor looks identical and does nothing: clicking
-		// the text does not focus, and a screen reader announces no name.
 		render(<Field label="Team">{(id) => <Input id={id} />}</Field>);
 		expect(screen.getByLabelText("Team")).toBeTruthy();
 	});
 
-	it("owns the label gap so callers cannot each pick one", () => {
+	it("uses Basalt's shared label gap", () => {
 		const { container } = render(
 			<Field label="Team">{(id) => <Input id={id} />}</Field>,
 		);
 		const wrapper = container.firstElementChild as HTMLElement;
-		expect(wrapper.className).toContain("gap-(--control-gap)");
-		// No caller-side spacing utility: that is how 1 / 1.5 / 2 diverged.
+		expect(wrapper.className).toContain("gap-1.5");
 		expect(wrapper.className).not.toMatch(/space-y-/);
 	});
 
-	it("keeps a caller's layout class without letting it set the gap", () => {
+	it("keeps a caller's layout class", () => {
 		const { container } = render(
 			<Field label="Team" className="w-44">
 				{(id) => <Input id={id} />}
 			</Field>,
 		);
-		const wrapper = container.firstElementChild as HTMLElement;
-		expect(wrapper.className).toContain("w-44");
-		expect(wrapper.className).toContain("gap-(--control-gap)");
+		expect(container.firstElementChild?.className).toContain("w-44");
 	});
 
-	it("shows an error in place of a hint, not both", () => {
+	it("shows an error in place of a hint", () => {
 		render(
 			<Field label="URL" hint="https://…" error="Must be https">
 				{(id) => <Input id={id} />}
@@ -54,45 +39,59 @@ describe("Field", () => {
 	});
 });
 
-describe("Select", () => {
-	const mount = () =>
+describe("SelectControl", () => {
+	const mount = (onChange = vi.fn()) =>
 		render(
-			<Select aria-label="Status">
-				<option value="a">A</option>
-			</Select>,
+			<SelectControl aria-label="Status" value="" onChange={onChange}>
+				<option value="">Any</option>
+				<option value="active">Active</option>
+			</SelectControl>,
 		);
 
-	it("reserves trailing space so the chevron does not touch the border", () => {
-		// The reported bug: the browser's own arrow sits against the edge. The
-		// text pad must be the LARGER trailing token, not the symmetric one.
-		const select = mount().container.querySelector("select") as HTMLElement;
-		expect(select.className).toContain("pe-(--control-pad-trailing)");
-		expect(select.className).toContain("ps-(--control-pad-x)");
+	it("renders the official Basalt combobox geometry", () => {
+		mount();
+		const select = screen.getByRole("combobox");
+		expect(select.className).toContain("bg-basalt-control");
+		expect(select.className).toContain("rounded-basalt-md");
+		expect(select.className).toContain("h-9");
 	});
 
-	it("hides the native arrow, since it cannot be positioned", () => {
-		const select = mount().container.querySelector("select") as HTMLElement;
-		expect(select.className).toContain("appearance-none");
+	it("maps the application's blank option through the Basalt select", async () => {
+		const onChange = vi.fn();
+		mount(onChange);
+		fireEvent.click(screen.getByRole("combobox"));
+		fireEvent.click(await screen.findByRole("option", { name: "Active" }));
+		expect(onChange).toHaveBeenCalledWith("active");
 	});
 
-	it("insets the drawn chevron and keeps it out of the hit area", () => {
-		const { container } = mount();
-		const icon = container.querySelector("svg") as SVGElement;
-		expect(icon.getAttribute("class")).toContain("end-(--control-pad-x)");
-		// Clicks must reach the select underneath, not stop at the glyph.
-		expect(icon.getAttribute("class")).toContain("pointer-events-none");
-		expect(icon.getAttribute("aria-hidden")).toBe("true");
-	});
+	it("preserves Field hint and error relationships on the trigger", () => {
+		const { rerender } = render(
+			<Field label="Enabled" hint="Disabled repos are skipped.">
+				{(id) => (
+					<SelectControl id={id} value="yes" onChange={vi.fn()}>
+						<option value="yes">Enabled</option>
+						<option value="no">Disabled</option>
+					</SelectControl>
+				)}
+			</Field>,
+		);
+		let trigger = screen.getByRole("combobox", { name: "Enabled" });
+		const hint = screen.getByText("Disabled repos are skipped.");
+		expect(trigger.getAttribute("aria-describedby")).toBe(hint.id);
 
-	it("matches Input's height and radius token for token", () => {
-		// These sit side by side in every filter row; two different heights is
-		// exactly what the tokens exist to prevent.
-		const select = mount().container.querySelector("select") as HTMLElement;
-		const { container } = render(<Input />);
-		const input = container.querySelector("input") as HTMLElement;
-		for (const token of ["h-(--control-h)", "rounded-(--control-radius)"]) {
-			expect(select.className).toContain(token);
-			expect(input.className).toContain(token);
-		}
+		rerender(
+			<Field label="Enabled" error="Choose a collection state">
+				{(id) => (
+					<SelectControl id={id} value="yes" onChange={vi.fn()}>
+						<option value="yes">Enabled</option>
+						<option value="no">Disabled</option>
+					</SelectControl>
+				)}
+			</Field>,
+		);
+		trigger = screen.getByRole("combobox", { name: "Enabled" });
+		const error = screen.getByRole("alert");
+		expect(trigger.getAttribute("aria-invalid")).toBe("true");
+		expect(trigger.getAttribute("aria-describedby")).toBe(error.id);
 	});
 });

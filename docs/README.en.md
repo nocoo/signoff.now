@@ -150,7 +150,7 @@ Use a separate test checkout for the pipeline fixture. Run `bun run build:web`, 
 | Technology | Role |
 | --- | --- |
 | ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Bun](https://img.shields.io/badge/Bun-000000?logo=bun&logoColor=white) | Application logic, CLI, and monorepo scripts |
-| ![React](https://img.shields.io/badge/React-149ECA?logo=react&logoColor=white) ![Radix UI](https://img.shields.io/badge/Radix_UI-161618?logo=radixui&logoColor=white) | Console pages and interactive components |
+| ![React](https://img.shields.io/badge/React-149ECA?logo=react&logoColor=white) ![Basalt](https://img.shields.io/badge/Basalt-222222) | Console pages, design tokens, and interactive components |
 | ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white) | Interface styling and themes |
 | ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white) | Local development and SPA builds |
 | ![Hono](https://img.shields.io/badge/Hono-E36002?logo=hono&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-F38020?logo=cloudflareworkers&logoColor=white) | API routes, middleware, and static asset hosting |

@@ -1,12 +1,11 @@
+import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { Tag as TagIcon } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { Field } from "@/components/Field";
-import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SelectControl as Select } from "@/components/SelectControl";
+import { Skeleton } from "@/components/Skeleton";
 import type { StatusFilter } from "@/models/entities";
 import { useTagsViewModel } from "@/viewmodels/useTagsViewModel";
 import { TagDialog } from "./TagDialog";
@@ -22,7 +21,7 @@ export function TagsPage() {
 			/>
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-(--control-gap-x)">
+			<section className="flex flex-wrap items-end gap-3">
 				<Field label="Search" className="w-56">
 					{(id) => (
 						<Input
@@ -40,10 +39,10 @@ export function TagsPage() {
 						<Select
 							id={id}
 							value={vm.filter.status}
-							onChange={(e) =>
+							onChange={(value) =>
 								vm.setFilter((f) => ({
 									...f,
-									status: e.target.value as StatusFilter,
+									status: value as StatusFilter,
 								}))
 							}
 						>
@@ -54,7 +53,7 @@ export function TagsPage() {
 					)}
 				</Field>
 				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						{vm.visible.length} of {vm.items.length}
 					</p>
 					<Button onClick={() => vm.setCreating(true)}>Add tag</Button>
@@ -62,11 +61,11 @@ export function TagsPage() {
 			</section>
 
 			{vm.loading ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary p-4 space-y-2">
+				<LayerCard className="space-y-2">
 					<Skeleton className="h-10 w-full" />
-				</div>
+				</LayerCard>
 			) : vm.visible.length === 0 ? (
-				<div className="rounded-[var(--radius-card)] bg-secondary">
+				<LayerCard padding="none">
 					<EmptyState
 						icon={TagIcon}
 						title={vm.items.length === 0 ? "No tags" : "No matches"}
@@ -76,55 +75,57 @@ export function TagsPage() {
 								: "No tag matches the current filters."
 						}
 					/>
-				</div>
+				</LayerCard>
 			) : (
-				<ul className="rounded-[var(--radius-card)] bg-secondary divide-y divide-border">
-					{vm.visible.map((t) => (
-						<li
-							key={t.id}
-							className="flex items-center justify-between px-4 py-3 text-sm hover:bg-background/50"
-						>
-							<span className="flex items-center gap-2 font-medium">
-								<span
-									className="inline-block h-3 w-3 rounded-full ring-1 ring-border"
-									style={{ background: t.color }}
-								/>
-								{t.name}
-								<span className="font-mono text-xs text-muted-foreground">
-									{t.color}
+				<LayerCard padding="none">
+					<ul className="divide-y divide-basalt-border">
+						{vm.visible.map((t) => (
+							<li
+								key={t.id}
+								className="flex items-center justify-between px-4 py-3 text-sm hover:bg-basalt-background/50"
+							>
+								<span className="flex items-center gap-2 font-medium">
+									<span
+										className="inline-block h-3 w-3 rounded-full ring-1 ring-basalt-border"
+										style={{ background: t.color }}
+									/>
+									{t.name}
+									<span className="font-mono text-xs text-basalt-muted-foreground">
+										{t.color}
+									</span>
 								</span>
-							</span>
-							<span className="space-x-2">
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => vm.setEditing(t)}
-								>
-									Edit
-								</Button>
-								{t.archivedAt === null ? (
-									<Button
-										variant="destructive"
-										size="sm"
-										disabled={vm.busy}
-										onClick={() => void vm.archive(t.id)}
-									>
-										Archive
-									</Button>
-								) : (
+								<span className="space-x-2">
 									<Button
 										variant="outline"
 										size="sm"
-										disabled={vm.busy}
-										onClick={() => void vm.restore(t.id)}
+										onClick={() => vm.setEditing(t)}
 									>
-										Restore
+										Edit
 									</Button>
-								)}
-							</span>
-						</li>
-					))}
-				</ul>
+									{t.archivedAt === null ? (
+										<Button
+											variant="destructive"
+											size="sm"
+											disabled={vm.busy}
+											onClick={() => void vm.archive(t.id)}
+										>
+											Archive
+										</Button>
+									) : (
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={vm.busy}
+											onClick={() => void vm.restore(t.id)}
+										>
+											Restore
+										</Button>
+									)}
+								</span>
+							</li>
+						))}
+					</ul>
+				</LayerCard>
 			)}
 
 			<TagDialog

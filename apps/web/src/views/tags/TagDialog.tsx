@@ -1,14 +1,14 @@
-import { Field } from "@/components/Field";
-import { Button } from "@/components/ui/button";
 import {
+	Button,
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+	Input,
+} from "@nocoo/basalt";
+import { Field } from "@/components/Field";
 import type { Tag } from "@/models/entities";
 import {
 	type TagDraft,
@@ -55,10 +55,10 @@ export function TagDialog({
 
 				<div className="flex items-center gap-3">
 					<span
-						className="inline-block h-10 w-10 rounded-full ring-1 ring-border"
+						className="inline-block h-10 w-10 rounded-full ring-1 ring-basalt-border"
 						style={{ background: vm.draft.color }}
 					/>
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						How this tag reads on a roster row.
 					</p>
 				</div>
@@ -88,7 +88,7 @@ export function TagDialog({
 				</div>
 
 				{vm.error ? (
-					<p role="alert" className="text-sm text-destructive">
+					<p role="alert" className="text-sm text-basalt-destructive">
 						{vm.error}
 					</p>
 				) : null}

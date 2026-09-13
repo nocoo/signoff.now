@@ -1,11 +1,9 @@
+import { Badge, Button, Input, LayerCard } from "@nocoo/basalt";
+import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { Field } from "@/components/Field";
-import { PageHeader } from "@/components/PageHeader";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/Skeleton";
 import {
 	DEFAULT_ACTIVITY_WEIGHTS,
 	normalizeSuffixInput,
@@ -21,10 +19,10 @@ function SettingsSkeleton() {
 				<Skeleton className="h-8 w-40" />
 				<Skeleton className="h-4 w-72" />
 			</div>
-			<div className="rounded-[var(--radius-card)] bg-secondary p-5 space-y-3">
+			<LayerCard className="space-y-3">
 				<Skeleton className="h-4 w-24" />
 				<Skeleton className="h-9 w-full max-w-md" />
-			</div>
+			</LayerCard>
 		</div>
 	);
 }
@@ -45,9 +43,12 @@ export function SettingsPage() {
 					description="Timezone, email suffixes, and activity weights."
 				/>
 				<AlertBanner variant="error">{vm.error}</AlertBanner>
-				<p className="text-sm text-muted-foreground">
+				<p className="text-sm text-basalt-muted-foreground">
 					Is the Worker running on :37042? Try{" "}
-					<code className="rounded bg-secondary px-1">bun run dev:all</code>.
+					<code className="rounded bg-basalt-secondary px-1">
+						bun run dev:all
+					</code>
+					.
 				</p>
 				<Button variant="secondary" onClick={() => void vm.reload()}>
 					Retry
@@ -57,7 +58,11 @@ export function SettingsPage() {
 	}
 
 	if (!vm.form || !vm.settings) {
-		return <p className="text-sm text-muted-foreground">No settings loaded.</p>;
+		return (
+			<p className="text-sm text-basalt-muted-foreground">
+				No settings loaded.
+			</p>
+		);
 	}
 
 	const form = vm.form;
@@ -100,66 +105,68 @@ export function SettingsPage() {
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 			{vm.toast ? <AlertBanner variant="info">{vm.toast}</AlertBanner> : null}
 
-			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
-				<h2 className="font-display text-base font-semibold">Timezone</h2>
-				<Field label="IANA timezone" className="max-w-md">
-					{(id) => (
+			<LayerCard padding="none">
+				<LayerCard.Header>Timezone</LayerCard.Header>
+				<LayerCard.Body className="space-y-3">
+					<Field label="IANA timezone" className="max-w-md">
+						{(id) => (
+							<Input
+								id={id}
+								value={form.timezone}
+								onChange={(e) => patch({ timezone: e.target.value })}
+							/>
+						)}
+					</Field>
+				</LayerCard.Body>
+			</LayerCard>
+
+			<LayerCard padding="none">
+				<LayerCard.Header>Email suffixes</LayerCard.Header>
+				<LayerCard.Body className="space-y-3">
+					<p className="text-xs text-basalt-muted-foreground">
+						Identity match: <code>alias@suffix</code> against ADO uniqueName.
+					</p>
+					<div className="flex flex-wrap gap-2">
+						{form.emailSuffixes.map((s) => (
+							<Badge key={s} variant="secondary" className="gap-2">
+								{s}
+								<button
+									type="button"
+									className="text-basalt-muted-foreground hover:text-basalt-foreground"
+									aria-label={`Remove ${s}`}
+									onClick={() =>
+										patch({
+											emailSuffixes: form.emailSuffixes.filter((x) => x !== s),
+										})
+									}
+								>
+									×
+								</button>
+							</Badge>
+						))}
+					</div>
+					<div className="flex max-w-md gap-2">
 						<Input
-							id={id}
-							value={form.timezone}
-							onChange={(e) => patch({ timezone: e.target.value })}
-						/>
-					)}
-				</Field>
-			</section>
-
-			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
-				<h2 className="font-display text-base font-semibold">Email suffixes</h2>
-				<p className="text-xs text-muted-foreground">
-					Identity match: <code>alias@suffix</code> against ADO uniqueName.
-				</p>
-				<div className="flex flex-wrap gap-2">
-					{form.emailSuffixes.map((s) => (
-						<Badge key={s} variant="secondary" className="gap-2">
-							{s}
-							<button
-								type="button"
-								className="text-muted-foreground hover:text-foreground"
-								aria-label={`Remove ${s}`}
-								onClick={() =>
-									patch({
-										emailSuffixes: form.emailSuffixes.filter((x) => x !== s),
-									})
+							placeholder="example.com"
+							value={suffixDraft}
+							onChange={(e) => setSuffixDraft(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									addSuffix();
 								}
-							>
-								×
-							</button>
-						</Badge>
-					))}
-				</div>
-				<div className="flex max-w-md gap-2">
-					<Input
-						placeholder="example.com"
-						value={suffixDraft}
-						onChange={(e) => setSuffixDraft(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") {
-								e.preventDefault();
-								addSuffix();
-							}
-						}}
-					/>
-					<Button type="button" variant="secondary" onClick={addSuffix}>
-						Add
-					</Button>
-				</div>
-			</section>
+							}}
+						/>
+						<Button type="button" variant="secondary" onClick={addSuffix}>
+							Add
+						</Button>
+					</div>
+				</LayerCard.Body>
+			</LayerCard>
 
-			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 space-y-3">
-				<div className="flex items-center justify-between gap-2">
-					<h2 className="font-display text-base font-semibold">
-						Activity weights
-					</h2>
+			<LayerCard padding="none">
+				<LayerCard.Header className="flex items-center justify-between gap-2">
+					<span>Activity weights</span>
 					<Button
 						type="button"
 						variant="outline"
@@ -170,72 +177,76 @@ export function SettingsPage() {
 					>
 						Reset defaults
 					</Button>
-				</div>
-				<div className="overflow-x-auto rounded-[var(--radius-widget)] border border-border">
-					<table className="w-full text-sm">
-						<thead>
-							<tr className="border-b border-border text-left">
-								<th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
-									Type
-								</th>
-								<th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
-									Weight
-								</th>
-							</tr>
-						</thead>
-						<tbody>
-							{Object.keys(DEFAULT_ACTIVITY_WEIGHTS).map((key) => (
-								<tr
-									key={key}
-									className="border-b border-border last:border-0 hover:bg-background/50"
-								>
-									<td className="px-3 py-2">
-										{WEIGHT_LABELS[key] ?? key}
-										<span className="ml-2 text-xs text-muted-foreground">
-											{key}
-										</span>
-									</td>
-									<td className="px-3 py-2">
-										<Input
-											type="number"
-											className="w-24"
-											value={form.activityWeights[key] ?? 0}
-											onChange={(e) =>
-												patch({
-													activityWeights: {
-														...form.activityWeights,
-														[key]: Number(e.target.value),
-													},
-												})
-											}
-										/>
-									</td>
+				</LayerCard.Header>
+				<LayerCard.Body>
+					<div className="overflow-x-auto rounded-basalt-md border border-basalt-border">
+						<table className="w-full text-sm">
+							<thead>
+								<tr className="border-b border-basalt-border text-left">
+									<th className="px-3 py-2.5 text-xs font-medium text-basalt-muted-foreground">
+										Type
+									</th>
+									<th className="px-3 py-2.5 text-xs font-medium text-basalt-muted-foreground">
+										Weight
+									</th>
 								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>
-			</section>
+							</thead>
+							<tbody>
+								{Object.keys(DEFAULT_ACTIVITY_WEIGHTS).map((key) => (
+									<tr
+										key={key}
+										className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
+									>
+										<td className="px-3 py-2">
+											{WEIGHT_LABELS[key] ?? key}
+											<span className="ml-2 text-xs text-basalt-muted-foreground">
+												{key}
+											</span>
+										</td>
+										<td className="px-3 py-2">
+											<Input
+												type="number"
+												className="w-24"
+												value={form.activityWeights[key] ?? 0}
+												onChange={(e) =>
+													patch({
+														activityWeights: {
+															...form.activityWeights,
+															[key]: Number(e.target.value),
+														},
+													})
+												}
+											/>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				</LayerCard.Body>
+			</LayerCard>
 
-			<section className="rounded-[var(--radius-card)] bg-secondary p-4 md:p-5 text-sm space-y-2">
-				<h2 className="font-display font-semibold">Pipeline status</h2>
-				<p>
-					Config version:{" "}
-					<strong className="font-display">
-						{vm.settings.pipelineConfigVersion}
-					</strong>
-				</p>
-				<p>
-					Stale:{" "}
-					<strong>
-						{vm.settings.scoresStale ? (
-							<span className="text-warning">yes</span>
-						) : (
-							<span className="text-success">no</span>
-						)}
-					</strong>
-				</p>
-			</section>
+			<LayerCard padding="none">
+				<LayerCard.Header>Pipeline status</LayerCard.Header>
+				<LayerCard.Body className="space-y-2 text-sm">
+					<p>
+						Config version:{" "}
+						<strong className="font-display">
+							{vm.settings.pipelineConfigVersion}
+						</strong>
+					</p>
+					<p>
+						Stale:{" "}
+						<strong>
+							{vm.settings.scoresStale ? (
+								<span className="text-basalt-warning">yes</span>
+							) : (
+								<span className="text-basalt-success">no</span>
+							)}
+						</strong>
+					</p>
+				</LayerCard.Body>
+			</LayerCard>
 
 			<div className="flex justify-end gap-2 sm:hidden">
 				<Button

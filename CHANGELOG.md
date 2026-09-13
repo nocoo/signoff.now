@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.0 — 2026-09-13
+
+### Features
+
+- Adopt the official `@nocoo/basalt` 2.1.7 package, Tailwind token contract, application shell, navigation, controls, surfaces, statistics cards, and heatmap palette.
+- Preserve responsive navigation, theme preferences, form accessibility, and entity workflows through application-owned adapters backed by Basalt components.
+
+### Maintenance
+
+- Remove copied UI primitives and their direct Radix dependencies.
+- Update the Web architecture guide and project technology overview for package-based Basalt consumption.
+
 ## v0.0.1 — 2026-03-22
 
 Bootstrap release. Desktop-first Electron app trimmed from superset codebase.

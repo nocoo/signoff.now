@@ -1,16 +1,16 @@
-import { EntityAvatar } from "@/components/EntityAvatar";
-import { Field } from "@/components/Field";
-import { TagPicker } from "@/components/TagPicker";
-import { Button } from "@/components/ui/button";
 import {
+	Button,
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+	Input,
+} from "@nocoo/basalt";
+import { EntityAvatar } from "@/components/EntityAvatar";
+import { Field } from "@/components/Field";
+import { TagPicker } from "@/components/TagPicker";
 import type { Tag, Team } from "@/models/entities";
 import {
 	type TeamDraft,
@@ -71,7 +71,7 @@ export function TeamDialog({
 						avatarUrl={vm.draft.avatarUrl}
 						size="lg"
 					/>
-					<p className="text-xs text-muted-foreground">
+					<p className="text-xs text-basalt-muted-foreground">
 						Falls back to an initial on a colour derived from the name.
 					</p>
 				</div>
@@ -98,7 +98,7 @@ export function TeamDialog({
 						)}
 					</Field>
 
-					<fieldset className="flex flex-col gap-(--control-gap)">
+					<fieldset className="flex flex-col gap-1.5">
 						<legend className="text-sm font-medium">Tags</legend>
 						<TagPicker
 							tags={tags}
@@ -113,7 +113,7 @@ export function TeamDialog({
 				</div>
 
 				{vm.error ? (
-					<p role="alert" className="text-sm text-destructive">
+					<p role="alert" className="text-sm text-basalt-destructive">
 						{vm.error}
 					</p>
 				) : null}

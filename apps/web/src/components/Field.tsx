@@ -1,6 +1,5 @@
+import { Field as BasaltField } from "@nocoo/basalt";
 import { useId } from "react";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 
 export type FieldProps = {
 	label: string;
@@ -25,16 +24,14 @@ export type FieldProps = {
 export function Field({ label, children, hint, error, className }: FieldProps) {
 	const id = useId();
 	return (
-		<div className={cn("flex flex-col gap-(--control-gap)", className)}>
-			<Label htmlFor={id}>{label}</Label>
+		<BasaltField
+			label={label}
+			htmlFor={id}
+			hint={hint}
+			error={error}
+			className={className}
+		>
 			{children(id)}
-			{error ? (
-				<p role="alert" className="text-xs text-destructive">
-					{error}
-				</p>
-			) : hint ? (
-				<p className="text-xs text-muted-foreground">{hint}</p>
-			) : null}
-		</div>
+		</BasaltField>
 	);
 }

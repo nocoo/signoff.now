@@ -150,7 +150,7 @@ bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 | 技术 | 用途 |
 | --- | --- |
 | ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![Bun](https://img.shields.io/badge/Bun-000000?logo=bun&logoColor=white) | 应用逻辑、CLI 与 monorepo 脚本 |
-| ![React](https://img.shields.io/badge/React-149ECA?logo=react&logoColor=white) ![Radix UI](https://img.shields.io/badge/Radix_UI-161618?logo=radixui&logoColor=white) | 控制台页面与交互组件 |
+| ![React](https://img.shields.io/badge/React-149ECA?logo=react&logoColor=white) ![Basalt](https://img.shields.io/badge/Basalt-222222) | 控制台页面、设计 token 与交互组件 |
 | ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white) | 界面样式与主题 |
 | ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white) | 本地开发与 SPA 构建 |
 | ![Hono](https://img.shields.io/badge/Hono-E36002?logo=hono&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-F38020?logo=cloudflareworkers&logoColor=white) | API 路由、中间件与静态资源托管 |

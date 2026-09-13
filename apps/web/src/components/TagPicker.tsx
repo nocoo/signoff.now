@@ -1,6 +1,5 @@
+import { Button, Input } from "@nocoo/basalt";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { avatarColor } from "@/lib/avatar";
 import type { Tag } from "@/models/entities";
 
@@ -77,7 +76,7 @@ export function TagPicker({
 							className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
 								on
 									? "border-transparent text-white"
-									: "border-border text-muted-foreground hover:bg-secondary"
+									: "border-basalt-border text-basalt-muted-foreground hover:bg-basalt-secondary"
 							}`}
 							style={on ? { backgroundColor: t.color } : undefined}
 						>
@@ -90,7 +89,7 @@ export function TagPicker({
 					);
 				})}
 				{tags.length === 0 ? (
-					<span className="text-xs text-muted-foreground">
+					<span className="text-xs text-basalt-muted-foreground">
 						No tags yet — type one below.
 					</span>
 				) : null}
@@ -124,7 +123,7 @@ export function TagPicker({
 			</div>
 
 			{trimmed && !existing ? (
-				<p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+				<p className="flex items-center gap-1.5 text-xs text-basalt-muted-foreground">
 					<span
 						className="h-2 w-2 rounded-full"
 						style={{ backgroundColor: avatarColor(trimmed) }}
@@ -134,7 +133,7 @@ export function TagPicker({
 			) : null}
 
 			{error ? (
-				<p role="alert" className="text-xs text-destructive">
+				<p role="alert" className="text-xs text-basalt-destructive">
 					{error}
 				</p>
 			) : null}
