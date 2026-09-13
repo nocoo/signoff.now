@@ -89,7 +89,7 @@ curl -H "CF-Access-Client-Id: <id>" \
 
 ## 开发
 
-准备 Bun（仓库 `packageManager` 与 CI 固定为 1.3.6）、Node.js 22.12+ 和 Git。Vite / Vitest 使用 Node.js，CLI 使用 Bun。
+准备 Bun（仓库 `packageManager` 与 CI 固定为 1.4.0）、Node.js 22.22.1–22.x、24.x 或 26+ 和 Git。Vite / Vitest 及 pre-commit 工具使用 Node.js，CLI 使用 Bun。
 
 ```bash
 git clone https://github.com/nocoo/signoff.now.git

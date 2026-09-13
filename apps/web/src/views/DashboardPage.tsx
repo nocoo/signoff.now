@@ -19,7 +19,7 @@ import { useDashboardViewModel } from "@/viewmodels/useDashboardViewModel";
 
 function DashboardSkeleton() {
 	return (
-		<div className="space-y-6">
+		<div className="space-y-6" role="status" aria-label="Loading dashboard">
 			<div className="space-y-2">
 				<Skeleton className="h-8 w-48" />
 				<Skeleton className="h-4 w-80 max-w-full" />
@@ -48,7 +48,11 @@ function Panel({
 	return (
 		<LayerCard className="space-y-3">
 			<div className="flex items-center gap-2 text-sm font-medium">
-				<Icon className="h-4 w-4 text-basalt-primary" strokeWidth={1.5} />
+				<Icon
+					className="h-4 w-4 text-basalt-primary"
+					strokeWidth={1.5}
+					aria-hidden
+				/>
 				{title}
 			</div>
 			{children}
@@ -223,6 +227,8 @@ export function DashboardPage() {
 								<div
 									key={d.dayKey}
 									title={`${d.dayKey}: ${d.score} (${d.activityCount} events)`}
+									role="img"
+									aria-label={`${d.dayKey}: score ${d.score}, ${d.activityCount} events`}
 									className="flex-1 rounded-sm min-h-[2px]"
 									style={{
 										height: `${Math.max(d.ratio * 100, 2)}%`,
@@ -238,6 +244,7 @@ export function DashboardPage() {
 									<dt className="w-24 shrink-0 font-mono text-xs">{t.type}</dt>
 									<dd className="flex-1 flex items-center gap-2">
 										<div
+											aria-hidden
 											className="h-2 rounded-sm bg-basalt-primary"
 											style={{ width: `${t.share * 100}%` }}
 										/>

@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 
 function getVersion(): string {
 	const pkg = JSON.parse(
-		readFileSync(path.resolve(__dirname, "package.json"), "utf-8"),
+		readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8"),
 	);
 	return pkg.version as string;
 }
@@ -37,7 +37,7 @@ export default defineConfig(() => ({
 	plugins: [tailwindcss(), react()],
 	resolve: {
 		alias: {
-			"@": path.resolve(__dirname, "./src"),
+			"@": path.resolve(import.meta.dirname, "./src"),
 		},
 		dedupe: ["react", "react-dom", "react/jsx-runtime"],
 	},

@@ -98,6 +98,7 @@ export function TagsPage() {
 									<Button
 										variant="outline"
 										size="sm"
+										aria-label={`Edit ${t.name}`}
 										onClick={() => vm.setEditing(t)}
 									>
 										Edit
@@ -107,6 +108,7 @@ export function TagsPage() {
 											variant="destructive"
 											size="sm"
 											disabled={vm.busy}
+											aria-label={`Archive ${t.name}`}
 											onClick={() => void vm.archive(t.id)}
 										>
 											Archive
@@ -116,6 +118,7 @@ export function TagsPage() {
 											variant="outline"
 											size="sm"
 											disabled={vm.busy}
+											aria-label={`Restore ${t.name}`}
 											onClick={() => void vm.restore(t.id)}
 										>
 											Restore

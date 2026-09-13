@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.0 — 2026-09-13
+
+### Maintenance
+
+- Upgrade the Bun runtime contract and all compatible direct workspace dependencies, including React, Vite, Vitest, Wrangler, Hono, Jose, Zod, Commander, Tailwind CSS, Turbo, and development types.
+- Keep Biome on 2.4.16 because 2.5 changes the configured nursery rule schema and requires a separate repository-wide lint migration.
+
+### Accessibility
+
+- Expose Settings validation, label inline controls, remove the duplicate mobile save action, and give repeated entity actions unique accessible names.
+- Add accessible heatmap and activity-chart values and preserve readable text contrast for user-selected tag colours.
+
 ## v0.1.0 — 2026-09-13
 
 ### Features

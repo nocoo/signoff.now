@@ -147,7 +147,9 @@ export function ReposPage() {
 								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Collection
 								</th>
-								<th className="px-4 py-3" />
+								<th className="px-4 py-3">
+									<span className="sr-only">Actions</span>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -179,6 +181,7 @@ export function ReposPage() {
 										<Button
 											variant="outline"
 											size="sm"
+											aria-label={`Edit ${r.name}`}
 											onClick={() => vm.setEditing(r)}
 										>
 											Edit
@@ -188,6 +191,7 @@ export function ReposPage() {
 												variant="destructive"
 												size="sm"
 												disabled={vm.busy}
+												aria-label={`Archive ${r.name}`}
 												onClick={() => void vm.archive(r.id)}
 											>
 												Archive
@@ -197,6 +201,7 @@ export function ReposPage() {
 												variant="outline"
 												size="sm"
 												disabled={vm.busy}
+												aria-label={`Restore ${r.name}`}
 												onClick={() => void vm.restore(r.id)}
 											>
 												Restore

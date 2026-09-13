@@ -105,6 +105,20 @@ export function avatarColorHex(name: string): string {
 		.toUpperCase()}`;
 }
 
+/** Pick the higher-contrast text colour for a validated #RRGGBB background. */
+export function contrastTextColor(hex: string): "#000000" | "#FFFFFF" {
+	const channels = [1, 3, 5].map(
+		(offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255,
+	);
+	const [r, g, b] = channels.map((channel) =>
+		channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+	) as [number, number, number];
+	const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+	const whiteContrast = 1.05 / (luminance + 0.05);
+	const blackContrast = (luminance + 0.05) / 0.05;
+	return blackContrast >= whiteContrast ? "#000000" : "#FFFFFF";
+}
+
 /**
  * The glyph shown when there is no image.
  *

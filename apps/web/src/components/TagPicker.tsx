@@ -1,6 +1,6 @@
 import { Button, Input } from "@nocoo/basalt";
 import { useState } from "react";
-import { avatarColor } from "@/lib/avatar";
+import { avatarColor, contrastTextColor } from "@/lib/avatar";
 import type { Tag } from "@/models/entities";
 
 export type TagPickerProps = {
@@ -75,14 +75,23 @@ export function TagPicker({
 							onClick={() => onToggle(t.id)}
 							className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
 								on
-									? "border-transparent text-white"
+									? "border-transparent"
 									: "border-basalt-border text-basalt-muted-foreground hover:bg-basalt-secondary"
 							}`}
-							style={on ? { backgroundColor: t.color } : undefined}
+							style={
+								on
+									? {
+											backgroundColor: t.color,
+											color: contrastTextColor(t.color),
+										}
+									: undefined
+							}
 						>
 							<span
 								className="h-2 w-2 rounded-full"
-								style={{ backgroundColor: on ? "#fff" : t.color }}
+								style={{
+									backgroundColor: on ? contrastTextColor(t.color) : t.color,
+								}}
 							/>
 							{t.name}
 						</button>
@@ -97,6 +106,7 @@ export function TagPicker({
 
 			<div className="flex gap-2">
 				<Input
+					aria-label="New tag name"
 					className="h-8 text-xs"
 					placeholder="New tag…"
 					value={draft}

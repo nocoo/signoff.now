@@ -104,6 +104,9 @@ export function SettingsPage() {
 
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 			{vm.toast ? <AlertBanner variant="info">{vm.toast}</AlertBanner> : null}
+			{vm.dirty && vm.validationError ? (
+				<AlertBanner variant="warning">{vm.validationError}</AlertBanner>
+			) : null}
 
 			<LayerCard padding="none">
 				<LayerCard.Header>Timezone</LayerCard.Header>
@@ -147,6 +150,7 @@ export function SettingsPage() {
 					</div>
 					<div className="flex max-w-md gap-2">
 						<Input
+							aria-label="Email suffix"
 							placeholder="example.com"
 							value={suffixDraft}
 							onChange={(e) => setSuffixDraft(e.target.value)}
@@ -205,6 +209,11 @@ export function SettingsPage() {
 										</td>
 										<td className="px-3 py-2">
 											<Input
+												aria-label={`${WEIGHT_LABELS[key] ?? key} weight`}
+												aria-invalid={
+													!Number.isInteger(form.activityWeights[key]) ||
+													(form.activityWeights[key] ?? 0) < 0
+												}
 												type="number"
 												className="w-24"
 												value={form.activityWeights[key] ?? 0}
@@ -247,15 +256,6 @@ export function SettingsPage() {
 					</p>
 				</LayerCard.Body>
 			</LayerCard>
-
-			<div className="flex justify-end gap-2 sm:hidden">
-				<Button
-					disabled={!vm.dirty || !!vm.validationError || vm.saving}
-					onClick={() => void vm.save()}
-				>
-					{vm.saving ? "Saving…" : "Save changes"}
-				</Button>
-			</div>
 		</div>
 	);
 }

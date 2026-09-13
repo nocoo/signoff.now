@@ -7,6 +7,7 @@ import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { Field } from "@/components/Field";
 import { SelectControl as Select } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
+import { contrastTextColor } from "@/lib/avatar";
 import type { DeveloperFilter } from "@/models/entities";
 import { useDevelopersViewModel } from "@/viewmodels/useDevelopersViewModel";
 import { DeveloperDialog } from "./DeveloperDialog";
@@ -130,7 +131,9 @@ export function DevelopersPage() {
 								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Tags
 								</th>
-								<th className="px-4 py-3" />
+								<th className="px-4 py-3">
+									<span className="sr-only">Actions</span>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -184,8 +187,11 @@ export function DevelopersPage() {
 													return t ? (
 														<span
 															key={id}
-															className="rounded-full px-2 py-0.5 text-xs text-white"
-															style={{ backgroundColor: t.color }}
+															className="rounded-full px-2 py-0.5 text-xs"
+															style={{
+																backgroundColor: t.color,
+																color: contrastTextColor(t.color),
+															}}
 														>
 															{t.name}
 														</span>
@@ -198,6 +204,7 @@ export function DevelopersPage() {
 										<Button
 											variant="outline"
 											size="sm"
+											aria-label={`Edit ${d.name}`}
 											onClick={() => vm.setEditing(d)}
 										>
 											Edit
@@ -207,6 +214,7 @@ export function DevelopersPage() {
 												variant="destructive"
 												size="sm"
 												disabled={vm.busy}
+												aria-label={`Archive ${d.name}`}
 												onClick={() => void vm.archive(d.id)}
 											>
 												Archive
@@ -216,6 +224,7 @@ export function DevelopersPage() {
 												variant="outline"
 												size="sm"
 												disabled={vm.busy}
+												aria-label={`Restore ${d.name}`}
 												onClick={() => void vm.restore(d.id)}
 											>
 												Restore

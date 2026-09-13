@@ -169,7 +169,15 @@ export function Sidebar({
 					<SidebarFooter className="flex w-full justify-center px-0">
 						<Tooltip delayDuration={0}>
 							<TooltipTrigger asChild>
-								<span className="inline-flex">{avatar}</span>
+								<span
+									className="inline-flex"
+									role="img"
+									aria-label={
+										userEmail ? `${userLabel}, ${userEmail}` : userLabel
+									}
+								>
+									{avatar}
+								</span>
 							</TooltipTrigger>
 							<TooltipContent side="right" sideOffset={8}>
 								{userLabel}

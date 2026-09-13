@@ -7,6 +7,7 @@ import { EntityLabel } from "@/components/EntityAvatar";
 import { Field } from "@/components/Field";
 import { SelectControl as Select } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
+import { contrastTextColor } from "@/lib/avatar";
 import type { StatusFilter } from "@/models/entities";
 import { useTeamsViewModel } from "@/viewmodels/useTeamsViewModel";
 import { TeamDialog } from "./TeamDialog";
@@ -107,7 +108,9 @@ export function TeamsPage() {
 								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
 									Tags
 								</th>
-								<th className="px-4 py-3" />
+								<th className="px-4 py-3">
+									<span className="sr-only">Actions</span>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -131,8 +134,11 @@ export function TeamsPage() {
 													return g ? (
 														<span
 															key={id}
-															className="rounded-full px-2 py-0.5 text-xs text-white"
-															style={{ backgroundColor: g.color }}
+															className="rounded-full px-2 py-0.5 text-xs"
+															style={{
+																backgroundColor: g.color,
+																color: contrastTextColor(g.color),
+															}}
 														>
 															{g.name}
 														</span>
@@ -145,6 +151,7 @@ export function TeamsPage() {
 										<Button
 											variant="outline"
 											size="sm"
+											aria-label={`Edit ${t.name}`}
 											onClick={() => vm.setEditing(t)}
 										>
 											Edit
@@ -154,6 +161,7 @@ export function TeamsPage() {
 												variant="destructive"
 												size="sm"
 												disabled={vm.busy}
+												aria-label={`Archive ${t.name}`}
 												onClick={() => void vm.archive(t.id)}
 											>
 												Archive
@@ -163,6 +171,7 @@ export function TeamsPage() {
 												variant="outline"
 												size="sm"
 												disabled={vm.busy}
+												aria-label={`Restore ${t.name}`}
 												onClick={() => void vm.restore(t.id)}
 											>
 												Restore

@@ -141,6 +141,8 @@ export function ActivityPage() {
 											className="inline-block h-4 w-4 rounded-sm"
 											style={{ background: heatmapColor(r.level) }}
 											title={`level ${r.level}`}
+											role="img"
+											aria-label={`Heat level ${r.level}`}
 										/>
 									</td>
 								</tr>

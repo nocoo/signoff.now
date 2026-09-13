@@ -4,6 +4,7 @@ import {
 	avatarColor,
 	avatarColorHex,
 	avatarInitial,
+	contrastTextColor,
 	hashName,
 	usableAvatarUrl,
 } from "./avatar";
@@ -296,5 +297,14 @@ describe("avatarColorHex", () => {
 
 	it("is stable for the same name", () => {
 		expect(avatarColorHex("infra")).toBe(avatarColorHex("infra"));
+	});
+});
+
+describe("contrastTextColor", () => {
+	it("uses dark text on light backgrounds and light text on dark ones", () => {
+		expect(contrastTextColor("#FFFFFF")).toBe("#000000");
+		expect(contrastTextColor("#FFFF00")).toBe("#000000");
+		expect(contrastTextColor("#000000")).toBe("#FFFFFF");
+		expect(contrastTextColor("#1D4ED8")).toBe("#FFFFFF");
 	});
 });
