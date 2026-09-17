@@ -96,11 +96,88 @@ describe("workbench loading and URL state", () => {
 		expect(result.current.filter.source).toBe("cli");
 		expect(result.current.projects).toHaveLength(1);
 		expect(result.current.visible).toHaveLength(11);
-		act(() => result.current.setFilter({ source: "all" }));
-		expect(result.current.visible).toHaveLength(30);
+		act(() => result.current.setFilter({ source: "demo" }));
+		expect(result.current.visible).toHaveLength(19);
 		expect(
 			new URLSearchParams(result.current.location.search).get("source"),
-		).toBe("all");
+		).toBe("demo");
+	});
+	it("cascades organization, ADO project, and repository selections while preserving repository statistics", async () => {
+		const { result } = await loaded("/?keep=1");
+		expect(result.current.organizations).toEqual([
+			"fabrikam-demo",
+			"northstar-demo",
+		]);
+		act(() => result.current.setFilter({ organization: "northstar-demo" }));
+		expect(
+			result.current.projectOptions.map(
+				(summary) => summary.project.projectKey,
+			),
+		).toEqual(["Commerce", "Mobile", "Platform"]);
+		expect(result.current.repositories).toHaveLength(9);
+		expect(
+			result.current.visible.every(
+				(row) => row.project.organization === "northstar-demo",
+			),
+		).toBe(true);
+		const repository = result.current.repositories.find(
+			(repo) => repo.name === "api-gateway",
+		);
+		if (!repository) throw new Error("Expected the API gateway repository");
+		act(() => result.current.selectRepository(repository.key));
+		expect(result.current.filter).toMatchObject({
+			organization: "northstar-demo",
+			projectId: "demo-platform",
+			repository: "demo-platform-api-gateway",
+		});
+		expect(result.current.metrics).toEqual(repository.metrics);
+		expect(result.current.selectedRepository?.key).toBe(repository.key);
+		expect(result.current.repositories).toHaveLength(3);
+		act(() => result.current.setFilter({ query: "no matching PR" }));
+		expect(result.current.visible).toHaveLength(0);
+		expect(result.current.selectedRepository?.metrics).toEqual(
+			repository.metrics,
+		);
+		act(() => result.current.setPage(2));
+		act(() => result.current.setFilter({ organization: "fabrikam-demo" }));
+		expect(result.current.filter).toMatchObject({
+			organization: "fabrikam-demo",
+			projectId: "",
+			repository: "",
+			query: "no matching PR",
+		});
+		expect(result.current.projectOptions).toHaveLength(1);
+		expect(result.current.repositories).toHaveLength(3);
+		expect(result.current.page).toBe(1);
+		expect(
+			new URLSearchParams(result.current.location.search).get("keep"),
+		).toBe("1");
+		act(() => result.current.setFilter({ source: "cli" }));
+		expect(result.current.filter).toMatchObject({
+			organization: "",
+			projectId: "",
+			repository: "",
+		});
+		expect(result.current.repositories).toEqual([]);
+	});
+	it("opens a shared repository scope with its actual ADO parent and retains filters after clearing the repository", async () => {
+		const { result } = await loaded(
+			"/?project=demo-platform&repo=api-gateway&state=all",
+		);
+		expect(result.current.filter.organization).toBe("northstar-demo");
+		expect(result.current.selectedRepository?.name).toBe("api-gateway");
+		expect(result.current.visible).toHaveLength(4);
+		act(() => result.current.selectRepository(""));
+		expect(result.current.filter.repository).toBe("");
+		expect(result.current.filter.projectId).toBe("demo-platform");
+		expect(result.current.visible).toHaveLength(12);
+		act(() => result.current.setFilter({ projectId: "demo-commerce" }));
+		expect(result.current.filter.organization).toBe("northstar-demo");
+		expect(result.current.repositories.map((repo) => repo.name)).toEqual([
+			"billing-api",
+			"checkout",
+			"orders",
+		]);
 	});
 	it("queues a real scan and reports pending work instead of pretending it completed", async () => {
 		const data = snapshot();

@@ -10,12 +10,12 @@ import {
 	canScanProject,
 	collectorConnection,
 	DEFAULT_PULL_FILTER,
+	matchesRepository,
 	type PullFilter,
 	projectSummaries,
 	pullMetrics,
 	pullRows,
 	readPullFilter,
-	repositoryOptions,
 	scopePulls,
 	visiblePulls,
 } from "@/models/workbench";
@@ -46,10 +46,17 @@ export function useWorkbenchViewModel() {
 	const [params, setParams] = useSearchParams();
 	const hasLiveProjects =
 		data?.projects.some((project) => project.source === "cli") ?? false;
-	const filter = useMemo(
-		() => readPullFilter(params, hasLiveProjects),
-		[params, hasLiveProjects],
-	);
+	const filter = useMemo(() => {
+		const parsed = readPullFilter(params, hasLiveProjects);
+		const project = data?.projects.find(
+			(item) => item.id === parsed.projectId && item.source === parsed.source,
+		);
+		return {
+			...parsed,
+			organization:
+				parsed.organization || project?.organization.toLowerCase() || "",
+		};
+	}, [params, hasLiveProjects, data]);
 
 	const reload = useCallback(async () => {
 		if (!mounted.current) return;
@@ -117,23 +124,50 @@ export function useWorkbenchViewModel() {
 		() =>
 			data
 				? projectSummaries(data, rows).filter(
-						({ project }) =>
-							filter.source === "all" || project.source === filter.source,
+						({ project }) => project.source === filter.source,
 					)
 				: [],
 		[data, rows, filter.source],
 	);
+	const organizations = useMemo(
+		() =>
+			[
+				...new Set(
+					projects.map(({ project }) => project.organization.toLowerCase()),
+				),
+			].sort(),
+		[projects],
+	);
+	const projectOptions = useMemo(
+		() =>
+			projects
+				.filter(
+					({ project }) =>
+						!filter.organization ||
+						project.organization.toLowerCase() === filter.organization,
+				)
+				.sort(
+					(a, b) =>
+						a.project.projectKey.localeCompare(b.project.projectKey) ||
+						a.project.organization.localeCompare(b.project.organization),
+				),
+		[projects, filter.organization],
+	);
 	const repositories = useMemo(
 		() =>
-			repositoryOptions(
-				rows.filter(
-					({ project }) =>
-						filter.source === "all" || project.source === filter.source,
+			projectOptions
+				.filter(
+					({ project }) => !filter.projectId || project.id === filter.projectId,
+				)
+				.flatMap((summary) => summary.repositories)
+				.sort(
+					(a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key),
 				),
-				filter.projectId,
-			),
-		[rows, filter.projectId, filter.source],
+		[projectOptions, filter.projectId],
 	);
+	const selectedRepository =
+		repositories.find((repo) => matchesRepository(repo, filter.repository)) ??
+		null;
 	const scoped = useMemo(() => scopePulls(rows, filter), [rows, filter]);
 	const visible = useMemo(() => visiblePulls(scoped, filter), [scoped, filter]);
 	const metrics = useMemo(() => pullMetrics(scoped), [scoped]);
@@ -147,10 +181,21 @@ export function useWorkbenchViewModel() {
 
 	const setFilter = (patch: Partial<PullFilter>) => {
 		const next = { ...filter, ...patch };
-		if (patch.projectId !== undefined) next.repository = "";
 		if (patch.source !== undefined) {
-			next.projectId = "";
-			next.repository = "";
+			next.organization = patch.organization ?? "";
+			next.projectId = patch.projectId ?? "";
+			next.repository = patch.repository ?? "";
+		} else if (patch.organization !== undefined) {
+			next.projectId = patch.projectId ?? "";
+			next.repository = patch.repository ?? "";
+		} else if (patch.projectId !== undefined) {
+			next.repository = patch.repository ?? "";
+		}
+		if (patch.projectId) {
+			const project = data?.projects.find(
+				(item) => item.id === patch.projectId && item.source === next.source,
+			);
+			if (project) next.organization = project.organization.toLowerCase();
 		}
 		setParams(
 			(previous) => {
@@ -158,6 +203,7 @@ export function useWorkbenchViewModel() {
 				result.set("source", next.source);
 				for (const [key, param] of [
 					["query", "q"],
+					["organization", "org"],
 					["projectId", "project"],
 					["repository", "repo"],
 					["state", "state"],
@@ -190,7 +236,22 @@ export function useWorkbenchViewModel() {
 		canScan: (project: Project) =>
 			data !== null && canScanProject(project, data),
 		projects,
+		organizations,
+		projectOptions,
 		repositories,
+		selectedRepository,
+		selectRepository: (key: string) => {
+			const repository = repositories.find((repo) => repo.key === key);
+			setFilter(
+				repository
+					? {
+							organization: repository.project.organization.toLowerCase(),
+							projectId: repository.project.id,
+							repository: repository.id,
+						}
+					: { repository: "" },
+			);
+		},
 		rows,
 		visible,
 		metrics,
@@ -248,9 +309,7 @@ export function useWorkbenchViewModel() {
 					(p) =>
 						data &&
 						canScanProject(p, data) &&
-						(projectId
-							? p.id === projectId
-							: filter.source === "all" || p.source === filter.source),
+						(projectId ? p.id === projectId : p.source === filter.source),
 				);
 				if (!scannableProjects.length)
 					throw new Error(

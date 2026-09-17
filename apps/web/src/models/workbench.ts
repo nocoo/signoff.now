@@ -14,8 +14,9 @@ export type PullRow = {
 	progress: ReturnType<typeof pullProgress>;
 };
 export type PullFilter = {
-	source: "all" | "cli" | "demo";
+	source: "cli" | "demo";
 	query: string;
+	organization: string;
 	projectId: string;
 	repository: string;
 	state: "open" | "merged" | "closed" | "all";
@@ -23,8 +24,9 @@ export type PullFilter = {
 	sort: "attention" | "updated" | "oldest";
 };
 export const DEFAULT_PULL_FILTER: PullFilter = {
-	source: "all",
+	source: "demo",
 	query: "",
+	organization: "",
 	projectId: "",
 	repository: "",
 	state: "open",
@@ -65,15 +67,17 @@ export function readPullFilter(
 	params: URLSearchParams,
 	hasLiveProjects = false,
 ): PullFilter {
-	const source = params.get("source") ?? (hasLiveProjects ? "cli" : "all");
+	const defaultSource = hasLiveProjects ? "cli" : "demo";
+	const source = params.get("source") ?? defaultSource;
 	const state = params.get("state") ?? "open";
 	const status = params.get("status") ?? "all";
 	const sort = params.get("sort") ?? "attention";
 	return {
-		source: ["all", "cli", "demo"].includes(source)
+		source: ["cli", "demo"].includes(source)
 			? (source as PullFilter["source"])
-			: "all",
+			: defaultSource,
 		query: params.get("q") ?? "",
+		organization: (params.get("org") ?? "").toLowerCase(),
 		projectId: params.get("project") ?? "",
 		repository: params.get("repo") ?? "",
 		state: ["open", "merged", "closed", "all"].includes(state)
@@ -88,13 +92,27 @@ export function readPullFilter(
 	};
 }
 
+export function matchesRepository(
+	repository: PullRequest["repository"],
+	value: string,
+) {
+	const key = value.toLowerCase();
+	return (
+		repository.id.toLowerCase() === key || repository.name.toLowerCase() === key
+	);
+}
+
 export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 	const query = filter.query.trim().toLowerCase();
 	return rows.filter(
 		({ pull, project, readiness }) =>
-			(filter.source === "all" || project.source === filter.source) &&
+			project.source === filter.source &&
+			(!filter.organization ||
+				project.organization.toLowerCase() ===
+					filter.organization.toLowerCase()) &&
 			(!filter.projectId || project.id === filter.projectId) &&
-			(!filter.repository || pull.repository.id === filter.repository) &&
+			(!filter.repository ||
+				matchesRepository(pull.repository, filter.repository)) &&
 			(!query ||
 				[
 					pull.title,
@@ -102,6 +120,8 @@ export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 					pull.author.name,
 					pull.repository.name,
 					project.name,
+					project.organization,
+					project.projectKey,
 					readiness.owner,
 					readiness.action,
 				]
@@ -152,23 +172,52 @@ export function pullMetrics(rows: PullRow[]) {
 	};
 }
 
-export function repositoryOptions(rows: PullRow[], projectId = "") {
+export function repositoryOptions(
+	rows: PullRow[],
+	projectId = "",
+	projects: Project[] = [],
+) {
 	const repositories = new Map<
 		string,
-		{ id: string; name: string; projectName: string }
+		{ key: string; id: string; name: string; project: Project; rows: PullRow[] }
 	>();
-	for (const { pull, project } of rows) {
-		if (!projectId || project.id === projectId)
-			repositories.set(pull.repository.id, {
-				...pull.repository,
-				projectName: project.name,
-			});
+	for (const row of rows) {
+		const { pull, project } = row;
+		if (projectId && project.id !== projectId) continue;
+		const key = JSON.stringify([project.id, pull.repository.id]);
+		const repository = repositories.get(key) ?? {
+			key,
+			...pull.repository,
+			project,
+			rows: [],
+		};
+		repository.rows.push(row);
+		repositories.set(key, repository);
 	}
-	return [...repositories.values()].sort(
-		(a, b) =>
-			a.name.localeCompare(b.name) ||
-			a.projectName.localeCompare(b.projectName),
-	);
+	for (const project of projects) {
+		if (projectId && project.id !== projectId) continue;
+		const known = [...repositories.values()].filter(
+			(repo) => repo.project.id === project.id,
+		);
+		for (const name of project.repositories ?? []) {
+			if (known.some((repo) => matchesRepository(repo, name))) continue;
+			const key = JSON.stringify([project.id, name]);
+			repositories.set(key, { key, id: name, name, project, rows: [] });
+		}
+	}
+	return [...repositories.values()]
+		.map(({ rows: pulls, ...repository }) => ({
+			...repository,
+			metrics: pullMetrics(pulls),
+			total: pulls.length,
+		}))
+		.sort(
+			(a, b) =>
+				a.name.localeCompare(b.name) ||
+				a.project.organization.localeCompare(b.project.organization) ||
+				a.project.projectKey.localeCompare(b.project.projectKey) ||
+				a.key.localeCompare(b.key),
+		);
 }
 
 export function projectSummaries(data: Workbench, rows: PullRow[]) {
@@ -185,7 +234,7 @@ export function projectSummaries(data: Workbench, rows: PullRow[]) {
 					)[0] ?? null,
 			metrics: pullMetrics(pulls),
 			total: pulls.length,
-			repositories: repositoryOptions(pulls),
+			repositories: repositoryOptions(pulls, project.id, [project]),
 			scans: data.scans.filter((scan) => scan.projectId === project.id),
 		};
 	});

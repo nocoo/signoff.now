@@ -110,6 +110,93 @@ describe("workbench projections", () => {
 			"z",
 		]);
 	});
+	it("keeps repository statistics separate across ADO organizations and includes configured empty repositories", () => {
+		const meetings = {
+			...snapshot.projects[0],
+			id: "meetings",
+			name: "Meeting workspace",
+			organization: "msdata",
+			projectKey: "Vienna",
+			repositories: ["online-meetings", "empty-repo"],
+		};
+		const whiteboard = {
+			...meetings,
+			id: "whiteboard",
+			name: "Whiteboard workspace",
+			organization: "intentional",
+			projectKey: "intent",
+			repositories: ["whiteboard-app"],
+		};
+		const input = pullRows({
+			...snapshot,
+			projects: [meetings, whiteboard],
+			pullRequests: [
+				{
+					...snapshot.pullRequests[0],
+					id: "meeting-open",
+					projectId: meetings.id,
+					repository: { id: "shared-id", name: "online-meetings" },
+					state: "open",
+				},
+				{
+					...snapshot.pullRequests[0],
+					id: "meeting-merged",
+					projectId: meetings.id,
+					repository: { id: "shared-id", name: "online-meetings" },
+					state: "merged",
+				},
+				{
+					...snapshot.pullRequests[0],
+					id: "whiteboard-open",
+					projectId: whiteboard.id,
+					repository: { id: "shared-id", name: "whiteboard-app" },
+					state: "open",
+				},
+			],
+		});
+		const summaries = repositoryOptions(input, "", [meetings, whiteboard]);
+		expect(summaries.map((repo) => repo.name)).toEqual([
+			"empty-repo",
+			"online-meetings",
+			"whiteboard-app",
+		]);
+		expect(new Set(summaries.map((repo) => repo.key)).size).toBe(3);
+		expect(summaries[0]).toMatchObject({
+			project: { organization: "msdata", projectKey: "Vienna" },
+			total: 0,
+			metrics: { open: 0 },
+		});
+		expect(summaries[1]).toMatchObject({
+			total: 2,
+			metrics: { open: 1, attention: 1, merged: 1 },
+		});
+		expect(summaries[2]).toMatchObject({
+			total: 1,
+			metrics: { open: 1, merged: 0 },
+		});
+		expect(
+			scopePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				organization: "MSDATA",
+				projectId: meetings.id,
+				repository: "shared-id",
+			}).map(({ pull }) => pull.id),
+		).toEqual(["meeting-open", "meeting-merged"]);
+		expect(
+			scopePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				organization: "intentional",
+				projectId: meetings.id,
+			}),
+		).toEqual([]);
+		expect(
+			scopePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				projectId: meetings.id,
+				repository: "ONLINE-MEETINGS",
+			}),
+		).toHaveLength(2);
+	});
 });
 
 describe("URL filters and review queue", () => {
@@ -123,12 +210,13 @@ describe("URL filters and review queue", () => {
 		expect(
 			readPullFilter(
 				new URLSearchParams(
-					"q=core&project=p&repo=r&state=all&status=unknown&sort=oldest",
+					"q=core&org=MSDATA&project=p&repo=r&state=all&status=unknown&sort=oldest",
 				),
 			),
 		).toEqual({
-			source: "all",
+			source: "demo",
 			query: "core",
+			organization: "msdata",
 			projectId: "p",
 			repository: "r",
 			state: "all",
@@ -230,10 +318,13 @@ describe("URL filters and review queue", () => {
 });
 
 describe("live collection presentation", () => {
-	it("defaults to real data when available and keeps an explicit all-data selection", () => {
+	it("defaults to real data when available and never mixes live and sample sources", () => {
 		expect(readPullFilter(new URLSearchParams(), true).source).toBe("cli");
 		expect(readPullFilter(new URLSearchParams("source=all"), true).source).toBe(
-			"all",
+			"cli",
+		);
+		expect(readPullFilter(new URLSearchParams("source=invalid")).source).toBe(
+			"demo",
 		);
 		expect(
 			readPullFilter(new URLSearchParams("source=demo"), true).source,

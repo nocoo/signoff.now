@@ -37,8 +37,10 @@ import {
 } from "@/models/workbench";
 import { useWorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 import { PullDetailSheet } from "./PullDetailSheet";
+import { RepositoryFilters } from "./RepositoryFilters";
 import {
 	ScanControls,
+	SourceControl,
 	WorkbenchConnection,
 	WorkbenchFeedback,
 } from "./WorkbenchControls";
@@ -85,11 +87,21 @@ export function PullsPage() {
 		<div className="space-y-5">
 			<PageHeader
 				title="Pull requests"
-				description="Every project. Every blocker. A clear next step."
-				actions={<ScanControls vm={vm} />}
+				description={
+					vm.selectedRepository
+						? `${vm.selectedRepository.project.organization} / ${vm.selectedRepository.project.projectKey} / ${vm.selectedRepository.name}`
+						: "Repository health, blockers, and a clear next step."
+				}
+				actions={
+					<>
+						<ScanControls vm={vm} />
+						<SourceControl vm={vm} />
+					</>
+				}
 			/>
 			<WorkbenchConnection vm={vm} />
 			<WorkbenchFeedback vm={vm} />
+			<RepositoryFilters vm={vm} />
 			<section
 				className="grid grid-cols-2 gap-3 xl:grid-cols-4"
 				aria-label="Pull request overview"
@@ -138,7 +150,7 @@ export function PullsPage() {
 				<LayerCard.Header className="flex-col gap-4">
 					<search
 						aria-label="Filter pull requests"
-						className="grid w-full gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_1fr_1fr_1fr]"
+						className="grid w-full gap-3 sm:grid-cols-[minmax(200px,1fr)_240px]"
 					>
 						<Field label="Search PRs">
 							<div className="relative">
@@ -156,33 +168,6 @@ export function PullsPage() {
 									}
 								/>
 							</div>
-						</Field>
-						<Field label="Project">
-							<SelectControl
-								value={vm.filter.projectId}
-								onChange={(projectId) => vm.setFilter({ projectId })}
-							>
-								<option value="">All projects</option>
-								{vm.projects.map(({ project }) => (
-									<option key={project.id} value={project.id}>
-										{project.name}
-									</option>
-								))}
-							</SelectControl>
-						</Field>
-						<Field label="Repository">
-							<SelectControl
-								value={vm.filter.repository}
-								onChange={(repository) => vm.setFilter({ repository })}
-							>
-								<option value="">All repositories</option>
-								{vm.repositories.map((repo) => (
-									<option key={repo.id} value={repo.id}>
-										{repo.name}
-										{!vm.filter.projectId ? ` · ${repo.projectName}` : ""}
-									</option>
-								))}
-							</SelectControl>
 						</Field>
 						<Field label="Readiness">
 							<SelectControl
@@ -265,14 +250,19 @@ export function PullsPage() {
 						}
 						description={
 							vm.rows.length
-								? "Try another project, status, or search term."
+								? "Try another repository, status, or search term."
 								: "Add an Azure DevOps project, then scan it to load its PRs."
 						}
 						action={
 							vm.rows.length ? (
 								<Button
 									variant="outline"
-									onClick={() => vm.setFilter(DEFAULT_PULL_FILTER)}
+									onClick={() =>
+										vm.setFilter({
+											...DEFAULT_PULL_FILTER,
+											source: vm.filter.source,
+										})
+									}
 								>
 									Clear filters
 								</Button>
@@ -322,7 +312,9 @@ export function PullsPage() {
 														#{pull.number}
 													</span>
 													<span aria-hidden>·</span>
-													<span>{project.name}</span>
+													<span>
+														{project.organization} / {project.projectKey}
+													</span>
 													<span aria-hidden>/</span>
 													<span>{pull.repository.name}</span>
 												</div>

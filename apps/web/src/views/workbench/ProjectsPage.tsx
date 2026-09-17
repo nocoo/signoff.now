@@ -37,7 +37,11 @@ import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
 import { useWorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 import { ProjectDialog } from "./ProjectDialog";
-import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
+import {
+	SourceControl,
+	WorkbenchConnection,
+	WorkbenchFeedback,
+} from "./WorkbenchControls";
 
 export function ProjectsPage() {
 	const vm = useWorkbenchViewModel();
@@ -53,7 +57,7 @@ export function ProjectsPage() {
 		<div className="space-y-5">
 			<PageHeader
 				title="Projects"
-				description="Keep every repository and review queue within reach."
+				description="Configure organizations, projects, and repository scopes."
 				actions={
 					<>
 						<span className="text-xs text-basalt-muted-foreground">
@@ -72,6 +76,7 @@ export function ProjectsPage() {
 							<Plus className="h-4 w-4" aria-hidden />
 							Add project
 						</Button>
+						<SourceControl vm={vm} />
 					</>
 				}
 			/>
@@ -249,13 +254,22 @@ export function ProjectsPage() {
 										<GitBranch className="mr-1 h-3.5 w-3.5" aria-hidden />
 										{repositories.length ? (
 											repositories.map((repository) => (
-												<Badge
-													key={repository.id}
-													variant="secondary"
-													className="text-[10px] font-normal"
+												<Button
+													key={repository.key}
+													variant="outline"
+													size="sm"
+													className="h-auto px-2 py-1 text-[11px] font-normal"
+													asChild
 												>
-													{repository.name}
-												</Badge>
+													<Link
+														to={`/?${new URLSearchParams({ source: project.source, org: project.organization, project: project.id, repo: repository.id })}`}
+													>
+														{repository.name}
+														{project.lastScannedAt !== null
+															? ` · ${repository.metrics.open} open`
+															: ""}
+													</Link>
+												</Button>
 											))
 										) : (
 											<span>Repositories appear after the first scan</span>
@@ -337,11 +351,7 @@ export function ProjectsPage() {
 					</LayerCard.Header>
 					<div className="divide-y divide-basalt-border">
 						{vm.data.scans
-							.filter(
-								(scan) =>
-									vm.filter.source === "all" ||
-									scan.source === vm.filter.source,
-							)
+							.filter((scan) => scan.source === vm.filter.source)
 							.slice(0, 5)
 							.map((scan) => (
 								<div

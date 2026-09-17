@@ -1,11 +1,27 @@
-import { Badge, Button, Label, Switch } from "@nocoo/basalt";
+import { Badge, Button, Label, SegmentControl, Switch } from "@nocoo/basalt";
 import { FlaskConical, Radio, RefreshCw, ScanLine } from "lucide-react";
 import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
-import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import { type PullFilter, relativeTime } from "@/models/workbench";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+
+export function SourceControl({ vm }: { vm: WorkbenchViewModel }) {
+	return (
+		<SegmentControl
+			legend="Data source"
+			className="[&>legend]:sr-only [&_[data-slot=segment-control-viewport]]:overflow-visible [&_[data-slot=segment-control-viewport]]:pb-0"
+			value={vm.filter.source}
+			onValueChange={(source) =>
+				vm.setFilter({ source: source as PullFilter["source"] })
+			}
+			options={[
+				{ value: "cli", label: "Live" },
+				{ value: "demo", label: "Sample" },
+			]}
+		/>
+	);
+}
 
 export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 	return (
@@ -40,10 +56,7 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 
 export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 	const refreshId = useId();
-	const samplesOnly =
-		vm.filter.source === "demo" ||
-		(vm.filter.source === "all" &&
-			!vm.data?.projects.some((project) => project.source === "cli"));
+	const samplesOnly = vm.filter.source === "demo";
 	const connectionLabels = {
 		ready: "Collector connected",
 		offline: "Collector offline",
@@ -53,18 +66,6 @@ export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 	return (
 		<div className="flex flex-wrap items-center justify-between gap-3 rounded-basalt-md bg-basalt-muted/40 px-3 py-2.5 text-xs text-basalt-muted-foreground">
 			<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-				<SelectControl
-					aria-label="Data source"
-					value={vm.filter.source}
-					onChange={(source) =>
-						vm.setFilter({ source: source as PullFilter["source"] })
-					}
-					className="w-36"
-				>
-					<option value="cli">Live ADO</option>
-					<option value="demo">Samples</option>
-					<option value="all">All data</option>
-				</SelectControl>
 				{samplesOnly ? (
 					<>
 						<Badge variant="info" className="gap-1.5">

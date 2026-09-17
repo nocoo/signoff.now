@@ -150,14 +150,11 @@ function PullDetail({
 				</div>
 				<SheetTitle className="pr-4 text-xl leading-7">{pull.title}</SheetTitle>
 				<SheetDescription>
-					{project.name} / {pull.repository.name}{" "}
+					{project.organization} / {project.projectKey} / {pull.repository.name}{" "}
 					<span className="mx-1" aria-hidden>
 						·
 					</span>{" "}
 					{project.provider === "ado" ? "Azure DevOps" : "GitHub"}{" "}
-					<span className="text-basalt-muted-foreground/80">
-						· {project.organization}
-					</span>
 				</SheetDescription>
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<EntityLabel
