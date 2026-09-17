@@ -1,8 +1,8 @@
 <p align="center">
   <img src="assets/brand/icon-rounded.png" width="128" alt="signoff.now logo" />
 </p>
-<h1 align="center">signoff.now</h1>
-<p align="center">面向管理者的 Azure DevOps 开发活动分析控制台。</p>
+<h1 align="center">SignOff</h1>
+<p align="center">一眼看清每个项目的 PR 状态、卡点和下一步。</p>
 <p align="center">
   <a href="https://signoff.hexly.ai">站点</a> ·
   <a href="docs/README.en.md">English</a>
@@ -10,21 +10,32 @@
 
 ## 这是什么
 
-signoff.now 将已登记开发者在 Azure DevOps 中的 PR、评审投票和工作项活动汇总到 Web 控制台。管理者在本机运行 CLI，保留采集原始数据、标准化文件和 manifest，再通过 Worker 写入 Cloudflare D1。Web 管理人员、团队、标签、仓库和计分设置，展示按日积分与活动明细。
+SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azure DevOps 项目后，可以查看各仓库的 PR、必需 policy、评审、多个 build 和每个 build 的 stage，知道哪里失败、谁需要处理、下一步做什么。第一期专注 PR，issue / ADO work item 放在后续阶段。
 
-项目面向单实例使用，目前的主采集管线支持 Azure DevOps。积分依据可配置权重和事件折叠规则计算，适合结合具体活动了解参与情况，不能单独代表代码质量或个人产出。仓库内另有 `gitinfo` 和 `pulse` 辅助 CLI；后者的 GitHub 查询能力独立于主采集管线。
+**当前为本地 Mock UI 预览**：4 个 ADO 项目、12 个仓库、38 个 PR 已存入 Wrangler 管理的本地 SQLite。项目管理和模拟扫描使用真实 API 与数据库；扫描可推进构建阶段。真实 PR 收集尚未接入。后续通过本机 `az`、`gh` 获取数据，统一后写入相同的 D1 结构。
+
+| 能力 | Azure DevOps | GitHub |
+| --- | --- | --- |
+| 项目增删改查 | 已实现 | 后续开放 |
+| PR / policy / build / stage 展示 | 已实现，当前使用 Mock | 复用统一数据结构，尚未接入 |
+| 真实 PR 快照采集 | 下一阶段接入 `az` | 后续接入 `gh` |
+
+仓库原有的 Activity / Score 分析及 ADO 活动采集 CLI 仍然保留。它们与新 PR 工作台的快照数据分开；`pulse` 已有的 GitHub 查询能力也尚未连接到工作台。
 
 ## 功能
 
-- **维护分析范围**：管理 Developer、Team、Tag 和 Repo，支持归档与恢复；用开发者 alias 与 Settings 中的邮箱后缀匹配 ADO 身份。
-- **采集并保留来源**：按仓库采集 PR、线程与迭代，按项目采集工作项和更新记录；原始数据、标准化活动和采集清单落在本机 `.data/`。
-- **查看活动变化**：Dashboard 提供 7 / 28 / 92 天概览、每日趋势、活动类型分布和开发者积分列表；Activity 页面支持多人按日对比和单人分页时间线。
-- **按明确规则计分**：处理 PR 与工作项的八类活动，按配置时区归日；同一开发者同日的同一 PR 作者事件、同一工作项更新按规则折叠。配置过期或相关写入未完成时，页面会提示并暂缓显示受影响的数字。
-- **继续未完成的写入**：manifest 记录每份 artifact 的进度；同一 scope 全部写入后才提交采集游标，重发原文件可继续中断的 ingest。
+- **项目管理**：添加、编辑、删除多个 organization 下的 ADO 项目，暂停或恢复监控，查看扫描历史。
+- **跨项目 PR 队列**：按项目、仓库、标题、作者、状态和下一步搜索筛选；以待处理优先排序，支持分页和可分享的筛选链接。
+- **明确合并条件**：冲突、必需检查失败、评审意见、部署审批、未知检查分别显示；可选检查失败不会误挡合并。
+- **构建阶段详情**：每个 PR 可展开多个 build，逐项查看 stage 状态、时长、说明和负责人。
+- **可观察的模拟进度**：每 15 秒刷新快照；点击扫描推进示例构建，保留失败、冲突和人工审批，刷新页面后数据仍在。
+- **既有分析**：Dashboard 位于 `/insights`；Directory、Activity 和 Settings 继续使用原来的活动数据管线。
 
 ## 使用
 
-打开[站点](https://signoff.hexly.ai)，通过该部署的 Cloudflare Access 验证后进入控制台。先建立开发者和启用的 ADO 仓库绑定，填写仓库及项目 GUID，并在 Settings 配置邮箱后缀、时区和权重。实体也可以通过下文的 Access Service Token 管理接口建立。
+按下方[开发](#开发)步骤启动本地预览。在 **Projects** 添加 ADO organization 和 project，点击 **Scan** 生成该项目的 6 个示例 PR；在首页切换项目并打开 PR 查看详情。预置项目涵盖更多复杂情况，点击 **Scan projects** 可以观察阶段变化。页面明确标记 Demo 数据，无需登录真实 ADO。
+
+以下运维命令用于既有 Activity / Score 管线。生产站点仍使用 Cloudflare Access；这次本地预览没有部署到线上。既有管线先建立 Developer 和 Repo 绑定，再配置 Settings，不会读取新 `projects` 表作为采集范围。
 
 采集在本机执行。先按[开发](#开发)安装依赖，准备 Azure CLI，执行 `az login`，并确认登录账号可读取所绑定的 ADO 项目。CLI 通过 `az account get-access-token` 获取 ADO REST API 所需的访问令牌。
 
@@ -96,8 +107,9 @@ git clone https://github.com/nocoo/signoff.now.git
 cd signoff.now
 bun install --frozen-lockfile
 bun run build:web
-bun run --cwd packages/worker wrangler d1 migrations apply signoff-db --config ../../wrangler.toml --local
-bun run --cwd packages/worker dev --local-upstream localhost
+bun run db:migrate:local
+bun run db:seed:local
+bun run dev:worker
 ```
 
 在另一个终端从仓库根目录运行前端：
@@ -106,7 +118,9 @@ bun run --cwd packages/worker dev --local-upstream localhost
 bun run dev
 ```
 
-打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。上述命令使用 worker workspace 已安装的 Wrangler，`--local-upstream localhost` 使 Worker 保留本地主机名并进入开发认证分支。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
+打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。开发脚本已包含 `--local-upstream localhost` 和本地 Demo 开关。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
+
+数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 4 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 migration `0011_pr_workbench.sql`。本地与线上 D1 使用相同的 schema，这次仅应用了本地 migration。
 
 本地回环地址与 `*.dev.hexly.ai` 使用开发认证分支，无须生产 Access 或 pipeline 凭据。`.env.example` 预填生产机器域名，只在需要连接已有部署时复制并填写。
 
@@ -116,7 +130,7 @@ bun run dev
 | --- | --- |
 | `apps/web` | React 页面、客户端 model 与 viewmodel |
 | `apps/collect` | ADO 采集、文件落盘与 ingest CLI |
-| `packages/domain` | 身份匹配、事件转换、分块契约与计分规则 |
+| `packages/domain` | 统一 PR 契约、就绪判定、Mock 场景，以及既有活动计分规则 |
 | `packages/worker` / `packages/db` | Hono API、D1 写入与 SQL migrations |
 | `apps/gitinfo` / `apps/pulse` | 本地 Git 与 GitHub 查询辅助工具 |
 
@@ -143,6 +157,8 @@ bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 | Git 子进程集成 | `bun run --cwd apps/gitinfo test:integration` | 本机可运行 Git |
 | 本地采集管线 fixture | `PATH="$PWD/packages/worker/node_modules/.bin:$PATH" bash scripts/e2e-06-local.sh` | 新的默认本地 D1，且 Worker 已运行 |
 
+PR 工作台的模型、HTTP 契约、ViewModel 和 SQLite API 测试包含在上述测试中。浏览器验收步骤见 [10 — PR 工作台与 Mock 预览](docs/10-PR工作台与Mock预览.md)。
+
 管线 fixture 测试请使用独立测试副本，先执行 `bun run build:web`，再在另一终端运行 `bun run --cwd packages/worker dev --local-upstream localhost`。测试命令的 PATH 让原脚本使用 workspace 已安装的 Wrangler。脚本会应用本地 migrations、种入测试实体、写入 `.data/` 并验证 ingest、热力图和时间线；它要求初始 Settings（配置版本 `1`），会改写该副本的本地数据。
 
 ## 技术栈
@@ -161,7 +177,7 @@ bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 
 ## 文档
 
-- [文档索引](docs/README.md)：产品定位、D1、Web、Settings 与管线设计。
+- [文档索引](docs/README.md) · [PR 工作台实现与验收](docs/10-PR工作台与Mock预览.md)。
 - [采集命令、落盘与游标](docs/07-CLI命令矩阵与ADO落盘.md) · [Activity 与 Score 规则](docs/06-Activity重建与Score算法.md)。
 - [上线与 Dashboard 统计](docs/08-真实数据上线与Dashboard统计.md)：部署、查询和对账说明。
 - [辅助 CLI](docs/cli/README.md) · [Logo 使用](docs/09-logo-usage.md) · [品牌展示](https://hexly.ai/logos/signoff-now)。

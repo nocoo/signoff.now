@@ -25,7 +25,7 @@
 	},
 	"scripts": {
 		"dev": "turbo run dev --filter=@signoff/web",
-		"dev:worker": "wrangler dev --port 37042 --local",
+		"dev:worker": "wrangler dev --port 37042 --local --local-upstream localhost --var SIGNOFF_DEMO_MODE:1",
 		"dev:all": "turbo run dev --filter=@signoff/web --filter=@signoff/worker",
 		"build:web": "turbo run build --filter=@signoff/web",
 		"build": "turbo build",
@@ -43,6 +43,7 @@
 		"pulse": "bun run apps/pulse/src/main.ts",
 		"signoff": "bun run apps/collect/src/main.ts",
 		"db:migrate:local": "wrangler d1 migrations apply signoff-db --local",
+		"db:seed:local": "bun run scripts/seed-demo.ts",
 		"db:migrate:remote": "wrangler d1 migrations apply signoff-db --remote",
 		"db:list:remote": "wrangler d1 migrations list signoff-db --remote"
 	},

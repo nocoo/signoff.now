@@ -17,7 +17,9 @@ import {
 } from "@nocoo/basalt";
 import {
 	Activity,
+	FolderGit2,
 	GitBranch,
+	GitPullRequest,
 	LayoutDashboard,
 	PanelLeft,
 	Settings,
@@ -30,6 +32,8 @@ import { useLocation, useNavigate } from "react-router";
 import { NAV_GROUPS, type NavGroupDef } from "@/lib/navigation";
 
 const ICON_MAP: Record<string, ElementType> = {
+	GitPullRequest,
+	FolderGit2,
 	LayoutDashboard,
 	Users,
 	UsersRound,
@@ -98,7 +102,7 @@ export function Sidebar({
 			<SidebarHeader className="gap-3 overflow-hidden px-5">
 				<img
 					src="/logo-64.png"
-					alt="signoff.now"
+					alt="SignOff"
 					width={28}
 					height={28}
 					className="h-7 w-7 shrink-0 object-contain"
@@ -107,7 +111,7 @@ export function Sidebar({
 					<div className="flex min-w-0 flex-1 items-center justify-between gap-2">
 						<div className="flex min-w-0 items-center gap-3">
 							<span className="truncate text-lg font-semibold tracking-tight text-basalt-foreground">
-								signoff
+								SignOff
 							</span>
 							<Badge
 								variant="secondary"

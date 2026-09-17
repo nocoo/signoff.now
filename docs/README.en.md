@@ -1,8 +1,8 @@
 <p align="center">
   <img src="../assets/brand/icon-rounded.png" width="128" alt="signoff.now logo" />
 </p>
-<h1 align="center">signoff.now</h1>
-<p align="center">An Azure DevOps activity analytics console for managers.</p>
+<h1 align="center">SignOff</h1>
+<p align="center">Every project's pull requests, blockers, and next steps in one place.</p>
 <p align="center">
   <a href="https://signoff.hexly.ai">Website</a> ·
   <a href="../README.md">简体中文</a>
@@ -10,21 +10,26 @@
 
 ## What it does
 
-signoff.now brings registered developers' Azure DevOps pull requests, review votes, and work item activity into a web console. Managers run a local CLI, retain raw data, normalized files, and a manifest, then ingest the results through a Worker into Cloudflare D1. The web app manages people, teams, tags, repositories, and scoring settings, and displays daily scores and activity details.
+SignOff helps maintainers manage Azure DevOps projects and understand their PR queues. It shows reviews, policies, multiple builds and their stages, along with blockers, responsible people, and concrete next actions. This phase focuses on PRs; issues and ADO work items come later.
 
-The project is designed for a single instance. Its main collection pipeline currently supports Azure DevOps. Scores follow configurable weights and event-folding rules; use them alongside the underlying activity to understand participation. They do not independently measure code quality or individual output. The repository also contains the `gitinfo` and `pulse` helper CLIs; `pulse` queries GitHub separately from the main collection pipeline.
+**The current implementation is a local mock preview:** four ADO projects, twelve repositories, and thirty-eight PRs persist in Wrangler's local SQLite database. Project CRUD and simulated scans use real Worker APIs and D1 queries. Live PR collectors are the next step: local `az` and later `gh` will feed the same normalized contract. GitHub project creation is not enabled yet.
+
+The existing Activity / Score analytics and ADO activity CLI remain available separately. Their ingest contract is not connected to the new PR snapshot tables. The `pulse` helper can query GitHub, but does not feed this workbench.
 
 ## Features
 
-- **Define the analysis scope:** manage Developers, Teams, Tags, and Repos, including archive and restore. Match ADO identities using developer aliases and the email suffixes configured in Settings.
-- **Keep the source data:** collect PRs, threads, and iterations per repository, plus work items and updates per project. Store raw data, normalized activities, and manifests in the local `.data/` directory.
-- **Review activity over time:** the Dashboard offers 7 / 28 / 92 day summaries, daily trends, activity-type breakdowns, and developer score lists. The Activity page supports daily comparisons across developers and a paginated timeline for one developer.
-- **Apply explicit scoring rules:** process eight PR and work item activity types and group them by the configured timezone. Same-day author events on a PR and updates to a work item are folded per developer. The UI flags stale configuration or unfinished writes and withholds affected figures.
-- **Resume unfinished ingestion:** manifests track each artifact. A collection cursor advances only after its entire scope is ingested; replaying the original files resumes an interrupted ingest.
+- **Manage projects:** add, edit, pause, resume, and remove ADO projects across organizations, with saved scan history.
+- **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
+- **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
+- **Inspect builds:** expand each build to see all stages, durations, results, and owners.
+- **Observe progress:** refresh snapshots every 15 seconds; simulated scans advance eligible stages while preserving failures and human decisions.
+- **Retain existing analytics:** the original Dashboard is at `/insights`; Directory, Activity, and Settings use their existing data pipeline.
 
 ## Usage
 
-Open the [website](https://signoff.hexly.ai) and authenticate through the deployment's Cloudflare Access application. Create developers and enabled ADO repository bindings, provide the repository and project GUIDs, and configure email suffixes, timezone, and weights in Settings. Entities can also be created through the management API using the Access Service Token described below.
+Start the local preview using [Development](#development). Explore the seeded projects, or add an ADO organization and project in **Projects**, then click **Scan** to create six sample PRs. Open a PR to inspect its reviews, checks, builds, and activity. All sample data is visibly marked; no live ADO login is needed.
+
+The operations below apply to the retained Activity / Score pipeline. The production website uses Cloudflare Access. This PR preview has not been deployed or applied to remote D1; the existing collector still uses Developer and Repo bindings rather than the new `projects` table.
 
 Collection runs on your machine. Install the dependencies under [Development](#development), install Azure CLI, run `az login`, and ensure that account can read the bound ADO projects. The CLI uses `az account get-access-token` to obtain a token for the ADO REST API.
 
@@ -96,8 +101,9 @@ git clone https://github.com/nocoo/signoff.now.git
 cd signoff.now
 bun install --frozen-lockfile
 bun run build:web
-bun run --cwd packages/worker wrangler d1 migrations apply signoff-db --config ../../wrangler.toml --local
-bun run --cwd packages/worker dev --local-upstream localhost
+bun run db:migrate:local
+bun run db:seed:local
+bun run dev:worker
 ```
 
 In another terminal, start the frontend from the repository root:
@@ -106,7 +112,9 @@ In another terminal, start the frontend from the repository root:
 bun run dev
 ```
 
-Open `http://localhost:7042`. Vite proxies `/api` to the local Worker on `37042`. The commands above use Wrangler installed in the worker workspace; `--local-upstream localhost` keeps the local hostname so requests use the development authentication path. If you already have a trusted HTTPS reverse proxy, `https://signoff.dev.hexly.ai` is supported.
+Open `http://localhost:7042`. Vite proxies `/api` to the local Worker on `37042`. The dev script includes the local upstream and demo flag. If you already have a trusted HTTPS reverse proxy, `https://signoff.dev.hexly.ai` is supported.
+
+Local data lives in `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`. The seed command resets only the four named demo projects and their PR / scan rows; other projects and existing analytics are preserved. It has no remote option. Migration `0011_pr_workbench.sql` defines the shared local / D1 schema.
 
 Loopback addresses and `*.dev.hexly.ai` use the development authentication path without production Access or pipeline credentials. `.env.example` is prefilled with the production machine endpoint; copy and configure it only when connecting to an existing deployment.
 

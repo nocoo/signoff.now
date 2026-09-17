@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "wrangler dev --config ../../wrangler.toml --port 37042 --local",
+		"dev": "wrangler dev --config ../../wrangler.toml --port 37042 --local --local-upstream localhost --var SIGNOFF_DEMO_MODE:1",
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
 		"test": "bun test src/",
 		"test:coverage": "bun test --coverage src/"

@@ -9,6 +9,8 @@ describe("navigation", () => {
 	test("nav groups cover core product routes", () => {
 		const hrefs = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
 		expect(hrefs).toContain("/");
+		expect(hrefs).toContain("/projects");
+		expect(hrefs).toContain("/insights");
 		expect(hrefs).toContain("/developers");
 		expect(hrefs).toContain("/settings");
 		expect(hrefs).toContain("/activity");
@@ -20,7 +22,7 @@ describe("navigation", () => {
 	});
 
 	test("breadcrumbs root", () => {
-		expect(breadcrumbsFromPathname("/")).toEqual([{ label: "Dashboard" }]);
+		expect(breadcrumbsFromPathname("/")).toEqual([{ label: "Pull requests" }]);
 	});
 
 	test("breadcrumbs nested", () => {

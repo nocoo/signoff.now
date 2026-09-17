@@ -66,6 +66,7 @@
       "version": "0.2.0",
       "dependencies": {
         "@nocoo/basalt": "2.1.7",
+        "@signoff/domain": "workspace:*",
         "clsx": "^2.1.1",
         "lucide-react": "1.45.0",
         "react": "19.3.0",

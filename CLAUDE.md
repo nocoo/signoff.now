@@ -1,6 +1,8 @@
-# signoff.now
+# SignOff
 
-Developer + git-repo activity analytics platform (manager-facing).
+Project and pull-request workbench for maintainers. PRs are the first phase;
+issues / ADO work items follow later. Azure DevOps project management ships
+first; GitHub will use the same normalized PR contract.
 
 Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位.md)**.
 
@@ -8,16 +10,24 @@ Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位
 
 | Piece | Role |
 |:------|:-----|
-| **Web** | Vite SPA on CF Worker + Access; CRUD entities/settings; **read-only** Activity/Score |
-| **CLI / Scripts / Skills** | Local ADO collection → JSON under `.data/` (gitignored) → validate → ingest D1 |
-| **DB** | Cloudflare D1 (not Electron SQLite) |
+| **Web** | Basalt + Vite SPA; `/` PR queue, `/projects` project CRUD, PR policies/builds/stages in a detail sheet |
+| **PR data today** | Four sample ADO projects, 38 PRs; local-only demo scans advance build stages and persist snapshots |
+| **PR collection next** | Local `az` / `gh` → normalized provider-neutral snapshots → Worker → D1; live PR collectors are not wired yet |
+| **DB** | Cloudflare D1; local development uses Wrangler SQLite in `.wrangler/state/v3/d1/` |
+| **Existing analytics** | Activity/Score and the ADO activity CLI remain available; Dashboard moved to `/insights` |
+
+Current implementation and acceptance: **[docs/10-PR工作台与Mock预览.md](./docs/10-PR工作台与Mock预览.md)**.
+The older Activity ingest contract is separate from the new PR snapshot tables.
+Do not wire demo writes to production or widen the machine-token route whitelist.
 
 ## Layout
 
 ```
 apps/gitinfo/   # quality-bar CLI (local git)
 apps/pulse/     # quality-bar CLI (remote collab patterns)
-apps/web/       # Vite frontend scaffold
+apps/web/       # PR workbench and retained activity analytics
+packages/domain/src/workbench.ts  # shared PR facts and readiness rules
+packages/domain/src/demo.ts       # deterministic sample scenarios
 docs/01-*.md    # product docs
 .data/          # local payloads — never commit
 ```
@@ -26,6 +36,9 @@ docs/01-*.md    # product docs
 
 ```bash
 bun run dev
+bun run db:migrate:local
+bun run db:seed:local # resets the four named demo projects only
+bun run dev:worker   # local upstream + SIGNOFF_DEMO_MODE=1
 bun run test / test:coverage
 bun run lint
 bun run typecheck

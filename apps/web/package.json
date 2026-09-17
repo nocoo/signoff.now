@@ -14,6 +14,7 @@
 		"test:watch": "vitest"
 	},
 	"dependencies": {
+		"@signoff/domain": "workspace:*",
 		"@nocoo/basalt": "2.1.7",
 		"clsx": "^2.1.1",
 		"lucide-react": "1.45.0",

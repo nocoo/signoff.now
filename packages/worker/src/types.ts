@@ -1,5 +1,7 @@
 export type Bindings = {
 	DB: D1Database;
+	/** Set only by the local dev command; also requires a local request host. */
+	SIGNOFF_DEMO_MODE?: string;
 	/** Static assets (SPA / placeholder). */
 	ASSETS?: Fetcher;
 	/** Pipeline write token (ingest / recompute). */

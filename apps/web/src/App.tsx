@@ -15,6 +15,8 @@ import { ReposPage } from "@/views/repos/ReposPage";
 import { SettingsPage } from "@/views/settings/SettingsPage";
 import { TagsPage } from "@/views/tags/TagsPage";
 import { TeamsPage } from "@/views/teams/TeamsPage";
+import { ProjectsPage } from "@/views/workbench/ProjectsPage";
+import { PullsPage } from "@/views/workbench/PullsPage";
 
 const BRAND_PALETTE = {
 	primary: { light: "199 100% 47%", dark: "199 100% 52%" },
@@ -53,7 +55,9 @@ export default function App() {
 							<Toaster />
 							<Routes>
 								<Route element={<AppShell />}>
-									<Route path="/" element={<DashboardPage />} />
+									<Route path="/" element={<PullsPage />} />
+									<Route path="/projects" element={<ProjectsPage />} />
+									<Route path="/insights" element={<DashboardPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
 									<Route path="/developers" element={<DevelopersPage />} />
 									<Route path="/teams" element={<TeamsPage />} />

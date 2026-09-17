@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./workbench": "./src/workbench.ts",
+		"./demo": "./src/demo.ts",
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"

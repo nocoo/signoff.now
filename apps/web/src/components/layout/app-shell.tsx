@@ -75,7 +75,7 @@ export function AppShell() {
 		persistSidebarState(next);
 	};
 	const trail = breadcrumbsFromPathname(location.pathname);
-	const current = trail[trail.length - 1]?.label ?? "Dashboard";
+	const current = trail[trail.length - 1]?.label ?? "Pull requests";
 	const ancestors = trail.slice(0, -1);
 
 	return (
@@ -100,7 +100,7 @@ export function AppShell() {
 					>
 						<SheetTitle className="sr-only">Navigation</SheetTitle>
 						<SheetDescription className="sr-only">
-							Choose a page in signoff.now.
+							Choose a page in SignOff.
 						</SheetDescription>
 						<Sidebar
 							collapsed={false}

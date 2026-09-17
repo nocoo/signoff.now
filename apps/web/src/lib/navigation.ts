@@ -19,15 +19,16 @@ export interface NavGroupDef {
 
 export const NAV_GROUPS: NavGroupDef[] = [
 	{
-		label: "Overview",
+		label: "Workspace",
 		defaultOpen: true,
 		items: [
-			{ href: "/", label: "Dashboard", icon: "LayoutDashboard", end: true },
+			{ href: "/", label: "Pull requests", icon: "GitPullRequest", end: true },
+			{ href: "/projects", label: "Projects", icon: "FolderGit2" },
 		],
 	},
 	{
 		label: "Directory",
-		defaultOpen: true,
+		defaultOpen: false,
 		items: [
 			{ href: "/developers", label: "Developers", icon: "Users" },
 			{ href: "/teams", label: "Teams", icon: "UsersRound" },
@@ -37,8 +38,11 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	},
 	{
 		label: "Insights",
-		defaultOpen: true,
-		items: [{ href: "/activity", label: "Activity", icon: "Activity" }],
+		defaultOpen: false,
+		items: [
+			{ href: "/insights", label: "Dashboard", icon: "LayoutDashboard" },
+			{ href: "/activity", label: "Activity", icon: "Activity" },
+		],
 	},
 	{
 		label: "System",
@@ -48,7 +52,9 @@ export const NAV_GROUPS: NavGroupDef[] = [
 ];
 
 export const ROUTE_LABELS: Record<string, string> = {
-	"": "Dashboard",
+	"": "Pull requests",
+	projects: "Projects",
+	insights: "Dashboard",
 	developers: "Developers",
 	teams: "Teams",
 	tags: "Tags",
@@ -65,7 +71,7 @@ export interface BreadcrumbItem {
 export function breadcrumbsFromPathname(pathname: string): BreadcrumbItem[] {
 	const segments = pathname.split("/").filter(Boolean);
 	if (segments.length === 0) {
-		return [{ label: "Dashboard" }];
+		return [{ label: "Pull requests" }];
 	}
 	const items: BreadcrumbItem[] = [{ label: "Home", href: "/" }];
 	let href = "";

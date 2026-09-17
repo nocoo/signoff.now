@@ -43,6 +43,13 @@ import {
 	teamsPatchRoute,
 	teamsRestoreRoute,
 } from "./routes/teams.js";
+import {
+	projectsCreateRoute,
+	projectsDeleteRoute,
+	projectsPatchRoute,
+	projectsScanRoute,
+	workbenchRoute,
+} from "./routes/workbench.js";
 import type { AppEnv } from "./types.js";
 
 const app = new Hono<AppEnv>();
@@ -54,6 +61,12 @@ app.use("/api/*", pipelineAuth);
 app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
+
+app.get("/api/workbench", workbenchRoute);
+app.post("/api/projects", projectsCreateRoute);
+app.patch("/api/projects/:id", projectsPatchRoute);
+app.delete("/api/projects/:id", projectsDeleteRoute);
+app.post("/api/projects/:id/scan", projectsScanRoute);
 
 app.get("/api/settings", settingsGetRoute);
 app.put("/api/settings", settingsPutRoute);
