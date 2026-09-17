@@ -11,6 +11,7 @@ import {
 	pullRequestSchema,
 	revisionSchema,
 	type ScanRun,
+	scanRequestSchema,
 } from "@signoff/domain/workbench";
 import type { Context } from "hono";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
@@ -47,6 +48,7 @@ type JobRow = {
 	completed_pulls: number;
 	total_pulls: number | null;
 	message: string;
+	pull_ids_json?: string | null;
 };
 type ScanRow = {
 	id: string;
@@ -100,6 +102,7 @@ function mapCollectionJob(row: JobRow): CollectionJob {
 		completedPulls: row.completed_pulls,
 		totalPulls: row.total_pulls,
 		message: row.message,
+		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
 	});
 }
 function scopeKey(items: string[] | undefined) {
@@ -145,7 +148,7 @@ export async function workbenchRoute(c: Context<AppEnv>) {
 			"SELECT last_seen_at, state, message FROM collector_heartbeat WHERE id = 1",
 		),
 		c.env.DB.prepare(
-			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
 			 FROM collection_jobs
 			 ORDER BY CASE WHEN state IN ('queued', 'running', 'auth_required') THEN 0 ELSE 1 END, updated_at DESC
 			 LIMIT 20`,
@@ -370,9 +373,13 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 	return c.json({ ok: true });
 }
 
-async function enqueueCliScan(c: Context<AppEnv>, project: Project) {
+async function enqueueCliScan(
+	c: Context<AppEnv>,
+	project: Project,
+	pullIds?: string[],
+) {
 	const active = await c.env.DB.prepare(
-		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
 		 FROM collection_jobs
 		 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ?
 		 LIMIT 1`,
@@ -403,8 +410,8 @@ async function enqueueCliScan(c: Context<AppEnv>, project: Project) {
 			project.revision,
 		),
 		c.env.DB.prepare(
-			`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at)
-			 SELECT ?, ?, ?, 'queued', ?, NULL, ?, NULL, 0, NULL, 'Waiting for the local collector', NULL, NULL
+			`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at, pull_ids_json)
+			 SELECT ?, ?, ?, 'queued', ?, NULL, ?, NULL, 0, NULL, 'Waiting for the local collector', NULL, NULL, ?
 			 WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1)
 			 AND NOT EXISTS (
 				SELECT 1 FROM collection_jobs WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required')
@@ -415,6 +422,7 @@ async function enqueueCliScan(c: Context<AppEnv>, project: Project) {
 			project.revision,
 			timestamp,
 			timestamp,
+			pullIds === undefined ? null : JSON.stringify(pullIds),
 			project.id,
 			project.revision,
 			project.id,
@@ -422,7 +430,7 @@ async function enqueueCliScan(c: Context<AppEnv>, project: Project) {
 	]);
 	if (results[2]?.meta.changes !== 1) {
 		const again = await c.env.DB.prepare(
-			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
 			 FROM collection_jobs
 			 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ?
 			 LIMIT 1`,
@@ -448,6 +456,7 @@ async function enqueueCliScan(c: Context<AppEnv>, project: Project) {
 			completed_pulls: 0,
 			total_pulls: null,
 			message: "Waiting for the local collector",
+			pull_ids_json: pullIds === undefined ? null : JSON.stringify(pullIds),
 		}),
 	);
 }
@@ -461,7 +470,7 @@ export async function projectsScanRoute(c: Context<AppEnv>) {
 			{ error: "Invalid project revision" },
 			raw.error === "payload_too_large" ? 413 : 400,
 		);
-	const parsed = revisionSchema.safeParse(raw.value);
+	const parsed = scanRequestSchema.safeParse(raw.value);
 	if (!parsed.success)
 		return c.json({ error: "Provide the current project revision" }, 400);
 	const project = await getProject(c);
@@ -476,7 +485,27 @@ export async function projectsScanRoute(c: Context<AppEnv>) {
 			{ error: "This project changed. Refresh and try again." },
 			409,
 		);
-	if (project.source === "cli") return enqueueCliScan(c, project);
+	if (project.source === "cli") {
+		if (project.provider !== "ado")
+			return c.json(
+				{ error: "Live GitHub collection is not available yet" },
+				400,
+			);
+		const { pullIds } = parsed.data;
+		if (pullIds?.length) {
+			const known = await c.env.DB.prepare(
+				"SELECT id FROM pull_requests WHERE project_id = ? AND id IN (SELECT value FROM json_each(?))",
+			)
+				.bind(project.id, JSON.stringify(pullIds))
+				.all();
+			if (known.results.length !== pullIds.length)
+				return c.json(
+					{ error: "Select PRs from this project's current snapshot" },
+					400,
+				);
+		}
+		return enqueueCliScan(c, project, pullIds);
+	}
 	if (!demoMode(c))
 		return c.json(
 			{ error: "Demo scanning is only available in local demo mode" },

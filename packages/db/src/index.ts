@@ -4,4 +4,4 @@
  *
  * Must match the highest applied migration number under migrations/.
  */
-export const DB_SCHEMA_VERSION = 12;
+export const DB_SCHEMA_VERSION = 13;

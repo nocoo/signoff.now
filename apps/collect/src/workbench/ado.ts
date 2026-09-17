@@ -17,6 +17,7 @@ import {
 	adoEvaluationsSchema,
 	adoIterationChangesSchema,
 	adoIterationsSchema,
+	adoPullRequestSummarySchema,
 	adoPullRequestsSchema,
 	adoRepositoriesSchema,
 	adoStatusesSchema,
@@ -637,6 +638,7 @@ export async function collectProjectPulls(opts: {
 	project: Project;
 	client: AdoPagedClient;
 	now: number;
+	targets?: PullRequest[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<{
 	pulls: PullRequest[];
@@ -649,11 +651,33 @@ export async function collectProjectPulls(opts: {
 
 	await client.checkAuth(org);
 
-	const targetRepos = await discoverRepositories(client, project);
+	const targetRepos = opts.targets?.length
+		? []
+		: await discoverRepositories(client, project);
 	const activePrs: AdoPullRequestSummary[] = [];
 	const completedPrs: AdoPullRequestSummary[] = [];
 	const abandonedPrs: AdoPullRequestSummary[] = [];
 	const globalIssues: string[] = [];
+	for (const target of opts.targets ?? []) {
+		const url = adoUrl(
+			`${BASE_URL}/${org}/${encodeURIComponent(projectKey)}`,
+			`_apis/git/repositories/${encodeURIComponent(target.repository.id)}/pullrequests/${target.number}`,
+		);
+		const raw = parseRaw(
+			adoPullRequestSummarySchema,
+			await client.get(url),
+			`visible PR ${target.number}`,
+		);
+		if (
+			raw.repository.id !== target.repository.id ||
+			raw.pullRequestId !== target.number
+		)
+			throw new AdoError(
+				"bad_response",
+				"Visible PR identity changed during collection",
+			);
+		activePrs.push(raw);
+	}
 
 	for (const repo of targetRepos) {
 		const active = await enumerateActivePullRequests(client, org, repo);
@@ -756,15 +780,24 @@ export async function collectProjectPulls(opts: {
 
 	const normalizedPulls: PullRequest[] = [];
 	const queue = [...allPrs];
+	const listOnly = opts.targets?.length === 0;
 
 	async function worker() {
 		while (queue.length > 0) {
 			const item = queue.shift();
 			if (!item) break;
-			const normalized = await enrichPullRequest(item);
+			const normalized = listOnly
+				? normalizePullRequest({
+						projectId: project.id,
+						rawPr: item,
+						now,
+						checksObservedAt: null,
+						collectionIssues: ["Checks load when this PR is visible."],
+					})
+				: await enrichPullRequest(item);
 			normalizedPulls.push(normalized);
 			completedCount++;
-			if (opts.onProgress) {
+			if (opts.onProgress && !listOnly) {
 				await opts.onProgress(completedCount, totalPulls);
 			}
 		}
@@ -772,13 +805,17 @@ export async function collectProjectPulls(opts: {
 
 	const workerCount = Math.min(DEFAULT_CONCURRENCY, allPrs.length || 1);
 	await Promise.all(Array.from({ length: workerCount }, () => worker()));
+	if (listOnly) await opts.onProgress?.(completedCount, totalPulls);
 
 	normalizedPulls.sort((a, b) => b.number - a.number);
 
 	const state = hasPartialDetails ? "partial" : "complete";
-	const message = hasPartialDetails
-		? `Collected ${normalizedPulls.length} PRs with partial check/detail coverage.`
-		: `Collected ${normalizedPulls.length} PRs completely.`;
+	const message =
+		listOnly && !hasPartialDetails
+			? `Refreshed ${normalizedPulls.length} PR summaries. Checks load for visible PRs.`
+			: hasPartialDetails
+				? `Collected ${normalizedPulls.length} PRs with partial check/detail coverage.`
+				: `Collected ${normalizedPulls.length} PRs completely.`;
 
 	return {
 		pulls: normalizedPulls,

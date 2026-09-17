@@ -93,6 +93,13 @@ export const projectPatchSchema = projectWriteSchema
 export const revisionSchema = z
 	.object({ revision: z.number().int().positive() })
 	.strict();
+const visiblePullIdsSchema = z
+	.array(name)
+	.max(20)
+	.refine((ids) => new Set(ids).size === ids.length, "PR IDs must be unique");
+export const scanRequestSchema = revisionSchema.extend({
+	pullIds: visiblePullIdsSchema.optional(),
+});
 
 const actorSchema = z.object({ id: name, name });
 export const policySchema = z.object({
@@ -138,6 +145,8 @@ export const pullRequestSchema = z.object({
 	createdAt: instant,
 	updatedAt: instant,
 	observedAt: instant,
+	headSha: z.string().max(240).nullable().optional(),
+	checksObservedAt: instant.nullable().optional(),
 	requiredApprovals: z.number().int().nonnegative(),
 	reviewers: z.array(
 		actorSchema.extend({
@@ -197,6 +206,8 @@ export const collectionJobSchema = z.object({
 	completedPulls: instant,
 	totalPulls: instant.nullable(),
 	message: z.string(),
+	/** Omitted: full scan. Empty: list only. Otherwise: visible PR checks. */
+	pullIds: visiblePullIdsSchema.optional(),
 });
 export type CollectionJob = z.infer<typeof collectionJobSchema>;
 export const collectorStatusSchema = z.object({
@@ -407,6 +418,12 @@ export function pullReadiness(
 			"unknown",
 			"Monitoring paused",
 			"Resume monitoring and scan this project",
+		);
+	else if (pr.checksObservedAt === null)
+		add(
+			"unknown",
+			"Awaiting checks",
+			"Keep this PR in view to collect policies, builds, and stages",
 		);
 	else if (
 		pr.coverage === "partial" ||

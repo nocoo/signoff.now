@@ -38,11 +38,15 @@ export async function deleteProject(id: string, revision: number) {
 	});
 }
 
-export async function scanProject(id: string, revision: number) {
+export async function scanProject(
+	id: string,
+	revision: number,
+	pullIds?: string[],
+) {
 	return scanRequestResultSchema.parse(
 		await apiFetch<unknown>(`/api/projects/${encodeURIComponent(id)}/scan`, {
 			method: "POST",
-			body: JSON.stringify({ revision }),
+			body: JSON.stringify({ revision, pullIds }),
 		}),
 	);
 }

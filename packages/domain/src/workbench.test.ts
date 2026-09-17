@@ -178,6 +178,19 @@ describe("normalized PR contract", () => {
 });
 
 describe("merge readiness", () => {
+	test("keeps uncollected checks unknown while preserving known blockers", () => {
+		const pull = { ...ready, checksObservedAt: null };
+		expect(pullReadiness(pull, project)).toMatchObject({
+			kind: "unknown",
+			label: "Awaiting checks",
+		});
+		expect(
+			pullReadiness({ ...pull, mergeable: "conflicts" }, project).label,
+		).toBe("Merge conflict");
+		expect(pullReadiness({ ...pull, state: "merged" }, project).kind).toBe(
+			"merged",
+		);
+	});
 	test("consolidates identical next actions from distinct policy gates", () => {
 		const policies = ["review-policy-a", "review-policy-b"].map((id) => ({
 			id,

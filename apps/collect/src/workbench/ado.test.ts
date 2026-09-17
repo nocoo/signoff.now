@@ -7,6 +7,7 @@ import {
 	policyArtifactId,
 	policyEvaluationsUrl,
 } from "./ado.js";
+import { normalizePullRequest } from "./normalize.js";
 
 function makeMockProject(overrides: Partial<Project> = {}): Project {
 	return {
@@ -30,6 +31,138 @@ function makeMockProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("collectProjectPulls", () => {
+	test("collects checks only for the visible selection, without enumerating or prefetching other PRs", async () => {
+		const project = makeMockProject();
+		const raw = (number: number) => ({
+			pullRequestId: number,
+			status: "active",
+			title: `PR ${number}`,
+			sourceRefName: "refs/heads/feature",
+			targetRefName: "refs/heads/main",
+			repository: {
+				id: "repo",
+				name: "app",
+				project: { id: "guid", name: "Project" },
+			},
+			lastMergeSourceCommit: { commitId: "head" },
+		});
+		const calls: string[] = [];
+		const client: AdoPagedClient = {
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			post: async () => ({}),
+			get: async (url) => {
+				calls.push(url);
+				return /\/pullrequests\/101\?/i.test(url) ? raw(101) : { value: [] };
+			},
+			getPage: async (url) => {
+				calls.push(url);
+				return {
+					data: {
+						value: url.includes("/_apis/git/repositories?")
+							? [
+									{
+										id: "repo",
+										name: "app",
+										project: { id: "guid", name: "Project" },
+									},
+								]
+							: url.includes("status=active")
+								? [raw(101), raw(202)]
+								: [],
+					},
+					continuationToken: null,
+				};
+			},
+		};
+		const target = normalizePullRequest({
+			projectId: project.id,
+			rawPr: raw(101),
+			now: 1_789_632_000,
+		});
+		const result = await collectProjectPulls({
+			project,
+			client,
+			now: 1_789_632_000,
+			targets: [target],
+		});
+		expect(result.pulls.map((p) => p.number)).toEqual([101]);
+		expect(result.pulls[0]?.checksObservedAt).toBe(1_789_632_000);
+		expect(result.pulls[0]?.headSha).toBe("head");
+		expect(
+			calls.some(
+				(url) =>
+					url.includes("202") ||
+					url.includes("status=active") ||
+					url.includes("/_apis/git/repositories?"),
+			),
+		).toBe(false);
+	});
+	test("automatic discovery lists PR facts without fetching any checks or build timelines", async () => {
+		const calls: string[] = [];
+		const progress: number[][] = [];
+		const client: AdoPagedClient = {
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			post: async () => ({}),
+			get: async (url) => {
+				calls.push(url);
+				return { value: [] };
+			},
+			getPage: async (url) => {
+				calls.push(url);
+				return {
+					data: {
+						value: url.includes("/_apis/git/repositories?")
+							? [
+									{
+										id: "repo",
+										name: "app",
+										project: { id: "guid", name: "Project" },
+									},
+								]
+							: url.includes("status=active")
+								? [101, 102].map((pullRequestId) => ({
+										pullRequestId,
+										status: "active",
+										title: "PR",
+										sourceRefName: "refs/heads/feature",
+										targetRefName: "refs/heads/main",
+										repository: { id: "repo", name: "app" },
+									}))
+								: [],
+					},
+					continuationToken: null,
+				};
+			},
+		};
+		const result = await collectProjectPulls({
+			project: makeMockProject(),
+			client,
+			now: 1_789_632_000,
+			targets: [],
+			onProgress: async (done, total) => {
+				progress.push([done, total]);
+			},
+		});
+		expect(progress).toEqual([
+			[0, 2],
+			[2, 2],
+		]);
+		expect(result.pulls).toHaveLength(2);
+		expect(result.state).toBe("complete");
+		expect(result.pulls[0]).toMatchObject({
+			coverage: "partial",
+			checksObservedAt: null,
+			policies: [],
+			builds: [],
+		});
+		expect(
+			calls.some((url) =>
+				/policy|statuses|builds|timeline|threads|iterations/.test(url),
+			),
+		).toBe(false);
+	});
 	test("keeps stages when Azure timeline tasks have null identifiers", async () => {
 		const client: AdoPagedClient = {
 			get: async (url) =>

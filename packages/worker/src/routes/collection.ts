@@ -12,6 +12,7 @@ import {
 	collectorStatusSchema,
 	type Project,
 	type PullRequest,
+	pullRequestSchema,
 	type ScanRun,
 } from "@signoff/domain/workbench";
 import type { Context } from "hono";
@@ -46,6 +47,7 @@ type JobRow = {
 	message: string;
 	lease_token?: string | null;
 	lease_expires_at?: number | null;
+	pull_ids_json?: string | null;
 };
 
 function mapJob(row: JobRow): CollectionJob {
@@ -61,6 +63,7 @@ function mapJob(row: JobRow): CollectionJob {
 		completedPulls: row.completed_pulls,
 		totalPulls: row.total_pulls,
 		message: row.message,
+		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
 	});
 }
 
@@ -88,7 +91,7 @@ function readError(
 
 async function jobById(c: Context<AppEnv>, id: string): Promise<JobRow | null> {
 	return c.env.DB.prepare(
-		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at
+		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at, pull_ids_json
 		 FROM collection_jobs WHERE id = ?`,
 	)
 		.bind(id)
@@ -222,7 +225,7 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 			 WHERE job_id = (SELECT id FROM collection_jobs WHERE lease_token = ? AND state = 'running' AND lease_expires_at > ?)`,
 		).bind(leaseToken, timestamp),
 		c.env.DB.prepare(
-			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
 			 FROM collection_jobs WHERE lease_token = ? AND state = 'running'`,
 		).bind(leaseToken),
 		c.env.DB.prepare(
@@ -232,10 +235,34 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 	const job = (results[2]?.results ?? [])[0] as JobRow | undefined;
 	const project = (results[3]?.results ?? [])[0] as ProjectRow | undefined;
 	if (!job || !project) return c.json(null);
+	const mappedJob = mapJob(job);
+	const targets =
+		mappedJob.pullIds === undefined
+			? undefined
+			: (
+					await c.env.DB.prepare(
+						"SELECT snapshot FROM pull_requests WHERE project_id = ? AND id IN (SELECT value FROM json_each(?)) ORDER BY id",
+					)
+						.bind(project.id, JSON.stringify(mappedJob.pullIds))
+						.all<{ snapshot: string }>()
+				).results.map((row) =>
+					pullRequestSchema.parse(JSON.parse(row.snapshot)),
+				);
+	if (targets && targets.length !== mappedJob.pullIds?.length) {
+		await c.env.DB.prepare(
+			`UPDATE collection_jobs SET state = 'failed', updated_at = ?, completed_at = ?,
+			 message = 'Visible PRs changed before collection', lease_token = NULL, lease_expires_at = NULL
+			 WHERE id = ? AND lease_token = ? AND state = 'running'`,
+		)
+			.bind(timestamp, timestamp, job.id, leaseToken)
+			.run();
+		return c.json({ error: "Visible PRs changed before collection" }, 409);
+	}
 	return c.json({
-		job: mapJob(job),
+		job: mappedJob,
 		project: mapProject(project),
 		leaseToken,
+		targets,
 	});
 }
 
@@ -347,7 +374,13 @@ export async function collectorBatchRoute(c: Context<AppEnv>) {
 			409,
 		);
 	const seen = new Set<string>();
+	const selectedIds = mapJob(job).pullIds;
 	for (const pull of parsed.data.pulls) {
+		if (selectedIds?.length && !selectedIds.includes(pull.id))
+			return c.json(
+				{ error: "Pull request is outside the visible selection" },
+				400,
+			);
 		const error = pullError(project, pull, seen);
 		if (error) return c.json({ error }, 400);
 	}
@@ -456,9 +489,14 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 		advancedStages: 0,
 		message: parsed.data.message,
 	};
+	const selectedIds = mapJob(job).pullIds;
+	const listOnly = selectedIds?.length === 0;
+	const targeted = Boolean(selectedIds?.length);
+	if (targeted && parsed.data.pullRequestCount !== selectedIds?.length)
+		return c.json({ error: "Upload every selected PR before finishing" }, 409);
 	const finishGuard = `${RUNNING}
 		AND (SELECT COUNT(*) FROM collection_staging WHERE job_id = ?) = ?
-		AND (? = 'partial' OR NOT EXISTS (
+		AND (? = 1 OR ? = 'partial' OR NOT EXISTS (
 			SELECT 1 FROM collection_staging WHERE job_id = ? AND json_extract(snapshot, '$.coverage') = 'partial'
 		))`;
 	const finishBinds = [
@@ -467,18 +505,37 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 		timestamp,
 		id,
 		parsed.data.pullRequestCount,
+		Number(listOnly),
 		parsed.data.state,
 		id,
 	];
 	const results = await c.env.DB.batch([
 		c.env.DB.prepare(
-			`DELETE FROM pull_requests WHERE project_id = ? AND ${finishGuard}`,
-		).bind(project.id, ...finishBinds),
+			`DELETE FROM pull_requests WHERE project_id = ? AND ? = 1 AND id NOT IN (SELECT pull_id FROM collection_staging WHERE job_id = ?) AND ${finishGuard}`,
+		).bind(project.id, Number(!targeted), id, ...finishBinds),
 		c.env.DB.prepare(
 			`INSERT INTO pull_requests (id, project_id, repository_id, external_id, state, updated_at, snapshot)
-			 SELECT pull_id, project_id, repository_id, external_id, state, updated_at, snapshot
-			 FROM collection_staging WHERE job_id = ? AND ${finishGuard}`,
-		).bind(id, ...finishBinds),
+			 SELECT s.pull_id, s.project_id, s.repository_id, s.external_id, s.state,
+			   MAX(s.updated_at, COALESCE(p.updated_at, 0)),
+			   json_set(CASE WHEN ? = 1 AND json_extract(s.snapshot, '$.headSha') IS NOT NULL
+			     AND json_extract(s.snapshot, '$.headSha') = json_extract(p.snapshot, '$.headSha')
+			   THEN json_set(s.snapshot,
+			     '$.policies', json_extract(p.snapshot, '$.policies'),
+			     '$.builds', json_extract(p.snapshot, '$.builds'),
+			     '$.reviewers', json_extract(p.snapshot, '$.reviewers'),
+			     '$.requiredApprovals', json_extract(p.snapshot, '$.requiredApprovals'),
+			     '$.coverage', json_extract(p.snapshot, '$.coverage'),
+			     '$.collectionIssues', json(COALESCE(json_extract(p.snapshot, '$.collectionIssues'), '[]')),
+			     '$.filesChanged', json_extract(p.snapshot, '$.filesChanged'),
+			     '$.additions', json_extract(p.snapshot, '$.additions'),
+			     '$.deletions', json_extract(p.snapshot, '$.deletions'),
+			     '$.comments', json_extract(p.snapshot, '$.comments'),
+			     '$.checksObservedAt', CASE WHEN json_type(p.snapshot, '$.checksObservedAt') = 'null' THEN NULL ELSE COALESCE(json_extract(p.snapshot, '$.checksObservedAt'), json_extract(p.snapshot, '$.observedAt')) END
+			   ) ELSE s.snapshot END, '$.updatedAt', MAX(s.updated_at, COALESCE(p.updated_at, 0)))
+			 FROM collection_staging s LEFT JOIN pull_requests p ON p.id = s.pull_id
+			 WHERE s.job_id = ? AND ${finishGuard}
+			 ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at, snapshot = excluded.snapshot`,
+		).bind(Number(listOnly), id, ...finishBinds),
 		c.env.DB.prepare(
 			`INSERT INTO scan_runs (id, project_id, source, state, started_at, completed_at, pull_request_count, advanced_stages, message)
 			 SELECT ?, ?, 'cli', ?, ?, ?, ?, 0, ? WHERE ${finishGuard}`,
@@ -494,11 +551,17 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 		),
 		c.env.DB.prepare(
 			`UPDATE projects
-			 SET revision = revision + 1, last_scanned_at = ?, scan_state = ?, scan_message = ?, updated_at = ?
+			 SET revision = revision + 1,
+			 last_scanned_at = CASE WHEN ? = 1 THEN last_scanned_at ELSE ? END,
+			 scan_state = CASE WHEN ? = 1 THEN scan_state ELSE ? END,
+			 scan_message = CASE WHEN ? = 1 THEN scan_message ELSE ? END, updated_at = ?
 			 WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1 AND ${finishGuard}`,
 		).bind(
+			Number(targeted),
 			timestamp,
+			Number(targeted),
 			parsed.data.state,
+			Number(targeted),
 			parsed.data.state === "complete" ? null : parsed.data.message,
 			timestamp,
 			project.id,

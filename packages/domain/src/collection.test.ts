@@ -3,12 +3,70 @@ import {
 	adoPullId,
 	collectionBatchSchema,
 	collectionFinishSchema,
+	collectorClaimSchema,
 	parseAdoRepositoryUrl,
 } from "./collection.js";
 import { demoWorkspace } from "./demo.js";
 import { projectWriteSchema, pullRequestSchema } from "./workbench.js";
 
 describe("live collection contract", () => {
+	test("rejects claims that could widen or change the selected collection scope", () => {
+		const data = demoWorkspace(1_789_632_000);
+		const project = data.projects[0]!;
+		const [first, second] = data.pullRequests;
+		const job = {
+			id: "job",
+			projectId: project.id,
+			revision: project.revision,
+			state: "running",
+			requestedAt: 1,
+			startedAt: 1,
+			updatedAt: 1,
+			completedAt: null,
+			completedPulls: 0,
+			totalPulls: null,
+			message: "Collecting",
+		};
+		const claim = {
+			project,
+			job,
+			leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
+		};
+		for (const [pullIds, targets] of [
+			[undefined, undefined],
+			[[], []],
+			[
+				[first!.id, second!.id],
+				[second, first],
+			],
+		] as const) {
+			expect(
+				collectorClaimSchema.safeParse({
+					...claim,
+					job: { ...job, pullIds },
+					targets,
+				}).success,
+			).toBe(true);
+		}
+		for (const [pullIds, targets] of [
+			[[], undefined],
+			[undefined, []],
+			[[first!.id], [second]],
+			[
+				[first!.id, second!.id],
+				[first, first],
+			],
+			[[first!.id], [{ ...first, projectId: "other" }]],
+		] as const) {
+			expect(
+				collectorClaimSchema.safeParse({
+					...claim,
+					job: { ...job, pullIds },
+					targets,
+				}).success,
+			).toBe(false);
+		}
+	});
 	test("parses repository scope without accepting other hosts or executable paths", () => {
 		expect(
 			parseAdoRepositoryUrl(
