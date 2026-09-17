@@ -1,3 +1,5 @@
+import { HeaderTooltip, HexlyLink } from "./header-links";
+import { ThemeToggle } from "./theme-toggle";
 import {
 	Button,
 	ContentIsland,
@@ -5,7 +7,6 @@ import {
 	SheetContent,
 	SheetDescription,
 	SheetTitle,
-	ThemeToggle,
 } from "@nocoo/basalt";
 import { AppHeader } from "@nocoo/basalt/components/app-header";
 import {
@@ -115,36 +116,41 @@ export function AppShell() {
 				<AppHeader
 					leading={
 						isMobile ? (
-							<Button
-								ref={menuRef}
-								variant="ghost"
-								size="icon"
-								className="h-8 w-8"
-								onClick={() => setMobileOpen(true)}
-								aria-label="Open navigation"
-							>
-								<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
-							</Button>
+							<HeaderTooltip label="Open navigation">
+								<Button
+									ref={menuRef}
+									variant="ghost"
+									size="icon"
+									className="h-8 w-8"
+									onClick={() => setMobileOpen(true)}
+									aria-label="Open navigation"
+								>
+									<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
+								</Button>
+							</HeaderTooltip>
 						) : null
 					}
 					breadcrumbs={ancestors}
 					title={current}
 					actions={
 						<>
-							<Button variant="ghost" size="icon" asChild>
-								<a
-									href="https://github.com/nocoo/signoff.now"
-									target="_blank"
-									rel="noopener noreferrer"
-									aria-label="GitHub repository"
-								>
-									<Github
-										className="h-[18px] w-[18px]"
-										aria-hidden
-										strokeWidth={1.5}
-									/>
-								</a>
-							</Button>
+							<HeaderTooltip label="GitHub repository">
+								<Button variant="ghost" size="icon" asChild>
+									<a
+										href="https://github.com/nocoo/signoff.now"
+										target="_blank"
+										rel="noopener noreferrer"
+										aria-label="GitHub repository"
+									>
+										<Github
+											className="h-[18px] w-[18px]"
+											aria-hidden
+											strokeWidth={1.5}
+										/>
+									</a>
+								</Button>
+							</HeaderTooltip>
+							<HexlyLink />
 							<ThemeToggle aria-label="Change theme" />
 						</>
 					}
