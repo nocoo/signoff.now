@@ -253,7 +253,7 @@ export async function processIngestChunk(
 		const ph = devIds.map(() => "?").join(",");
 		const devRows = await db
 			.prepare(
-				`SELECT id, alias, archived_at FROM developers WHERE id IN (${ph})`,
+				`SELECT id, alias, archived_at FROM developers WHERE source = 'cli' AND id IN (${ph})`,
 			)
 			.bind(...devIds)
 			.all<{ id: string; alias: string; archived_at: number | null }>();

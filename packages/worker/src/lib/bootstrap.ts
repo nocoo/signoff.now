@@ -13,7 +13,7 @@ export function bootstrapSnapshotStatements(
 		db.prepare("SELECT key, value, updated_at FROM settings"),
 		db.prepare(
 			`SELECT id, name, alias FROM developers
-       WHERE archived_at IS NULL ORDER BY name`,
+       WHERE source = 'cli' AND archived_at IS NULL ORDER BY name`,
 		),
 		db.prepare(
 			`SELECT id, provider, org, project, name, external_id, project_external_id, enabled

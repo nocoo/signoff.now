@@ -94,8 +94,8 @@ async function linksOf(
 export async function developersListRoute(c: Context<AppEnv>) {
 	const includeArchived = c.req.query("includeArchived") === "1";
 	const sql = includeArchived
-		? `SELECT * FROM developers ORDER BY name COLLATE NOCASE`
-		: `SELECT * FROM developers WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE`;
+		? `SELECT * FROM developers WHERE source = 'cli' ORDER BY name COLLATE NOCASE`
+		: `SELECT * FROM developers WHERE source = 'cli' AND archived_at IS NULL ORDER BY name COLLATE NOCASE`;
 	const [res, teams, tags] = await Promise.all([
 		c.env.DB.prepare(sql).all<DeveloperRow>(),
 		linksByDeveloper(c.env.DB, "developerTeams"),
@@ -226,7 +226,7 @@ export async function developersPatchRoute(c: Context<AppEnv>) {
          alias = CASE WHEN ?3 = 1 THEN ?4 ELSE alias END,
          avatar_url = CASE WHEN ?5 = 1 THEN avatar_url ELSE ?6 END,
          updated_at = unixepoch()
-     WHERE id = ?7 AND archived_at IS NULL`,
+     WHERE id = ?7 AND source = 'cli' AND archived_at IS NULL`,
 	).bind(
 		renaming ? 1 : 0,
 		name,

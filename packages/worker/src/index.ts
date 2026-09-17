@@ -22,6 +22,12 @@ import {
 	developersPatchRoute,
 	developersRestoreRoute,
 } from "./routes/developers.js";
+import {
+	directoryArchiveRoute,
+	directoryRoute,
+	directorySaveRoute,
+} from "./routes/directory.js";
+import { insightsRoute } from "./routes/insights.js";
 import { liveRoute } from "./routes/live.js";
 import { meRoute } from "./routes/me.js";
 import {
@@ -79,6 +85,12 @@ app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
 
 app.get("/api/workbench", workbenchRoute);
+app.get("/api/directory", directoryRoute);
+app.post("/api/directory/:kind", directorySaveRoute);
+app.put("/api/directory/:kind/:id", directorySaveRoute);
+app.post("/api/directory/:kind/:id/:action", directoryArchiveRoute);
+app.get("/api/insights/:module", insightsRoute);
+app.post("/api/insights/:module", insightsRoute);
 app.get("/api/collection/refresh", refreshQueuesRoute);
 app.patch("/api/collection/settings", refreshSettingsRoute);
 app.post("/api/collection/view", collectionViewRoute);
