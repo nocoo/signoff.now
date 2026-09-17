@@ -54,7 +54,7 @@ export function TagDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className="flex items-center gap-3">
+				<div className="flex flex-wrap items-center gap-3">
 					<EntityTag
 						tag={{ name: vm.draft.name || "Tag", color: vm.draft.color }}
 					/>

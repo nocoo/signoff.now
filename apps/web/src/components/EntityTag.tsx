@@ -7,6 +7,7 @@ export function EntityTag({ tag }: { tag: Pick<Tag, "name" | "color"> }) {
 	return (
 		<Badge
 			variant={null}
+			className="max-w-full whitespace-normal break-all"
 			style={{
 				backgroundColor: tag.color,
 				color: contrastTextColor(tag.color),
