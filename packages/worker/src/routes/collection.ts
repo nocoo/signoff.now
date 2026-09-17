@@ -446,7 +446,7 @@ export async function collectorBatchRoute(c: Context<AppEnv>) {
 export async function collectorCompleteRoute(c: Context<AppEnv>) {
 	const remote = rejectRemote(c);
 	if (remote) return remote;
-	const raw = await readJsonBodyWithSize(c, JOB_LIMIT);
+	const raw = await readJsonBodyWithSize(c, 1024 * 1024);
 	const invalid = readError(
 		raw,
 		"Invalid collection finish",
@@ -552,11 +552,15 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 		c.env.DB.prepare(
 			`UPDATE projects
 			 SET revision = revision + 1,
+			 merge_requirements_json = COALESCE(?, merge_requirements_json),
 			 last_scanned_at = CASE WHEN ? = 1 THEN last_scanned_at ELSE ? END,
 			 scan_state = CASE WHEN ? = 1 THEN scan_state ELSE ? END,
 			 scan_message = CASE WHEN ? = 1 THEN scan_message ELSE ? END, updated_at = ?
 			 WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1 AND ${finishGuard}`,
 		).bind(
+			parsed.data.mergeRequirements
+				? JSON.stringify(parsed.data.mergeRequirements)
+				: null,
 			Number(targeted),
 			timestamp,
 			Number(targeted),

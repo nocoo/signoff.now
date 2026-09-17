@@ -124,6 +124,40 @@ async function claim(): Promise<CollectorClaim> {
 }
 
 describe("local collector ingest", () => {
+	test("publishes the discovered project requirements without replacing user order or colors", async () => {
+		const project = await create();
+		const rules = [{ gateId: "policy-2", label: "PoP", color: "yellow" }];
+		await request(`/api/projects/${project.id}/readiness`, "PATCH", {
+			revision: 1,
+			rules,
+		});
+		await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: project.revision,
+			pullIds: [],
+		});
+		const job = await claim();
+		const mergeRequirements = [
+			{ id: "policy-1", name: "PR validation", kind: "build" },
+			{ id: "policy-2", name: "Proof Of Presence", kind: "policy" },
+		];
+		const response = await request(
+			`/api/collector/jobs/${job.job.id}/complete`,
+			"POST",
+			{
+				leaseToken: job.leaseToken,
+				state: "complete",
+				pullRequestCount: 0,
+				message: "Discovered requirements",
+				mergeRequirements,
+			},
+		);
+		expect(response.status).toBe(200);
+		expect((await snapshot()).projects[0]).toMatchObject({
+			mergeRequirements,
+			readinessRules: rules,
+			readinessRevision: 2,
+		});
+	});
 	test("refreshes only requested visible PRs without deleting other cached PRs", async () => {
 		const project = await create({ repositories: ["whiteboard-app"] });
 		const first = livePull(project);

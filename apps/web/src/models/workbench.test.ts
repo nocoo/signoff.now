@@ -1,6 +1,7 @@
 import { demoWorkspace } from "@signoff/domain/demo";
 import {
-	DEFAULT_READINESS_RULES,
+	type Project,
+	pullReadiness,
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { describe, expect, it, vi } from "vitest";
@@ -413,33 +414,65 @@ describe("URL filters and review queue", () => {
 		).toEqual(["a", "z", "blocked"]);
 		expect(input.map((row) => row.pull.id)).toEqual(["z", "a", "blocked"]);
 	});
-	it("orders PRs with each owning project's readiness rules", () => {
-		const blocked = rows.find((row) => row.readiness.kind === "blocked")!;
-		const review = rows.find((row) => row.readiness.kind === "review")!;
-		const customized = {
-			...blocked,
-			project: {
-				...blocked.project,
-				readinessRules: [
-					DEFAULT_READINESS_RULES[0]!,
-					DEFAULT_READINESS_RULES[5]!,
-					...DEFAULT_READINESS_RULES.filter((_, i) => i !== 0 && i !== 5),
-				],
-			},
+	it("orders PRs with each owning project's actual merge requirement order", () => {
+		const raw = {
+			...snapshot.pullRequests[0],
+			draft: false,
+			state: "open" as const,
+			mergeable: "clear" as const,
+			coverage: "complete" as const,
+			reviewers: [],
+			requiredApprovals: 0,
+			builds: [],
+			policies: [
+				{
+					id: "ci",
+					name: "CI",
+					state: "running" as const,
+					required: true,
+					detail: "Wait for CI",
+					owner: "Build owners",
+					kind: "build" as const,
+				},
+			],
 		};
-		expect(visiblePulls([blocked, review], DEFAULT_PULL_FILTER)[0]).toBe(
-			review,
-		);
-		expect(visiblePulls([customized, review], DEFAULT_PULL_FILTER)[0]).toBe(
-			customized,
-		);
+		const project: Project = {
+			...snapshot.projects[0],
+			mergeRequirements: [
+				{ id: "ci", name: "CI", kind: "build" },
+				{ id: "review", name: "Review", kind: "review" },
+			],
+			readinessRules: [
+				{ gateId: "ci", label: "CI", color: "blue" },
+				{ gateId: "review", label: "Review", color: "orange" },
+			],
+		};
+		const earlier = {
+			pull: { ...raw, projectId: project.id },
+			project,
+			readiness: pullReadiness({ ...raw, projectId: project.id }, project),
+			progress: rows[0].progress,
+		};
+		const other: Project = {
+			...project,
+			id: "other",
+			readinessRules: [...project.readinessRules!].reverse(),
+		};
+		const later = {
+			...earlier,
+			pull: { ...raw, projectId: other.id },
+			project: other,
+			readiness: pullReadiness({ ...raw, projectId: other.id }, other),
+		};
+		expect(visiblePulls([earlier, later], DEFAULT_PULL_FILTER)[0]).toBe(later);
 		expect(
-			visiblePulls([customized, review], {
+			visiblePulls([earlier, later], {
 				...DEFAULT_PULL_FILTER,
 				sortDirection: "desc",
 			})[0],
-		).toBe(review);
+		).toBe(earlier);
 	});
+
 	it("sorts the table columns in both directions and keeps missing checks behind complete progress", () => {
 		const a = {
 			...rows[0],

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	collectionJobSchema,
-	DEFAULT_READINESS_RULES,
 	type Project,
 	projectSchema,
+	type ReadinessRule,
 	scanRunSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
@@ -12,6 +12,11 @@ import app from "../index.js";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1.js";
 import type { AppEnv, Bindings } from "../types.js";
 import { projectsScanRoute } from "./workbench.js";
+
+const GATE_RULES: ReadinessRule[] = [
+	{ gateId: "policy-1", label: "Review", color: "orange" },
+	{ gateId: "policy-2", label: "CI", color: "blue" },
+];
 
 let sqlite: SqliteD1;
 let env: Bindings;
@@ -64,7 +69,7 @@ describe("project readiness settings", () => {
 		await request(`/api/projects/${project.id}/scan`, "POST", {
 			revision: current.revision,
 		});
-		const rules = DEFAULT_READINESS_RULES.map((rule) => ({
+		const rules = GATE_RULES.map((rule) => ({
 			...rule,
 			color: "purple" as const,
 		}));
@@ -108,11 +113,11 @@ describe("project readiness settings", () => {
 		const responses = await Promise.all([
 			request(`/api/projects/${project.id}/readiness`, "PATCH", {
 				revision: 1,
-				rules: DEFAULT_READINESS_RULES,
+				rules: GATE_RULES,
 			}),
 			request(`/api/projects/${project.id}/readiness`, "PATCH", {
 				revision: 1,
-				rules: [...DEFAULT_READINESS_RULES].reverse(),
+				rules: [...GATE_RULES].reverse(),
 			}),
 		]);
 		expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
@@ -142,7 +147,7 @@ describe("project readiness settings", () => {
 		const response = await request(
 			`/api/projects/${project.id}/readiness`,
 			"PATCH",
-			{ revision: 1, rules: DEFAULT_READINESS_RULES },
+			{ revision: 1, rules: GATE_RULES },
 		);
 		expect(response.status).toBe(200);
 		expect(projectSchema.parse(await response.json()).provider).toBe("github");
@@ -162,11 +167,11 @@ describe("project readiness settings", () => {
 			null,
 			{},
 			{ revision: 0, rules: [] },
-			{ revision: 1, rules: DEFAULT_READINESS_RULES.slice(1) },
+			{ revision: 1, rules: [{ kind: "ready", color: "green" }] },
 			{ revision: 1, rules: [], owner: "Unexpected write" },
 			{
 				revision: 1,
-				rules: DEFAULT_READINESS_RULES.map((r) => ({ ...r, color: "invalid" })),
+				rules: GATE_RULES.map((r) => ({ ...r, color: "invalid" })),
 			},
 		]) {
 			expect(
@@ -184,7 +189,7 @@ describe("project readiness settings", () => {
 				await request(`/api/projects/${project.id}/readiness`, "PATCH", {
 					revision: 1,
 					rules: [],
-					huge: "x".repeat(65536),
+					huge: "x".repeat(1024 * 1024),
 				})
 			).status,
 		).toBe(413);

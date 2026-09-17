@@ -27,6 +27,7 @@ export type ProjectRow = {
 	project_key: string;
 	repositories_json?: string;
 	readiness_rules_json?: string;
+	merge_requirements_json?: string;
 	readiness_revision?: number;
 	description: string;
 	owner: string;
@@ -81,6 +82,7 @@ export function mapProject(row: ProjectRow): Project {
 		projectKey: row.project_key,
 		repositories,
 		readinessRules: JSON.parse(row.readiness_rules_json || "[]"),
+		mergeRequirements: JSON.parse(row.merge_requirements_json || "[]"),
 		readinessRevision: row.readiness_revision ?? 1,
 		description: row.description,
 		owner: row.owner,
@@ -379,7 +381,7 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 }
 
 export async function projectsReadinessRoute(c: Context<AppEnv>) {
-	const raw = await readJsonBodyWithSize(c, 65536);
+	const raw = await readJsonBodyWithSize(c, 1024 * 1024);
 	if (!raw.ok)
 		return c.json(
 			{ error: "Invalid readiness settings body" },

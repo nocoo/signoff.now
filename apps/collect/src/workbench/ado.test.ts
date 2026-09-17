@@ -4,6 +4,7 @@ import { AdoError, type AdoPagedClient } from "../ado/client.js";
 import {
 	BuildService,
 	collectProjectPulls,
+	discoverMergeRequirements,
 	policyArtifactId,
 	policyEvaluationsUrl,
 } from "./ado.js";
@@ -31,6 +32,50 @@ function makeMockProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("collectProjectPulls", () => {
+	test("discovers enabled blocking requirements across policy pages and only within monitored repositories", async () => {
+		const seen: string[] = [];
+		const config = (id: number, repositoryId: string | null, extra = {}) => ({
+			id,
+			isEnabled: true,
+			isBlocking: true,
+			type: {
+				displayName: "Minimum number of reviewers",
+				id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd",
+			},
+			settings: {
+				minimumApproverCount: 2,
+				scope: [{ repositoryId, refName: "refs/heads/main" }],
+			},
+			...extra,
+		});
+		const client = {
+			getPage: async (url: string) => {
+				seen.push(url);
+				return url.includes("continuationToken=")
+					? { data: { value: [config(4, null)] }, continuationToken: null }
+					: {
+							data: {
+								value: [
+									config(1, "repo"),
+									config(2, "other"),
+									config(3, "repo", { isBlocking: false }),
+								],
+							},
+							continuationToken: "next",
+						};
+			},
+		} as AdoPagedClient;
+		const gates = await discoverMergeRequirements(client, makeMockProject(), [
+			{ id: "repo", name: "App", projectGuid: "guid" },
+		]);
+		expect(gates.map((gate) => gate.id)).toEqual(["policy-1", "policy-4"]);
+		expect(gates[0]).toMatchObject({
+			kind: "review",
+			name: "Minimum number of reviewers",
+		});
+		expect(gates[0]?.detail).toContain("2 approvals");
+		expect(seen).toHaveLength(2);
+	});
 	test("collects checks only for the visible selection, without enumerating or prefetching other PRs", async () => {
 		const project = makeMockProject();
 		const raw = (number: number) => ({
@@ -159,7 +204,9 @@ describe("collectProjectPulls", () => {
 		});
 		expect(
 			calls.some((url) =>
-				/policy|statuses|builds|timeline|threads|iterations/.test(url),
+				/policy\/evaluations|statuses|builds|timeline|threads|iterations/.test(
+					url,
+				),
 			),
 		).toBe(false);
 	});

@@ -1,10 +1,9 @@
 import {
-	DEFAULT_READINESS_RULES,
 	type Project,
 	type PullRequest,
+	projectMergeRequirements,
 	projectReadinessRules,
 	type ReadinessRule,
-	readinessRuleKey,
 	readinessRulesSchema,
 } from "@signoff/domain/workbench";
 import { useState } from "react";
@@ -14,29 +13,21 @@ export function useReadinessFormViewModel(
 	pulls: PullRequest[],
 	onSave: (rules: ReadinessRule[]) => Promise<boolean>,
 ) {
-	const [rules, setRules] = useState(() => [...projectReadinessRules(project)]);
+	const requirements = projectMergeRequirements(project, pulls);
+	const [rules, setRules] = useState(() =>
+		projectReadinessRules(project, pulls),
+	);
 	const [error, setError] = useState<string | null>(null);
-	const policyNames = new Map<string, string>();
-	for (const pull of pulls.filter((item) => item.projectId === project.id)) {
-		for (const policy of pull.policies.filter((item) => item.required)) {
-			const key = policy.name.trim().toLowerCase();
-			if (!policyNames.has(key)) policyNames.set(key, policy.name.trim());
-		}
-	}
-	const keys = new Set(rules.map(readinessRuleKey));
-	const policyOptions = [...policyNames.values()]
-		.filter((name) => !keys.has(`policy:${name.toLowerCase()}`))
-		.sort((a, b) => a.localeCompare(b));
 	function update(next: ReadinessRule[]) {
 		setRules(next);
 		setError(null);
 	}
 	return {
 		rules,
+		requirements,
 		error,
-		policyOptions,
 		moveRule: (key: string, index: number) => {
-			const from = rules.findIndex((rule) => readinessRuleKey(rule) === key);
+			const from = rules.findIndex((rule) => rule.gateId === key);
 			if (from < 0 || index < 0 || index >= rules.length) return;
 			const next = [...rules];
 			next.splice(index, 0, ...next.splice(from, 1));
@@ -44,25 +35,12 @@ export function useReadinessFormViewModel(
 		},
 		updateRule: (key: string, next: ReadinessRule) =>
 			update(
-				rules.map((rule) => (readinessRuleKey(rule) === key ? next : rule)),
-			),
-		addPolicy: (policy: string) => {
-			if (!policyOptions.includes(policy) || rules.length >= 50) return;
-			const next = [...rules];
-			next.splice(
-				rules.findIndex((rule) => "kind" in rule && rule.kind === "blocked"),
-				0,
-				{ policy, label: policy, color: "yellow" },
-			);
-			update(next);
-		},
-		removePolicy: (key: string) =>
-			update(
-				rules.filter(
-					(rule) => "kind" in rule || readinessRuleKey(rule) !== key,
+				rules.map((rule) =>
+					rule.gateId === key ? { ...next, gateId: key } : rule,
 				),
 			),
-		reset: () => update([...DEFAULT_READINESS_RULES]),
+		reset: () =>
+			update(projectReadinessRules({ ...project, readinessRules: [] }, pulls)),
 		submit: async () => {
 			const parsed = readinessRulesSchema.safeParse(rules);
 			if (!parsed.success) {

@@ -77,7 +77,10 @@ export function parseSeconds(isoStr: string | null | undefined): number | null {
 
 export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 	const cfg = evaluation.configuration;
-	const configuredName = cfg.settings?.displayName ?? cfg.settings?.statusName;
+	const configuredName =
+		cfg.settings?.displayName ??
+		cfg.settings?.statusName ??
+		evaluation.context?.buildDefinitionName;
 	const name =
 		(typeof configuredName === "string" && configuredName.trim()) ||
 		cfg.type?.displayName ||
@@ -89,15 +92,18 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 	const state = mapCheckState(evaluation.status);
 	const review =
 		cfg.type?.id?.toLowerCase() === "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" ||
+		cfg.type?.id?.toLowerCase() === "fd2167ab-b0be-447a-8ec8-39368250530e" ||
 		/reviewer/i.test(name);
+	const build =
+		cfg.type?.id?.toLowerCase() === "0609b952-1397-4640-95ec-e00a01b2c241";
 	const reviewAction = `Request the required reviewer approvals for ${name}.`;
 	const details: Record<CheckState, string> = {
 		passed: `${name} passed.`,
 		failed: review
 			? reviewAction
 			: `Resolve ${name} in Azure DevOps, then rerun the check.`,
-		running: `Wait for ${name} to finish.`,
-		queued: `Wait for ${name} to start.`,
+		running: review ? reviewAction : `Wait for ${name} to finish.`,
+		queued: review ? reviewAction : `Wait for ${name} to start.`,
 		waiting: review
 			? reviewAction
 			: `Review the pending approval for ${name} in Azure DevOps.`,
@@ -108,6 +114,17 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 	return {
 		id: `policy-${cfg.id}`,
 		name,
+		kind: review
+			? "review"
+			: build
+				? "build"
+				: cfg.type?.id?.toLowerCase() === "cbdc66da-9728-4af8-aada-9a5a32e4a226"
+					? "status"
+					: "policy",
+		definitionId:
+			build && typeof cfg.settings?.buildDefinitionId === "number"
+				? String(cfg.settings.buildDefinitionId)
+				: undefined,
 		state,
 		required,
 		detail: details[state],
@@ -128,6 +145,7 @@ export function normalizeStatusPolicy(
 	return {
 		id: `status-${status.id ?? fullName}`,
 		name: fullName,
+		kind: "status",
 		state,
 		required,
 		detail: status.description || rawState,
@@ -203,6 +221,7 @@ export function normalizeBuild(item: BuildWithStages): Build {
 	return {
 		id: String(b.id),
 		name,
+		definitionId: b.definition ? String(b.definition.id) : undefined,
 		number: b.id,
 		state,
 		required: item.required ?? true,
@@ -382,6 +401,7 @@ export function normalizePullRequest(opts: {
 		updatedAt: updatedSec,
 		observedAt: nowSec,
 		headSha: rawPr.lastMergeSourceCommit?.commitId ?? null,
+		targetSha: rawPr.lastMergeTargetCommit?.commitId ?? null,
 		checksObservedAt:
 			opts.checksObservedAt === undefined ? nowSec : opts.checksObservedAt,
 		requiredApprovals: evalRequiredApprovals,

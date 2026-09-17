@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
 	collectionJobSchema,
+	mergeRequirementSchema,
 	projectSchema,
 	projectWriteSchema,
 	pullRequestSchema,
@@ -57,6 +58,7 @@ export const collectionFinishSchema = z
 		state: z.enum(["complete", "partial"]),
 		pullRequestCount: count,
 		message,
+		mergeRequirements: z.array(mergeRequirementSchema).max(1000).optional(),
 	})
 	.strict();
 export const collectionFailureSchema = z

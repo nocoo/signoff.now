@@ -1,5 +1,9 @@
 import { parseAdoRepositoryUrl } from "@signoff/domain/collection";
-import type { Project, PullRequest } from "@signoff/domain/workbench";
+import type {
+	MergeRequirement,
+	Project,
+	PullRequest,
+} from "@signoff/domain/workbench";
 import { AdoError, type AdoPagedClient } from "../ado/client.ts";
 import type { Logger } from "../logger.ts";
 import { isPipelineClientError } from "../pipeline/client.ts";
@@ -50,6 +54,7 @@ type Collect = (opts: {
 	pulls: PullRequest[];
 	state: "complete" | "partial";
 	message: string;
+	mergeRequirements?: MergeRequirement[];
 }>;
 type RunResult = {
 	processed: boolean;
@@ -132,6 +137,7 @@ export async function runCollectionOnce(opts: {
 			collected.state,
 			collected.pulls.length,
 			collected.message.slice(0, 1000),
+			collected.mergeRequirements,
 		);
 		log.info(
 			`${claim.project.name}: ${scan.pullRequestCount} real PRs · ${scan.state}. ${scan.message}`,

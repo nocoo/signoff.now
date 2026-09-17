@@ -222,7 +222,7 @@ describe("merge readiness", () => {
 			"merged",
 		);
 	});
-	test("consolidates identical next actions from distinct policy gates", () => {
+	test("retains distinct review requirements even when their display names match", () => {
 		const policies = ["review-policy-a", "review-policy-b"].map((id) => ({
 			id,
 			name: "Minimum number of reviewers",
@@ -234,8 +234,8 @@ describe("merge readiness", () => {
 		const pull = { ...ready, policies };
 		const result = pullReadiness(pull, project);
 		expect(pull.policies).toHaveLength(2);
-		expect(result.kind).toBe("running");
-		expect(result.issues).toHaveLength(1);
+		expect(result.kind).toBe("review");
+		expect(result.issues).toHaveLength(2);
 		expect(
 			pullReadiness(
 				{
@@ -247,7 +247,7 @@ describe("merge readiness", () => {
 				},
 				project,
 			).kind,
-		).toBe("blocked");
+		).toBe("review");
 	});
 
 	test("does not let optional failures block an otherwise approved PR", () => {

@@ -16,6 +16,55 @@ import {
 } from "./normalize.js";
 
 describe("workbench normalizer", () => {
+	test("retains reviewer policy semantics for queued and rejected evaluations", () => {
+		for (const status of ["queued", "rejected", "running"] as const) {
+			const policy = normalizePolicy({
+				status,
+				configuration: {
+					id: 17,
+					type: {
+						id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd",
+						displayName: "Minimum number of reviewers",
+					},
+					isEnabled: true,
+					isBlocking: true,
+					settings: { minimumApproverCount: 2, creatorVoteCounts: false },
+				},
+			});
+			expect(policy).toMatchObject({
+				id: "policy-17",
+				kind: "review",
+				state: mapCheckState(status),
+				required: true,
+			});
+			expect(policy.detail).toMatch(/reviewer approvals/);
+		}
+	});
+	test("links build policies to pipeline definitions instead of build runs", () => {
+		const policy = normalizePolicy({
+			status: "running",
+			configuration: {
+				id: 18,
+				type: {
+					id: "0609b952-1397-4640-95ec-e00a01b2c241",
+					displayName: "Build",
+				},
+				settings: { buildDefinitionId: 42 },
+			},
+			context: { buildDefinitionName: "PR validation", buildId: 100 },
+		});
+		expect(policy).toMatchObject({
+			kind: "build",
+			definitionId: "42",
+			name: "PR validation",
+		});
+		expect(
+			normalizeBuild({
+				build: { id: 101, definition: { id: 42, name: "PR validation" } },
+				stages: [],
+			}),
+		).toMatchObject({ definitionId: "42" });
+	});
 	test("conditional skipped stages do not block a successful required build", () => {
 		const stages = normalizeBuildStages([
 			{ id: "test", name: "Tests", type: "Stage", result: "succeeded" },

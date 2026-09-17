@@ -5,6 +5,7 @@ import {
 import {
 	type CollectorStatus,
 	collectionJobSchema,
+	type MergeRequirement,
 	type Project,
 	type ProjectWrite,
 	type PullRequest,
@@ -115,12 +116,14 @@ export function createCollectionClient(
 			state: "complete" | "partial",
 			pullRequestCount: number,
 			message: string,
+			mergeRequirements?: MergeRequirement[],
 		) =>
 			scanRunSchema.parse(
 				await jobRequest(lease, "complete", {
 					state,
 					pullRequestCount,
 					message,
+					mergeRequirements,
 				}),
 			),
 		fail: (

@@ -2,6 +2,7 @@ import {
 	type Project,
 	type PullReadiness,
 	type PullRequest,
+	projectMergeRequirements,
 	pullProgress,
 	pullReadiness,
 	readinessKindSchema,
@@ -60,7 +61,15 @@ export const DEFAULT_REFRESH_INTERVAL = 120;
 const ATTENTION = new Set(["blocked", "approval", "review", "unknown"]);
 
 export function pullRows(data: Workbench): PullRow[] {
-	const projects = new Map(data.projects.map((p) => [p.id, p]));
+	const projects = new Map(
+		data.projects.map((p) => [
+			p.id,
+			{
+				...p,
+				mergeRequirements: projectMergeRequirements(p, data.pullRequests),
+			},
+		]),
+	);
 	return data.pullRequests.flatMap((pull) => {
 		const project = projects.get(pull.projectId);
 		return project

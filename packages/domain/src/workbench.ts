@@ -37,10 +37,28 @@ export const readinessColorSchema = z.enum([
 	"gray",
 ]);
 export type ReadinessColor = z.infer<typeof readinessColorSchema>;
-const readinessRuleSchema = z.union([
-	z.object({ kind: readinessKindSchema, color: readinessColorSchema }).strict(),
-	z.object({ policy: name, label: name, color: readinessColorSchema }).strict(),
+export const mergeRequirementKindSchema = z.enum([
+	"conflict",
+	"review",
+	"build",
+	"status",
+	"policy",
 ]);
+export const mergeRequirementSchema = z.object({
+	id: name,
+	name,
+	kind: mergeRequirementKindSchema,
+	definitionId: name.optional(),
+	detail: z.string().max(1000).optional(),
+});
+export type MergeRequirement = z.infer<typeof mergeRequirementSchema>;
+const readinessRuleSchema = z
+	.object({
+		gateId: name,
+		label: name,
+		color: readinessColorSchema,
+	})
+	.strict();
 export type ReadinessRule = z.infer<typeof readinessRuleSchema>;
 export const READINESS_LABELS: Record<ReadinessKind, string> = {
 	ready: "Ready to merge",
@@ -53,33 +71,24 @@ export const READINESS_LABELS: Record<ReadinessKind, string> = {
 	merged: "Merged",
 	closed: "Closed",
 };
-export const DEFAULT_READINESS_RULES: ReadinessRule[] = [
-	{ kind: "ready", color: "green" },
-	{ kind: "approval", color: "yellow" },
-	{ kind: "review", color: "orange" },
-	{ kind: "running", color: "blue" },
-	{ kind: "unknown", color: "gray" },
-	{ kind: "blocked", color: "red" },
-	{ kind: "draft", color: "gray" },
-	{ kind: "merged", color: "purple" },
-	{ kind: "closed", color: "gray" },
-];
-export function readinessRuleKey(rule: ReadinessRule): string {
-	return "kind" in rule
-		? `kind:${rule.kind}`
-		: `policy:${rule.policy.trim().toLowerCase()}`;
-}
+const READINESS_COLORS: Record<ReadinessKind, ReadinessColor> = {
+	ready: "green",
+	approval: "yellow",
+	review: "orange",
+	running: "blue",
+	unknown: "gray",
+	blocked: "red",
+	draft: "gray",
+	merged: "purple",
+	closed: "gray",
+};
+export const readinessRuleKey = (rule: ReadinessRule): string => rule.gateId;
 export const readinessRulesSchema = z
 	.array(readinessRuleSchema)
-	.max(50)
+	.max(1000)
 	.refine(
-		(rules) =>
-			!rules.length ||
-			(new Set(rules.map(readinessRuleKey)).size === rules.length &&
-				readinessKindSchema.options.every((kind) =>
-					rules.some((rule) => "kind" in rule && rule.kind === kind),
-				)),
-		"Include every readiness state once, with no duplicate policy rules",
+		(rules) => new Set(rules.map(readinessRuleKey)).size === rules.length,
+		"Merge requirement IDs must be unique",
 	);
 export const readinessWriteSchema = z
 	.object({
@@ -111,6 +120,7 @@ export const projectSchema = z.object({
 	projectKey: name,
 	repositories: repositoryScopeSchema.optional(),
 	readinessRules: readinessRulesSchema.optional(),
+	mergeRequirements: z.array(mergeRequirementSchema).max(1000).optional(),
 	readinessRevision: z.number().int().positive().optional(),
 	description: z.string(),
 	owner: name,
@@ -180,6 +190,8 @@ const actorSchema = z.object({ id: name, name });
 export const policySchema = z.object({
 	id: name,
 	name,
+	kind: mergeRequirementKindSchema.optional(),
+	definitionId: name.optional(),
 	state: checkStateSchema,
 	required: z.boolean(),
 	detail: z.string(),
@@ -193,6 +205,7 @@ export type BuildStage = z.infer<typeof stageSchema>;
 export const buildSchema = z.object({
 	id: name,
 	name,
+	definitionId: name.optional(),
 	number: z.number().int().positive(),
 	state: checkStateSchema,
 	required: z.boolean(),
@@ -221,6 +234,7 @@ export const pullRequestSchema = z.object({
 	updatedAt: instant,
 	observedAt: instant,
 	headSha: z.string().max(240).nullable().optional(),
+	targetSha: z.string().max(240).nullable().optional(),
 	checksObservedAt: instant.nullable().optional(),
 	requiredApprovals: z.number().int().nonnegative(),
 	reviewers: z.array(
@@ -312,49 +326,156 @@ export type PullIssue = {
 	label: string;
 	action: string;
 	owner: string;
-	policy?: string;
+	gateId?: string;
+	gateName?: string;
 };
-export type PullReadiness = {
+export type PullReadiness = Omit<PullIssue, "kind"> & {
 	kind: ReadinessKind;
-	label: string;
-	action: string;
-	owner: string;
-	policy?: string;
 	issues: PullIssue[];
+	rank?: number;
+	color?: ReadinessColor;
 };
-export function projectReadinessRules(project: Project): ReadinessRule[] {
-	return project.readinessRules?.length
-		? project.readinessRules
-		: DEFAULT_READINESS_RULES;
+const CONFLICT_GATE: MergeRequirement = {
+	id: "merge-conflicts",
+	name: "Resolve merge conflicts",
+	kind: "conflict",
+};
+const REVIEW_GATE: MergeRequirement = {
+	id: "review-approvals",
+	name: "Required reviewer approvals",
+	kind: "review",
+};
+const gateKindOrder = {
+	conflict: 0,
+	review: 1,
+	build: 2,
+	status: 3,
+	policy: 4,
+};
+const buildGateId = (build: Build) =>
+	`build:${build.definitionId ?? build.name.trim().toLowerCase()}`;
+// Old snapshots did not carry the policy type; their names remain a conservative fallback until recollected.
+export const policyKind = (policy: Policy): MergeRequirement["kind"] =>
+	policy.kind ?? (/reviewer/i.test(policy.name) ? "review" : "policy");
+
+/** All applicable merge requirements, including passed ones; IDs distinguish similarly named policies. */
+export function projectMergeRequirements(
+	project: Project,
+	pulls: PullRequest[] = [],
+): MergeRequirement[] {
+	const scoped = pulls.filter((pull) => pull.projectId === project.id);
+	const requirements = new Map(
+		(project.mergeRequirements ?? []).map((gate) => [gate.id, gate]),
+	);
+	if (scoped.length) requirements.set(CONFLICT_GATE.id, CONFLICT_GATE);
+	for (const pull of scoped) {
+		for (const policy of pull.policies.filter((item) => item.required)) {
+			const previous = requirements.get(policy.id);
+			requirements.set(policy.id, {
+				...previous,
+				id: policy.id,
+				name: policy.name,
+				kind: policyKind(policy),
+				definitionId: policy.definitionId ?? previous?.definitionId,
+			});
+		}
+		if (
+			!pull.policies.some(
+				(policy) => policy.required && policyKind(policy) === "review",
+			) &&
+			(pull.requiredApprovals > 0 ||
+				pull.reviewers.some(
+					(reviewer) =>
+						reviewer.required || reviewer.vote === "changes_requested",
+				))
+		)
+			requirements.set(REVIEW_GATE.id, REVIEW_GATE);
+	}
+	const definitions = new Set(
+		[...requirements.values()]
+			.filter((gate) => gate.kind === "build" && gate.definitionId)
+			.map((gate) => gate.definitionId),
+	);
+	for (const pull of scoped)
+		for (const build of pull.builds.filter((item) => item.required)) {
+			if (build.definitionId && definitions.has(build.definitionId)) continue;
+			const id = buildGateId(build);
+			requirements.set(id, {
+				id,
+				name: build.name,
+				kind: "build",
+				definitionId: build.definitionId,
+			});
+		}
+	return [...requirements.values()].sort(
+		(a, b) =>
+			gateKindOrder[a.kind] - gateKindOrder[b.kind] ||
+			a.name.localeCompare(b.name) ||
+			a.id.localeCompare(b.id),
+	);
 }
 
-/** Smaller ranks are closer to ready; named policy rules precede kind fallbacks. */
+/** Workflow order: resolve the first unmet requirement, then work toward the final merge steps. */
+export function projectReadinessRules(
+	project: Project,
+	pulls: PullRequest[] = [],
+): ReadinessRule[] {
+	const gates = projectMergeRequirements(project, pulls);
+	const known = new Set(gates.map((gate) => gate.id));
+	const configured = (project.readinessRules ?? []).filter((rule) =>
+		known.has(rule.gateId),
+	);
+	const configuredIds = new Set(configured.map((rule) => rule.gateId));
+	return [
+		...gates
+			.filter((gate) => !configuredIds.has(gate.id))
+			.map(
+				(gate): ReadinessRule => ({
+					gateId: gate.id,
+					label: gate.name,
+					color:
+						gate.kind === "review"
+							? "orange"
+							: gate.kind === "build"
+								? "blue"
+								: "red",
+				}),
+			),
+		...configured,
+	];
+}
+
+/** Zero is merge-ready. Later remaining gates sort ahead of earlier unmet requirements. */
 export function readinessPriority(
-	readiness: Pick<PullReadiness, "kind" | "policy">,
+	readiness: Pick<PullReadiness, "kind" | "gateId" | "rank">,
 	project: Project,
 ): number {
+	if (readiness.rank !== undefined) return readiness.rank;
+	if (readiness.kind === "ready") return 0;
 	const rules = projectReadinessRules(project);
-	const policy = readiness.policy?.trim().toLowerCase();
-	const index =
-		policy === undefined
-			? -1
-			: rules.findIndex(
-					(rule) =>
-						"policy" in rule && rule.policy.trim().toLowerCase() === policy,
-				);
-	return index >= 0
-		? index
-		: rules.findIndex((rule) => "kind" in rule && rule.kind === readiness.kind);
+	const index = rules.findIndex((rule) => rule.gateId === readiness.gateId);
+	if (index >= 0) return (rules.length - index) / rules.length;
+	return {
+		approval: 1,
+		review: 1,
+		running: 1,
+		blocked: 1,
+		unknown: 2,
+		draft: 3,
+		merged: 4,
+		closed: 5,
+	}[readiness.kind];
 }
 export function readinessColor(
-	readiness: Pick<PullReadiness, "kind" | "policy">,
+	readiness: Pick<PullReadiness, "kind" | "gateId" | "color">,
 	project: Project,
 ): ReadinessColor {
 	return (
-		projectReadinessRules(project)[
-			readinessPriority(readiness, project)
-		] as ReadinessRule
-	).color;
+		readiness.color ??
+		project.readinessRules?.find((rule) => rule.gateId === readiness.gateId)
+			?.color ??
+		READINESS_COLORS[readiness.kind]
+	);
 }
 
 export function isFailed(state: CheckState): boolean {
@@ -424,6 +545,31 @@ function buildIssues(build: Build, author: string, owner: string): PullIssue[] {
 	return issues;
 }
 
+function buildRequirementIssues(pr: PullRequest, owner: string): PullIssue[] {
+	const issues: PullIssue[] = [];
+	for (const build of pr.builds.filter((b) => b.required)) {
+		const policies = pr.policies.filter(
+			(policy) =>
+				policy.required &&
+				policyKind(policy) === "build" &&
+				build.definitionId &&
+				policy.definitionId === build.definitionId,
+		);
+		const gates = policies.length
+			? policies
+			: [{ id: buildGateId(build), name: build.name }];
+		for (const gate of gates)
+			issues.push(
+				...buildIssues(build, pr.author.name, owner).map((issue) => ({
+					...issue,
+					gateId: gate.id,
+					gateName: gate.name,
+				})),
+			);
+	}
+	return issues;
+}
+
 /** A passed pipeline never overrides a conflict, missing review, or unknown gate. */
 export function pullReadiness(
 	pr: PullRequest,
@@ -455,19 +601,24 @@ export function pullReadiness(
 			issues: [],
 		};
 	const issues: PullIssue[] = [];
+	const rules = projectReadinessRules(project, [pr]);
+	const gateIndex = (issue: PullIssue) => {
+		const index = rules.findIndex((rule) => rule.gateId === issue.gateId);
+		return index < 0 ? rules.length : index;
+	};
 	const add = (
 		kind: PullIssue["kind"],
 		label: string,
 		action: string,
 		who = owner,
-		policy?: string,
+		gate?: Pick<MergeRequirement, "id" | "name">,
 	) =>
 		issues.push({
 			kind,
 			label,
 			action,
 			owner: who,
-			...(policy === undefined ? {} : { policy }),
+			...(gate ? { gateId: gate.id, gateName: gate.name } : {}),
 		});
 	if (pr.mergeable === "conflicts")
 		add(
@@ -475,46 +626,42 @@ export function pullReadiness(
 			"Merge conflict",
 			`Resolve conflicts with ${pr.targetBranch}`,
 			pr.author.name,
+			CONFLICT_GATE,
 		);
 	const changes = pr.reviewers.filter((r) => r.vote === "changes_requested");
-	if (changes.length)
+	const hasReviewPolicy = pr.policies.some(
+		(policy) => policy.required && policyKind(policy) === "review",
+	);
+	if (changes.length && !hasReviewPolicy)
 		add(
 			"blocked",
 			"Changes requested",
 			`Address ${changes.map((r) => r.name).join(" and ")}'s review feedback`,
 			pr.author.name,
+			REVIEW_GATE,
 		);
 	for (const policy of pr.policies.filter((p) => p.required)) {
-		if (isFailed(policy.state))
-			add("blocked", "Policy failed", policy.detail, policy.owner, policy.name);
+		if (
+			policyKind(policy) === "review" &&
+			["failed", "queued", "running", "waiting"].includes(policy.state)
+		)
+			add("review", "Review needed", policy.detail, policy.owner, policy);
+		else if (isFailed(policy.state))
+			add("blocked", "Policy failed", policy.detail, policy.owner, policy);
 		else if (policy.state === "waiting")
-			add(
-				"approval",
-				"Approval needed",
-				policy.detail,
-				policy.owner,
-				policy.name,
-			);
+			add("approval", "Approval needed", policy.detail, policy.owner, policy);
 		else if (policy.state === "running" || policy.state === "queued")
-			add(
-				"running",
-				"Checks running",
-				policy.detail,
-				policy.owner,
-				policy.name,
-			);
+			add("running", "Checks running", policy.detail, policy.owner, policy);
 		else if (policy.state !== "passed")
 			add(
 				"unknown",
 				"Check unavailable",
 				`Verify ${policy.name.toLowerCase()}`,
 				policy.owner,
-				policy.name,
+				policy,
 			);
 	}
-	for (const build of pr.builds.filter((b) => b.required)) {
-		issues.push(...buildIssues(build, pr.author.name, owner));
-	}
+	issues.push(...buildRequirementIssues(pr, owner));
 	const approvals = approvalCount(pr);
 	const pending = pr.reviewers.find(
 		(r) =>
@@ -528,6 +675,16 @@ export function pullReadiness(
 				? `Review requested from ${pending.name}`
 				: `${pr.requiredApprovals - approvals} more approval${pr.requiredApprovals - approvals === 1 ? "" : "s"} needed`,
 			pending?.name,
+			pr.policies.find(
+				(policy) =>
+					policy.required &&
+					policyKind(policy) === "review" &&
+					policy.state !== "passed",
+			) ??
+				pr.policies.find(
+					(policy) => policy.required && policyKind(policy) === "review",
+				) ??
+				REVIEW_GATE,
 		);
 	}
 	if (!project.enabled)
@@ -552,21 +709,46 @@ export function pullReadiness(
 			"Scan incomplete",
 			"Rescan to retrieve the missing PR checks",
 		);
-	const uniqueIssues = [
-		...new Map(issues.map((issue) => [JSON.stringify(issue), issue])).values(),
-	]
-		.map((issue) => {
-			const rule = projectReadinessRules(project)[
-				readinessPriority(issue, project)
-			] as ReadinessRule;
-			return "policy" in rule ? { ...issue, label: rule.label } : issue;
-		})
+	const severity = {
+		blocked: 0,
+		unknown: 1,
+		review: 2,
+		approval: 3,
+		running: 4,
+	};
+	const byGate = new Map<string, PullIssue>();
+	for (const issue of issues) {
+		const key = issue.gateId ?? issue.label;
+		const previous = byGate.get(key);
+		if (!previous || severity[issue.kind] <= severity[previous.kind])
+			byGate.set(key, issue);
+	}
+	const uniqueIssues = [...byGate.values()]
 		.sort(
-			(a, b) => readinessPriority(b, project) - readinessPriority(a, project),
-		);
+			(a, b) =>
+				(project.readinessRules?.length
+					? gateIndex(a) - gateIndex(b)
+					: severity[a.kind] - severity[b.kind]) ||
+				gateIndex(a) - gateIndex(b) ||
+				severity[a.kind] - severity[b.kind],
+		)
+		.map((issue) => {
+			const configured = project.readinessRules?.find(
+				(rule) => rule.gateId === issue.gateId,
+			);
+			return configured ? { ...issue, label: configured.label } : issue;
+		});
 	const first = uniqueIssues[0];
 	return first
-		? { ...first, issues: uniqueIssues }
+		? {
+				...first,
+				issues: uniqueIssues,
+				rank:
+					first.gateId && gateIndex(first) < rules.length
+						? (rules.length - gateIndex(first)) / rules.length
+						: 2,
+				color: readinessColor(first, project),
+			}
 		: {
 				kind: "ready",
 				label: "Ready to merge",
