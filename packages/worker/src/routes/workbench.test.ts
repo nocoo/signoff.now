@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+	collectionJobSchema,
 	type Project,
 	projectSchema,
 	scanRunSchema,
@@ -56,8 +57,33 @@ async function snapshot() {
 	expect(response.headers.get("cache-control")).toBe("no-store");
 	return workbenchSchema.parse(await response.json());
 }
+async function insertDemoProject(
+	extra: Record<string, unknown> = {},
+): Promise<Project> {
+	const id = crypto.randomUUID();
+	const timestamp = Math.floor(Date.now() / 1000);
+	sqlite.raw
+		.query(
+			`INSERT INTO projects (id, provider, name, organization, project_key, description, owner, enabled, source, revision, created_at, updated_at)
+			 VALUES (?, 'ado', ?, ?, ?, ?, ?, ?, 'demo', 1, ?, ?)`,
+		)
+		.run(
+			id,
+			body.name,
+			String(extra.organization ?? body.organization),
+			String(extra.projectKey ?? body.projectKey),
+			body.description,
+			body.owner,
+			extra.enabled === false ? 0 : 1,
+			timestamp,
+			timestamp,
+		);
+	const project = (await snapshot()).projects.find((row) => row.id === id);
+	expect(project).toBeDefined();
+	return project!;
+}
 async function scannedProject() {
-	const project = await create();
+	const project = await insertDemoProject();
 	const response = await request(`/api/projects/${project.id}/scan`, "POST", {
 		revision: project.revision,
 	});
@@ -104,6 +130,91 @@ describe("project CRUD with actual SQLite", () => {
 		expect(empty.projects).toEqual([]);
 		expect(empty.pullRequests).toEqual([]);
 		expect(empty.scans).toEqual([]);
+	});
+	test("creates CLI projects even in demo mode and stores repository scope", async () => {
+		const project = await create({
+			repositories: ["api-gateway", "platform-sdk"],
+		});
+		expect(project.source).toBe("cli");
+		expect(project.repositories).toEqual(["api-gateway", "platform-sdk"]);
+		const board = await snapshot();
+		expect(board.collector).toBeNull();
+		expect(board.collectionJobs).toEqual([]);
+		expect(board.projects[0]?.source).toBe("cli");
+		expect(board.projects[0]?.repositories).toEqual([
+			"api-gateway",
+			"platform-sdk",
+		]);
+	});
+	test("scope edits clear snapshots and history using the old revision", async () => {
+		const project = await create({ repositories: ["api-gateway"] });
+		const pull = {
+			id: "ado:scope:repo:1",
+			projectId: project.id,
+			externalId: "1",
+			number: 1,
+			repository: { id: "repo", name: "api-gateway" },
+			title: "Scope fixture",
+			description: "",
+			author: { id: "maya", name: "Maya Chen" },
+			sourceBranch: "feature/scope",
+			targetBranch: "main",
+			state: "open",
+			draft: false,
+			mergeable: "clear",
+			coverage: "complete",
+			createdAt: 10,
+			updatedAt: 20,
+			observedAt: 30,
+			requiredApprovals: 0,
+			reviewers: [],
+			policies: [],
+			builds: [],
+			labels: [],
+			filesChanged: null,
+			additions: null,
+			deletions: null,
+			comments: null,
+			activity: [],
+		};
+		sqlite.raw
+			.query(
+				`INSERT INTO pull_requests (id, project_id, repository_id, external_id, state, updated_at, snapshot)
+				 VALUES (?, ?, 'repo', '1', 'open', 20, ?)`,
+			)
+			.run(pull.id, project.id, JSON.stringify(pull));
+		sqlite.raw
+			.query(
+				`INSERT INTO scan_runs (id, project_id, source, state, started_at, completed_at, pull_request_count, advanced_stages, message)
+				 VALUES (?, ?, 'cli', 'complete', 20, 20, 1, 0, 'prior')`,
+			)
+			.run(crypto.randomUUID(), project.id);
+		sqlite.raw
+			.query(
+				`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, updated_at, completed_pulls, message)
+				 VALUES (?, ?, ?, 'queued', 20, 20, 0, 'waiting')`,
+			)
+			.run(crypto.randomUUID(), project.id, project.revision);
+		const renamed = await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: project.revision,
+			name: "Still scoped",
+		});
+		expect(renamed.status).toBe(200);
+		expect((await snapshot()).pullRequests).toHaveLength(1);
+		const scoped = await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: projectSchema.parse(await renamed.json()).revision,
+			repositories: ["platform-sdk"],
+		});
+		expect(scoped.status).toBe(200);
+		const after = await snapshot();
+		expect(after.projects[0]?.repositories).toEqual(["platform-sdk"]);
+		expect(after.pullRequests).toEqual([]);
+		expect(after.scans).toEqual([]);
+		expect(
+			after.collectionJobs?.filter((job) =>
+				["queued", "running", "auth_required"].includes(job.state),
+			),
+		).toEqual([]);
 	});
 	test("rejects duplicate identities case-insensitively and rolls back source-change invalidation", async () => {
 		const project = await scannedProject();
@@ -265,16 +376,6 @@ describe("local-only demo scanning", () => {
 				)
 			).status,
 		).toBe(403);
-		sqlite.raw
-			.query("UPDATE projects SET source = 'cli' WHERE id = ?")
-			.run(project.id);
-		expect(
-			(
-				await request(`/api/projects/${project.id}/scan`, "POST", {
-					revision: project.revision,
-				})
-			).status,
-		).toBe(409);
 		expect((await snapshot()).pullRequests).toEqual(before.pullRequests);
 		const created = await request(
 			"/api/projects",
@@ -297,6 +398,126 @@ describe("local-only demo scanning", () => {
 				})
 			).status,
 		).toBe(413);
+	});
+	test("enqueues one CLI collection job per revision and returns it again", async () => {
+		const project = await create();
+		expect(project.source).toBe("cli");
+		const first = await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: project.revision,
+		});
+		expect(first.status).toBe(200);
+		const job = collectionJobSchema.parse(await first.json());
+		expect(job.state).toBe("queued");
+		expect(job.projectId).toBe(project.id);
+		expect(job.revision).toBe(project.revision);
+		const again = await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: project.revision,
+		});
+		expect(again.status).toBe(200);
+		expect(collectionJobSchema.parse(await again.json()).id).toBe(job.id);
+		const paused = await create({
+			projectKey: "Paused",
+			enabled: false,
+		});
+		expect(
+			(
+				await request(`/api/projects/${paused.id}/scan`, "POST", {
+					revision: paused.revision,
+				})
+			).status,
+		).toBe(409);
+		expect(
+			(
+				await request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: project.revision + 1,
+				})
+			).status,
+		).toBe(409);
+		const board = await snapshot();
+		expect(board.collectionJobs).toHaveLength(1);
+		expect(board.collectionJobs?.[0]?.id).toBe(job.id);
+		expect(JSON.stringify(board)).not.toContain("leaseToken");
+		expect(JSON.stringify(board)).not.toContain("lease_token");
+	});
+	test("CLI scan fails closed when the project changes during enqueue", async () => {
+		const project = await create({ projectKey: "StaleEnqueue" });
+		sqlite.beforeBatch("INSERT INTO collection_jobs", () => {
+			sqlite.raw
+				.query("UPDATE projects SET revision = revision + 1 WHERE id = ?")
+				.run(project.id);
+		});
+		expect(
+			(
+				await request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: project.revision,
+				})
+			).status,
+		).toBe(409);
+	});
+	test("returns the competing CLI job when insert loses the unique slot", async () => {
+		const project = await create({ projectKey: "Race" });
+		const competing = crypto.randomUUID();
+		const timestamp = Math.floor(Date.now() / 1000);
+		sqlite.beforeBatch("INSERT INTO collection_jobs", () => {
+			sqlite.raw
+				.query(
+					`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, updated_at, completed_pulls, message)
+					 VALUES (?, ?, ?, 'queued', ?, ?, 0, 'waiting')`,
+				)
+				.run(competing, project.id, project.revision, timestamp, timestamp);
+		});
+		const response = await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: project.revision,
+		});
+		expect(response.status).toBe(200);
+		expect(collectionJobSchema.parse(await response.json()).id).toBe(competing);
+	});
+	test("refuses demo scans that already exceed the sample cap", async () => {
+		const project = await insertDemoProject({ projectKey: "Overflow" });
+		for (let index = 0; index < 41; index++) {
+			const pull = {
+				id: `${project.id}-pr-${index}`,
+				projectId: project.id,
+				externalId: String(index + 1),
+				number: index + 1,
+				repository: { id: "repo", name: "services" },
+				title: "Overflow",
+				description: "",
+				author: { id: "maya", name: "Maya Chen" },
+				sourceBranch: "feature/overflow",
+				targetBranch: "main",
+				state: "open",
+				draft: false,
+				mergeable: "clear",
+				coverage: "complete",
+				createdAt: 10,
+				updatedAt: 20,
+				observedAt: 30,
+				requiredApprovals: 0,
+				reviewers: [],
+				policies: [],
+				builds: [],
+				labels: [],
+				filesChanged: null,
+				additions: null,
+				deletions: null,
+				comments: null,
+				activity: [],
+			};
+			sqlite.raw
+				.query(
+					`INSERT INTO pull_requests (id, project_id, repository_id, external_id, state, updated_at, snapshot)
+					 VALUES (?, ?, 'repo', ?, 'open', 20, ?)`,
+				)
+				.run(pull.id, project.id, String(index + 1), JSON.stringify(pull));
+		}
+		expect(
+			(
+				await request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: project.revision,
+				})
+			).status,
+		).toBe(400);
 	});
 	test("keeps paused projects unchanged", async () => {
 		const project = await create({ enabled: false });

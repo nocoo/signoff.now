@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./collection": "./src/collection.ts",
 		"./workbench": "./src/workbench.ts",
 		"./demo": "./src/demo.ts",
 		".": {

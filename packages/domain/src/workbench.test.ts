@@ -21,6 +21,64 @@ const ready = fixture.pullRequests.find(
 )!;
 
 describe("normalized PR contract", () => {
+	test("a queued build can be in progress before its timeline exists", () => {
+		expect(
+			pullReadiness(
+				{
+					...ready,
+					builds: [
+						{
+							...ready.builds[0]!,
+							required: true,
+							state: "queued",
+							stages: [],
+						},
+					],
+				},
+				project,
+			).kind,
+		).toBe("running");
+	});
+	test("excludes ineligible self approvals from the minimum reviewer count", () => {
+		const pull = pullRequestSchema.parse({
+			...ready,
+			requiredApprovals: 1,
+			reviewers: [
+				{
+					id: ready.author.id,
+					name: ready.author.name,
+					vote: "approved",
+					required: false,
+					countsTowardApproval: false,
+				},
+			],
+		});
+		expect(pullReadiness(pull, project)).toMatchObject({
+			kind: "review",
+			action: "1 more approval needed",
+		});
+	});
+	test("group review rollups do not count as an extra person's approval", () => {
+		const pull = pullRequestSchema.parse({
+			...ready,
+			requiredApprovals: 2,
+			reviewers: [
+				{ id: "person", name: "Reviewer", vote: "approved", required: false },
+				{
+					id: "team",
+					name: "Review team",
+					vote: "approved",
+					required: true,
+					isGroup: true,
+				},
+			],
+		});
+		expect(pull.reviewers[1]?.isGroup).toBe(true);
+		expect(pullReadiness(pull, project)).toMatchObject({
+			kind: "review",
+			action: "1 more approval needed",
+		});
+	});
 	test("contains 38 persistent-ready scenarios across four projects", () => {
 		expect(fixture.projects).toHaveLength(4);
 		expect(fixture.pullRequests).toHaveLength(38);

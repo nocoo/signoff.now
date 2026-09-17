@@ -1,5 +1,8 @@
 import { advanceDemoPull, makeDemoPulls } from "@signoff/domain/demo";
 import {
+	type CollectionJob,
+	collectionJobSchema,
+	collectorStatusSchema,
 	type Project,
 	type PullRequest,
 	projectPatchSchema,
@@ -14,12 +17,13 @@ import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
 import type { AppEnv } from "../types.js";
 
-type ProjectRow = {
+export type ProjectRow = {
 	id: string;
 	provider: string;
 	name: string;
 	organization: string;
 	project_key: string;
+	repositories_json?: string;
 	description: string;
 	owner: string;
 	enabled: number;
@@ -30,6 +34,19 @@ type ProjectRow = {
 	last_scanned_at: number | null;
 	scan_state: string;
 	scan_message: string | null;
+};
+type JobRow = {
+	id: string;
+	project_id: string;
+	revision: number;
+	state: CollectionJob["state"];
+	requested_at: number;
+	started_at: number | null;
+	updated_at: number;
+	completed_at: number | null;
+	completed_pulls: number;
+	total_pulls: number | null;
+	message: string;
 };
 type ScanRow = {
 	id: string;
@@ -46,13 +63,18 @@ const BODY_LIMIT = 8192;
 const PR_LIMIT = 1000;
 const now = () => Math.floor(Date.now() / 1000);
 
-function mapProject(row: ProjectRow): Project {
+export function mapProject(row: ProjectRow): Project {
+	const parsed: unknown = JSON.parse(row.repositories_json || "[]");
+	const repositories = Array.isArray(parsed)
+		? parsed.filter((item): item is string => typeof item === "string")
+		: [];
 	return projectSchema.parse({
 		id: row.id,
 		provider: row.provider,
 		name: row.name,
 		organization: row.organization,
 		projectKey: row.project_key,
+		repositories,
 		description: row.description,
 		owner: row.owner,
 		enabled: row.enabled === 1,
@@ -64,6 +86,28 @@ function mapProject(row: ProjectRow): Project {
 		scanState: row.scan_state,
 		scanMessage: row.scan_message,
 	});
+}
+function mapCollectionJob(row: JobRow): CollectionJob {
+	return collectionJobSchema.parse({
+		id: row.id,
+		projectId: row.project_id,
+		revision: row.revision,
+		state: row.state,
+		requestedAt: row.requested_at,
+		startedAt: row.started_at,
+		updatedAt: row.updated_at,
+		completedAt: row.completed_at,
+		completedPulls: row.completed_pulls,
+		totalPulls: row.total_pulls,
+		message: row.message,
+	});
+}
+function scopeKey(items: string[] | undefined) {
+	return JSON.stringify(
+		[...(items ?? [])]
+			.map((item) => item.toLowerCase())
+			.sort((left, right) => left.localeCompare(right)),
+	);
 }
 
 async function getProject(c: Context<AppEnv>): Promise<Project | null> {
@@ -97,10 +141,25 @@ export async function workbenchRoute(c: Context<AppEnv>) {
 		c.env.DB.prepare(
 			"SELECT * FROM scan_runs ORDER BY completed_at DESC, id LIMIT 20",
 		),
+		c.env.DB.prepare(
+			"SELECT last_seen_at, state, message FROM collector_heartbeat WHERE id = 1",
+		),
+		c.env.DB.prepare(
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+			 FROM collection_jobs
+			 ORDER BY CASE WHEN state IN ('queued', 'running', 'auth_required') THEN 0 ELSE 1 END, updated_at DESC
+			 LIMIT 20`,
+		),
 	]);
 	const projects = (results[0]?.results ?? []) as ProjectRow[];
 	const pulls = (results[1]?.results ?? []) as { snapshot: string }[];
 	const scans = (results[2]?.results ?? []) as ScanRow[];
+	const heartbeat = (
+		results[3]?.results as
+			| { last_seen_at: number; state: string; message: string }[]
+			| undefined
+	)?.[0];
+	const jobs = (results[4]?.results ?? []) as JobRow[];
 	return c.json({
 		projects: projects.map(mapProject),
 		pullRequests: pulls
@@ -117,6 +176,14 @@ export async function workbenchRoute(c: Context<AppEnv>) {
 			advancedStages: r.advanced_stages,
 			message: r.message,
 		})),
+		collectionJobs: jobs.map(mapCollectionJob),
+		collector: heartbeat
+			? collectorStatusSchema.parse({
+					lastSeenAt: heartbeat.last_seen_at,
+					state: heartbeat.state,
+					message: heartbeat.message,
+				})
+			: null,
 		demoMode: demoMode(c),
 		fetchedAt: now(),
 		truncated: pulls.length > PR_LIMIT,
@@ -144,23 +211,25 @@ export async function projectsCreateRoute(c: Context<AppEnv>) {
 	const project: Project = {
 		...parsed.data,
 		id: crypto.randomUUID(),
-		source: demoMode(c) ? "demo" : "cli",
+		source: "cli",
 		revision: 1,
 		createdAt: now(),
 		updatedAt: now(),
 		lastScannedAt: null,
 		scanState: "never",
 		scanMessage: null,
+		repositories: parsed.data.repositories ?? [],
 	};
 	try {
-		await c.env.DB.prepare(`INSERT INTO projects (id, provider, name, organization, project_key, description, owner, enabled, source, revision, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+		await c.env.DB.prepare(`INSERT INTO projects (id, provider, name, organization, project_key, repositories_json, description, owner, enabled, source, revision, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
 			.bind(
 				project.id,
 				project.provider,
 				project.name,
 				project.organization,
 				project.projectKey,
+				JSON.stringify(project.repositories ?? []),
 				project.description,
 				project.owner,
 				Number(project.enabled),
@@ -214,7 +283,8 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 	const sourceChanged =
 		current.provider !== next.provider ||
 		current.organization.toLowerCase() !== next.organization.toLowerCase() ||
-		current.projectKey.toLowerCase() !== next.projectKey.toLowerCase();
+		current.projectKey.toLowerCase() !== next.projectKey.toLowerCase() ||
+		scopeKey(current.repositories) !== scopeKey(next.repositories);
 	if (sourceChanged) {
 		next.lastScannedAt = null;
 		next.scanState = "never";
@@ -231,12 +301,24 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				`DELETE FROM scan_runs WHERE project_id = ? AND ? = 1 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?)`,
 			).bind(current.id, Number(sourceChanged), current.id, revision),
 			c.env.DB.prepare(
-				`UPDATE projects SET provider = ?, name = ?, organization = ?, project_key = ?, description = ?, owner = ?, enabled = ?, revision = revision + 1, updated_at = ?, last_scanned_at = ?, scan_state = ?, scan_message = ? WHERE id = ? AND revision = ?`,
+				`DELETE FROM collection_staging WHERE job_id IN (
+					SELECT id FROM collection_jobs WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required')
+				) AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?)`,
+			).bind(current.id, current.id, revision),
+			c.env.DB.prepare(
+				`UPDATE collection_jobs
+				 SET state = 'failed', message = 'Project changed', completed_at = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL
+				 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required')
+				 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?)`,
+			).bind(next.updatedAt, next.updatedAt, current.id, current.id, revision),
+			c.env.DB.prepare(
+				`UPDATE projects SET provider = ?, name = ?, organization = ?, project_key = ?, repositories_json = ?, description = ?, owner = ?, enabled = ?, revision = revision + 1, updated_at = ?, last_scanned_at = ?, scan_state = ?, scan_message = ? WHERE id = ? AND revision = ?`,
 			).bind(
 				next.provider,
 				next.name,
 				next.organization,
 				next.projectKey,
+				JSON.stringify(next.repositories ?? []),
 				next.description,
 				next.owner,
 				Number(next.enabled),
@@ -248,7 +330,7 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				revision,
 			),
 		]);
-		if (result[2]?.meta.changes !== 1)
+		if (result[4]?.meta.changes !== 1)
 			return c.json(
 				{ error: "This project changed. Refresh and try again." },
 				409,
@@ -288,12 +370,91 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 	return c.json({ ok: true });
 }
 
-export async function projectsScanRoute(c: Context<AppEnv>) {
-	if (!demoMode(c))
+async function enqueueCliScan(c: Context<AppEnv>, project: Project) {
+	const active = await c.env.DB.prepare(
+		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+		 FROM collection_jobs
+		 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ?
+		 LIMIT 1`,
+	)
+		.bind(project.id, project.revision)
+		.first<JobRow>();
+	if (active) return c.json(mapCollectionJob(active));
+	const timestamp = now();
+	const id = crypto.randomUUID();
+	const results = await c.env.DB.batch([
+		c.env.DB.prepare(
+			`DELETE FROM collection_staging WHERE job_id IN (
+				SELECT id FROM collection_jobs
+				WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision != ?
+			) AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1)`,
+		).bind(project.id, project.revision, project.id, project.revision),
+		c.env.DB.prepare(
+			`UPDATE collection_jobs
+			 SET state = 'failed', message = 'Project changed', completed_at = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL
+			 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision != ?
+			 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1)`,
+		).bind(
+			timestamp,
+			timestamp,
+			project.id,
+			project.revision,
+			project.id,
+			project.revision,
+		),
+		c.env.DB.prepare(
+			`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at)
+			 SELECT ?, ?, ?, 'queued', ?, NULL, ?, NULL, 0, NULL, 'Waiting for the local collector', NULL, NULL
+			 WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1)
+			 AND NOT EXISTS (
+				SELECT 1 FROM collection_jobs WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required')
+			 )`,
+		).bind(
+			id,
+			project.id,
+			project.revision,
+			timestamp,
+			timestamp,
+			project.id,
+			project.revision,
+			project.id,
+		),
+	]);
+	if (results[2]?.meta.changes !== 1) {
+		const again = await c.env.DB.prepare(
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message
+			 FROM collection_jobs
+			 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ?
+			 LIMIT 1`,
+		)
+			.bind(project.id, project.revision)
+			.first<JobRow>();
+		if (again) return c.json(mapCollectionJob(again));
 		return c.json(
-			{ error: "Demo scanning is only available in local demo mode" },
-			403,
+			{ error: "This project changed. Refresh and try again." },
+			409,
 		);
+	}
+	return c.json(
+		mapCollectionJob({
+			id,
+			project_id: project.id,
+			revision: project.revision,
+			state: "queued",
+			requested_at: timestamp,
+			started_at: null,
+			updated_at: timestamp,
+			completed_at: null,
+			completed_pulls: 0,
+			total_pulls: null,
+			message: "Waiting for the local collector",
+		}),
+	);
+}
+
+export async function projectsScanRoute(c: Context<AppEnv>) {
+	if (!isLocalhost(c.req.header("host") ?? ""))
+		return c.json({ error: "Scanning is only available on this machine" }, 403);
 	const raw = await readJsonBodyWithSize(c, BODY_LIMIT);
 	if (!raw.ok)
 		return c.json(
@@ -305,8 +466,6 @@ export async function projectsScanRoute(c: Context<AppEnv>) {
 		return c.json({ error: "Provide the current project revision" }, 400);
 	const project = await getProject(c);
 	if (!project) return c.json({ error: "Project not found" }, 404);
-	if (project.source !== "demo")
-		return c.json({ error: "Demo scans cannot modify CLI snapshots" }, 409);
 	if (!project.enabled)
 		return c.json(
 			{ error: "Resume monitoring before scanning this project" },
@@ -316,6 +475,12 @@ export async function projectsScanRoute(c: Context<AppEnv>) {
 		return c.json(
 			{ error: "This project changed. Refresh and try again." },
 			409,
+		);
+	if (project.source === "cli") return enqueueCliScan(c, project);
+	if (!demoMode(c))
+		return c.json(
+			{ error: "Demo scanning is only available in local demo mode" },
+			403,
 		);
 	const stored = await c.env.DB.prepare(
 		"SELECT snapshot FROM pull_requests WHERE project_id = ? ORDER BY id LIMIT 41",

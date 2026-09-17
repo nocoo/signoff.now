@@ -15,12 +15,28 @@ export const checkStateSchema = z.enum([
 ]);
 export type CheckState = z.infer<typeof checkStateSchema>;
 
+export const repositoryNameSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(200)
+	.regex(/^[^/\\?#:\p{Cc}]+$/u, "Enter repository names or IDs");
+const repositoryScopeSchema = z
+	.array(repositoryNameSchema)
+	.max(100)
+	.refine(
+		(items) =>
+			new Set(items.map((item) => item.toLowerCase())).size === items.length,
+		"Repository names must be unique",
+	);
+
 export const projectSchema = z.object({
 	id: name,
 	provider: providerSchema,
 	name,
 	organization: name,
 	projectKey: name,
+	repositories: repositoryScopeSchema.optional(),
 	description: z.string(),
 	owner: name,
 	enabled: z.boolean(),
@@ -39,6 +55,7 @@ export const projectWriteSchema = projectSchema
 		name: true,
 		organization: true,
 		projectKey: true,
+		repositories: true,
 		description: true,
 		owner: true,
 		enabled: true,
@@ -108,7 +125,7 @@ export const pullRequestSchema = z.object({
 	externalId: name,
 	number: z.number().int().positive(),
 	repository: z.object({ id: name, name }),
-	title: name,
+	title: z.string().trim().min(1).max(1000),
 	description: z.string(),
 	author: actorSchema,
 	sourceBranch: name,
@@ -117,6 +134,7 @@ export const pullRequestSchema = z.object({
 	draft: z.boolean(),
 	mergeable: z.enum(["clear", "conflicts", "unknown"]),
 	coverage: z.enum(["complete", "partial"]),
+	collectionIssues: z.array(z.string().max(1000)).max(100).optional(),
 	createdAt: instant,
 	updatedAt: instant,
 	observedAt: instant,
@@ -125,15 +143,17 @@ export const pullRequestSchema = z.object({
 		actorSchema.extend({
 			vote: z.enum(["approved", "changes_requested", "pending", "commented"]),
 			required: z.boolean(),
+			isGroup: z.boolean().optional(),
+			countsTowardApproval: z.boolean().optional(),
 		}),
 	),
 	policies: z.array(policySchema),
 	builds: z.array(buildSchema),
 	labels: z.array(name),
-	filesChanged: instant,
-	additions: instant,
-	deletions: instant,
-	comments: instant,
+	filesChanged: instant.nullable(),
+	additions: instant.nullable(),
+	deletions: instant.nullable(),
+	comments: instant.nullable(),
 	activity: z.array(
 		z.object({
 			id: name,
@@ -158,10 +178,43 @@ export const scanRunSchema = z.object({
 	message: z.string(),
 });
 export type ScanRun = z.infer<typeof scanRunSchema>;
+export const collectionJobSchema = z.object({
+	id: name,
+	projectId: name,
+	revision: z.number().int().positive(),
+	state: z.enum([
+		"queued",
+		"running",
+		"auth_required",
+		"complete",
+		"partial",
+		"failed",
+	]),
+	requestedAt: instant,
+	startedAt: instant.nullable(),
+	updatedAt: instant,
+	completedAt: instant.nullable(),
+	completedPulls: instant,
+	totalPulls: instant.nullable(),
+	message: z.string(),
+});
+export type CollectionJob = z.infer<typeof collectionJobSchema>;
+export const collectorStatusSchema = z.object({
+	lastSeenAt: instant,
+	state: z.enum(["ready", "auth_required", "error"]),
+	message: z.string(),
+});
+export type CollectorStatus = z.infer<typeof collectorStatusSchema>;
+export const scanRequestResultSchema = z.union([
+	scanRunSchema,
+	collectionJobSchema,
+]);
 export const workbenchSchema = z.object({
 	projects: z.array(projectSchema),
 	pullRequests: z.array(pullRequestSchema),
 	scans: z.array(scanRunSchema),
+	collectionJobs: z.array(collectionJobSchema).optional(),
+	collector: collectorStatusSchema.nullable().optional(),
 	demoMode: z.boolean(),
 	fetchedAt: instant,
 	truncated: z.boolean(),
@@ -197,6 +250,15 @@ export function isFailed(state: CheckState): boolean {
 	return state === "failed" || state === "canceled";
 }
 
+export function approvalCount(pr: Pick<PullRequest, "reviewers">): number {
+	return pr.reviewers.filter(
+		(reviewer) =>
+			!reviewer.isGroup &&
+			reviewer.countsTowardApproval !== false &&
+			reviewer.vote === "approved",
+	).length;
+}
+
 function buildIssue(
 	build: Build,
 	author: string,
@@ -225,11 +287,13 @@ function buildIssue(
 			action: waiting?.detail ?? `Approve ${build.name}`,
 			owner: waiting?.owner ?? owner,
 		};
+	const inProgress =
+		active || build.state === "running" || build.state === "queued";
 	if (
 		unknown ||
 		build.state === "unknown" ||
 		build.state === "skipped" ||
-		!required.length
+		(!required.length && !inProgress)
 	)
 		return {
 			kind: "unknown",
@@ -237,7 +301,7 @@ function buildIssue(
 			action: `Rescan ${build.name} to verify its stages`,
 			owner,
 		};
-	if (active || build.state === "running" || build.state === "queued")
+	if (inProgress)
 		return {
 			kind: "running",
 			label:
@@ -323,7 +387,7 @@ export function pullReadiness(
 		const issue = buildIssue(build, pr.author.name, owner);
 		if (issue) issues.push(issue);
 	}
-	const approvals = pr.reviewers.filter((r) => r.vote === "approved").length;
+	const approvals = approvalCount(pr);
 	const pending = pr.reviewers.find(
 		(r) =>
 			r.required && r.vote !== "approved" && r.vote !== "changes_requested",

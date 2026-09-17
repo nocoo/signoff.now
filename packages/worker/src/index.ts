@@ -7,6 +7,14 @@ import {
 	activityTimelineRoute,
 } from "./routes/activity.js";
 import {
+	collectorBatchRoute,
+	collectorClaimRoute,
+	collectorCompleteRoute,
+	collectorFailRoute,
+	collectorHeartbeatRoute,
+	collectorProgressRoute,
+} from "./routes/collection.js";
+import {
 	developersArchiveRoute,
 	developersCreateRoute,
 	developersListRoute,
@@ -67,6 +75,12 @@ app.post("/api/projects", projectsCreateRoute);
 app.patch("/api/projects/:id", projectsPatchRoute);
 app.delete("/api/projects/:id", projectsDeleteRoute);
 app.post("/api/projects/:id/scan", projectsScanRoute);
+app.post("/api/collector/heartbeat", collectorHeartbeatRoute);
+app.post("/api/collector/claim", collectorClaimRoute);
+app.post("/api/collector/jobs/:id/progress", collectorProgressRoute);
+app.post("/api/collector/jobs/:id/batch", collectorBatchRoute);
+app.post("/api/collector/jobs/:id/complete", collectorCompleteRoute);
+app.post("/api/collector/jobs/:id/fail", collectorFailRoute);
 
 app.get("/api/settings", settingsGetRoute);
 app.put("/api/settings", settingsPutRoute);
