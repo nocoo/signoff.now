@@ -1,4 +1,5 @@
 import { Button, Input } from "@nocoo/basalt";
+import { Toggle } from "@nocoo/basalt/components/toggle";
 import { useState } from "react";
 import { avatarColor, contrastTextColor } from "@/lib/avatar";
 import type { Tag } from "@/models/entities";
@@ -67,17 +68,15 @@ export function TagPicker({
 				{tags.map((t) => {
 					const on = selected.includes(t.id);
 					return (
-						<button
+						<Toggle
 							type="button"
 							key={t.id}
-							aria-pressed={on}
+							variant="outline"
+							size="sm"
+							pressed={on}
 							disabled={disabled}
-							onClick={() => onToggle(t.id)}
-							className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-								on
-									? "border-transparent"
-									: "border-basalt-border text-basalt-muted-foreground hover:bg-basalt-secondary"
-							}`}
+							onPressedChange={() => onToggle(t.id)}
+							className="gap-1.5"
 							style={
 								on
 									? {
@@ -94,7 +93,7 @@ export function TagPicker({
 								}}
 							/>
 							{t.name}
-						</button>
+						</Toggle>
 					);
 				})}
 				{tags.length === 0 ? (

@@ -6,10 +6,10 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
+	Field,
 	Input,
 } from "@nocoo/basalt";
 import { EntityAvatar } from "@/components/EntityAvatar";
-import { Field } from "@/components/Field";
 import { TagPicker } from "@/components/TagPicker";
 import type { Tag, Team } from "@/models/entities";
 import {
@@ -78,24 +78,18 @@ export function TeamDialog({
 
 				<div className="flex flex-col gap-4">
 					<Field label="Name">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.name}
-								placeholder="Team name"
-								onChange={(e) => vm.setField("name", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.name}
+							placeholder="Team name"
+							onChange={(e) => vm.setField("name", e.target.value)}
+						/>
 					</Field>
 					<Field label="Avatar URL">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.avatarUrl}
-								placeholder="https://…"
-								onChange={(e) => vm.setField("avatarUrl", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.avatarUrl}
+							placeholder="https://…"
+							onChange={(e) => vm.setField("avatarUrl", e.target.value)}
+						/>
 					</Field>
 
 					<fieldset className="flex flex-col gap-1.5">

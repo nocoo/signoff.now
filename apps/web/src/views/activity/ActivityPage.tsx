@@ -1,9 +1,16 @@
-import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { Button, Field, Input, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SectionRule } from "@nocoo/basalt/components/section-rule";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@nocoo/basalt/components/table";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EntityLabel } from "@/components/EntityAvatar";
-import { Field } from "@/components/Field";
 import { heatmapColor } from "@/lib/palette";
 import { useActivityHeatmapViewModel } from "@/viewmodels/useActivityHeatmapViewModel";
 
@@ -30,34 +37,25 @@ export function ActivityPage() {
 
 			<div className="grid gap-3 sm:grid-cols-4">
 				<Field label="Developer ids" className="sm:col-span-2">
-					{(id) => (
-						<Input
-							id={id}
-							value={vm.devs}
-							onChange={(e) => vm.setDevs(e.target.value)}
-							placeholder="id1,id2"
-						/>
-					)}
+					<Input
+						value={vm.devs}
+						onChange={(e) => vm.setDevs(e.target.value)}
+						placeholder="id1,id2"
+					/>
 				</Field>
 				<Field label="From">
-					{(id) => (
-						<Input
-							id={id}
-							type="date"
-							value={vm.from}
-							onChange={(e) => vm.setFrom(e.target.value)}
-						/>
-					)}
+					<Input
+						type="date"
+						value={vm.from}
+						onChange={(e) => vm.setFrom(e.target.value)}
+					/>
 				</Field>
 				<Field label="To">
-					{(id) => (
-						<Input
-							id={id}
-							type="date"
-							value={vm.to}
-							onChange={(e) => vm.setTo(e.target.value)}
-						/>
-					)}
+					<Input
+						type="date"
+						value={vm.to}
+						onChange={(e) => vm.setTo(e.target.value)}
+					/>
 				</Field>
 			</div>
 
@@ -110,33 +108,30 @@ export function ActivityPage() {
 
 			{vm.levels.length > 0 ? (
 				<LayerCard padding="none" className="overflow-x-auto">
-					<table className="w-full text-left text-sm">
-						<thead className="border-b border-basalt-border bg-basalt-secondary/50">
-							<tr>
-								<th className="px-3 py-2 font-medium">Developer</th>
-								<th className="px-3 py-2 font-medium">Day</th>
-								<th className="px-3 py-2 font-medium">Total</th>
-								<th className="px-3 py-2 font-medium">Count</th>
-								<th className="px-3 py-2 font-medium">Heat</th>
-							</tr>
-						</thead>
-						<tbody>
+					<Table aria-label="Daily developer scores">
+						<TableHeader>
+							<TableRow>
+								<TableHead>Developer</TableHead>
+								<TableHead>Day</TableHead>
+								<TableHead>Total</TableHead>
+								<TableHead>Count</TableHead>
+								<TableHead>Heat</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
 							{vm.levels.map((r) => (
-								<tr
-									key={`${r.developerId}-${r.dayKey}`}
-									className="border-b border-basalt-border/60"
-								>
-									<td className="px-3 py-2">
+								<TableRow key={`${r.developerId}-${r.dayKey}`}>
+									<TableCell>
 										<EntityLabel
 											name={vm.describe(r.developerId).name}
 											avatarUrl={vm.describe(r.developerId).avatarUrl}
 											size="sm"
 										/>
-									</td>
-									<td className="px-3 py-2">{r.dayKey}</td>
-									<td className="px-3 py-2">{r.total}</td>
-									<td className="px-3 py-2">{r.activityCount}</td>
-									<td className="px-3 py-2">
+									</TableCell>
+									<TableCell>{r.dayKey}</TableCell>
+									<TableCell>{r.total}</TableCell>
+									<TableCell>{r.activityCount}</TableCell>
+									<TableCell>
 										<span
 											className="inline-block h-4 w-4 rounded-sm"
 											style={{ background: heatmapColor(r.level) }}
@@ -144,11 +139,11 @@ export function ActivityPage() {
 											role="img"
 											aria-label={`Heat level ${r.level}`}
 										/>
-									</td>
-								</tr>
+									</TableCell>
+								</TableRow>
 							))}
-						</tbody>
-					</table>
+						</TableBody>
+					</Table>
 				</LayerCard>
 			) : vm.data && !vm.data.scoresStale ? (
 				<p className="text-sm text-basalt-muted-foreground">
@@ -164,15 +159,12 @@ export function ActivityPage() {
 					</p>
 					<div className="flex flex-wrap items-end gap-3">
 						<Field label="Developer id" className="min-w-[16rem] flex-1">
-							{(id) => (
-								<Input
-									id={id}
-									className="font-mono"
-									value={vm.timelineDev}
-									onChange={(e) => vm.setTimelineDev(e.target.value)}
-									placeholder="single developer id"
-								/>
-							)}
+							<Input
+								className="font-mono"
+								value={vm.timelineDev}
+								onChange={(e) => vm.setTimelineDev(e.target.value)}
+								placeholder="single developer id"
+							/>
 						</Field>
 						<Button
 							variant="outline"

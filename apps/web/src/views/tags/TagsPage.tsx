@@ -1,9 +1,17 @@
-import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { Button, Field, Input, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@nocoo/basalt/components/table";
 import { Tag as TagIcon } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
-import { Field } from "@/components/Field";
+import { EntityTag } from "@/components/EntityTag";
 import { SelectControl as Select } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
 import type { StatusFilter } from "@/models/entities";
@@ -18,47 +26,47 @@ export function TagsPage() {
 			<PageHeader
 				title="Tags"
 				description="Color labels for developers (filtering and comparison)."
+				actions={
+					<>
+						<p className="text-xs text-basalt-muted-foreground">
+							{vm.visible.length} of {vm.items.length}
+						</p>
+						<Button onClick={() => vm.setCreating(true)}>Add tag</Button>
+					</>
+				}
 			/>
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-3">
+			<LayerCard
+				role="search"
+				aria-label="Tags filters"
+				className="flex flex-wrap items-end gap-3"
+			>
 				<Field label="Search" className="w-56">
-					{(id) => (
-						<Input
-							id={id}
-							value={vm.filter.keyword}
-							placeholder="Tag name"
-							onChange={(e) =>
-								vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
-							}
-						/>
-					)}
+					<Input
+						value={vm.filter.keyword}
+						placeholder="Tag name"
+						onChange={(e) =>
+							vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
+						}
+					/>
 				</Field>
 				<Field label="Status" className="w-36">
-					{(id) => (
-						<Select
-							id={id}
-							value={vm.filter.status}
-							onChange={(value) =>
-								vm.setFilter((f) => ({
-									...f,
-									status: value as StatusFilter,
-								}))
-							}
-						>
-							<option value="active">Active</option>
-							<option value="archived">Archived</option>
-							<option value="all">All</option>
-						</Select>
-					)}
+					<Select
+						value={vm.filter.status}
+						onChange={(value) =>
+							vm.setFilter((f) => ({
+								...f,
+								status: value as StatusFilter,
+							}))
+						}
+					>
+						<option value="active">Active</option>
+						<option value="archived">Archived</option>
+						<option value="all">All</option>
+					</Select>
 				</Field>
-				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-basalt-muted-foreground">
-						{vm.visible.length} of {vm.items.length}
-					</p>
-					<Button onClick={() => vm.setCreating(true)}>Add tag</Button>
-				</div>
-			</section>
+			</LayerCard>
 
 			{vm.loading ? (
 				<LayerCard className="space-y-2">
@@ -77,57 +85,59 @@ export function TagsPage() {
 					/>
 				</LayerCard>
 			) : (
-				<LayerCard padding="none">
-					<ul className="divide-y divide-basalt-border">
-						{vm.visible.map((t) => (
-							<li
-								key={t.id}
-								className="flex items-center justify-between px-4 py-3 text-sm hover:bg-basalt-background/50"
-							>
-								<span className="flex items-center gap-2 font-medium">
-									<span
-										className="inline-block h-3 w-3 rounded-full ring-1 ring-basalt-border"
-										style={{ background: t.color }}
-									/>
-									{t.name}
-									<span className="font-mono text-xs text-basalt-muted-foreground">
+				<LayerCard padding="none" className="overflow-x-auto">
+					<Table aria-label="Tags">
+						<TableHeader>
+							<TableRow>
+								<TableHead>Name</TableHead>
+								<TableHead>Color</TableHead>
+								<TableHead className="text-right">Actions</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{vm.visible.map((t) => (
+								<TableRow key={t.id}>
+									<TableCell>
+										<EntityTag tag={t} />
+									</TableCell>
+									<TableCell className="font-mono text-xs text-basalt-muted-foreground">
 										{t.color}
-									</span>
-								</span>
-								<span className="space-x-2">
-									<Button
-										variant="outline"
-										size="sm"
-										aria-label={`Edit ${t.name}`}
-										onClick={() => vm.setEditing(t)}
-									>
-										Edit
-									</Button>
-									{t.archivedAt === null ? (
-										<Button
-											variant="destructive"
-											size="sm"
-											disabled={vm.busy}
-											aria-label={`Archive ${t.name}`}
-											onClick={() => void vm.archive(t.id)}
-										>
-											Archive
-										</Button>
-									) : (
+									</TableCell>
+									<TableCell className="space-x-2 whitespace-nowrap text-right">
 										<Button
 											variant="outline"
 											size="sm"
-											disabled={vm.busy}
-											aria-label={`Restore ${t.name}`}
-											onClick={() => void vm.restore(t.id)}
+											aria-label={`Edit ${t.name}`}
+											onClick={() => vm.setEditing(t)}
 										>
-											Restore
+											Edit
 										</Button>
-									)}
-								</span>
-							</li>
-						))}
-					</ul>
+										{t.archivedAt === null ? (
+											<Button
+												variant="destructive"
+												size="sm"
+												disabled={vm.busy}
+												aria-label={`Archive ${t.name}`}
+												onClick={() => void vm.archive(t.id)}
+											>
+												Archive
+											</Button>
+										) : (
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={vm.busy}
+												aria-label={`Restore ${t.name}`}
+												onClick={() => void vm.restore(t.id)}
+											>
+												Restore
+											</Button>
+										)}
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
 				</LayerCard>
 			)}
 

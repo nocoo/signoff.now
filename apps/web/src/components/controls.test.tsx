@@ -1,43 +1,7 @@
-import { Input } from "@nocoo/basalt";
+import { Field } from "@nocoo/basalt";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Field } from "./Field";
 import { SelectControl } from "./SelectControl";
-
-describe("Field", () => {
-	it("wires the label to the control it renders", () => {
-		render(<Field label="Team">{(id) => <Input id={id} />}</Field>);
-		expect(screen.getByLabelText("Team")).toBeTruthy();
-	});
-
-	it("uses Basalt's shared label gap", () => {
-		const { container } = render(
-			<Field label="Team">{(id) => <Input id={id} />}</Field>,
-		);
-		const wrapper = container.firstElementChild as HTMLElement;
-		expect(wrapper.className).toContain("gap-1.5");
-		expect(wrapper.className).not.toMatch(/space-y-/);
-	});
-
-	it("keeps a caller's layout class", () => {
-		const { container } = render(
-			<Field label="Team" className="w-44">
-				{(id) => <Input id={id} />}
-			</Field>,
-		);
-		expect(container.firstElementChild?.className).toContain("w-44");
-	});
-
-	it("shows an error in place of a hint", () => {
-		render(
-			<Field label="URL" hint="https://…" error="Must be https">
-				{(id) => <Input id={id} />}
-			</Field>,
-		);
-		expect(screen.getByRole("alert").textContent).toBe("Must be https");
-		expect(screen.queryByText("https://…")).toBeNull();
-	});
-});
 
 describe("SelectControl", () => {
 	const mount = (onChange = vi.fn()) =>
@@ -67,12 +31,10 @@ describe("SelectControl", () => {
 	it("preserves Field hint and error relationships on the trigger", () => {
 		const { rerender } = render(
 			<Field label="Enabled" hint="Disabled repos are skipped.">
-				{(id) => (
-					<SelectControl id={id} value="yes" onChange={vi.fn()}>
-						<option value="yes">Enabled</option>
-						<option value="no">Disabled</option>
-					</SelectControl>
-				)}
+				<SelectControl value="yes" onChange={vi.fn()}>
+					<option value="yes">Enabled</option>
+					<option value="no">Disabled</option>
+				</SelectControl>
 			</Field>,
 		);
 		let trigger = screen.getByRole("combobox", { name: "Enabled" });
@@ -81,12 +43,10 @@ describe("SelectControl", () => {
 
 		rerender(
 			<Field label="Enabled" error="Choose a collection state">
-				{(id) => (
-					<SelectControl id={id} value="yes" onChange={vi.fn()}>
-						<option value="yes">Enabled</option>
-						<option value="no">Disabled</option>
-					</SelectControl>
-				)}
+				<SelectControl value="yes" onChange={vi.fn()}>
+					<option value="yes">Enabled</option>
+					<option value="no">Disabled</option>
+				</SelectControl>
 			</Field>,
 		);
 		trigger = screen.getByRole("combobox", { name: "Enabled" });

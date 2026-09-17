@@ -1,9 +1,16 @@
-import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { Button, Field, Input, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@nocoo/basalt/components/table";
 import { GitBranch } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
-import { Field } from "@/components/Field";
 import { SelectControl as Select } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
 import type { StatusFilter } from "@/models/entities";
@@ -23,92 +30,82 @@ export function ReposPage() {
 			<PageHeader
 				title="Repos"
 				description="Azure DevOps repository bindings for local pipeline collection."
+				actions={
+					<>
+						<p className="text-xs text-basalt-muted-foreground">
+							{vm.visible.length} of {vm.items.length}
+						</p>
+						<Button onClick={() => vm.setCreating(true)}>Bind repo</Button>
+					</>
+				}
 			/>
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-3">
+			<LayerCard
+				role="search"
+				aria-label="Repos filters"
+				className="flex flex-wrap items-end gap-3"
+			>
 				<Field label="Search" className="w-56">
-					{(id) => (
-						<Input
-							id={id}
-							value={vm.filter.keyword}
-							placeholder="Org, project or name"
-							onChange={(e) =>
-								vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
-							}
-						/>
-					)}
+					<Input
+						value={vm.filter.keyword}
+						placeholder="Org, project or name"
+						onChange={(e) =>
+							vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
+						}
+					/>
 				</Field>
 				<Field label="Status" className="w-36">
-					{(id) => (
-						<Select
-							id={id}
-							value={vm.filter.status}
-							onChange={(value) =>
-								vm.setFilter((f) => ({
-									...f,
-									status: value as StatusFilter,
-								}))
-							}
-						>
-							<option value="active">Active</option>
-							<option value="archived">Archived</option>
-							<option value="all">All</option>
-						</Select>
-					)}
+					<Select
+						value={vm.filter.status}
+						onChange={(value) =>
+							vm.setFilter((f) => ({
+								...f,
+								status: value as StatusFilter,
+							}))
+						}
+					>
+						<option value="active">Active</option>
+						<option value="archived">Archived</option>
+						<option value="all">All</option>
+					</Select>
 				</Field>
 				<Field label="Provider" className="w-44">
-					{(id) => (
-						<Select
-							id={id}
-							value={vm.filter.provider ?? ""}
-							onChange={(value) =>
-								vm.setFilter((f) => ({
-									...f,
-									provider: value || null,
-								}))
-							}
-						>
-							<option value="">All providers</option>
-							{vm.providers.map((p) => (
-								<option key={p} value={p}>
-									{PROVIDER_LABELS[p] ?? p}
-								</option>
-							))}
-						</Select>
-					)}
+					<Select
+						value={vm.filter.provider ?? ""}
+						onChange={(value) =>
+							vm.setFilter((f) => ({
+								...f,
+								provider: value || null,
+							}))
+						}
+					>
+						<option value="">All providers</option>
+						{vm.providers.map((p) => (
+							<option key={p} value={p}>
+								{PROVIDER_LABELS[p] ?? p}
+							</option>
+						))}
+					</Select>
 				</Field>
 				<Field label="Collection" className="w-36">
-					{(id) => (
-						<Select
-							id={id}
-							value={
-								vm.filter.enabled === null
-									? ""
-									: vm.filter.enabled
-										? "yes"
-										: "no"
-							}
-							onChange={(value) =>
-								vm.setFilter((f) => ({
-									...f,
-									enabled: value === "" ? null : value === "yes",
-								}))
-							}
-						>
-							<option value="">Any</option>
-							<option value="yes">Enabled</option>
-							<option value="no">Disabled</option>
-						</Select>
-					)}
+					<Select
+						value={
+							vm.filter.enabled === null ? "" : vm.filter.enabled ? "yes" : "no"
+						}
+						onChange={(value) =>
+							vm.setFilter((f) => ({
+								...f,
+								enabled: value === "" ? null : value === "yes",
+							}))
+						}
+					>
+						<option value="">Any</option>
+						<option value="yes">Enabled</option>
+						<option value="no">Disabled</option>
+					</Select>
 				</Field>
-				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-basalt-muted-foreground">
-						{vm.visible.length} of {vm.items.length}
-					</p>
-					<Button onClick={() => vm.setCreating(true)}>Bind repo</Button>
-				</div>
-			</section>
+			</LayerCard>
 
 			{vm.loading ? (
 				<LayerCard className="space-y-2">
@@ -129,46 +126,35 @@ export function ReposPage() {
 				</LayerCard>
 			) : (
 				<LayerCard padding="none" className="overflow-x-auto">
-					<table className="w-full text-sm">
-						<thead>
-							<tr className="border-b border-basalt-border text-left">
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Org / Project
-								</th>
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Name
-								</th>
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Repo GUID
-								</th>
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Project GUID
-								</th>
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Collection
-								</th>
-								<th className="px-4 py-3">
+					<Table aria-label="Repos">
+						<TableHeader>
+							<TableRow>
+								<TableHead>Org / Project</TableHead>
+								<TableHead>Name</TableHead>
+								<TableHead>Repo GUID</TableHead>
+								<TableHead>Project GUID</TableHead>
+								<TableHead>Collection</TableHead>
+								<TableHead>
 									<span className="sr-only">Actions</span>
-								</th>
-							</tr>
-						</thead>
-						<tbody>
+								</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
 							{vm.visible.map((r) => (
-								<tr
-									key={r.id}
-									className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
-								>
-									<td className="px-4 py-3">
+								<TableRow key={r.id}>
+									<TableCell>
 										{r.org} / {r.project}
-									</td>
-									<td className="px-4 py-3 font-medium">{r.name}</td>
-									<td className="px-4 py-3 font-mono text-xs text-basalt-muted-foreground">
+									</TableCell>
+									<TableCell className="px-4 py-3 font-medium">
+										{r.name}
+									</TableCell>
+									<TableCell className="px-4 py-3 font-mono text-xs text-basalt-muted-foreground">
 										{r.externalId ?? "—"}
-									</td>
-									<td className="px-4 py-3 font-mono text-xs text-basalt-muted-foreground">
+									</TableCell>
+									<TableCell className="px-4 py-3 font-mono text-xs text-basalt-muted-foreground">
 										{r.projectExternalId ?? "—"}
-									</td>
-									<td className="px-4 py-3 text-xs">
+									</TableCell>
+									<TableCell className="px-4 py-3 text-xs">
 										{r.enabled ? (
 											"Enabled"
 										) : (
@@ -176,8 +162,8 @@ export function ReposPage() {
 												Disabled
 											</span>
 										)}
-									</td>
-									<td className="px-4 py-3 text-right space-x-2">
+									</TableCell>
+									<TableCell className="whitespace-nowrap text-right space-x-2">
 										<Button
 											variant="outline"
 											size="sm"
@@ -207,11 +193,11 @@ export function ReposPage() {
 												Restore
 											</Button>
 										)}
-									</td>
-								</tr>
+									</TableCell>
+								</TableRow>
 							))}
-						</tbody>
-					</table>
+						</TableBody>
+					</Table>
 				</LayerCard>
 			)}
 

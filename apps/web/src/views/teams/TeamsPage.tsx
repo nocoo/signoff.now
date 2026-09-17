@@ -1,13 +1,20 @@
-import { Button, Input, LayerCard } from "@nocoo/basalt";
+import { Button, Field, Input, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@nocoo/basalt/components/table";
 import { UsersRound } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityLabel } from "@/components/EntityAvatar";
-import { Field } from "@/components/Field";
+import { EntityTag } from "@/components/EntityTag";
 import { SelectControl as Select } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
-import { contrastTextColor } from "@/lib/avatar";
 import type { StatusFilter } from "@/models/entities";
 import { useTeamsViewModel } from "@/viewmodels/useTeamsViewModel";
 import { TeamDialog } from "./TeamDialog";
@@ -20,65 +27,62 @@ export function TeamsPage() {
 			<PageHeader
 				title="Teams"
 				description="Organize developers into multi-membership groups for filtering."
+				actions={
+					<>
+						<p className="text-xs text-basalt-muted-foreground">
+							{vm.visible.length} of {vm.items.length}
+						</p>
+						<Button onClick={() => vm.setCreating(true)}>Add team</Button>
+					</>
+				}
 			/>
 			{vm.error ? <AlertBanner variant="error">{vm.error}</AlertBanner> : null}
 
-			<section className="flex flex-wrap items-end gap-3">
+			<LayerCard
+				role="search"
+				aria-label="Teams filters"
+				className="flex flex-wrap items-end gap-3"
+			>
 				<Field label="Search" className="w-56">
-					{(id) => (
-						<Input
-							id={id}
-							value={vm.filter.keyword}
-							placeholder="Team name"
-							onChange={(e) =>
-								vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
-							}
-						/>
-					)}
+					<Input
+						value={vm.filter.keyword}
+						placeholder="Team name"
+						onChange={(e) =>
+							vm.setFilter((f) => ({ ...f, keyword: e.target.value }))
+						}
+					/>
 				</Field>
 				<Field label="Status" className="w-36">
-					{(id) => (
-						<Select
-							id={id}
-							value={vm.filter.status}
-							onChange={(value) =>
-								vm.setFilter((f) => ({
-									...f,
-									status: value as StatusFilter,
-								}))
-							}
-						>
-							<option value="active">Active</option>
-							<option value="archived">Archived</option>
-							<option value="all">All</option>
-						</Select>
-					)}
+					<Select
+						value={vm.filter.status}
+						onChange={(value) =>
+							vm.setFilter((f) => ({
+								...f,
+								status: value as StatusFilter,
+							}))
+						}
+					>
+						<option value="active">Active</option>
+						<option value="archived">Archived</option>
+						<option value="all">All</option>
+					</Select>
 				</Field>
 				<Field label="Tag" className="w-44">
-					{(id) => (
-						<Select
-							id={id}
-							value={vm.filter.tagId ?? ""}
-							onChange={(value) =>
-								vm.setFilter((f) => ({ ...f, tagId: value || null }))
-							}
-						>
-							<option value="">All tags</option>
-							{vm.tags.map((t) => (
-								<option key={t.id} value={t.id}>
-									{t.name}
-								</option>
-							))}
-						</Select>
-					)}
+					<Select
+						value={vm.filter.tagId ?? ""}
+						onChange={(value) =>
+							vm.setFilter((f) => ({ ...f, tagId: value || null }))
+						}
+					>
+						<option value="">All tags</option>
+						{vm.tags.map((t) => (
+							<option key={t.id} value={t.id}>
+								{t.name}
+							</option>
+						))}
+					</Select>
 				</Field>
-				<div className="ml-auto flex items-center gap-3 pb-0.5">
-					<p className="text-xs text-basalt-muted-foreground">
-						{vm.visible.length} of {vm.items.length}
-					</p>
-					<Button onClick={() => vm.setCreating(true)}>Add team</Button>
-				</div>
-			</section>
+			</LayerCard>
 
 			{vm.loading ? (
 				<LayerCard className="space-y-2">
@@ -99,30 +103,23 @@ export function TeamsPage() {
 				</LayerCard>
 			) : (
 				<LayerCard padding="none" className="overflow-x-auto">
-					<table className="w-full text-sm">
-						<thead>
-							<tr className="border-b border-basalt-border text-left">
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Team
-								</th>
-								<th className="px-4 py-3 text-xs font-medium text-basalt-muted-foreground">
-									Tags
-								</th>
-								<th className="px-4 py-3">
+					<Table aria-label="Teams">
+						<TableHeader>
+							<TableRow>
+								<TableHead>Team</TableHead>
+								<TableHead>Tags</TableHead>
+								<TableHead>
 									<span className="sr-only">Actions</span>
-								</th>
-							</tr>
-						</thead>
-						<tbody>
+								</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
 							{vm.visible.map((t) => (
-								<tr
-									key={t.id}
-									className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
-								>
-									<td className="px-4 py-3">
+								<TableRow key={t.id}>
+									<TableCell>
 										<EntityLabel name={t.name} avatarUrl={t.avatarUrl} />
-									</td>
-									<td className="px-4 py-3">
+									</TableCell>
+									<TableCell>
 										<span className="flex flex-wrap items-center gap-1.5">
 											{t.tagIds.length === 0 ? (
 												<span className="text-xs text-basalt-muted-foreground">
@@ -131,23 +128,12 @@ export function TeamsPage() {
 											) : (
 												t.tagIds.map((id) => {
 													const g = vm.tagsById.get(id);
-													return g ? (
-														<span
-															key={id}
-															className="rounded-full px-2 py-0.5 text-xs"
-															style={{
-																backgroundColor: g.color,
-																color: contrastTextColor(g.color),
-															}}
-														>
-															{g.name}
-														</span>
-													) : null;
+													return g ? <EntityTag key={id} tag={g} /> : null;
 												})
 											)}
 										</span>
-									</td>
-									<td className="px-4 py-3 text-right space-x-2">
+									</TableCell>
+									<TableCell className="whitespace-nowrap text-right space-x-2">
 										<Button
 											variant="outline"
 											size="sm"
@@ -177,11 +163,11 @@ export function TeamsPage() {
 												Restore
 											</Button>
 										)}
-									</td>
-								</tr>
+									</TableCell>
+								</TableRow>
 							))}
-						</tbody>
-					</table>
+						</TableBody>
+					</Table>
 				</LayerCard>
 			)}
 

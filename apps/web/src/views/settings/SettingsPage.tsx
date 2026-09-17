@@ -1,8 +1,16 @@
-import { Badge, Button, Input, LayerCard } from "@nocoo/basalt";
+import { Badge, Button, Field, Input, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@nocoo/basalt/components/table";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
-import { Field } from "@/components/Field";
 import { Skeleton } from "@/components/Skeleton";
 import {
 	DEFAULT_ACTIVITY_WEIGHTS,
@@ -112,13 +120,10 @@ export function SettingsPage() {
 				<LayerCard.Header>Timezone</LayerCard.Header>
 				<LayerCard.Body className="space-y-3">
 					<Field label="IANA timezone" className="max-w-md">
-						{(id) => (
-							<Input
-								id={id}
-								value={form.timezone}
-								onChange={(e) => patch({ timezone: e.target.value })}
-							/>
-						)}
+						<Input
+							value={form.timezone}
+							onChange={(e) => patch({ timezone: e.target.value })}
+						/>
 					</Field>
 				</LayerCard.Body>
 			</LayerCard>
@@ -133,9 +138,11 @@ export function SettingsPage() {
 						{form.emailSuffixes.map((s) => (
 							<Badge key={s} variant="secondary" className="gap-2">
 								{s}
-								<button
+								<Button
 									type="button"
-									className="text-basalt-muted-foreground hover:text-basalt-foreground"
+									variant="ghost"
+									size="icon"
+									className="h-5 w-5"
 									aria-label={`Remove ${s}`}
 									onClick={() =>
 										patch({
@@ -143,8 +150,8 @@ export function SettingsPage() {
 										})
 									}
 								>
-									×
-								</button>
+									<X className="h-3 w-3" strokeWidth={1.5} aria-hidden />
+								</Button>
 							</Badge>
 						))}
 					</div>
@@ -182,57 +189,48 @@ export function SettingsPage() {
 						Reset defaults
 					</Button>
 				</LayerCard.Header>
-				<LayerCard.Body>
-					<div className="overflow-x-auto rounded-basalt-md border border-basalt-border">
-						<table className="w-full text-sm">
-							<thead>
-								<tr className="border-b border-basalt-border text-left">
-									<th className="px-3 py-2.5 text-xs font-medium text-basalt-muted-foreground">
-										Type
-									</th>
-									<th className="px-3 py-2.5 text-xs font-medium text-basalt-muted-foreground">
-										Weight
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								{Object.keys(DEFAULT_ACTIVITY_WEIGHTS).map((key) => (
-									<tr
-										key={key}
-										className="border-b border-basalt-border last:border-0 hover:bg-basalt-background/50"
-									>
-										<td className="px-3 py-2">
-											{WEIGHT_LABELS[key] ?? key}
-											<span className="ml-2 text-xs text-basalt-muted-foreground">
-												{key}
-											</span>
-										</td>
-										<td className="px-3 py-2">
-											<Input
-												aria-label={`${WEIGHT_LABELS[key] ?? key} weight`}
-												aria-invalid={
-													!Number.isInteger(form.activityWeights[key]) ||
-													(form.activityWeights[key] ?? 0) < 0
-												}
-												type="number"
-												className="w-24"
-												value={form.activityWeights[key] ?? 0}
-												onChange={(e) =>
-													patch({
-														activityWeights: {
-															...form.activityWeights,
-															[key]: Number(e.target.value),
-														},
-													})
-												}
-											/>
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				</LayerCard.Body>
+				<LayerCard.Well className="overflow-x-auto">
+					<Table aria-label="Activity weights">
+						<TableHeader>
+							<TableRow>
+								<TableHead>Type</TableHead>
+								<TableHead>Weight</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{Object.keys(DEFAULT_ACTIVITY_WEIGHTS).map((key) => (
+								<TableRow key={key}>
+									<TableCell>
+										{WEIGHT_LABELS[key] ?? key}
+										<span className="ml-2 text-xs text-basalt-muted-foreground">
+											{key}
+										</span>
+									</TableCell>
+									<TableCell>
+										<Input
+											aria-label={`${WEIGHT_LABELS[key] ?? key} weight`}
+											aria-invalid={
+												!Number.isInteger(form.activityWeights[key]) ||
+												(form.activityWeights[key] ?? 0) < 0
+											}
+											type="number"
+											className="w-24"
+											value={form.activityWeights[key] ?? 0}
+											onChange={(e) =>
+												patch({
+													activityWeights: {
+														...form.activityWeights,
+														[key]: Number(e.target.value),
+													},
+												})
+											}
+										/>
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				</LayerCard.Well>
 			</LayerCard>
 
 			<LayerCard padding="none">

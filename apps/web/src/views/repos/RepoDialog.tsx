@@ -6,9 +6,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
+	Field,
 	Input,
 } from "@nocoo/basalt";
-import { Field } from "@/components/Field";
 import { SelectControl as Select } from "@/components/SelectControl";
 import type { Repo } from "@/models/entities";
 import {
@@ -62,86 +62,63 @@ export function RepoDialog({
 
 				<div className="grid gap-4 sm:grid-cols-2">
 					<Field label="Provider">
-						{(id) => (
-							<Select
-								id={id}
-								value={vm.draft.provider}
-								onChange={(value) => vm.setField("provider", value)}
-							>
-								<option value="ado">Azure DevOps</option>
-								<option value="github">GitHub</option>
-							</Select>
-						)}
+						<Select
+							value={vm.draft.provider}
+							onChange={(value) => vm.setField("provider", value)}
+						>
+							<option value="ado">Azure DevOps</option>
+							<option value="github">GitHub</option>
+						</Select>
 					</Field>
 					<Field label="Enabled" hint="Disabled repos are skipped on collect.">
-						{(id) => (
-							<Select
-								id={id}
-								value={vm.draft.enabled ? "yes" : "no"}
-								onChange={(value) => vm.setField("enabled", value === "yes")}
-							>
-								<option value="yes">Enabled</option>
-								<option value="no">Disabled</option>
-							</Select>
-						)}
+						<Select
+							value={vm.draft.enabled ? "yes" : "no"}
+							onChange={(value) => vm.setField("enabled", value === "yes")}
+						>
+							<option value="yes">Enabled</option>
+							<option value="no">Disabled</option>
+						</Select>
 					</Field>
 					<Field label="Org">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.org}
-								placeholder="contoso"
-								onChange={(e) => vm.setField("org", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.org}
+							placeholder="contoso"
+							onChange={(e) => vm.setField("org", e.target.value)}
+						/>
 					</Field>
 					<Field label="Project">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.project}
-								placeholder="Widgets"
-								onChange={(e) => vm.setField("project", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.project}
+							placeholder="Widgets"
+							onChange={(e) => vm.setField("project", e.target.value)}
+						/>
 					</Field>
 					<Field label="Repo name" className="sm:col-span-2">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.name}
-								placeholder="api"
-								onChange={(e) => vm.setField("name", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.name}
+							placeholder="api"
+							onChange={(e) => vm.setField("name", e.target.value)}
+						/>
 					</Field>
 					<Field label="ADO repository GUID" className="sm:col-span-2">
-						{(id) => (
-							<Input
-								id={id}
-								className="font-mono text-xs"
-								value={vm.draft.externalId}
-								placeholder="xxxxxxxx-xxxx-…"
-								onChange={(e) => vm.setField("externalId", e.target.value)}
-							/>
-						)}
+						<Input
+							className="font-mono text-xs"
+							value={vm.draft.externalId}
+							placeholder="xxxxxxxx-xxxx-…"
+							onChange={(e) => vm.setField("externalId", e.target.value)}
+						/>
 					</Field>
 					<Field
 						label="ADO project GUID (optional)"
 						className="sm:col-span-2"
 						hint="Used for work-item external_ref; every repo under one project must agree."
 					>
-						{(id) => (
-							<Input
-								id={id}
-								className="font-mono text-xs"
-								value={vm.draft.projectExternalId}
-								placeholder="Project GUID"
-								onChange={(e) =>
-									vm.setField("projectExternalId", e.target.value)
-								}
-							/>
-						)}
+						<Input
+							className="font-mono text-xs"
+							value={vm.draft.projectExternalId}
+							placeholder="Project GUID"
+							onChange={(e) => vm.setField("projectExternalId", e.target.value)}
+						/>
 					</Field>
 				</div>
 

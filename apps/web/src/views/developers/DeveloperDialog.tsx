@@ -6,10 +6,11 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
+	Field,
 	Input,
 } from "@nocoo/basalt";
+import { Toggle } from "@nocoo/basalt/components/toggle";
 import { EntityAvatar } from "@/components/EntityAvatar";
-import { Field } from "@/components/Field";
 import { TagPicker } from "@/components/TagPicker";
 import type { Developer, Tag, Team } from "@/models/entities";
 import { useDeveloperEditViewModel } from "@/viewmodels/useDeveloperEditViewModel";
@@ -83,34 +84,25 @@ export function DeveloperDialog({
 
 				<div className="flex flex-col gap-4">
 					<Field label="Name">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.name}
-								placeholder="Display name"
-								onChange={(e) => vm.setField("name", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.name}
+							placeholder="Display name"
+							onChange={(e) => vm.setField("name", e.target.value)}
+						/>
 					</Field>
 					<Field label="Alias">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.alias}
-								placeholder="ada"
-								onChange={(e) => vm.setField("alias", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.alias}
+							placeholder="ada"
+							onChange={(e) => vm.setField("alias", e.target.value)}
+						/>
 					</Field>
 					<Field label="Avatar URL">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.avatarUrl}
-								placeholder="https://…"
-								onChange={(e) => vm.setField("avatarUrl", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.avatarUrl}
+							placeholder="https://…"
+							onChange={(e) => vm.setField("avatarUrl", e.target.value)}
+						/>
 					</Field>
 
 					{teams.length > 0 ? (
@@ -120,16 +112,15 @@ export function DeveloperDialog({
 								{teams.map((t) => {
 									const on = vm.draft.teamIds.includes(t.id);
 									return (
-										<button
+										<Toggle
 											type="button"
 											key={t.id}
-											aria-pressed={on}
-											onClick={() => vm.toggleTeam(t.id)}
-											className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-												on
-													? "border-basalt-primary bg-basalt-primary/10 text-basalt-foreground"
-													: "border-basalt-border text-basalt-muted-foreground hover:bg-basalt-secondary"
-											}`}
+											variant="outline"
+											size="sm"
+											pressed={on}
+											disabled={vm.busy}
+											onPressedChange={() => vm.toggleTeam(t.id)}
+											className="gap-1.5"
 										>
 											<EntityAvatar
 												name={t.name}
@@ -137,7 +128,7 @@ export function DeveloperDialog({
 												size="sm"
 											/>
 											{t.name}
-										</button>
+										</Toggle>
 									);
 								})}
 							</div>

@@ -6,9 +6,10 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
+	Field,
 	Input,
 } from "@nocoo/basalt";
-import { Field } from "@/components/Field";
+import { EntityTag } from "@/components/EntityTag";
 import type { Tag } from "@/models/entities";
 import {
 	type TagDraft,
@@ -54,9 +55,8 @@ export function TagDialog({
 				</DialogHeader>
 
 				<div className="flex items-center gap-3">
-					<span
-						className="inline-block h-10 w-10 rounded-full ring-1 ring-basalt-border"
-						style={{ background: vm.draft.color }}
+					<EntityTag
+						tag={{ name: vm.draft.name || "Tag", color: vm.draft.color }}
 					/>
 					<p className="text-xs text-basalt-muted-foreground">
 						How this tag reads on a roster row.
@@ -65,25 +65,19 @@ export function TagDialog({
 
 				<div className="flex flex-col gap-4">
 					<Field label="Name">
-						{(id) => (
-							<Input
-								id={id}
-								value={vm.draft.name}
-								placeholder="frontend"
-								onChange={(e) => vm.setField("name", e.target.value)}
-							/>
-						)}
+						<Input
+							value={vm.draft.name}
+							placeholder="frontend"
+							onChange={(e) => vm.setField("name", e.target.value)}
+						/>
 					</Field>
 					<Field label="Colour" hint="Stored as a #RRGGBB hex value.">
-						{(id) => (
-							<Input
-								id={id}
-								type="color"
-								className="w-20 p-1"
-								value={vm.draft.color}
-								onChange={(e) => vm.setField("color", e.target.value)}
-							/>
-						)}
+						<Input
+							type="color"
+							className="w-20 p-1"
+							value={vm.draft.color}
+							onChange={(e) => vm.setField("color", e.target.value)}
+						/>
 					</Field>
 				</div>
 

@@ -10,6 +10,7 @@
  */
 
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -25,6 +26,7 @@ import {
 	listTags,
 	listTeams,
 } from "@/models/entitiesApi";
+import { DeveloperDialog } from "@/views/developers/DeveloperDialog";
 import { ReposPage } from "@/views/repos/ReposPage";
 import { TagsPage } from "@/views/tags/TagsPage";
 import { TeamsPage } from "@/views/teams/TeamsPage";
@@ -92,6 +94,70 @@ beforeEach(() => {
 
 /** The row count sits next to the Add button and reflects the filter. */
 const counter = () => screen.getByText(/\d+ of \d+/).textContent;
+
+describe("DeveloperDialog", () => {
+	it("saves team and tag selections, including inline creation, and locks toggles during save", async () => {
+		let finishSave = () => {};
+		const onSubmit = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSave = resolve;
+				}),
+		);
+		const onOpenChange = vi.fn();
+		const onCreateTag = vi.fn().mockResolvedValue("g2");
+		render(
+			<DeveloperDialog
+				developer={null}
+				teams={[teamRow]}
+				tags={[tagRow]}
+				open
+				onSubmit={onSubmit}
+				onOpenChange={onOpenChange}
+				onCreateTag={onCreateTag}
+			/>,
+		);
+		const dialog = screen.getByRole("dialog");
+		fireEvent.change(within(dialog).getByLabelText("Name"), {
+			target: { value: "Ada" },
+		});
+		fireEvent.change(within(dialog).getByLabelText("Alias"), {
+			target: { value: "ada" },
+		});
+		const team = within(dialog).getByRole("button", { name: /Core Platform/ });
+		const tag = within(dialog).getByRole("button", { name: "frontend" });
+		fireEvent.click(team);
+		fireEvent.click(tag);
+		expect(team.getAttribute("aria-pressed")).toBe("true");
+		expect(tag.getAttribute("aria-pressed")).toBe("true");
+
+		const newTag = within(dialog).getByLabelText("New tag name");
+		fireEvent.change(newTag, { target: { value: "frontend" } });
+		fireEvent.keyDown(newTag, { key: "Enter" });
+		expect(onCreateTag).not.toHaveBeenCalled();
+		expect(tag.getAttribute("aria-pressed")).toBe("true");
+		fireEvent.change(newTag, { target: { value: "infra" } });
+		fireEvent.keyDown(newTag, { key: "Enter" });
+		await waitFor(() => expect((newTag as HTMLInputElement).value).toBe(""));
+		expect(onCreateTag).toHaveBeenCalledWith("infra");
+		expect(onSubmit).not.toHaveBeenCalled();
+
+		fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+		expect(onSubmit).toHaveBeenCalledWith({
+			name: "Ada",
+			alias: "ada",
+			avatarUrl: "",
+			teamIds: ["t1"],
+			tagIds: ["g1", "g2"],
+		});
+		expect((team as HTMLButtonElement).disabled).toBe(true);
+		expect((tag as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.keyDown(dialog, { key: "Escape" });
+		expect(onOpenChange).not.toHaveBeenCalled();
+		await act(async () => finishSave());
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+});
 
 describe("TeamsPage", () => {
 	it("renders the roster behind a filter bar", async () => {
@@ -172,6 +238,23 @@ describe("TagsPage", () => {
 		await waitFor(() => expect(createTag).toHaveBeenCalled());
 		const [, color] = vi.mocked(createTag).mock.calls[0] as [string, string];
 		expect(color).toMatch(/^#[0-9A-F]{6}$/);
+	});
+
+	it("keeps arbitrary hex colors outside the named palette", async () => {
+		render(<TagsPage />);
+		await screen.findByText("frontend");
+		fireEvent.click(screen.getByRole("button", { name: "Add tag" }));
+		const dialog = await screen.findByRole("dialog");
+		fireEvent.change(within(dialog).getByLabelText("Name"), {
+			target: { value: "infra" },
+		});
+		fireEvent.change(within(dialog).getByLabelText("Colour"), {
+			target: { value: "#123abc" },
+		});
+		fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+		await waitFor(() =>
+			expect(createTag).toHaveBeenCalledWith("infra", "#123ABC"),
+		);
 	});
 });
 
