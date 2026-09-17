@@ -31,10 +31,10 @@ import { useDashboardViewModel } from "@/viewmodels/useDashboardViewModel";
 function DashboardSkeleton() {
 	return (
 		<div className="space-y-6" role="status" aria-label="Loading dashboard">
-			<div className="space-y-2">
-				<Skeleton className="h-8 w-48" />
-				<Skeleton className="h-4 w-80 max-w-full" />
-			</div>
+			<PageHeader
+				title="Dashboard"
+				description="Directory overview and team activity trends."
+			/>
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 				{["sk-a", "sk-b", "sk-c", "sk-d"].map((slot) => (
 					<LayerCard key={slot} className="space-y-3">
@@ -65,7 +65,7 @@ export function DashboardPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Dashboard"
-				description="Manager console for directory entities and scoring settings. Activity and Score are pipeline-only (read-only here)."
+				description="Directory overview and team activity trends."
 			/>
 
 			{dir.error ? (

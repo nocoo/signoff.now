@@ -23,10 +23,10 @@ import { useSettingsViewModel } from "@/viewmodels/useSettingsViewModel";
 function SettingsSkeleton() {
 	return (
 		<div className="space-y-6">
-			<div className="space-y-2">
-				<Skeleton className="h-8 w-40" />
-				<Skeleton className="h-4 w-72" />
-			</div>
+			<PageHeader
+				title="Settings"
+				description="Timezone, identity matching, and activity weights."
+			/>
 			<LayerCard className="space-y-3">
 				<Skeleton className="h-4 w-24" />
 				<Skeleton className="h-9 w-full max-w-md" />
@@ -48,7 +48,7 @@ export function SettingsPage() {
 			<div className="space-y-4">
 				<PageHeader
 					title="Settings"
-					description="Timezone, email suffixes, and activity weights."
+					description="Timezone, identity matching, and activity weights."
 				/>
 				<AlertBanner variant="error">{vm.error}</AlertBanner>
 				<p className="text-sm text-basalt-muted-foreground">
@@ -67,9 +67,15 @@ export function SettingsPage() {
 
 	if (!vm.form || !vm.settings) {
 		return (
-			<p className="text-sm text-basalt-muted-foreground">
-				No settings loaded.
-			</p>
+			<div className="space-y-6">
+				<PageHeader
+					title="Settings"
+					description="Timezone, identity matching, and activity weights."
+				/>
+				<p className="text-sm text-basalt-muted-foreground">
+					No settings loaded.
+				</p>
+			</div>
 		);
 	}
 
@@ -91,7 +97,7 @@ export function SettingsPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Settings"
-				description="Business configuration drives identity matching and scoring. Changes bump pipeline config version and may require full rematch."
+				description="Timezone, identity matching, and activity weights."
 				actions={
 					<Button
 						disabled={!vm.dirty || !!vm.validationError || vm.saving}

@@ -51,36 +51,16 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	},
 ];
 
-export const ROUTE_LABELS: Record<string, string> = {
-	"": "Pull requests",
-	projects: "Projects",
-	insights: "Dashboard",
-	developers: "Developers",
-	teams: "Teams",
-	tags: "Tags",
-	repos: "Repos",
-	activity: "Activity",
-	settings: "Settings",
-};
-
 export interface BreadcrumbItem {
 	label: string;
 	href?: string;
 }
 
 export function breadcrumbsFromPathname(pathname: string): BreadcrumbItem[] {
-	const segments = pathname.split("/").filter(Boolean);
-	if (segments.length === 0) {
-		return [{ label: "Pull requests" }];
+	const path = pathname.replace(/\/+$/, "") || "/";
+	for (const group of NAV_GROUPS) {
+		const item = group.items.find((candidate) => candidate.href === path);
+		if (item) return [{ label: group.label }, { label: item.label }];
 	}
-	const items: BreadcrumbItem[] = [{ label: "Home", href: "/" }];
-	let href = "";
-	for (let i = 0; i < segments.length; i++) {
-		const seg = segments[i] as string;
-		href += `/${seg}`;
-		const isLast = i === segments.length - 1;
-		const label = ROUTE_LABELS[seg] ?? seg;
-		items.push(isLast ? { label } : { label, href });
-	}
-	return items;
+	return [{ label: path.slice(path.lastIndexOf("/") + 1) }];
 }

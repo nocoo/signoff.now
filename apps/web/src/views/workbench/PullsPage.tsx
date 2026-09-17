@@ -7,6 +7,7 @@ import {
 	SegmentControl,
 } from "@nocoo/basalt";
 import { MultiSelect } from "@nocoo/basalt/components/multi-select";
+import { PageHeader } from "@nocoo/basalt/components/page-header";
 import {
 	Table,
 	TableBody,
@@ -64,6 +65,19 @@ export function PullsPage() {
 			vm.selected?.pull.id,
 		]),
 	);
+	const scopedProject = vm.projectOptions.find(
+		({ project }) => project.id === vm.filter.projectId,
+	)?.project;
+	const repository = vm.selectedRepository;
+	const scope = [
+		repository?.project.organization ??
+			scopedProject?.organization ??
+			vm.filter.organization,
+		repository?.project.projectKey ?? scopedProject?.projectKey,
+		repository?.name,
+	]
+		.filter(Boolean)
+		.join(" / ");
 	const metrics = [
 		{
 			key: "all",
@@ -105,12 +119,17 @@ export function PullsPage() {
 	] as const;
 	return (
 		<div className="space-y-2">
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<WorkbenchConnection vm={vm} compact />
-				<div className="flex items-center gap-2">
-					<ScanControls vm={vm} />
-				</div>
-			</div>
+			<PageHeader
+				title="Pull requests"
+				description={
+					<span className="break-words">
+						{scope ||
+							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`}
+					</span>
+				}
+				actions={<ScanControls vm={vm} />}
+			/>
+			<WorkbenchConnection vm={vm} compact />
 			<WorkbenchFeedback vm={vm} />
 			<RepositoryFilters vm={vm} />
 			<section

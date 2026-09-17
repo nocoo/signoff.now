@@ -13,6 +13,7 @@ import {
 	AppSkipLink,
 	AppShell as BasaltAppShell,
 } from "@nocoo/basalt/components/app-shell";
+import { Breadcrumbs } from "@nocoo/basalt/components/breadcrumbs";
 import { Menu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
@@ -80,8 +81,6 @@ export function AppShell() {
 		persistSidebarState(next);
 	};
 	const trail = breadcrumbsFromPathname(location.pathname);
-	const current = trail[trail.length - 1]?.label ?? "Pull requests";
-	const ancestors = trail.slice(0, -1);
 
 	return (
 		<BasaltAppShell className="relative">
@@ -120,23 +119,27 @@ export function AppShell() {
 			<AppMain tabIndex={-1}>
 				<AppHeader
 					leading={
-						isMobile ? (
-							<HeaderTooltip label="Open navigation">
-								<Button
-									ref={menuRef}
-									variant="ghost"
-									size="icon"
-									className="h-8 w-8"
-									onClick={() => setMobileOpen(true)}
-									aria-label="Open navigation"
-								>
-									<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
-								</Button>
-							</HeaderTooltip>
-						) : null
+						<>
+							{isMobile ? (
+								<HeaderTooltip label="Open navigation">
+									<Button
+										ref={menuRef}
+										variant="ghost"
+										size="icon"
+										className="h-8 w-8"
+										onClick={() => setMobileOpen(true)}
+										aria-label="Open navigation"
+									>
+										<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
+									</Button>
+								</HeaderTooltip>
+							) : null}
+							<Breadcrumbs
+								items={trail}
+								className="min-w-0 [&>span]:min-w-0 [&>span>span]:truncate [&_svg]:shrink-0"
+							/>
+						</>
 					}
-					breadcrumbs={ancestors}
-					title={current}
 					actions={
 						<>
 							<SegmentControl
