@@ -25,7 +25,7 @@
 	},
 	"scripts": {
 		"dev": "turbo run dev --filter=@signoff/web",
-		"dev:worker": "wrangler dev --port 37042 --local --local-upstream localhost --var SIGNOFF_DEMO_MODE:1",
+		"dev:worker": "bun run db:migrate:local && wrangler dev --port 37042 --local --local-upstream localhost --var SIGNOFF_DEMO_MODE:1",
 		"dev:collector": "bun run apps/collect/src/main.ts workbench watch",
 		"dev:all": "turbo run dev --filter=@signoff/web --filter=@signoff/worker",
 		"build:web": "turbo run build --filter=@signoff/web",
