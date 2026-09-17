@@ -1,7 +1,7 @@
 import {
 	type ProjectWrite,
 	projectSchema,
-	scanRunSchema,
+	scanRequestResultSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
 import { apiFetch } from "@/lib/api";
@@ -39,7 +39,7 @@ export async function deleteProject(id: string, revision: number) {
 }
 
 export async function scanProject(id: string, revision: number) {
-	return scanRunSchema.parse(
+	return scanRequestResultSchema.parse(
 		await apiFetch<unknown>(`/api/projects/${encodeURIComponent(id)}/scan`, {
 			method: "POST",
 			body: JSON.stringify({ revision }),

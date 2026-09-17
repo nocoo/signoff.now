@@ -14,6 +14,7 @@ export type PullRow = {
 	progress: ReturnType<typeof pullProgress>;
 };
 export type PullFilter = {
+	source: "all" | "cli" | "demo";
 	query: string;
 	projectId: string;
 	repository: string;
@@ -22,6 +23,7 @@ export type PullFilter = {
 	sort: "attention" | "updated" | "oldest";
 };
 export const DEFAULT_PULL_FILTER: PullFilter = {
+	source: "all",
 	query: "",
 	projectId: "",
 	repository: "",
@@ -59,11 +61,18 @@ export function pullRows(data: Workbench): PullRow[] {
 	});
 }
 
-export function readPullFilter(params: URLSearchParams): PullFilter {
+export function readPullFilter(
+	params: URLSearchParams,
+	hasLiveProjects = false,
+): PullFilter {
+	const source = params.get("source") ?? (hasLiveProjects ? "cli" : "all");
 	const state = params.get("state") ?? "open";
 	const status = params.get("status") ?? "all";
 	const sort = params.get("sort") ?? "attention";
 	return {
+		source: ["all", "cli", "demo"].includes(source)
+			? (source as PullFilter["source"])
+			: "all",
 		query: params.get("q") ?? "",
 		projectId: params.get("project") ?? "",
 		repository: params.get("repo") ?? "",
@@ -83,6 +92,7 @@ export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 	const query = filter.query.trim().toLowerCase();
 	return rows.filter(
 		({ pull, project, readiness }) =>
+			(filter.source === "all" || project.source === filter.source) &&
 			(!filter.projectId || project.id === filter.projectId) &&
 			(!filter.repository || pull.repository.id === filter.repository) &&
 			(!query ||
@@ -166,12 +176,46 @@ export function projectSummaries(data: Workbench, rows: PullRow[]) {
 		const pulls = rows.filter((row) => row.project.id === project.id);
 		return {
 			project,
+			job:
+				(data.collectionJobs ?? [])
+					.filter((job) => job.projectId === project.id)
+					.sort(
+						(a, b) =>
+							b.requestedAt - a.requestedAt || b.updatedAt - a.updatedAt,
+					)[0] ?? null,
 			metrics: pullMetrics(pulls),
 			total: pulls.length,
 			repositories: repositoryOptions(pulls),
 			scans: data.scans.filter((scan) => scan.projectId === project.id),
 		};
 	});
+}
+
+export function canScanProject(project: Project, data: Workbench): boolean {
+	return (
+		project.enabled &&
+		project.provider === "ado" &&
+		(project.source === "cli" || data.demoMode) &&
+		!(data.collectionJobs ?? []).some(
+			(job) =>
+				job.projectId === project.id &&
+				job.revision === project.revision &&
+				(job.state === "queued" || job.state === "running"),
+		)
+	);
+}
+
+export function collectorConnection(
+	data: Workbench | null,
+	now = Date.now() / 1000,
+) {
+	if (!data?.collector || now - data.collector.lastSeenAt > 65)
+		return {
+			state: "offline" as const,
+			message:
+				"Start the local collector to scan Azure DevOps: bun run dev:collector",
+		};
+	return { state: data.collector.state, message: data.collector.message };
 }
 
 export function relativeTime(

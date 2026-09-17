@@ -33,6 +33,23 @@ beforeEach(() => {
 });
 
 describe("workbench HTTP contract", () => {
+	it("accepts a queued live job as a pending scan result", async () => {
+		const job = {
+			id: "job",
+			projectId: "p",
+			revision: 1,
+			state: "queued",
+			requestedAt: 100,
+			startedAt: null,
+			updatedAt: 100,
+			completedAt: null,
+			completedPulls: 0,
+			totalPulls: null,
+			message: "Waiting",
+		};
+		vi.mocked(apiFetch).mockResolvedValue(job);
+		expect(await scanProject("p", 1)).toEqual(job);
+	});
 	it("reads and validates the complete normalized snapshot", async () => {
 		vi.mocked(apiFetch).mockResolvedValue(snapshot);
 		expect(await loadWorkbench()).toEqual(snapshot);

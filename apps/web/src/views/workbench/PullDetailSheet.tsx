@@ -19,6 +19,7 @@ import {
 	AccordionTrigger,
 } from "@nocoo/basalt/components/accordion";
 import {
+	approvalCount,
 	type Build,
 	type PullRequest,
 	pullUrl,
@@ -34,6 +35,7 @@ import {
 	X,
 } from "lucide-react";
 import type { RefObject } from "react";
+import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { duration, type PullRow, relativeTime } from "@/models/workbench";
@@ -265,10 +267,17 @@ function PullDetail({
 							<div className="mb-3 flex items-center justify-between">
 								<h3 className="text-sm font-semibold">Build progress</h3>
 								<span className="text-xs text-basalt-muted-foreground">
-									{progress.stagesPassed} / {progress.stagesTotal} stages passed
+									{progress.stagesTotal
+										? `${progress.stagesPassed} / ${progress.stagesTotal} stages passed`
+										: "No stages reported"}
 								</span>
 							</div>
 							<div className="space-y-3">
+								{pull.builds.length === 0 ? (
+									<p className="text-xs text-basalt-muted-foreground">
+										No build runs reported for this PR.
+									</p>
+								) : null}
 								{pull.builds.map((build) => (
 									<LayerCard key={build.id} padding="sm">
 										<div className="mb-3 flex items-center justify-between gap-3">
@@ -297,7 +306,7 @@ function PullDetail({
 						<section>
 							<h3 className="mb-3 text-sm font-semibold">About this change</h3>
 							<p className="whitespace-pre-line text-sm leading-6 text-basalt-muted-foreground">
-								{pull.description}
+								{pull.description || "No description provided."}
 							</p>
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{pull.labels.map((label) => (
@@ -307,16 +316,25 @@ function PullDetail({
 								))}
 							</div>
 							<div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-basalt-muted-foreground">
-								<span>{pull.filesChanged} files changed</span>
+								<span>
+									{pull.filesChanged === null
+										? "File count unavailable"
+										: `${pull.filesChanged} files changed`}
+								</span>
 								<span className="font-mono text-basalt-heatmap-green-4">
-									+{pull.additions}
+									{pull.additions === null ? "" : `+${pull.additions}`}
 								</span>
 								<span className="font-mono text-basalt-destructive">
-									−{pull.deletions}
+									{pull.deletions === null ? "" : `−${pull.deletions}`}
 								</span>
+								{pull.additions === null && pull.deletions === null ? (
+									<span>Line changes unavailable</span>
+								) : null}
 								<span className="inline-flex items-center gap-1.5">
 									<MessageSquare className="h-3.5 w-3.5" aria-hidden />
-									{pull.comments} comments
+									{pull.comments === null
+										? "Comments unavailable"
+										: `${pull.comments} comments`}
 								</span>
 							</div>
 						</section>
@@ -333,10 +351,19 @@ function PullDetail({
 							</span>
 						</div>
 						{pull.coverage === "partial" ? (
-							<LayerCard className="text-xs text-basalt-warning">
+							<AlertBanner variant="warning">
 								Some check results are unavailable. Scan this project again to
 								verify readiness.
-							</LayerCard>
+								{pull.collectionIssues?.length ? (
+									<ul className="mt-2 list-disc space-y-1 pl-4">
+										{pull.collectionIssues.map((issue) => (
+											<li key={issue} className="break-words">
+												{issue}
+											</li>
+										))}
+									</ul>
+								) : null}
+							</AlertBanner>
 						) : null}
 						<section aria-label="Policies">
 							<h3 className="mb-3 text-sm font-semibold">
@@ -393,13 +420,27 @@ function PullDetail({
 								className="space-y-3"
 							>
 								{pull.builds.map((build) => (
-									<BuildPipeline key={build.id} build={build} />
+									<BuildPipeline
+										key={build.id}
+										build={build}
+										href={
+											project.source === "cli" && project.provider === "ado"
+												? `https://dev.azure.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(project.projectKey)}/_build/results?buildId=${build.number}`
+												: undefined
+										}
+									/>
 								))}
 							</Accordion>
 						</section>
 					</TabsContent>
 					<TabsContent value="activity" className="pt-4">
 						<h3 className="mb-5 text-sm font-semibold">Recent activity</h3>
+						{pull.activity.length === 0 ? (
+							<p className="text-sm text-basalt-muted-foreground">
+								No activity timeline in this snapshot. Open the PR in Azure
+								DevOps for its full history.
+							</p>
+						) : null}
 						<ol className="space-y-5">
 							{[...pull.activity]
 								.sort((a, b) => b.at - a.at)
@@ -453,8 +494,7 @@ function Reviewers({ pull }: { pull: PullRequest }) {
 			<div className="mb-3 flex items-center justify-between">
 				<h3 className="text-sm font-semibold">Reviewers</h3>
 				<span className="text-xs text-basalt-muted-foreground">
-					{pull.reviewers.filter((r) => r.vote === "approved").length} /{" "}
-					{pull.requiredApprovals} approvals
+					{approvalCount(pull)} / {pull.requiredApprovals} approvals
 				</span>
 			</div>
 			<LayerCard padding="none">
@@ -483,7 +523,7 @@ function Reviewers({ pull }: { pull: PullRequest }) {
 	);
 }
 
-function BuildPipeline({ build }: { build: Build }) {
+function BuildPipeline({ build, href }: { build: Build; href?: string }) {
 	return (
 		<LayerCard padding="none">
 			<AccordionItem value={build.id} className="border-0">
@@ -508,6 +548,24 @@ function BuildPipeline({ build }: { build: Build }) {
 				<AccordionContent className="pb-0">
 					<div className="px-4 pb-4">
 						<StageBar builds={[build]} />
+						{build.stages.length === 0 ? (
+							<p className="mt-2 text-xs text-basalt-muted-foreground">
+								Stage details are unavailable for this run.
+							</p>
+						) : null}
+						{href ? (
+							<Button
+								asChild
+								variant="link"
+								size="sm"
+								className="mt-2 h-auto p-0 text-xs"
+							>
+								<a href={href} target="_blank" rel="noreferrer">
+									Open build in Azure DevOps{" "}
+									<ExternalLink className="h-3 w-3" aria-hidden />
+								</a>
+							</Button>
+						) : null}
 					</div>
 					<ol className="divide-y divide-basalt-border border-t border-basalt-border">
 						{build.stages.map((stage, index) => (

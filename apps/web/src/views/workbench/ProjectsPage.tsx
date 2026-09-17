@@ -13,7 +13,7 @@ import {
 } from "@nocoo/basalt";
 import { SlotBarChart } from "@nocoo/basalt/charts/slot-bar";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
-import type { Project } from "@signoff/domain/workbench";
+import type { CollectionJob, Project } from "@signoff/domain/workbench";
 import {
 	ArrowUpRight,
 	Boxes,
@@ -57,7 +57,8 @@ export function ProjectsPage() {
 				actions={
 					<>
 						<span className="text-xs text-basalt-muted-foreground">
-							{vm.data?.projects.filter((p) => p.enabled).length ?? 0} monitored
+							{vm.projects.filter(({ project }) => project.enabled).length}{" "}
+							monitored
 						</span>
 						<Button
 							size="sm"
@@ -112,7 +113,7 @@ export function ProjectsPage() {
 				</LayerCard>
 			) : (
 				<div className="grid gap-4 lg:grid-cols-2">
-					{vm.projects.map(({ project, metrics, repositories, total }) => {
+					{vm.projects.map(({ project, metrics, repositories, total, job }) => {
 						const states = [
 							{
 								count: metrics.attention,
@@ -154,7 +155,7 @@ export function ProjectsPage() {
 											<h2 className="font-semibold text-basalt-foreground">
 												<Link
 													className="hover:underline"
-													to={`/?project=${encodeURIComponent(project.id)}`}
+													to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
 												>
 													{project.name}
 												</Link>
@@ -170,7 +171,7 @@ export function ProjectsPage() {
 												project.provider === "ado" ? "info" : "secondary"
 											}
 										>
-											{project.provider === "ado" ? "ADO" : "GitHub"}
+											{project.source === "demo" ? "Sample" : "Live ADO"}
 										</Badge>
 										<Button
 											variant="ghost"
@@ -191,6 +192,12 @@ export function ProjectsPage() {
 								<LayerCard.Body className="flex flex-1 flex-col gap-4">
 									<p className="text-xs leading-5 text-basalt-muted-foreground">
 										{project.description || "No description added."}
+									</p>
+									<p className="text-[11px] text-basalt-muted-foreground break-words">
+										Scope:{" "}
+										{project.repositories?.length
+											? project.repositories.join(", ")
+											: "All repositories"}
 									</p>
 									<div className="grid grid-cols-4 gap-2">
 										{[
@@ -264,10 +271,12 @@ export function ProjectsPage() {
 										</span>
 									</div>
 								</LayerCard.Body>
-								<ProjectScanStatus project={project} />
+								<ProjectScanStatus project={project} job={job} />
 								<LayerCard.Footer className="justify-between">
 									<Button variant="ghost" size="sm" asChild>
-										<Link to={`/?project=${encodeURIComponent(project.id)}`}>
+										<Link
+											to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+										>
 											View PRs
 											<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
 										</Link>
@@ -305,12 +314,7 @@ export function ProjectsPage() {
 											variant="outline"
 											size="sm"
 											aria-label={`Scan ${project.name}`}
-											disabled={
-												Boolean(vm.busy) ||
-												!vm.data?.demoMode ||
-												!project.enabled ||
-												project.source !== "demo"
-											}
+											disabled={Boolean(vm.busy) || !vm.canScan(project)}
 											onClick={() => void vm.scan(project.id)}
 										>
 											<ScanLine className="h-3.5 w-3.5" aria-hidden />
@@ -332,43 +336,50 @@ export function ProjectsPage() {
 						<span className="text-xs">Latest project snapshots</span>
 					</LayerCard.Header>
 					<div className="divide-y divide-basalt-border">
-						{vm.data.scans.slice(0, 5).map((scan) => (
-							<div
-								key={scan.id}
-								className="flex flex-wrap items-start justify-between gap-2 px-4 py-3"
-							>
-								<div className="flex min-w-0 items-start gap-3">
-									{scan.state === "complete" ? (
-										<Check
-											className="mt-0.5 h-4 w-4 shrink-0 text-basalt-heatmap-green-4"
-											aria-hidden
-										/>
-									) : (
-										<CircleAlert
-											className="mt-0.5 h-4 w-4 shrink-0 text-basalt-warning"
-											aria-hidden
-										/>
-									)}
-									<div className="min-w-0">
-										<p className="text-xs font-medium">
-											{vm.data?.projects.find(
-												(project) => project.id === scan.projectId,
-											)?.name ?? "Removed project"}{" "}
-											<span className="ml-1 font-normal text-basalt-muted-foreground">
-												· {scan.pullRequestCount} PRs ·{" "}
-												{scan.source === "demo" ? "simulated" : "CLI"}
-											</span>
-										</p>
-										<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
-											{scan.message}
-										</p>
+						{vm.data.scans
+							.filter(
+								(scan) =>
+									vm.filter.source === "all" ||
+									scan.source === vm.filter.source,
+							)
+							.slice(0, 5)
+							.map((scan) => (
+								<div
+									key={scan.id}
+									className="flex flex-wrap items-start justify-between gap-2 px-4 py-3"
+								>
+									<div className="flex min-w-0 items-start gap-3">
+										{scan.state === "complete" ? (
+											<Check
+												className="mt-0.5 h-4 w-4 shrink-0 text-basalt-heatmap-green-4"
+												aria-hidden
+											/>
+										) : (
+											<CircleAlert
+												className="mt-0.5 h-4 w-4 shrink-0 text-basalt-warning"
+												aria-hidden
+											/>
+										)}
+										<div className="min-w-0">
+											<p className="text-xs font-medium">
+												{vm.data?.projects.find(
+													(project) => project.id === scan.projectId,
+												)?.name ?? "Removed project"}{" "}
+												<span className="ml-1 font-normal text-basalt-muted-foreground">
+													· {scan.pullRequestCount} PRs ·{" "}
+													{scan.source === "demo" ? "simulated" : "CLI"}
+												</span>
+											</p>
+											<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
+												{scan.message}
+											</p>
+										</div>
 									</div>
+									<span className="shrink-0 text-[11px] text-basalt-muted-foreground">
+										{relativeTime(scan.completedAt)}
+									</span>
 								</div>
-								<span className="shrink-0 text-[11px] text-basalt-muted-foreground">
-									{relativeTime(scan.completedAt)}
-								</span>
-							</div>
-						))}
+							))}
 					</div>
 				</LayerCard>
 			) : null}
@@ -381,7 +392,6 @@ export function ProjectsPage() {
 					project={editing}
 					busy={Boolean(vm.busy)}
 					error={vm.mutationError}
-					demoMode={Boolean(vm.data?.demoMode)}
 					onSave={(draft) => vm.save(draft, editing)}
 					onClose={() => setEditing(undefined)}
 					restoreFocus={restoreFocus}
@@ -434,15 +444,31 @@ export function ProjectsPage() {
 	);
 }
 
-function ProjectScanStatus({ project }: { project: Project }) {
+function ProjectScanStatus({
+	project,
+	job,
+}: {
+	project: Project;
+	job: CollectionJob | null;
+}) {
 	const labels = {
 		never: "Awaiting first scan",
 		complete: "Monitoring enabled",
 		partial: "Partial scan",
 		failed: "Scan failed",
 	};
+	const jobLabels = {
+		queued: "Queued for collection",
+		running: `Collecting ${job?.completedPulls ?? 0}${!job || job.totalPulls === null ? "" : ` / ${job.totalPulls}`} PRs`,
+		auth_required: "Azure login required",
+		failed: "Collection failed",
+		complete: "Monitoring enabled",
+		partial: "Partial scan",
+	};
 	const label = project.enabled
-		? labels[project.scanState]
+		? job
+			? jobLabels[job.state]
+			: labels[project.scanState]
 		: "Monitoring paused";
 	const Icon = !project.enabled
 		? Pause
@@ -462,9 +488,11 @@ function ProjectScanStatus({ project }: { project: Project }) {
 						: `Scanned ${relativeTime(project.lastScannedAt)}`}
 				</span>
 			</div>
-			{project.scanMessage ? (
-				<p className="mt-2 text-xs leading-5 text-basalt-warning">
-					{project.scanMessage}
+			{job?.message || project.scanMessage ? (
+				<p
+					className={`mt-2 text-xs leading-5 ${project.scanState === "partial" || job?.state === "failed" || job?.state === "auth_required" ? "text-basalt-warning" : "text-basalt-muted-foreground"}`}
+				>
+					{job?.message || project.scanMessage}
 				</p>
 			) : null}
 		</LayerCard.Well>

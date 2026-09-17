@@ -44,6 +44,7 @@ const draft: ProjectWrite = {
 	description: "Services",
 	owner: "Maya",
 	enabled: true,
+	repositories: [],
 };
 
 function pending<T>() {
@@ -87,6 +88,44 @@ afterEach(() => {
 });
 
 describe("workbench loading and URL state", () => {
+	it("defaults mixed workspaces to live projects and remembers an explicit source selection", async () => {
+		const data = snapshot();
+		data.projects[0] = { ...data.projects[0], source: "cli" };
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		const { result } = await loaded();
+		expect(result.current.filter.source).toBe("cli");
+		expect(result.current.projects).toHaveLength(1);
+		expect(result.current.visible).toHaveLength(11);
+		act(() => result.current.setFilter({ source: "all" }));
+		expect(result.current.visible).toHaveLength(30);
+		expect(
+			new URLSearchParams(result.current.location.search).get("source"),
+		).toBe("all");
+	});
+	it("queues a real scan and reports pending work instead of pretending it completed", async () => {
+		const data = snapshot();
+		data.demoMode = false;
+		data.projects[0] = { ...data.projects[0], source: "cli" };
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		vi.mocked(scanProject).mockResolvedValue({
+			id: "job",
+			projectId: project.id,
+			revision: project.revision,
+			state: "queued",
+			requestedAt: NOW,
+			startedAt: null,
+			updatedAt: NOW,
+			completedAt: null,
+			completedPulls: 0,
+			totalPulls: null,
+			message: "Waiting for collector",
+		});
+		const { result } = await loaded();
+		await act(() => result.current.scan(project.id));
+		expect(scanProject).toHaveBeenCalledWith(project.id, project.revision);
+		expect(result.current.notice).toContain("Queued 1 project");
+		expect(result.current.notice).not.toContain("Scanned");
+	});
 	it("loads project summaries, repositories, metrics, and a bounded first page", async () => {
 		const { result } = await loaded();
 		expect(result.current.rows).toHaveLength(38);
@@ -266,6 +305,7 @@ describe("project mutations", () => {
 		expect(result.current.busy).toBeNull();
 	});
 	it("does not advertise mock collection for live-source projects", async () => {
+		vi.mocked(createProject).mockResolvedValue({ ...project, source: "cli" });
 		vi.mocked(loadWorkbench).mockResolvedValue({
 			...snapshot(),
 			demoMode: false,
@@ -273,7 +313,7 @@ describe("project mutations", () => {
 		const { result } = await loaded();
 		await act(async () => result.current.save(draft, null));
 		expect(result.current.notice).toBe(
-			"Project added. PR collection is not connected yet.",
+			"Project added. Scan it to collect live Azure DevOps pull requests.",
 		);
 	});
 	it("pauses, resumes, and removes precisely the project version the user saw", async () => {
@@ -372,7 +412,7 @@ describe("demo scanning", () => {
 			"Scanned 4 projects · 8 build stages updated.",
 		);
 	});
-	it("skips paused and CLI-source projects while continuing after a partial failure", async () => {
+	it("scans only the chosen source, skips paused projects and continues after a failure", async () => {
 		const data = snapshot();
 		data.projects[1].enabled = false;
 		data.projects[2].source = "cli";
@@ -380,14 +420,14 @@ describe("demo scanning", () => {
 		vi.mocked(scanProject).mockRejectedValueOnce(
 			new Error("Changed during scan"),
 		);
-		const { result } = await loaded();
+		const { result } = await loaded("/?source=demo");
 		await act(async () => expect(await result.current.scan()).toBe(false));
 		expect(vi.mocked(scanProject).mock.calls.map((call) => call[0])).toEqual([
 			"demo-platform",
 			"demo-mobile",
 		]);
 		expect(result.current.mutationError).toBe(
-			"1 project(s) scanned. Core Platform: Changed during scan",
+			"1 project(s) scanned. 0 queued. Core Platform: Changed during scan",
 		);
 		expect(result.current.notice).toBeNull();
 		expect(loadWorkbench).toHaveBeenCalledTimes(2);
@@ -412,13 +452,36 @@ describe("demo scanning", () => {
 		const { result } = await loaded();
 		await act(async () => expect(await result.current.scan()).toBe(false));
 		expect(result.current.mutationError).toBe(
-			"No enabled demo projects to scan",
+			"No eligible projects to scan. Check monitoring and active scans.",
 		);
 		expect(scanProject).not.toHaveBeenCalled();
 	});
 });
 
 describe("project form", () => {
+	it("retains separators while typing repository scope and validates duplicates on submit", async () => {
+		const onSave = vi.fn().mockResolvedValue(true);
+		const { result } = renderHook(() =>
+			useProjectFormViewModel(project, onSave),
+		);
+		act(() => result.current.setRepositoryText("api, "));
+		expect(result.current.repositoryText).toBe("api, ");
+		act(() => result.current.setRepositoryText("api, API"));
+		await act(async () => expect(await result.current.submit()).toBe(false));
+		expect(result.current.errors.repositories).toBeDefined();
+		expect(onSave).not.toHaveBeenCalled();
+		act(() => result.current.setRepositoryText("api, web"));
+		expect(result.current.errors.repositories).toBeUndefined();
+		await act(async () => expect(await result.current.submit()).toBe(true));
+		expect(onSave).toHaveBeenLastCalledWith(
+			expect.objectContaining({ repositories: ["api", "web"] }),
+		);
+		act(() => result.current.setRepositoryText(""));
+		await act(() => result.current.submit());
+		expect(onSave).toHaveBeenLastCalledWith(
+			expect.objectContaining({ repositories: [] }),
+		);
+	});
 	it("validates fields before saving and preserves the draft after a failed save", async () => {
 		const onSave = vi.fn().mockResolvedValue(false);
 		const { result } = renderHook(() => useProjectFormViewModel(null, onSave));

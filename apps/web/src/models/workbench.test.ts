@@ -2,6 +2,8 @@ import { demoWorkspace } from "@signoff/domain/demo";
 import type { Workbench } from "@signoff/domain/workbench";
 import { describe, expect, it, vi } from "vitest";
 import {
+	canScanProject,
+	collectorConnection,
 	DEFAULT_PULL_FILTER,
 	duration,
 	projectSummaries,
@@ -125,6 +127,7 @@ describe("URL filters and review queue", () => {
 				),
 			),
 		).toEqual({
+			source: "all",
 			query: "core",
 			projectId: "p",
 			repository: "r",
@@ -223,6 +226,90 @@ describe("URL filters and review queue", () => {
 			),
 		).toEqual(["a", "z", "blocked"]);
 		expect(input.map((row) => row.pull.id)).toEqual(["z", "a", "blocked"]);
+	});
+});
+
+describe("live collection presentation", () => {
+	it("defaults to real data when available and keeps an explicit all-data selection", () => {
+		expect(readPullFilter(new URLSearchParams(), true).source).toBe("cli");
+		expect(readPullFilter(new URLSearchParams("source=all"), true).source).toBe(
+			"all",
+		);
+		expect(
+			readPullFilter(new URLSearchParams("source=demo"), true).source,
+		).toBe("demo");
+		const live = {
+			...rows[0],
+			project: { ...rows[0].project, source: "cli" as const },
+		};
+		expect(
+			scopePulls([...rows, live], { ...DEFAULT_PULL_FILTER, source: "cli" }),
+		).toEqual([live]);
+	});
+	it("distinguishes an expired login from an offline collector", () => {
+		expect(collectorConnection(snapshot, NOW).state).toBe("offline");
+		expect(
+			collectorConnection(
+				{
+					...snapshot,
+					collector: {
+						lastSeenAt: NOW,
+						state: "auth_required",
+						message: "Run az login",
+					},
+				},
+				NOW,
+			),
+		).toMatchObject({ state: "auth_required", message: "Run az login" });
+		expect(
+			collectorConnection(
+				{
+					...snapshot,
+					collector: { lastSeenAt: NOW - 100, state: "ready", message: "" },
+				},
+				NOW,
+			).state,
+		).toBe("offline");
+		expect(
+			collectorConnection(
+				{
+					...snapshot,
+					collector: { lastSeenAt: NOW, state: "ready", message: "" },
+				},
+				NOW,
+			).state,
+		).toBe("ready");
+	});
+	it("queues live scans independently of demo mode and disables duplicate active jobs", () => {
+		const project = { ...snapshot.projects[0], source: "cli" as const };
+		expect(canScanProject(project, { ...snapshot, demoMode: false })).toBe(
+			true,
+		);
+		expect(canScanProject({ ...project, enabled: false }, snapshot)).toBe(
+			false,
+		);
+		expect(
+			canScanProject(snapshot.projects[0], { ...snapshot, demoMode: false }),
+		).toBe(false);
+		const job = {
+			id: "job",
+			projectId: project.id,
+			revision: project.revision,
+			state: "running" as const,
+			requestedAt: NOW,
+			startedAt: NOW,
+			updatedAt: NOW,
+			completedAt: null,
+			completedPulls: 3,
+			totalPulls: 10,
+			message: "Collecting",
+		};
+		const active = { ...snapshot, collectionJobs: [job] };
+		expect(canScanProject(project, active)).toBe(false);
+		expect(
+			canScanProject({ ...project, revision: project.revision + 1 }, active),
+		).toBe(true);
+		expect(projectSummaries(active, rows)[0]?.job).toEqual(job);
 	});
 });
 

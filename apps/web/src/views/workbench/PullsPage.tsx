@@ -163,7 +163,7 @@ export function PullsPage() {
 								onChange={(projectId) => vm.setFilter({ projectId })}
 							>
 								<option value="">All projects</option>
-								{vm.data?.projects.map((project) => (
+								{vm.projects.map(({ project }) => (
 									<option key={project.id} value={project.id}>
 										{project.name}
 									</option>
@@ -266,7 +266,7 @@ export function PullsPage() {
 						description={
 							vm.rows.length
 								? "Try another project, status, or search term."
-								: "Add an Azure DevOps project, then scan it to load sample PRs."
+								: "Add an Azure DevOps project, then scan it to load its PRs."
 						}
 						action={
 							vm.rows.length ? (
@@ -436,11 +436,7 @@ export function PullsPage() {
 				onClose={() => vm.selectPull(null)}
 				returnFocus={opener}
 				onScan={() => void vm.scan(vm.selected?.project.id)}
-				canScan={Boolean(
-					vm.data?.demoMode &&
-						vm.selected?.project.enabled &&
-						vm.selected.project.source === "demo",
-				)}
+				canScan={Boolean(vm.selected && vm.canScan(vm.selected.project))}
 				busy={Boolean(vm.busy)}
 			/>
 		</div>

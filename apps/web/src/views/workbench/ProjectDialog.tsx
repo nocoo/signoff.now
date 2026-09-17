@@ -21,7 +21,6 @@ export function ProjectDialog({
 	project,
 	busy,
 	error,
-	demoMode,
 	onSave,
 	onClose,
 	restoreFocus,
@@ -29,7 +28,6 @@ export function ProjectDialog({
 	project: Project | null;
 	busy: boolean;
 	error: string | null;
-	demoMode: boolean;
 	onSave: (draft: ProjectWrite) => Promise<boolean>;
 	onClose: () => void;
 	restoreFocus: () => void;
@@ -52,9 +50,9 @@ export function ProjectDialog({
 				<DialogHeader>
 					<DialogTitle>{project ? "Edit project" : "Add project"}</DialogTitle>
 					<DialogDescription className="text-sm">
-						{demoMode
-							? "Save an Azure DevOps project and explore its review queue with sample PRs."
-							: "Add the Azure DevOps project you want to monitor."}
+						{project?.source === "demo"
+							? "Edit this sample project and its review queue."
+							: "Connect an Azure DevOps project. The local collector reads PRs using your Azure CLI session."}
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -128,6 +126,20 @@ export function ProjectDialog({
 							/>
 						</Field>
 						<Field
+							label="Repositories"
+							className="sm:col-span-2"
+							required={false}
+							hint="Comma-separated repository names. Leave blank to monitor every repository in this project."
+							error={vm.errors.repositories}
+						>
+							<Input
+								value={vm.repositoryText}
+								placeholder="web-app, platform-sdk"
+								autoComplete="off"
+								onChange={(event) => vm.setRepositoryText(event.target.value)}
+							/>
+						</Field>
+						<Field
 							label="Project owner"
 							className="sm:col-span-2"
 							hint="The default person responsible for the next action."
@@ -170,11 +182,11 @@ export function ProjectDialog({
 					</fieldset>
 					{project ? (
 						<p className="mt-4 text-xs leading-5 text-basalt-muted-foreground">
-							Changing the organization or ADO project clears its saved PR
-							snapshots. Scan again to load the new source.
+							Changing the organization, ADO project or repository scope clears
+							its saved PR snapshots. Scan again to load the new source.
 						</p>
 					) : null}
-					{demoMode ? (
+					{project?.source === "demo" ? (
 						<p className="mt-4 text-xs leading-5 text-basalt-muted-foreground">
 							<Badge variant="info" className="mr-2">
 								Demo

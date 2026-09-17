@@ -7,6 +7,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
+	canScanProject,
+	collectorConnection,
 	DEFAULT_PULL_FILTER,
 	type PullFilter,
 	projectSummaries,
@@ -42,7 +44,12 @@ export function useWorkbenchViewModel() {
 	const ticket = useRef(0);
 	const mutationLock = useRef(false);
 	const [params, setParams] = useSearchParams();
-	const filter = useMemo(() => readPullFilter(params), [params]);
+	const hasLiveProjects =
+		data?.projects.some((project) => project.source === "cli") ?? false;
+	const filter = useMemo(
+		() => readPullFilter(params, hasLiveProjects),
+		[params, hasLiveProjects],
+	);
 
 	const reload = useCallback(async () => {
 		if (!mounted.current) return;
@@ -107,12 +114,25 @@ export function useWorkbenchViewModel() {
 
 	const rows = useMemo(() => (data ? pullRows(data) : []), [data]);
 	const projects = useMemo(
-		() => (data ? projectSummaries(data, rows) : []),
-		[data, rows],
+		() =>
+			data
+				? projectSummaries(data, rows).filter(
+						({ project }) =>
+							filter.source === "all" || project.source === filter.source,
+					)
+				: [],
+		[data, rows, filter.source],
 	);
 	const repositories = useMemo(
-		() => repositoryOptions(rows, filter.projectId),
-		[rows, filter.projectId],
+		() =>
+			repositoryOptions(
+				rows.filter(
+					({ project }) =>
+						filter.source === "all" || project.source === filter.source,
+				),
+				filter.projectId,
+			),
+		[rows, filter.projectId, filter.source],
 	);
 	const scoped = useMemo(() => scopePulls(rows, filter), [rows, filter]);
 	const visible = useMemo(() => visiblePulls(scoped, filter), [scoped, filter]);
@@ -128,9 +148,14 @@ export function useWorkbenchViewModel() {
 	const setFilter = (patch: Partial<PullFilter>) => {
 		const next = { ...filter, ...patch };
 		if (patch.projectId !== undefined) next.repository = "";
+		if (patch.source !== undefined) {
+			next.projectId = "";
+			next.repository = "";
+		}
 		setParams(
 			(previous) => {
 				const result = new URLSearchParams(previous);
+				result.set("source", next.source);
 				for (const [key, param] of [
 					["query", "q"],
 					["projectId", "project"],
@@ -161,6 +186,9 @@ export function useWorkbenchViewModel() {
 
 	return {
 		data,
+		connection: collectorConnection(data),
+		canScan: (project: Project) =>
+			data !== null && canScanProject(project, data),
 		projects,
 		repositories,
 		rows,
@@ -189,17 +217,17 @@ export function useWorkbenchViewModel() {
 		clearMutationError: () => setMutationError(null),
 		save: (draft: ProjectWrite, project: Project | null) =>
 			mutate("save", async () => {
-				if (project)
-					await patchProject(project.id, {
-						...draft,
-						revision: project.revision,
-					});
-				else await createProject(draft);
+				const saved = project
+					? await patchProject(project.id, {
+							...draft,
+							revision: project.revision,
+						})
+					: await createProject(draft);
 				return project
 					? "Project updated."
-					: data?.demoMode
+					: saved.source === "demo"
 						? "Project added. Scan it to load sample pull requests."
-						: "Project added. PR collection is not connected yet.";
+						: "Project added. Scan it to collect live Azure DevOps pull requests.";
 			}),
 		remove: (project: Project) =>
 			mutate("delete", async () => {
@@ -218,27 +246,49 @@ export function useWorkbenchViewModel() {
 			mutate(projectId ?? "scan-all", async () => {
 				const scannableProjects = (data?.projects ?? []).filter(
 					(p) =>
-						p.enabled &&
-						p.source === "demo" &&
-						(!projectId || p.id === projectId),
+						data &&
+						canScanProject(p, data) &&
+						(projectId
+							? p.id === projectId
+							: filter.source === "all" || p.source === filter.source),
 				);
-				if (!data?.demoMode || !scannableProjects.length)
-					throw new Error("No enabled demo projects to scan");
+				if (!scannableProjects.length)
+					throw new Error(
+						"No eligible projects to scan. Check monitoring and active scans.",
+					);
 				let count = 0;
 				let stages = 0;
+				let queued = 0;
+				let authRequired = false;
 				const failures: string[] = [];
 				for (const project of scannableProjects) {
 					try {
 						const result = await scanProject(project.id, project.revision);
-						count++;
-						stages += result.advancedStages;
+						if ("advancedStages" in result) {
+							count++;
+							stages += result.advancedStages;
+						} else {
+							queued++;
+							authRequired ||= result.state === "auth_required";
+						}
 					} catch (failure) {
 						failures.push(`${project.name}: ${message(failure)}`);
 					}
 				}
 				if (failures.length)
-					throw new Error(`${count} project(s) scanned. ${failures.join(" ")}`);
-				return `Scanned ${count} project${count === 1 ? "" : "s"} · ${stages} build stages updated.`;
+					throw new Error(
+						`${count} project(s) scanned. ${queued} queued. ${failures.join(" ")}`,
+					);
+				const notices: string[] = [];
+				if (count)
+					notices.push(
+						`Scanned ${count} project${count === 1 ? "" : "s"} · ${stages} build stages updated.`,
+					);
+				if (queued)
+					notices.push(
+						`Queued ${queued} project${queued === 1 ? "" : "s"} for live collection.${authRequired ? " Waiting for Azure login." : ""}`,
+					);
+				return notices.join(" ");
 			}),
 	};
 }
@@ -254,25 +304,42 @@ export function useProjectFormViewModel(
 		name: project?.name ?? "",
 		organization: project?.organization ?? "",
 		projectKey: project?.projectKey ?? "",
+		repositories: project?.repositories ?? [],
 		description: project?.description ?? "",
 		owner: project?.owner ?? "",
 		enabled: project?.enabled ?? true,
 	}));
+	const [repositoryText, setRepositoryText] = useState(
+		(project?.repositories ?? []).join(", "),
+	);
 	const [errors, setErrors] = useState<
 		Partial<Record<keyof ProjectWrite, string>>
 	>({});
 	return {
 		draft,
 		errors,
+		repositoryText,
+		setRepositoryText: (value: string) => {
+			setRepositoryText(value);
+			setErrors((previous) => ({ ...previous, repositories: undefined }));
+		},
 		setField: <K extends keyof ProjectWrite>(
 			key: K,
 			value: ProjectWrite[K],
 		) => {
+			if (key === "repositories")
+				setRepositoryText((value as string[] | undefined)?.join(", ") ?? "");
 			setDraft((previous) => ({ ...previous, [key]: value }));
 			setErrors((previous) => ({ ...previous, [key]: undefined }));
 		},
 		submit: async () => {
-			const parsed = projectWriteSchema.safeParse(draft);
+			const parsed = projectWriteSchema.safeParse({
+				...draft,
+				repositories: repositoryText
+					.split(",")
+					.map((name) => name.trim())
+					.filter(Boolean),
+			});
 			if (!parsed.success) {
 				setErrors(
 					Object.fromEntries(
