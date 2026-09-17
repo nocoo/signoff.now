@@ -23,8 +23,95 @@ async function main(): Promise<void> {
 	const program = new Command();
 	program
 		.name("signoff")
-		.description("Local ADO collect pipeline CLI (05 skeleton)")
+		.description("SignOff PR workbench and Azure DevOps activity collection")
 		.version("0.0.1");
+
+	const workbench = program
+		.command("workbench")
+		.description("Collect real pull requests into the local PR workbench");
+	workbench
+		.command("sync")
+		.description(
+			"Collect all enabled real projects; optionally add repository URLs first",
+		)
+		.option("--repo <urls...>", "Azure DevOps repository URLs to add and scan")
+		.option("--api-base <url>", "Local Worker origin", "http://127.0.0.1:37042")
+		.action(async (options: { repo?: string[]; apiBase: string }) => {
+			const { createCollectionClient } = await import("./workbench/client.ts");
+			const { createAdoClient } = await import("./ado/client.ts");
+			const { collectProjectPulls } = await import("./workbench/ado.ts");
+			const { registerRepositories, queueDueProjects, runCollectionOnce } =
+				await import("./workbench/run.ts");
+			const api = createCollectionClient({ apiBase: options.apiBase });
+			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
+			const ids = options.repo
+				? await registerRepositories(api, options.repo)
+				: undefined;
+			const queued = await queueDueProjects(
+				api,
+				0,
+				Math.floor(Date.now() / 1000),
+				ids,
+			);
+			log.info(`Queued ${queued} project(s) for real collection.`);
+			let failed = false;
+			for (;;) {
+				const result = await runCollectionOnce({
+					api,
+					ado,
+					collect: collectProjectPulls,
+					log,
+				});
+				if (result.state === "failed" || result.state === "auth_required")
+					failed = true;
+				if (!result.processed || result.state === "auth_required") break;
+			}
+			process.exitCode = failed ? ExitCode.ENV : ExitCode.OK;
+		});
+	workbench
+		.command("watch")
+		.description(
+			"Keep the local collector online for UI scan requests and scheduled refreshes",
+		)
+		.option("--api-base <url>", "Local Worker origin", "http://127.0.0.1:37042")
+		.option(
+			"--interval <seconds>",
+			"Minimum time between automatic project scans (30–3600)",
+			"120",
+		)
+		.action(async (options: { apiBase: string; interval: string }) => {
+			const interval = Number(options.interval);
+			if (!Number.isInteger(interval) || interval < 30 || interval > 3600)
+				throw new Error(
+					"Scan interval must be an integer from 30 to 3600 seconds",
+				);
+			const { createCollectionClient } = await import("./workbench/client.ts");
+			const { createAdoClient } = await import("./ado/client.ts");
+			const { collectProjectPulls } = await import("./workbench/ado.ts");
+			const { queueDueProjects, runCollectionOnce, collectionError } =
+				await import("./workbench/run.ts");
+			const api = createCollectionClient({ apiBase: options.apiBase });
+			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
+			log.info(
+				`Local collector online. Automatic scans every ${interval}s; UI requests checked every 3s.`,
+			);
+			for (;;) {
+				try {
+					await queueDueProjects(api, interval);
+					const result = await runCollectionOnce({
+						api,
+						ado,
+						collect: collectProjectPulls,
+						log,
+					});
+					if (!result.processed || result.state === "auth_required")
+						await Bun.sleep(result.state === "auth_required" ? 15_000 : 3000);
+				} catch (error) {
+					log.error(collectionError(error).message);
+					await Bun.sleep(10_000);
+				}
+			}
+		});
 
 	program
 		.command("doctor")
