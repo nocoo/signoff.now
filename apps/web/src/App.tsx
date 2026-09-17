@@ -8,6 +8,7 @@ import { AccentProvider } from "@nocoo/basalt/providers/accent";
 import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
+import { WorkbenchProvider } from "@/viewmodels/WorkbenchProvider";
 import { ActivityPage } from "@/views/activity/ActivityPage";
 import { DashboardPage } from "@/views/DashboardPage";
 import { DevelopersPage } from "@/views/developers/DevelopersPage";
@@ -54,7 +55,13 @@ export default function App() {
 						<TooltipProvider>
 							<Toaster />
 							<Routes>
-								<Route element={<AppShell />}>
+								<Route
+									element={
+										<WorkbenchProvider>
+											<AppShell />
+										</WorkbenchProvider>
+									}
+								>
 									<Route path="/" element={<PullsPage />} />
 									<Route path="/projects" element={<ProjectsPage />} />
 									<Route path="/insights" element={<DashboardPage />} />

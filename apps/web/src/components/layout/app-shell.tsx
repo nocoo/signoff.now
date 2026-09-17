@@ -1,6 +1,7 @@
 import {
 	Button,
 	ContentIsland,
+	SegmentControl,
 	Sheet,
 	SheetContent,
 	SheetDescription,
@@ -19,6 +20,9 @@ import { Github } from "@/components/icons/github";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
 import { fetchMe } from "@/models/entitiesApi";
+import type { PullFilter } from "@/models/workbench";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
+import { CollectionToast } from "@/views/workbench/CollectionToast";
 import { HeaderTooltip, HexlyLink } from "./header-links";
 import { Sidebar } from "./sidebar";
 import { ThemeToggle } from "./theme-toggle";
@@ -42,6 +46,7 @@ function persistSidebarState(collapsed: boolean): void {
 }
 
 export function AppShell() {
+	const vm = useWorkbench();
 	const isMobile = useIsMobile();
 	const location = useLocation();
 	const [collapsed, setCollapsed] = useState(storedSidebarState);
@@ -134,23 +139,37 @@ export function AppShell() {
 					title={current}
 					actions={
 						<>
-							<HeaderTooltip label="GitHub repository">
-								<Button variant="ghost" size="icon" asChild>
-									<a
-										href="https://github.com/nocoo/signoff.now"
-										target="_blank"
-										rel="noopener noreferrer"
-										aria-label="GitHub repository"
-									>
-										<Github
-											className="h-[18px] w-[18px]"
-											aria-hidden
-											strokeWidth={1.5}
-										/>
-									</a>
-								</Button>
-							</HeaderTooltip>
-							<HexlyLink />
+							<SegmentControl
+								legend="Data source"
+								className="mr-2 [&>legend]:sr-only [&_[data-slot=segment-control-viewport]]:overflow-visible [&_[data-slot=segment-control-viewport]]:pb-0"
+								value={vm.filter.source}
+								onValueChange={(source) =>
+									vm.setFilter({ source: source as PullFilter["source"] })
+								}
+								options={[
+									{ value: "cli", label: "Live" },
+									{ value: "demo", label: "Sample" },
+								]}
+							/>
+							<div className="hidden items-center gap-1 sm:flex">
+								<HeaderTooltip label="GitHub repository">
+									<Button variant="ghost" size="icon" asChild>
+										<a
+											href="https://github.com/nocoo/signoff.now"
+											target="_blank"
+											rel="noopener noreferrer"
+											aria-label="GitHub repository"
+										>
+											<Github
+												className="h-[18px] w-[18px]"
+												aria-hidden
+												strokeWidth={1.5}
+											/>
+										</a>
+									</Button>
+								</HeaderTooltip>
+								<HexlyLink />
+							</div>
 							<ThemeToggle aria-label="Change theme" />
 						</>
 					}
@@ -161,6 +180,7 @@ export function AppShell() {
 					</ContentIsland>
 				</div>
 			</AppMain>
+			<CollectionToast />
 		</BasaltAppShell>
 	);
 }

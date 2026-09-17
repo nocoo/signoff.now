@@ -1,27 +1,10 @@
-import { Badge, Button, Label, SegmentControl, Switch } from "@nocoo/basalt";
+import { Badge, Button, Label, Switch } from "@nocoo/basalt";
 import { FlaskConical, Radio, RefreshCw, ScanLine } from "lucide-react";
 import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { cn } from "@/lib/utils";
-import { type PullFilter, relativeTime } from "@/models/workbench";
+import { relativeTime } from "@/models/workbench";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
-
-export function SourceControl({ vm }: { vm: WorkbenchViewModel }) {
-	return (
-		<SegmentControl
-			legend="Data source"
-			className="[&>legend]:sr-only [&_[data-slot=segment-control-viewport]]:overflow-visible [&_[data-slot=segment-control-viewport]]:pb-0"
-			value={vm.filter.source}
-			onValueChange={(source) =>
-				vm.setFilter({ source: source as PullFilter["source"] })
-			}
-			options={[
-				{ value: "cli", label: "Live" },
-				{ value: "demo", label: "Sample" },
-			]}
-		/>
-	);
-}
 
 export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 	return (
@@ -54,7 +37,13 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 	);
 }
 
-export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
+export function WorkbenchConnection({
+	vm,
+	compact = false,
+}: {
+	vm: WorkbenchViewModel;
+	compact?: boolean;
+}) {
 	const refreshId = useId();
 	const samplesOnly = vm.filter.source === "demo";
 	const connectionLabels = {
@@ -64,7 +53,14 @@ export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 		error: "Collector error",
 	};
 	return (
-		<div className="flex flex-wrap items-center justify-between gap-3 rounded-basalt-md bg-basalt-muted/40 px-3 py-2.5 text-xs text-basalt-muted-foreground">
+		<div
+			className={cn(
+				"flex flex-wrap items-center justify-between gap-3 text-xs text-basalt-muted-foreground",
+				compact
+					? "w-full sm:w-auto sm:flex-1"
+					: "rounded-basalt-md bg-basalt-muted/40 px-3 py-2.5",
+			)}
+		>
 			<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
 				{samplesOnly ? (
 					<>
@@ -72,7 +68,9 @@ export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 							<FlaskConical className="h-3 w-3" aria-hidden />
 							Sample data
 						</Badge>
-						<span>Sample PRs · scan to simulate build progress.</span>
+						{!compact ? (
+							<span>Sample PRs · scan to simulate build progress.</span>
+						) : null}
 					</>
 				) : (
 					<>
@@ -83,11 +81,13 @@ export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 							<Radio className="h-3 w-3" aria-hidden />
 							{connectionLabels[vm.connection.state]}
 						</Badge>
-						<span className="break-words">
-							{vm.connection.state === "ready"
-								? "All active PRs + recent merged and closed PRs."
-								: vm.connection.message}
-						</span>
+						{!compact ? (
+							<span className="break-words">
+								{vm.connection.state === "ready"
+									? "All active PRs + recent merged and closed PRs."
+									: vm.connection.message}
+							</span>
+						) : null}
 					</>
 				)}
 			</div>
@@ -108,7 +108,7 @@ export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 						htmlFor={refreshId}
 						className="text-xs font-normal text-basalt-muted-foreground"
 					>
-						Auto refresh · 15s
+						{compact ? "Auto collect" : "Auto refresh · 15s"}
 					</Label>
 				</div>
 			</div>
@@ -117,36 +117,8 @@ export function WorkbenchConnection({ vm }: { vm: WorkbenchViewModel }) {
 }
 
 export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
-	const activeJobs = vm.projects.filter(
-		({ job }) =>
-			job &&
-			["queued", "running", "auth_required", "failed"].includes(job.state),
-	);
 	return (
 		<>
-			{activeJobs.map(({ project, job }) =>
-				job ? (
-					<AlertBanner
-						key={job.id}
-						variant={
-							job.state === "auth_required" || job.state === "failed"
-								? "warning"
-								: "info"
-						}
-					>
-						<span className="font-medium">{project.name}</span>
-						{" · "}
-						{job.state === "running"
-							? `Collecting ${job.completedPulls}${job.totalPulls === null ? "" : ` / ${job.totalPulls}`} PRs`
-							: job.state === "queued"
-								? "Queued for collection"
-								: job.state === "auth_required"
-									? "Waiting for Azure login"
-									: "Collection failed"}
-						{job.message ? ` · ${job.message}` : ""}
-					</AlertBanner>
-				) : null,
-			)}
 			{vm.error ? (
 				<AlertBanner variant="error">
 					{vm.error}

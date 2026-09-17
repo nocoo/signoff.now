@@ -19,6 +19,8 @@ export type PullFilter = {
 	organization: string;
 	projectId: string;
 	repository: string;
+	draft: "exclude" | "include" | "only";
+	authors: string[];
 	state: "open" | "merged" | "closed" | "all";
 	status: "all" | "attention" | PullReadiness["kind"];
 	sort: "attention" | "updated" | "oldest";
@@ -29,10 +31,24 @@ export const DEFAULT_PULL_FILTER: PullFilter = {
 	organization: "",
 	projectId: "",
 	repository: "",
+	draft: "exclude",
+	authors: [],
 	state: "open",
 	status: "all",
 	sort: "attention",
 };
+export const PULL_FILTER_PARAMS = {
+	source: "source",
+	query: "q",
+	organization: "org",
+	projectId: "project",
+	repository: "repo",
+	draft: "draft",
+	state: "state",
+	status: "status",
+	sort: "sort",
+} as const;
+export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
 const ATTENTION = new Set(["blocked", "approval", "review", "unknown"]);
 const ORDER = {
 	blocked: 0,
@@ -70,8 +86,11 @@ export function readPullFilter(
 	const defaultSource = hasLiveProjects ? "cli" : "demo";
 	const source = params.get("source") ?? defaultSource;
 	const state = params.get("state") ?? "open";
-	const status = params.get("status") ?? "all";
+	const legacyStatus = params.get("status") ?? "all";
+	const status = legacyStatus === "draft" ? "all" : legacyStatus;
 	const sort = params.get("sort") ?? "attention";
+	const draft =
+		params.get("draft") ?? (legacyStatus === "draft" ? "only" : "exclude");
 	return {
 		source: ["cli", "demo"].includes(source)
 			? (source as PullFilter["source"])
@@ -80,6 +99,10 @@ export function readPullFilter(
 		organization: (params.get("org") ?? "").toLowerCase(),
 		projectId: params.get("project") ?? "",
 		repository: params.get("repo") ?? "",
+		draft: ["exclude", "include", "only"].includes(draft)
+			? (draft as PullFilter["draft"])
+			: "exclude",
+		authors: [...new Set(params.getAll("author").filter(Boolean))],
 		state: ["open", "merged", "closed", "all"].includes(state)
 			? (state as PullFilter["state"])
 			: "open",
@@ -90,6 +113,43 @@ export function readPullFilter(
 			? (sort as PullFilter["sort"])
 			: "attention",
 	};
+}
+
+export function writePullFilter(
+	filter: PullFilter,
+	previous = new URLSearchParams(),
+): URLSearchParams {
+	const params = new URLSearchParams(previous);
+	for (const key of Object.keys(
+		PULL_FILTER_PARAMS,
+	) as (keyof typeof PULL_FILTER_PARAMS)[]) {
+		const param = PULL_FILTER_PARAMS[key];
+		if (key !== "source" && filter[key] === DEFAULT_PULL_FILTER[key])
+			params.delete(param);
+		else params.set(param, filter[key]);
+	}
+	params.delete("author");
+	for (const author of filter.authors) params.append("author", author);
+	return params;
+}
+
+export function pullAuthorId(row: PullRow): string {
+	return `${row.project.provider}:${row.pull.author.id}`;
+}
+
+export function authorOptions(rows: PullRow[]) {
+	return [
+		...new Map(
+			rows.map((row) => [
+				pullAuthorId(row),
+				{
+					id: pullAuthorId(row),
+					name: row.pull.author.name,
+					provider: row.project.provider,
+				},
+			]),
+		).values(),
+	].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
 export function matchesRepository(
@@ -104,9 +164,13 @@ export function matchesRepository(
 
 export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 	const query = filter.query.trim().toLowerCase();
-	return rows.filter(
-		({ pull, project, readiness }) =>
+	return rows.filter((row) => {
+		const { pull, project, readiness } = row;
+		return (
 			project.source === filter.source &&
+			(filter.draft === "include" ||
+				pull.draft === (filter.draft === "only")) &&
+			(!filter.authors.length || filter.authors.includes(pullAuthorId(row))) &&
 			(!filter.organization ||
 				project.organization.toLowerCase() ===
 					filter.organization.toLowerCase()) &&
@@ -127,8 +191,9 @@ export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 				]
 					.join(" ")
 					.toLowerCase()
-					.includes(query)),
-	);
+					.includes(query))
+		);
+	});
 }
 
 export function visiblePulls(scoped: PullRow[], filter: PullFilter): PullRow[] {
@@ -176,7 +241,9 @@ export function repositoryOptions(
 	rows: PullRow[],
 	projectId = "",
 	projects: Project[] = [],
+	matchingRows = rows,
 ) {
+	const matchingIds = new Set(matchingRows.map((row) => row.pull.id));
 	const repositories = new Map<
 		string,
 		{ key: string; id: string; name: string; project: Project; rows: PullRow[] }
@@ -206,11 +273,14 @@ export function repositoryOptions(
 		}
 	}
 	return [...repositories.values()]
-		.map(({ rows: pulls, ...repository }) => ({
-			...repository,
-			metrics: pullMetrics(pulls),
-			total: pulls.length,
-		}))
+		.map(({ rows: pulls, ...repository }) => {
+			const matching = pulls.filter((row) => matchingIds.has(row.pull.id));
+			return {
+				...repository,
+				metrics: pullMetrics(matching),
+				total: matching.length,
+			};
+		})
 		.sort(
 			(a, b) =>
 				a.name.localeCompare(b.name) ||
@@ -220,9 +290,13 @@ export function repositoryOptions(
 		);
 }
 
-export function projectSummaries(data: Workbench, rows: PullRow[]) {
+export function projectSummaries(
+	data: Workbench,
+	rows: PullRow[],
+	matchingRows = rows,
+) {
 	return data.projects.map((project) => {
-		const pulls = rows.filter((row) => row.project.id === project.id);
+		const pulls = matchingRows.filter((row) => row.project.id === project.id);
 		return {
 			project,
 			job:
@@ -230,11 +304,13 @@ export function projectSummaries(data: Workbench, rows: PullRow[]) {
 					.filter((job) => job.projectId === project.id)
 					.sort(
 						(a, b) =>
-							b.requestedAt - a.requestedAt || b.updatedAt - a.updatedAt,
+							b.revision - a.revision ||
+							b.requestedAt - a.requestedAt ||
+							b.updatedAt - a.updatedAt,
 					)[0] ?? null,
 			metrics: pullMetrics(pulls),
 			total: pulls.length,
-			repositories: repositoryOptions(pulls, project.id, [project]),
+			repositories: repositoryOptions(rows, project.id, [project], pulls),
 			scans: data.scans.filter((scan) => scan.projectId === project.id),
 		};
 	});
@@ -243,8 +319,7 @@ export function projectSummaries(data: Workbench, rows: PullRow[]) {
 export function canScanProject(project: Project, data: Workbench): boolean {
 	return (
 		project.enabled &&
-		project.provider === "ado" &&
-		(project.source === "cli" || data.demoMode) &&
+		(project.source === "demo" ? data.demoMode : project.provider === "ado") &&
 		!(data.collectionJobs ?? []).some(
 			(job) =>
 				job.projectId === project.id &&

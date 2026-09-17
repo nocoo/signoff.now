@@ -2,6 +2,7 @@ import { demoWorkspace } from "@signoff/domain/demo";
 import type { Workbench } from "@signoff/domain/workbench";
 import { describe, expect, it, vi } from "vitest";
 import {
+	authorOptions,
 	canScanProject,
 	collectorConnection,
 	DEFAULT_PULL_FILTER,
@@ -14,6 +15,7 @@ import {
 	repositoryOptions,
 	scopePulls,
 	visiblePulls,
+	writePullFilter,
 } from "./workbench";
 
 const NOW = 1_800_000_000;
@@ -26,8 +28,17 @@ const snapshot: Workbench = {
 const rows = pullRows(snapshot);
 
 describe("workbench projections", () => {
+	it("normalizes legacy draft links into the dedicated draft filter", () => {
+		expect(readPullFilter(new URLSearchParams("status=draft"))).toMatchObject({
+			status: "all",
+			draft: "only",
+		});
+		expect(
+			readPullFilter(new URLSearchParams("status=draft&draft=include")),
+		).toMatchObject({ status: "all", draft: "include" });
+	});
 	it("joins PRs to projects and omits snapshots without their project", () => {
-		expect(rows).toHaveLength(38);
+		expect(rows).toHaveLength(46);
 		expect(rows.find((row) => row.pull.number === 4821)).toMatchObject({
 			project: { name: "Core Platform" },
 			readiness: { kind: "blocked" },
@@ -37,13 +48,13 @@ describe("workbench projections", () => {
 	});
 	it("counts only open PRs in readiness metrics, including drafts", () => {
 		expect(pullMetrics(rows)).toEqual({
-			open: 30,
-			attention: 15,
-			running: 5,
-			ready: 6,
-			draft: 4,
-			merged: 5,
-			closed: 3,
+			open: 36,
+			attention: 18,
+			running: 6,
+			ready: 7,
+			draft: 5,
+			merged: 6,
+			closed: 4,
 		});
 		expect(pullMetrics([])).toEqual({
 			open: 0,
@@ -84,13 +95,12 @@ describe("workbench projections", () => {
 		);
 		expect(empty[0]).toMatchObject({
 			total: 0,
-			repositories: [],
 			scans: [],
 			metrics: { open: 0 },
 		});
 	});
 	it("deduplicates repository IDs while keeping equally named repositories in different projects", () => {
-		expect(repositoryOptions(rows)).toHaveLength(12);
+		expect(repositoryOptions(rows)).toHaveLength(13);
 		expect(
 			repositoryOptions(rows, "demo-commerce").map((repo) => repo.name),
 		).toEqual(["billing-api", "checkout", "orders"]);
@@ -200,6 +210,85 @@ describe("workbench projections", () => {
 });
 
 describe("URL filters and review queue", () => {
+	it("excludes drafts by default and combines draft and multiple author filters before counting", () => {
+		const defaults = readPullFilter(new URLSearchParams());
+		expect(defaults.draft).toBe("exclude");
+		expect(defaults.authors).toEqual([]);
+		expect(scopePulls(rows, defaults).every(({ pull }) => !pull.draft)).toBe(
+			true,
+		);
+		const included = scopePulls(rows, { ...defaults, draft: "include" });
+		expect(included).toHaveLength(46);
+		const drafts = scopePulls(rows, { ...defaults, draft: "only" });
+		expect(drafts).toHaveLength(5);
+		expect(drafts.every(({ pull }) => pull.draft)).toBe(true);
+		const selected = scopePulls(rows, {
+			...defaults,
+			authors: ["ado:maya", "ado:alex"],
+		});
+		expect(selected.length).toBeGreaterThan(0);
+		expect(
+			selected.every(
+				({ pull, project }) =>
+					!pull.draft &&
+					project.provider === "ado" &&
+					["maya", "alex"].includes(pull.author.id),
+			),
+		).toBe(true);
+		expect(pullMetrics(selected).draft).toBe(0);
+		expect(scopePulls(rows, { ...defaults, authors: ["missing"] })).toEqual([]);
+	});
+	it("keeps same-name author identities distinct across providers", () => {
+		const options = authorOptions(rows);
+		expect(
+			options
+				.filter((author) => author.name === "Maya Chen")
+				.map((author) => author.id)
+				.sort(),
+		).toEqual(["ado:maya", "github:maya"]);
+		expect(new Set(options.map((author) => author.id)).size).toBe(
+			options.length,
+		);
+	});
+	it("round-trips all filters without persisting pagination or PR details", () => {
+		const filter = {
+			...DEFAULT_PULL_FILTER,
+			organization: "github.com",
+			projectId: "demo-github-nocoo",
+			repository: "signoff.now",
+			query: "checks",
+			draft: "include" as const,
+			authors: ["github:maya", "github:alex"],
+			state: "all" as const,
+			sort: "updated" as const,
+		};
+		expect(readPullFilter(writePullFilter(filter))).toEqual(filter);
+		expect(writePullFilter(DEFAULT_PULL_FILTER).toString()).toBe("source=demo");
+		expect(
+			readPullFilter(
+				new URLSearchParams(
+					"draft=invalid&author=&author=ado%3Amaya&author=ado%3Amaya",
+				),
+			),
+		).toMatchObject({ draft: "exclude", authors: ["ado:maya"] });
+	});
+	it("filters repository counters without removing empty repository choices", () => {
+		const matching = scopePulls(rows, {
+			...DEFAULT_PULL_FILTER,
+			authors: ["github:maya"],
+		});
+		const summaries = projectSummaries(snapshot, rows, matching);
+		expect(summaries.flatMap((summary) => summary.repositories)).toHaveLength(
+			13,
+		);
+		expect(
+			summaries[0]?.repositories.every((repo) => repo.metrics.open === 0),
+		).toBe(true);
+		expect(
+			summaries.find((summary) => summary.project.provider === "github")
+				?.metrics.open,
+		).toBe(1);
+	});
 	it("uses defaults and rejects unknown enum values from shared URLs", () => {
 		expect(readPullFilter(new URLSearchParams())).toEqual(DEFAULT_PULL_FILTER);
 		expect(
@@ -215,6 +304,8 @@ describe("URL filters and review queue", () => {
 			),
 		).toEqual({
 			source: "demo",
+			draft: "exclude",
+			authors: [],
 			query: "core",
 			organization: "msdata",
 			projectId: "p",
@@ -225,10 +316,10 @@ describe("URL filters and review queue", () => {
 		});
 	});
 	it("scopes by project, repository, and meaningful search fields before counting", () => {
-		expect(scopePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(38);
+		expect(scopePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(41);
 		expect(
 			scopePulls(rows, { ...DEFAULT_PULL_FILTER, projectId: "demo-platform" }),
-		).toHaveLength(12);
+		).toHaveLength(11);
 		expect(
 			scopePulls(rows, {
 				...DEFAULT_PULL_FILTER,
@@ -268,25 +359,25 @@ describe("URL filters and review queue", () => {
 		).toEqual([]);
 	});
 	it("keeps terminal states out of the default queue and supports exact readiness filters", () => {
-		expect(visiblePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(30);
+		expect(visiblePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(36);
 		expect(
 			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "merged" }),
-		).toHaveLength(5);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "closed" }),
-		).toHaveLength(3);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "all" }),
-		).toHaveLength(38);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "attention" }),
-		).toHaveLength(15);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "ready" }),
 		).toHaveLength(6);
 		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "draft" }),
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "closed" }),
 		).toHaveLength(4);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "all" }),
+		).toHaveLength(46);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "attention" }),
+		).toHaveLength(18);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "ready" }),
+		).toHaveLength(7);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "draft" }),
+		).toHaveLength(5);
 	});
 	it("prioritizes blockers and keeps timestamp ties deterministic without mutating input", () => {
 		const blocked = {
@@ -401,6 +492,21 @@ describe("live collection presentation", () => {
 			canScanProject({ ...project, revision: project.revision + 1 }, active),
 		).toBe(true);
 		expect(projectSummaries(active, rows)[0]?.job).toEqual(job);
+		const nextJob = {
+			...job,
+			id: "next-job",
+			revision: job.revision + 1,
+			state: "failed" as const,
+		};
+		expect(
+			projectSummaries(
+				{
+					...snapshot,
+					collectionJobs: [{ ...job, state: "complete" }, nextJob],
+				},
+				rows,
+			)[0]?.job,
+		).toEqual(nextJob);
 	});
 });
 

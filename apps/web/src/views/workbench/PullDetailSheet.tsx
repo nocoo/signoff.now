@@ -124,6 +124,10 @@ function PullDetail({
 	busy: boolean;
 }) {
 	const { pull, project, readiness, progress } = row;
+	const checksAt =
+		pull.checksObservedAt === null
+			? null
+			: (pull.checksObservedAt ?? pull.observedAt);
 	return (
 		<>
 			<div className="space-y-4 border-b border-basalt-border px-5 py-5 sm:px-6">
@@ -340,14 +344,21 @@ function PullDetail({
 						<div className="flex flex-wrap items-center justify-between gap-2">
 							<h3 className="flex items-center gap-2 text-sm font-semibold">
 								<ShieldCheck className="h-4 w-4" aria-hidden />
-								{progress.checksPassed} / {progress.checksTotal} required checks
-								passed
+								{checksAt === null
+									? "Checks not collected"
+									: `${progress.checksPassed} / ${progress.checksTotal} required checks passed`}
 							</h3>
 							<span className="text-xs text-basalt-muted-foreground">
-								Observed {relativeTime(pull.observedAt)}
+								{checksAt === null
+									? "Awaiting collection"
+									: `Checked ${relativeTime(checksAt)}`}
 							</span>
 						</div>
-						{pull.coverage === "partial" ? (
+						{checksAt === null ? (
+							<AlertBanner>
+								Checks load while this PR is open and Auto collect is enabled.
+							</AlertBanner>
+						) : pull.coverage === "partial" ? (
 							<AlertBanner variant="warning">
 								Some check results are unavailable. Scan this project again to
 								verify readiness.
@@ -473,7 +484,11 @@ function PullDetail({
 						? "Sample data · approvals and failures require attention"
 						: "Collected from the project source"}
 				</span>
-				<span>Last scanned {relativeTime(pull.observedAt)}</span>
+				<span>
+					{checksAt === null
+						? "Checks not collected"
+						: `Checks collected ${relativeTime(checksAt)}`}
+				</span>
 			</div>
 		</>
 	);

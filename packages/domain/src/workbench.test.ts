@@ -100,9 +100,9 @@ describe("normalized PR contract", () => {
 			action: "1 more approval needed",
 		});
 	});
-	test("contains 38 persistent-ready scenarios across four projects", () => {
-		expect(fixture.projects).toHaveLength(4);
-		expect(fixture.pullRequests).toHaveLength(38);
+	test("contains 46 persistent-ready scenarios across five projects", () => {
+		expect(fixture.projects).toHaveLength(5);
+		expect(fixture.pullRequests).toHaveLength(46);
 		expect(
 			workbenchSchema.safeParse({
 				...fixture,
@@ -133,18 +133,36 @@ describe("normalized PR contract", () => {
 		]);
 		expect(
 			new Set(fixture.pullRequests.map((pr) => pr.repository.id)).size,
-		).toBe(12);
+		).toBe(13);
+	});
+	test("organizes GitHub samples by host, owner, and repository", () => {
+		const github = fixture.projects.find((p) => p.provider === "github");
+		expect(github).toMatchObject({
+			organization: "github.com",
+			projectKey: "nocoo",
+			repositories: ["signoff.now"],
+			source: "demo",
+		});
+		if (!github) throw new Error("Expected the GitHub sample project");
+		const pulls = fixture.pullRequests.filter((p) => p.projectId === github.id);
+		expect(pulls).toHaveLength(8);
+		expect(pulls.every((p) => p.repository.name === "signoff.now")).toBe(true);
+		expect(pulls[0]?.activity.at(-1)?.actor).toBe("GitHub Actions");
+		expect(pulls[0]?.policies[0]?.name).toBe("Linked issue");
+		expect(projectUrl(github)).toBe("https://github.com/nocoo");
+		expect(pullUrl(github, pulls[0]!)).toBe(
+			"https://github.com/nocoo/signoff.now/pull/101",
+		);
 	});
 	test("retains one provider-neutral shape and safely constructs provider links", () => {
 		const github = projectSchema.parse({
 			...project,
 			provider: "github",
-			projectKey: "platform-sdk",
+			organization: "github.com",
+			projectKey: "northstar-demo",
 		});
 		expect(pullRequestSchema.parse(ready)).toEqual(ready);
-		expect(projectUrl(github)).toBe(
-			"https://github.com/northstar-demo/platform-sdk",
-		);
+		expect(projectUrl(github)).toBe("https://github.com/northstar-demo");
 		expect(pullUrl(github, ready)).toContain(`/pull/${ready.number}`);
 		expect(
 			pullUrl({ ...project, projectKey: "Shared Platform" }, ready),

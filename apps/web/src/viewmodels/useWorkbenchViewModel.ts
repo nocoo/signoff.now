@@ -7,17 +7,21 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
+	authorOptions,
 	canScanProject,
 	collectorConnection,
-	DEFAULT_PULL_FILTER,
 	matchesRepository,
+	PULL_FILTER_PARAMS,
+	PULL_FILTER_STORAGE_KEY,
 	type PullFilter,
 	projectSummaries,
+	pullAuthorId,
 	pullMetrics,
 	pullRows,
 	readPullFilter,
 	scopePulls,
 	visiblePulls,
+	writePullFilter,
 } from "@/models/workbench";
 import {
 	createProject,
@@ -27,9 +31,17 @@ import {
 	scanProject,
 } from "@/models/workbenchApi";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 20;
 const message = (error: unknown) =>
 	error instanceof Error ? error.message : "Request failed";
+
+function storedFilters(): string {
+	try {
+		return localStorage.getItem(PULL_FILTER_STORAGE_KEY) ?? "";
+	} catch {
+		return "";
+	}
+}
 
 export function useWorkbenchViewModel() {
 	const [data, setData] = useState<Workbench | null>(null);
@@ -43,11 +55,19 @@ export function useWorkbenchViewModel() {
 	const mounted = useRef(false);
 	const ticket = useRef(0);
 	const mutationLock = useRef(false);
+	const visibleAttempts = useRef(new Map<string, number>());
 	const [params, setParams] = useSearchParams();
+	const [savedFilters, setSavedFilters] = useState(storedFilters);
 	const hasLiveProjects =
 		data?.projects.some((project) => project.source === "cli") ?? false;
 	const filter = useMemo(() => {
-		const parsed = readPullFilter(params, hasLiveProjects);
+		const explicit = [...Object.values(PULL_FILTER_PARAMS), "author"].some(
+			(key) => params.has(key),
+		);
+		const parsed = readPullFilter(
+			explicit ? params : new URLSearchParams(savedFilters),
+			hasLiveProjects,
+		);
 		const project = data?.projects.find(
 			(item) => item.id === parsed.projectId && item.source === parsed.source,
 		);
@@ -56,7 +76,19 @@ export function useWorkbenchViewModel() {
 			organization:
 				parsed.organization || project?.organization.toLowerCase() || "",
 		};
-	}, [params, hasLiveProjects, data]);
+	}, [params, hasLiveProjects, data, savedFilters]);
+
+	useEffect(() => {
+		if (loading) return;
+		const next = writePullFilter(filter).toString();
+		if (next === savedFilters) return;
+		setSavedFilters(next);
+		try {
+			localStorage.setItem(PULL_FILTER_STORAGE_KEY, next);
+		} catch {
+			// Navigation still remembers the filters when browser storage is unavailable.
+		}
+	}, [filter, loading, savedFilters]);
 
 	const reload = useCallback(async () => {
 		if (!mounted.current) return;
@@ -86,14 +118,21 @@ export function useWorkbenchViewModel() {
 			ticket.current++;
 		};
 	}, [reload]);
+	const collecting =
+		data?.collectionJobs?.some(
+			(job) => job.state === "running" || job.state === "queued",
+		) ?? false;
 	useEffect(() => {
-		if (!autoRefresh) return;
-		const timer = setInterval(() => {
-			if (document.visibilityState === "visible" && !mutationLock.current)
-				void reload();
-		}, 15000);
+		if (!autoRefresh && !collecting) return;
+		const timer = setInterval(
+			() => {
+				if (document.visibilityState === "visible" && !mutationLock.current)
+					void reload();
+			},
+			collecting ? 3000 : 15000,
+		);
 		return () => clearInterval(timer);
-	}, [autoRefresh, reload]);
+	}, [autoRefresh, collecting, reload]);
 
 	const mutate = useCallback(
 		async (label: string, operation: () => Promise<string>) => {
@@ -120,14 +159,24 @@ export function useWorkbenchViewModel() {
 	);
 
 	const rows = useMemo(() => (data ? pullRows(data) : []), [data]);
+	const matching = useMemo(
+		() =>
+			scopePulls(rows, {
+				...filter,
+				organization: "",
+				projectId: "",
+				repository: "",
+			}),
+		[rows, filter],
+	);
 	const projects = useMemo(
 		() =>
 			data
-				? projectSummaries(data, rows).filter(
+				? projectSummaries(data, rows, matching).filter(
 						({ project }) => project.source === filter.source,
 					)
 				: [],
-		[data, rows, filter.source],
+		[data, rows, matching, filter.source],
 	);
 	const organizations = useMemo(
 		() =>
@@ -169,6 +218,23 @@ export function useWorkbenchViewModel() {
 		repositories.find((repo) => matchesRepository(repo, filter.repository)) ??
 		null;
 	const scoped = useMemo(() => scopePulls(rows, filter), [rows, filter]);
+	const authors = useMemo(
+		() =>
+			authorOptions([
+				...scopePulls(rows, {
+					...filter,
+					query: "",
+					draft: "include",
+					authors: [],
+				}),
+				...rows.filter(
+					(row) =>
+						row.project.source === filter.source &&
+						filter.authors.includes(pullAuthorId(row)),
+				),
+			]),
+		[rows, filter],
+	);
 	const visible = useMemo(() => visiblePulls(scoped, filter), [scoped, filter]);
 	const metrics = useMemo(() => pullMetrics(scoped), [scoped]);
 	const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
@@ -177,7 +243,70 @@ export function useWorkbenchViewModel() {
 		pageCount,
 		Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1),
 	);
-	const selected = rows.find((row) => row.pull.id === params.get("pr")) ?? null;
+	const selected =
+		rows.find(
+			(row) =>
+				row.project.source === filter.source &&
+				row.pull.id === params.get("pr"),
+		) ?? null;
+	const pageRows = useMemo(
+		() => visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+		[visible, page],
+	);
+
+	const collectVisible = async (ids: string[]) => {
+		if (
+			!autoRefresh ||
+			filter.source !== "cli" ||
+			document.visibilityState !== "visible" ||
+			collectorConnection(data).state !== "ready" ||
+			mutationLock.current
+		)
+			return false;
+		const timestamp = Date.now() / 1000;
+		const candidates = selected
+			? [selected]
+			: pageRows.filter((row) => ids.includes(row.pull.id));
+		const eligible = selected
+			? [selected.project]
+			: projectOptions
+					.filter(
+						({ project }) =>
+							!filter.projectId || project.id === filter.projectId,
+					)
+					.map(({ project }) => project);
+		const requests = eligible.flatMap((project) => {
+			if (
+				!data ||
+				!canScanProject(project, data) ||
+				timestamp - (visibleAttempts.current.get(project.id) ?? 0) < 15
+			)
+				return [];
+			const listDue =
+				!selected &&
+				(project.lastScannedAt === null ||
+					timestamp - project.lastScannedAt >= 120);
+			const pullIds = candidates
+				.filter(
+					({ pull }) =>
+						pull.projectId === project.id &&
+						(pull.checksObservedAt === null ||
+							timestamp - (pull.checksObservedAt ?? pull.observedAt) >= 120),
+				)
+				.map(({ pull }) => pull.id);
+			return listDue || pullIds.length
+				? [{ project, pullIds: listDue ? [] : pullIds }]
+				: [];
+		});
+		if (!requests.length) return false;
+		for (const { project } of requests)
+			visibleAttempts.current.set(project.id, timestamp);
+		return mutate("collect-visible", async () => {
+			for (const { project, pullIds } of requests)
+				await scanProject(project.id, project.revision, pullIds);
+			return "";
+		});
+	};
 
 	const setFilter = (patch: Partial<PullFilter>) => {
 		const next = { ...filter, ...patch };
@@ -185,6 +314,7 @@ export function useWorkbenchViewModel() {
 			next.organization = patch.organization ?? "";
 			next.projectId = patch.projectId ?? "";
 			next.repository = patch.repository ?? "";
+			next.authors = patch.authors ?? [];
 		} else if (patch.organization !== undefined) {
 			next.projectId = patch.projectId ?? "";
 			next.repository = patch.repository ?? "";
@@ -199,21 +329,9 @@ export function useWorkbenchViewModel() {
 		}
 		setParams(
 			(previous) => {
-				const result = new URLSearchParams(previous);
-				result.set("source", next.source);
-				for (const [key, param] of [
-					["query", "q"],
-					["organization", "org"],
-					["projectId", "project"],
-					["repository", "repo"],
-					["state", "state"],
-					["status", "status"],
-					["sort", "sort"],
-				] as const) {
-					if (next[key] === DEFAULT_PULL_FILTER[key]) result.delete(param);
-					else result.set(param, next[key]);
-				}
+				const result = writePullFilter(next, previous);
 				result.delete("page");
+				if (patch.source !== undefined) result.delete("pr");
 				return result;
 			},
 			{ replace: true },
@@ -222,7 +340,7 @@ export function useWorkbenchViewModel() {
 	const setParam = (key: string, value: string | null) =>
 		setParams(
 			(previous) => {
-				const next = new URLSearchParams(previous);
+				const next = writePullFilter(filter, previous);
 				if (value === null) next.delete(key);
 				else next.set(key, value);
 				return next;
@@ -240,6 +358,7 @@ export function useWorkbenchViewModel() {
 		projectOptions,
 		repositories,
 		selectedRepository,
+		authors,
 		selectRepository: (key: string) => {
 			const repository = repositories.find((repo) => repo.key === key);
 			setFilter(
@@ -265,11 +384,12 @@ export function useWorkbenchViewModel() {
 		busy,
 		autoRefresh,
 		setAutoRefresh,
+		collectVisible,
 		reload,
 		page,
 		pageCount,
 		pageSize: PAGE_SIZE,
-		pageRows: visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+		pageRows,
 		setPage: (nextPage: number) => setParam("page", String(nextPage)),
 		selected,
 		selectPull: (id: string | null) => setParam("pr", id),

@@ -138,7 +138,7 @@ describe("local collection API client", () => {
 				return Response.json(replies.shift());
 			},
 		});
-		expect((await api.load()).pullRequests).toHaveLength(38);
+		expect((await api.load()).pullRequests).toHaveLength(46);
 		const draft = {
 			provider: "ado" as const,
 			name: "Core",

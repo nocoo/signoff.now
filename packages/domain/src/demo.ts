@@ -40,6 +40,7 @@ const person = (index: number) => PEOPLE[index % PEOPLE.length] ?? PEOPLE[0];
 
 const CATALOG: readonly {
 	id: string;
+	provider: Project["provider"];
 	name: string;
 	organization: string;
 	projectKey: string;
@@ -51,6 +52,7 @@ const CATALOG: readonly {
 }[] = [
 	{
 		id: "demo-platform",
+		provider: "ado",
 		name: "Core Platform",
 		organization: "northstar-demo",
 		projectKey: "Platform",
@@ -75,6 +77,7 @@ const CATALOG: readonly {
 	},
 	{
 		id: "demo-commerce",
+		provider: "ado",
 		name: "Commerce",
 		organization: "northstar-demo",
 		projectKey: "Commerce",
@@ -97,6 +100,7 @@ const CATALOG: readonly {
 	},
 	{
 		id: "demo-devex",
+		provider: "ado",
 		name: "Developer Experience",
 		organization: "fabrikam-demo",
 		projectKey: "Developer Experience",
@@ -118,6 +122,7 @@ const CATALOG: readonly {
 	},
 	{
 		id: "demo-mobile",
+		provider: "ado",
 		name: "Mobile Apps",
 		organization: "northstar-demo",
 		projectKey: "Mobile",
@@ -133,6 +138,27 @@ const CATALOG: readonly {
 			["draft", "Add a compact layout for small screens"],
 			["merged", "Fix attachment previews in dark mode"],
 			["closed", "Experiment with predictive list prefetching"],
+		],
+	},
+	{
+		id: "demo-github-nocoo",
+		provider: "github",
+		name: "nocoo",
+		organization: "github.com",
+		projectKey: "nocoo",
+		owner: "Maya Chen",
+		description: "GitHub repositories and Actions in the shared PR workbench.",
+		repositories: ["signoff.now"],
+		firstNumber: 101,
+		pulls: [
+			["failed", "Keep reviewer votes in sync after new commits"],
+			["review", "Add repository ownership to the PR queue"],
+			["running", "Run browser checks for the compact workbench"],
+			["ready", "Preserve filters between workbench visits"],
+			["approval", "Publish the preview after environment approval"],
+			["draft", "Explore issue triage alongside pull requests"],
+			["merged", "Improve keyboard navigation in PR details"],
+			["closed", "Experiment with a daily review digest"],
 		],
 	},
 ];
@@ -322,6 +348,9 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 		["draft", "Introduce a shared health endpoint"],
 	];
 	const repositories = definition?.repositories ?? ["services", "web-client"];
+	const linkedWork = project.provider === "github" ? "issue" : "work item";
+	const buildActor =
+		project.provider === "github" ? "GitHub Actions" : "Azure Pipelines";
 	return templates.map(([scenario, title], index) => {
 		const number = (definition?.firstNumber ?? 100) + index;
 		const id = `${project.id}-pr-${number}`;
@@ -376,10 +405,10 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 			policies: [
 				{
 					id: "linked-work",
-					name: "Linked work item",
+					name: `Linked ${linkedWork}`,
 					state: "passed",
 					required: true,
-					detail: `Linked to work item #${7600 + index}`,
+					detail: `Linked to ${linkedWork} #${7600 + index}`,
 					owner: author.name,
 				},
 				{
@@ -442,7 +471,7 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				{
 					id: `${id}-build`,
 					at: updatedAt,
-					actor: "Azure Pipelines",
+					actor: buildActor,
 					title: ACTIVITY_TITLES[scenario],
 					detail:
 						scenario === "failed"
@@ -463,9 +492,10 @@ export function demoWorkspace(now: number): {
 		projectSchema.parse({
 			id: d.id,
 			name: d.name,
-			provider: "ado",
+			provider: d.provider,
 			organization: d.organization,
 			projectKey: d.projectKey,
+			repositories: d.repositories,
 			description: d.description,
 			owner: d.owner,
 			enabled: true,

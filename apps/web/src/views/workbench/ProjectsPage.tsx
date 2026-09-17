@@ -35,16 +35,12 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
-import { useWorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ProjectDialog } from "./ProjectDialog";
-import {
-	SourceControl,
-	WorkbenchConnection,
-	WorkbenchFeedback,
-} from "./WorkbenchControls";
+import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
 
 export function ProjectsPage() {
-	const vm = useWorkbenchViewModel();
+	const vm = useWorkbench();
 	const [editing, setEditing] = useState<Project | null | undefined>();
 	const [removing, setRemoving] = useState<Project | null>(null);
 	const opener = useRef<HTMLElement | null>(null);
@@ -76,7 +72,6 @@ export function ProjectsPage() {
 							<Plus className="h-4 w-4" aria-hidden />
 							Add project
 						</Button>
-						<SourceControl vm={vm} />
 					</>
 				}
 			/>
@@ -176,7 +171,7 @@ export function ProjectsPage() {
 												project.provider === "ado" ? "info" : "secondary"
 											}
 										>
-											{project.source === "demo" ? "Sample" : "Live ADO"}
+											{project.provider === "github" ? "GitHub" : "ADO"}
 										</Badge>
 										<Button
 											variant="ghost"
@@ -394,8 +389,8 @@ export function ProjectsPage() {
 				</LayerCard>
 			) : null}
 			<p className="text-xs text-basalt-muted-foreground">
-				Azure DevOps projects are available in this preview. GitHub project
-				connections are planned.
+				Live collection supports Azure DevOps. GitHub is available in Sample;
+				live GitHub connections are planned.
 			</p>
 			{editing !== undefined ? (
 				<ProjectDialog
@@ -423,7 +418,7 @@ export function ProjectsPage() {
 						<AlertDialogTitle>Remove project?</AlertDialogTitle>
 						<AlertDialogDescription className="break-words">
 							Remove {removing?.name} and its saved PR snapshots from SignOff.
-							The Azure DevOps project is unaffected.
+							The source project is unaffected.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{vm.mutationError ? (

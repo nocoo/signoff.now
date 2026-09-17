@@ -6,8 +6,8 @@ import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 
 export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 	return (
-		<section aria-label="Repository scope" className="space-y-3">
-			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr]">
+		<section aria-label="Repository scope" className="space-y-2">
+			<div className="grid grid-cols-2 gap-3 lg:grid-cols-[1fr_1fr_1.5fr]">
 				<Field label="Organization">
 					<SelectControl
 						value={vm.filter.organization}
@@ -35,7 +35,7 @@ export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 						))}
 					</SelectControl>
 				</Field>
-				<div className="sm:col-span-2 lg:col-span-1">
+				<div className="col-span-2 lg:col-span-1">
 					<Field label="Repository">
 						<SelectControl
 							value={vm.selectedRepository?.key ?? ""}
@@ -69,7 +69,7 @@ export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 								aria-pressed={selected}
 								aria-label={`Filter repository ${repository.name} in ${project.organization} / ${project.projectKey}`}
 								className={cn(
-									"h-auto min-w-0 flex-[1_0_260px] flex-col items-start gap-1.5 whitespace-normal p-3 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground",
+									"h-auto min-w-0 flex-[1_0_260px] flex-col items-start gap-0.5 whitespace-normal px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground",
 									selected &&
 										"border-basalt-primary/40 bg-basalt-primary/5 hover:bg-basalt-primary/5",
 								)}
@@ -93,9 +93,9 @@ export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 									{project.organization} / {project.projectKey}
 								</span>
 								{project.lastScannedAt !== null ? (
-									<span className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-normal tabular-nums text-basalt-muted-foreground">
+									<span className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-normal tabular-nums text-basalt-muted-foreground">
 										<span>{metrics.attention} attention</span>
-										<span>{metrics.running} in progress</span>
+										<span>{metrics.running} running</span>
 										<span>{metrics.ready} ready</span>
 										<span>{metrics.draft} drafts</span>
 									</span>

@@ -6,7 +6,7 @@ import {
 	LayerCard,
 	SegmentControl,
 } from "@nocoo/basalt";
-import { PageHeader } from "@nocoo/basalt/components/page-header";
+import { MultiSelect } from "@nocoo/basalt/components/multi-select";
 import {
 	Table,
 	TableBody,
@@ -15,11 +15,13 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
+import { pullUrl } from "@signoff/domain/workbench";
 import {
 	ArrowRight,
 	CheckCheck,
 	ChevronLeft,
 	ChevronRight,
+	ExternalLink,
 	GitPullRequest,
 	LoaderCircle,
 	Search,
@@ -28,33 +30,48 @@ import {
 import { useRef } from "react";
 import { Link } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
+import { EntityAvatar } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import {
 	DEFAULT_PULL_FILTER,
 	type PullFilter,
+	type PullRow,
 	relativeTime,
 } from "@/models/workbench";
-import { useWorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+import { useViewportCollection } from "@/viewmodels/useViewportCollection";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { RepositoryFilters } from "./RepositoryFilters";
 import {
 	ScanControls,
-	SourceControl,
 	WorkbenchConnection,
 	WorkbenchFeedback,
 } from "./WorkbenchControls";
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
-	const vm = useWorkbenchViewModel();
+	const vm = useWorkbench();
 	const opener = useRef<HTMLElement | null>(null);
+	const table = useRef<HTMLTableElement | null>(null);
+	useViewportCollection(
+		table,
+		vm.pageRows.map(({ pull }) => pull.id),
+		vm.collectVisible,
+		vm.autoRefresh && vm.filter.source === "cli" && !vm.loading,
+		vm.selected?.pull.id,
+	);
 	const metrics = [
 		{
 			key: "all",
-			label: "Open pull requests",
+			label: "Open PRs",
 			value: vm.metrics.open,
-			detail: `${vm.metrics.draft} drafts included`,
+			detail:
+				vm.filter.draft === "exclude"
+					? "Drafts excluded"
+					: vm.filter.draft === "only"
+						? "Drafts only"
+						: `${vm.metrics.draft} drafts included`,
 			Icon: GitPullRequest,
 			color: "text-basalt-primary",
 		},
@@ -84,26 +101,17 @@ export function PullsPage() {
 		},
 	] as const;
 	return (
-		<div className="space-y-5">
-			<PageHeader
-				title="Pull requests"
-				description={
-					vm.selectedRepository
-						? `${vm.selectedRepository.project.organization} / ${vm.selectedRepository.project.projectKey} / ${vm.selectedRepository.name}`
-						: "Repository health, blockers, and a clear next step."
-				}
-				actions={
-					<>
-						<ScanControls vm={vm} />
-						<SourceControl vm={vm} />
-					</>
-				}
-			/>
-			<WorkbenchConnection vm={vm} />
+		<div className="space-y-2">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<WorkbenchConnection vm={vm} compact />
+				<div className="flex items-center gap-2">
+					<ScanControls vm={vm} />
+				</div>
+			</div>
 			<WorkbenchFeedback vm={vm} />
 			<RepositoryFilters vm={vm} />
 			<section
-				className="grid grid-cols-2 gap-3 xl:grid-cols-4"
+				className="grid grid-cols-2 gap-2 xl:grid-cols-4"
 				aria-label="Pull request overview"
 			>
 				{metrics.map(({ key, label, value, detail, Icon, color }) => {
@@ -122,21 +130,21 @@ export function PullsPage() {
 								variant="ghost"
 								aria-pressed={selected}
 								className={cn(
-									"h-full w-full flex-col items-start justify-start gap-3 whitespace-normal rounded-none p-4 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
+									"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
 									selected && "bg-basalt-primary/5 hover:bg-basalt-primary/5",
 								)}
 								onClick={() => vm.setFilter({ state: "open", status: key })}
 							>
-								<span className="flex w-full items-center justify-between gap-2 text-xs font-medium text-basalt-muted-foreground">
-									{label}
+								<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
 									<Icon
 										className={cn("h-4 w-4 shrink-0", color)}
 										aria-hidden
 										strokeWidth={1.6}
 									/>
-								</span>
-								<span className="font-display text-3xl font-semibold tabular-nums leading-none tracking-tight">
-									{vm.loading ? "—" : value.toLocaleString()}
+									{label}
+									<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
+										{vm.loading ? "—" : value.toLocaleString()}
+									</span>
 								</span>
 								<span className="text-[11px] font-normal text-basalt-muted-foreground">
 									{detail}
@@ -147,10 +155,10 @@ export function PullsPage() {
 				})}
 			</section>
 			<LayerCard padding="none">
-				<LayerCard.Header className="flex-col gap-4">
+				<LayerCard.Header className="flex-col gap-2 p-3">
 					<search
 						aria-label="Filter pull requests"
-						className="grid w-full gap-3 sm:grid-cols-[minmax(200px,1fr)_240px]"
+						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_1fr_170px_1.2fr]"
 					>
 						<Field label="Search PRs">
 							<div className="relative">
@@ -184,11 +192,60 @@ export function PullsPage() {
 								<option value="running">In progress</option>
 								<option value="unknown">Unknown / incomplete</option>
 								<option value="ready">Ready to merge</option>
-								<option value="draft">Draft</option>
 								<option value="merged">Merged</option>
 								<option value="closed">Closed</option>
 							</SelectControl>
 						</Field>
+						<Field label="Draft">
+							<SelectControl
+								value={vm.filter.draft}
+								onChange={(draft) =>
+									vm.setFilter({ draft: draft as PullFilter["draft"] })
+								}
+							>
+								<option value="exclude">Exclude drafts</option>
+								<option value="include">Include drafts</option>
+								<option value="only">Drafts only</option>
+							</SelectControl>
+						</Field>
+						<div className="relative">
+							<Field label="Authors">
+								<MultiSelect
+									label="Authors"
+									placeholder="All authors"
+									showChips={false}
+									searchPlaceholder="Find authors…"
+									value={vm.filter.authors}
+									onValueChange={(authors) => vm.setFilter({ authors })}
+									options={vm.authors.map((author) => ({
+										value: author.id,
+										label: author.name,
+										description: vm.authors.some(
+											(other) =>
+												other.id !== author.id && other.name === author.name,
+										)
+											? author.id
+											: undefined,
+										leading: (
+											<span aria-hidden>
+												<EntityAvatar name={author.name} size="sm" />
+											</span>
+										),
+									}))}
+								/>
+							</Field>
+							{vm.filter.authors.length ? (
+								<Button
+									variant="link"
+									size="sm"
+									className="absolute top-0 right-0 h-5 p-0 text-[11px]"
+									aria-label="Clear author filter"
+									onClick={() => vm.setFilter({ authors: [] })}
+								>
+									Clear
+								</Button>
+							) : null}
+						</div>
 					</search>
 					<div className="flex w-full flex-wrap items-end justify-between gap-3">
 						<SegmentControl
@@ -250,7 +307,7 @@ export function PullsPage() {
 						}
 						description={
 							vm.rows.length
-								? "Try another repository, status, or search term."
+								? "Try another repository, author, draft setting, or search term."
 								: "Add an Azure DevOps project, then scan it to load its PRs."
 						}
 						action={
@@ -280,6 +337,7 @@ export function PullsPage() {
 					<>
 						<div className="overflow-x-auto">
 							<Table
+								ref={table}
 								aria-label="Pull requests"
 								className="min-w-[960px] table-fixed"
 							>
@@ -294,19 +352,26 @@ export function PullsPage() {
 								</TableHeader>
 								<TableBody>
 									{vm.pageRows.map(({ pull, project, readiness, progress }) => (
-										<TableRow key={pull.id} className="group">
+										<TableRow
+											key={pull.id}
+											data-pull-id={pull.id}
+											className="group"
+										>
 											<TableCell className="py-3.5 align-top">
-												<Button
-													variant="link"
-													className="h-auto max-w-full justify-start whitespace-normal p-0 text-left text-[13px] font-semibold leading-5 text-basalt-foreground"
-													aria-label={`Open PR #${pull.number}: ${pull.title}`}
-													onClick={(event) => {
-														opener.current = event.currentTarget;
-														vm.selectPull(pull.id);
-													}}
-												>
-													{pull.title}
-												</Button>
+												<div className="flex items-start gap-1.5">
+													<Button
+														variant="link"
+														className="h-auto min-w-0 justify-start whitespace-normal p-0 text-left text-[13px] font-semibold leading-5 text-basalt-foreground"
+														aria-label={`Open PR #${pull.number}: ${pull.title}`}
+														onClick={(event) => {
+															opener.current = event.currentTarget;
+															vm.selectPull(pull.id);
+														}}
+													>
+														{pull.title}
+													</Button>
+													<PullSourceLink pull={pull} project={project} />
+												</div>
 												<div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
 													<span className="font-mono text-basalt-foreground/75">
 														#{pull.number}
@@ -340,23 +405,48 @@ export function PullsPage() {
 												) : null}
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
-												<div className="mb-2 flex items-baseline justify-between gap-1 text-xs">
-													<span className="font-medium tabular-nums">
-														{progress.checksPassed}/{progress.checksTotal}{" "}
-														required
-													</span>
-													<span className="text-[11px] text-basalt-muted-foreground">
-														{pull.builds.length} builds
-													</span>
-												</div>
-												<StageBar builds={pull.builds} />
-												<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
-													{progress.stagesPassed}/{progress.stagesTotal} stages
-													passed
-													{progress.optionalFailures
-														? ` · ${progress.optionalFailures} advisory`
-														: ""}
-												</p>
+												{pull.checksObservedAt === null ? (
+													<div className="space-y-1 text-xs text-basalt-muted-foreground">
+														<p>Checks not collected</p>
+														<p className="text-[11px]">
+															Loads while visible with Auto collect
+														</p>
+													</div>
+												) : (
+													<>
+														<div className="mb-2 flex items-baseline justify-between gap-1 text-xs">
+															<span className="font-medium tabular-nums">
+																{progress.checksPassed}/{progress.checksTotal}{" "}
+																required
+															</span>
+															<span className="text-[11px] text-basalt-muted-foreground">
+																{pull.builds.length} builds
+															</span>
+														</div>
+														<StageBar builds={pull.builds} />
+														<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
+															{progress.stagesPassed}/{progress.stagesTotal}{" "}
+															stages passed
+															{progress.optionalFailures
+																? ` · ${progress.optionalFailures} advisory`
+																: ""}
+															{project.source === "cli" ? (
+																<span
+																	className="ml-2"
+																	title={new Date(
+																		(pull.checksObservedAt ?? pull.observedAt) *
+																			1000,
+																	).toLocaleString()}
+																>
+																	Checked{" "}
+																	{relativeTime(
+																		pull.checksObservedAt ?? pull.observedAt,
+																	)}
+																</span>
+															) : null}
+														</p>
+													</>
+												)}
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
 												<p className="text-xs leading-5">{readiness.action}</p>
@@ -432,5 +522,27 @@ export function PullsPage() {
 				busy={Boolean(vm.busy)}
 			/>
 		</div>
+	);
+}
+
+function PullSourceLink({ pull, project }: Pick<PullRow, "pull" | "project">) {
+	if (project.source !== "cli") return null;
+	return (
+		<Button
+			asChild
+			variant="ghost"
+			size="icon"
+			className="h-5 w-5 shrink-0 text-basalt-muted-foreground"
+		>
+			<a
+				href={pullUrl(project, pull)}
+				target="_blank"
+				rel="noopener noreferrer"
+				aria-label={`Open PR #${pull.number} in ${project.provider === "ado" ? "Azure DevOps" : "GitHub"} (new tab)`}
+				title="Open source PR in a new tab"
+			>
+				<ExternalLink className="h-3.5 w-3.5" aria-hidden />
+			</a>
+		</Button>
 	);
 }

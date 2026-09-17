@@ -469,11 +469,11 @@ export function pullProgress(pr: PullRequest) {
 export function projectUrl(project: Project): string {
 	return project.provider === "ado"
 		? `https://dev.azure.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(project.projectKey)}`
-		: `https://github.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(project.projectKey)}`;
+		: `https://github.com/${encodeURIComponent(project.projectKey)}`;
 }
 
 export function pullUrl(project: Project, pr: PullRequest): string {
 	return project.provider === "ado"
 		? `${projectUrl(project)}/_git/${encodeURIComponent(pr.repository.name)}/pullrequest/${pr.number}`
-		: `https://github.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(pr.repository.name)}/pull/${pr.number}`;
+		: `${projectUrl(project)}/${encodeURIComponent(pr.repository.name)}/pull/${pr.number}`;
 }

@@ -6,9 +6,12 @@ import type {
 } from "@signoff/domain/workbench";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_PULL_FILTER } from "@/models/workbench";
+import {
+	DEFAULT_PULL_FILTER,
+	PULL_FILTER_STORAGE_KEY,
+} from "@/models/workbench";
 import {
 	createProject,
 	deleteProject,
@@ -58,7 +61,11 @@ function pending<T>() {
 }
 function mount(entry = "/") {
 	return renderHook(
-		() => ({ ...useWorkbenchViewModel(), location: useLocation() }),
+		() => ({
+			...useWorkbenchViewModel(),
+			location: useLocation(),
+			navigate: useNavigate(),
+		}),
 		{
 			wrapper: ({ children }: { children: ReactNode }) => (
 				<MemoryRouter initialEntries={[entry]}>{children}</MemoryRouter>
@@ -72,6 +79,7 @@ async function loaded(entry = "/") {
 	return hook;
 }
 beforeEach(() => {
+	localStorage.clear();
 	vi.mocked(loadWorkbench).mockReset().mockResolvedValue(snapshot());
 	vi.mocked(createProject).mockReset().mockResolvedValue(project);
 	vi.mocked(patchProject).mockReset().mockResolvedValue(project);
@@ -88,6 +96,157 @@ afterEach(() => {
 });
 
 describe("workbench loading and URL state", () => {
+	it("prioritizes an open detail's checks even when its project is outside the table filters", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
+		const data = snapshot();
+		data.projects = data.projects
+			.filter((p) => p.provider === "ado")
+			.map((p) => ({ ...p, source: "cli", lastScannedAt: NOW - 300 }));
+		data.pullRequests = data.pullRequests.map((p) => ({
+			...p,
+			checksObservedAt: null,
+		}));
+		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		const target = data.pullRequests.find(
+			(p) => p.projectId === data.projects[1]!.id,
+		)!;
+		const { result } = await loaded(
+			`/?source=cli&project=${data.projects[0]!.id}&pr=${target.id}`,
+		);
+		expect(result.current.selected?.pull.id).toBe(target.id);
+		await act(() => result.current.collectVisible([]));
+		expect(scanProject).toHaveBeenCalledTimes(1);
+		expect(scanProject).toHaveBeenCalledWith(
+			data.projects[1]!.id,
+			data.projects[1]!.revision,
+			[target.id],
+		);
+	});
+	it("automatically collects only stale PRs visible on the current page", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
+		const data = snapshot();
+		data.projects = data.projects.map((p) => ({
+			...p,
+			source: "cli",
+			lastScannedAt: NOW - 10,
+		}));
+		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
+		data.pullRequests = data.pullRequests.map((p) => ({
+			...p,
+			checksObservedAt: NOW - 180,
+		}));
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		const { result } = await loaded();
+		const visible = result.current.pageRows[0]!;
+		const offscreen = result.current.visible[20]!;
+		await act(() =>
+			result.current.collectVisible([visible.pull.id, offscreen.pull.id]),
+		);
+		expect(scanProject).toHaveBeenCalledTimes(1);
+		expect(scanProject).toHaveBeenCalledWith(
+			visible.project.id,
+			visible.project.revision,
+			[visible.pull.id],
+		);
+		vi.mocked(scanProject).mockClear();
+		await act(() => result.current.collectVisible([visible.pull.id]));
+		expect(scanProject).not.toHaveBeenCalled();
+		act(() => result.current.setAutoRefresh(false));
+		await act(() => result.current.collectVisible([visible.pull.id]));
+		expect(scanProject).not.toHaveBeenCalled();
+	});
+	it("refreshes a stale repository list without prefetching its PR details", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
+		const data = snapshot();
+		data.projects = [
+			{ ...data.projects[0]!, source: "cli", lastScannedAt: null },
+		];
+		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		const { result } = await loaded();
+		await act(() => result.current.collectVisible([]));
+		expect(scanProject).toHaveBeenCalledWith(
+			data.projects[0]!.id,
+			data.projects[0]!.revision,
+			[],
+		);
+	});
+	it("remembers every filter across navigation and reloads, with explicit shared URLs taking precedence", async () => {
+		const first = await loaded();
+		act(() =>
+			first.result.current.setFilter({
+				source: "demo",
+				organization: "github.com",
+				projectId: "demo-github-nocoo",
+				repository: "signoff.now",
+				draft: "include",
+				authors: ["github:maya", "github:alex"],
+				query: "review",
+				state: "all",
+				status: "attention",
+				sort: "oldest",
+			}),
+		);
+		const selected = first.result.current.filter;
+		act(() => first.result.current.navigate("/projects"));
+		expect(first.result.current.filter).toEqual(selected);
+		act(() => first.result.current.navigate("/"));
+		expect(first.result.current.filter).toEqual(selected);
+		expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toContain(
+			"author=github%3Amaya",
+		);
+		first.unmount();
+		const second = await loaded();
+		expect(second.result.current.filter).toEqual(selected);
+		act(() => second.result.current.navigate("/?source=cli&org=msdata"));
+		expect(second.result.current.filter).toMatchObject({
+			source: "cli",
+			organization: "msdata",
+			projectId: "",
+			repository: "",
+			authors: [],
+			draft: "exclude",
+			query: "",
+		});
+	});
+	it("keeps author choices and matching repository statistics usable after selecting multiple authors", async () => {
+		const { result } = await loaded("/?source=demo&org=github.com&page=2");
+		const authors = result.current.authors;
+		act(() =>
+			result.current.setFilter({ authors: ["github:maya", "github:alex"] }),
+		);
+		expect(result.current.authors).toEqual(authors);
+		expect(result.current.visible).toHaveLength(2);
+		expect(result.current.metrics.open).toBe(2);
+		expect(result.current.repositories[0]?.metrics.open).toBe(2);
+		expect(result.current.page).toBe(1);
+		expect(
+			new URLSearchParams(result.current.location.search).getAll("author"),
+		).toEqual(["github:maya", "github:alex"]);
+		act(() => result.current.setFilter({ draft: "only", authors: [] }));
+		expect(result.current.visible).toHaveLength(1);
+		expect(result.current.visible[0]?.pull.draft).toBe(true);
+		act(() => result.current.selectPull(result.current.visible[0]!.pull.id));
+		act(() => result.current.setFilter({ source: "cli" }));
+		expect(result.current.filter.authors).toEqual([]);
+		expect(result.current.selected).toBeNull();
+		expect(result.current.missingSelection).toBe(false);
+	});
+	it("uses 20 PRs per page and restores safe defaults when storage is unavailable", async () => {
+		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+			throw new Error("Storage disabled");
+		});
+		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+			throw new Error("Quota exceeded");
+		});
+		const { result } = await loaded();
+		expect(result.current.pageSize).toBe(20);
+		expect(result.current.pageRows).toHaveLength(20);
+		expect(result.current.filter.draft).toBe("exclude");
+		act(() => result.current.setFilter({ draft: "include" }));
+		expect(result.current.visible).toHaveLength(36);
+	});
 	it("defaults mixed workspaces to live projects and remembers an explicit source selection", async () => {
 		const data = snapshot();
 		data.projects[0] = { ...data.projects[0], source: "cli" };
@@ -95,9 +254,9 @@ describe("workbench loading and URL state", () => {
 		const { result } = await loaded();
 		expect(result.current.filter.source).toBe("cli");
 		expect(result.current.projects).toHaveLength(1);
-		expect(result.current.visible).toHaveLength(11);
+		expect(result.current.visible).toHaveLength(10);
 		act(() => result.current.setFilter({ source: "demo" }));
-		expect(result.current.visible).toHaveLength(19);
+		expect(result.current.visible).toHaveLength(21);
 		expect(
 			new URLSearchParams(result.current.location.search).get("source"),
 		).toBe("demo");
@@ -106,6 +265,7 @@ describe("workbench loading and URL state", () => {
 		const { result } = await loaded("/?keep=1");
 		expect(result.current.organizations).toEqual([
 			"fabrikam-demo",
+			"github.com",
 			"northstar-demo",
 		]);
 		act(() => result.current.setFilter({ organization: "northstar-demo" }));
@@ -135,9 +295,7 @@ describe("workbench loading and URL state", () => {
 		expect(result.current.repositories).toHaveLength(3);
 		act(() => result.current.setFilter({ query: "no matching PR" }));
 		expect(result.current.visible).toHaveLength(0);
-		expect(result.current.selectedRepository?.metrics).toEqual(
-			repository.metrics,
-		);
+		expect(result.current.selectedRepository?.metrics.open).toBe(0);
 		act(() => result.current.setPage(2));
 		act(() => result.current.setFilter({ organization: "fabrikam-demo" }));
 		expect(result.current.filter).toMatchObject({
@@ -170,7 +328,7 @@ describe("workbench loading and URL state", () => {
 		act(() => result.current.selectRepository(""));
 		expect(result.current.filter.repository).toBe("");
 		expect(result.current.filter.projectId).toBe("demo-platform");
-		expect(result.current.visible).toHaveLength(12);
+		expect(result.current.visible).toHaveLength(11);
 		act(() => result.current.setFilter({ projectId: "demo-commerce" }));
 		expect(result.current.filter.organization).toBe("northstar-demo");
 		expect(result.current.repositories.map((repo) => repo.name)).toEqual([
@@ -205,17 +363,17 @@ describe("workbench loading and URL state", () => {
 	});
 	it("loads project summaries, repositories, metrics, and a bounded first page", async () => {
 		const { result } = await loaded();
-		expect(result.current.rows).toHaveLength(38);
-		expect(result.current.visible).toHaveLength(30);
-		expect(result.current.projects).toHaveLength(4);
-		expect(result.current.repositories).toHaveLength(12);
+		expect(result.current.rows).toHaveLength(46);
+		expect(result.current.visible).toHaveLength(31);
+		expect(result.current.projects).toHaveLength(5);
+		expect(result.current.repositories).toHaveLength(13);
 		expect(result.current.metrics).toMatchObject({
-			open: 30,
-			attention: 15,
-			ready: 6,
+			open: 31,
+			attention: 18,
+			ready: 7,
 		});
-		expect(result.current.pageRows).toHaveLength(12);
-		expect(result.current.pageCount).toBe(3);
+		expect(result.current.pageRows).toHaveLength(20);
+		expect(result.current.pageCount).toBe(2);
 		expect(result.current.refreshing).toBe(false);
 		expect(result.current.error).toBeNull();
 	});
@@ -231,7 +389,7 @@ describe("workbench loading and URL state", () => {
 			}),
 		);
 		expect(result.current.page).toBe(1);
-		expect(result.current.visible).toHaveLength(12);
+		expect(result.current.visible).toHaveLength(11);
 		expect(result.current.repositories).toHaveLength(3);
 		expect(result.current.selected?.pull.number).toBe(4821);
 		expect(
@@ -252,7 +410,7 @@ describe("workbench loading and URL state", () => {
 		act(() => result.current.setFilter(DEFAULT_PULL_FILTER));
 		expect(result.current.filter).toEqual(DEFAULT_PULL_FILTER);
 		act(() => result.current.setPage(3));
-		expect(result.current.pageRows).toHaveLength(6);
+		expect(result.current.pageRows).toHaveLength(11);
 		act(() => result.current.selectPull(null));
 		expect(result.current.selected).toBeNull();
 		expect(
@@ -266,7 +424,7 @@ describe("workbench loading and URL state", () => {
 		["nope", 1],
 		["Infinity", 1],
 		["2.9", 2],
-		["999", 3],
+		["999", 2],
 	])("clamps page %s to %s", async (input, expected) => {
 		const { result } = await loaded(`/?page=${input}`);
 		expect(result.current.page).toBe(expected);
@@ -289,7 +447,7 @@ describe("workbench loading and URL state", () => {
 		vi.mocked(loadWorkbench).mockRejectedValueOnce("network unavailable");
 		await act(async () => result.current.reload());
 		expect(result.current.error).toBe("Request failed");
-		expect(result.current.rows).toHaveLength(38);
+		expect(result.current.rows).toHaveLength(46);
 		expect(result.current.refreshing).toBe(false);
 	});
 	it("ignores slow snapshots and errors superseded by a newer refresh", async () => {
@@ -484,9 +642,9 @@ describe("demo scanning", () => {
 		);
 		vi.mocked(scanProject).mockClear();
 		await act(async () => result.current.scan());
-		expect(scanProject).toHaveBeenCalledTimes(4);
+		expect(scanProject).toHaveBeenCalledTimes(5);
 		expect(result.current.notice).toBe(
-			"Scanned 4 projects · 8 build stages updated.",
+			"Scanned 5 projects · 10 build stages updated.",
 		);
 	});
 	it("scans only the chosen source, skips paused projects and continues after a failure", async () => {
@@ -502,9 +660,10 @@ describe("demo scanning", () => {
 		expect(vi.mocked(scanProject).mock.calls.map((call) => call[0])).toEqual([
 			"demo-platform",
 			"demo-mobile",
+			"demo-github-nocoo",
 		]);
 		expect(result.current.mutationError).toBe(
-			"1 project(s) scanned. 0 queued. Core Platform: Changed during scan",
+			"2 project(s) scanned. 0 queued. Core Platform: Changed during scan",
 		);
 		expect(result.current.notice).toBeNull();
 		expect(loadWorkbench).toHaveBeenCalledTimes(2);
