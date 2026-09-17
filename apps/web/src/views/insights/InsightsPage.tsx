@@ -243,6 +243,7 @@ function Overview({
 				</div>
 			) : (
 				<EmptyState
+					compact
 					icon={GitPullRequest}
 					title="No matching PRs"
 					description="Try another date range or contributor scope."
@@ -372,6 +373,7 @@ function MemberBreakdown({
 	if (!snapshot.members.length)
 		return (
 			<EmptyState
+				compact
 				icon={Users}
 				title="No matching contributors"
 				description="Follow authors in Members, or change your filters to include other contributors."

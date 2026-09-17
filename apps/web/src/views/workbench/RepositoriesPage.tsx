@@ -242,6 +242,7 @@ export function RepositoryOverview({
 			</StatGrid>
 			{snapshot.repositories.length === 0 ? (
 				<EmptyState
+					compact
 					icon={GitBranch}
 					title="No recorded PRs match these filters"
 					description="Try another project or contributor scope. Counts reflect the PR records collected so far."

@@ -8,9 +8,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { X } from "lucide-react";
+import { Settings2, X } from "lucide-react";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
+import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import {
 	DEFAULT_ACTIVITY_WEIGHTS,
@@ -45,22 +46,24 @@ export function SettingsPage() {
 
 	if (vm.error && (!vm.form || !vm.settings)) {
 		return (
-			<div className="space-y-4">
+			<div className="space-y-6">
 				<PageHeader
 					title="Settings"
 					description="Timezone, identity matching, and activity weights."
 				/>
 				<AlertBanner variant="error">{vm.error}</AlertBanner>
-				<p className="text-sm text-basalt-muted-foreground">
-					Is the Worker running on :37042? Try{" "}
-					<code className="rounded bg-basalt-secondary px-1">
-						bun run dev:all
-					</code>
-					.
-				</p>
-				<Button variant="secondary" onClick={() => void vm.reload()}>
-					Retry
-				</Button>
+				<LayerCard padding="none">
+					<EmptyState
+						icon={Settings2}
+						title="Unable to load settings"
+						description="Your workspace settings are temporarily unavailable. Try loading them again."
+						action={
+							<Button variant="outline" onClick={() => void vm.reload()}>
+								Retry
+							</Button>
+						}
+					/>
+				</LayerCard>
 			</div>
 		);
 	}
@@ -72,9 +75,18 @@ export function SettingsPage() {
 					title="Settings"
 					description="Timezone, identity matching, and activity weights."
 				/>
-				<p className="text-sm text-basalt-muted-foreground">
-					No settings loaded.
-				</p>
+				<LayerCard padding="none">
+					<EmptyState
+						icon={Settings2}
+						title="No settings loaded"
+						description="Reload to retrieve your workspace settings."
+						action={
+							<Button variant="outline" onClick={() => void vm.reload()}>
+								Reload settings
+							</Button>
+						}
+					/>
+				</LayerCard>
 			</div>
 		);
 	}

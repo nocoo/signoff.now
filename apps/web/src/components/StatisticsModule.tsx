@@ -94,6 +94,7 @@ export function StatisticsModule({
 					</div>
 				) : (
 					<EmptyState
+						compact
 						icon={BarChart3}
 						title="No saved calculation"
 						description={

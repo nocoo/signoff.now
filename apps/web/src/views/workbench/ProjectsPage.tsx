@@ -87,7 +87,7 @@ export function ProjectsPage() {
 					<LayerCard.Loading label="Loading projects" />
 				</LayerCard>
 			) : !vm.data ? (
-				<LayerCard>
+				<LayerCard padding="none">
 					<EmptyState
 						icon={FolderGit2}
 						title="Unable to load projects"
@@ -99,7 +99,7 @@ export function ProjectsPage() {
 					/>
 				</LayerCard>
 			) : vm.projects.length === 0 ? (
-				<LayerCard>
+				<LayerCard padding="none">
 					<EmptyState
 						icon={FolderGit2}
 						title="Add your first project"

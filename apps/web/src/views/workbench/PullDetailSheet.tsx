@@ -91,12 +91,13 @@ export function PullDetailSheet({
 						busy={busy}
 					/>
 				) : (
-					<div className="p-6">
+					<div className="px-5 py-6 sm:px-6">
 						<SheetTitle>Pull request unavailable</SheetTitle>
 						<SheetDescription className="mt-2">
 							This PR is no longer in the current snapshot.
 						</SheetDescription>
 						<EmptyState
+							className="mt-6"
 							icon={GitPullRequest}
 							title="PR not found"
 							description="The project may have been removed or its source changed."
