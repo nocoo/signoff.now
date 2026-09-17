@@ -1,3 +1,5 @@
+import { readAzToken } from "../ado/client.ts";
+
 export type ExecResult = { exitCode: number; stdout: string; stderr: string };
 
 export type ExecFn = (cmd: string, args: string[]) => Promise<ExecResult>;
@@ -7,26 +9,11 @@ export type AzCheck = {
 	detail: string;
 };
 
-/** Check `az account show` without calling ADO REST. */
+/** A cached account can exist after login expires; validate and renew the ADO token. */
 export async function checkAz(exec: ExecFn): Promise<AzCheck> {
 	try {
-		const r = await exec("az", ["account", "show", "-o", "json"]);
-		if (r.exitCode !== 0) {
-			return {
-				ok: false,
-				detail: r.stderr.trim() || "az account show failed (not logged in?)",
-			};
-		}
-		let name = "logged in";
-		try {
-			const j = JSON.parse(r.stdout) as { user?: { name?: string } };
-			if (j.user?.name) {
-				name = j.user.name;
-			}
-		} catch {
-			// ignore parse errors; login still succeeded
-		}
-		return { ok: true, detail: name };
+		await readAzToken(exec);
+		return { ok: true, detail: "Azure DevOps token is valid" };
 	} catch (e) {
 		return {
 			ok: false,

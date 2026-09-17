@@ -52,7 +52,10 @@ describe("runDoctor", () => {
 			env: loopbackEnv,
 			exec: async () => ({
 				exitCode: 0,
-				stdout: "{}",
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
 				stderr: "",
 			}),
 			fs: okFs(),
@@ -88,7 +91,14 @@ describe("runDoctor", () => {
 				isLoopback: false,
 				writeToken: null,
 			},
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: okFs(),
 			client: okClient(),
 		});
@@ -99,7 +109,14 @@ describe("runDoctor", () => {
 	test("data dir failure", async () => {
 		const r = await runDoctor({
 			env: loopbackEnv,
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: {
 				...okFs(),
 				async mkdir() {
@@ -114,7 +131,14 @@ describe("runDoctor", () => {
 	test("data dir write probe failure after mkdir", async () => {
 		const r = await runDoctor({
 			env: loopbackEnv,
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: {
 				...okFs(),
 				async writeFile() {
@@ -133,7 +157,14 @@ describe("runDoctor", () => {
 		const unlinked: string[] = [];
 		const r = await runDoctor({
 			env: loopbackEnv,
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: {
 				...okFs(),
 				async unlink(p) {
@@ -149,7 +180,14 @@ describe("runDoctor", () => {
 	test("bootstrap unreachable", async () => {
 		const r = await runDoctor({
 			env: loopbackEnv,
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: okFs(),
 			client: {
 				...okClient(),
@@ -164,7 +202,14 @@ describe("runDoctor", () => {
 	test("bootstrap generic error", async () => {
 		const r = await runDoctor({
 			env: loopbackEnv,
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: okFs(),
 			client: {
 				...okClient(),
@@ -186,7 +231,14 @@ describe("runDoctor", () => {
 				isLoopback: false,
 				writeToken: "secret",
 			},
-			exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "test-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			}),
 			fs: okFs(),
 			client: okClient(),
 		});

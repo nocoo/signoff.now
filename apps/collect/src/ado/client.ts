@@ -2,7 +2,8 @@
  * Azure DevOps REST client (07 §2, §7.3, §8).
  *
  * Auth goes through `az account get-access-token` rather than a stored PAT
- * (01 §7.3). Every call pins `api-version=7.1` — the parameters this project
+ * (01 §7.3). Calls pin `api-version=7.1`; preview endpoints explicitly select
+ * their documented version. The parameters this project
  * depends on (`searchCriteria.minTime` + `queryTimeRangeType`) exist there but
  * not in older SDK surfaces, so version drift would silently change behaviour.
  */
@@ -76,6 +77,7 @@ export type FetchFn = (
 		headers?: Record<string, string>;
 		body?: string;
 		signal?: AbortSignal;
+		redirect?: "manual" | "follow" | "error";
 	},
 ) => Promise<AdoResponse>;
 
@@ -104,11 +106,67 @@ export type AdoClientOptions = {
 
 type TokenState = { token: string; expiresAtMs: number } | null;
 
+export const ADO_LOGIN_HINT = `Azure login expired or unavailable. Run az login --scope ${ADO_RESOURCE}/.default, then retry. Existing PR data is preserved.`;
+
+/** Ask Azure CLI to renew its cached session. Never return diagnostics containing credentials. */
+export async function readAzToken(
+	exec: ExecFn,
+	nowMs = Date.now(),
+	tenantId?: string,
+): Promise<NonNullable<TokenState>> {
+	const loginHint = tenantId
+		? `Azure login expired or unavailable. Run az login --tenant ${tenantId} --scope ${ADO_RESOURCE}/.default, then retry. Existing PR data is preserved.`
+		: ADO_LOGIN_HINT;
+	let result: Awaited<ReturnType<ExecFn>>;
+	try {
+		result = await exec("az", [
+			"account",
+			"get-access-token",
+			"--resource",
+			ADO_RESOURCE,
+			...(tenantId ? ["--tenant", tenantId] : []),
+			"-o",
+			"json",
+		]);
+	} catch {
+		throw new AdoError(
+			"unauthenticated",
+			"Azure CLI is unavailable. Check its installation and run az login.",
+		);
+	}
+	if (result.exitCode !== 0) throw new AdoError("unauthenticated", loginHint);
+	let parsed: { accessToken?: unknown; expires_on?: unknown };
+	try {
+		parsed = JSON.parse(result.stdout);
+	} catch {
+		throw new AdoError("bad_response", "az returned unparseable token JSON");
+	}
+	if (
+		!parsed ||
+		typeof parsed.accessToken !== "string" ||
+		!parsed.accessToken.trim()
+	)
+		throw new AdoError("unauthenticated", loginHint);
+	const expiry =
+		parsed.expires_on === null || parsed.expires_on === undefined
+			? Number.NaN
+			: Number(parsed.expires_on);
+	const expiresAtMs = Number.isFinite(expiry)
+		? expiry * 1000
+		: nowMs + 10 * 60_000;
+	if (expiresAtMs <= nowMs) throw new AdoError("unauthenticated", loginHint);
+	return { token: parsed.accessToken, expiresAtMs };
+}
+
 /** Refresh a minute before expiry so an in-flight page never straddles it. */
 const REFRESH_MARGIN_MS = 60_000;
 
 /** Generous: a large threads page is slow, but nothing legitimately hangs. */
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+function isLoginResponse(status: number): boolean {
+	return status === 401 || status === 203 || (status >= 300 && status < 400);
+}
 
 export type AdoClient = {
 	/** GET a JSON resource, retrying transient failures. */
@@ -118,50 +176,39 @@ export type AdoClient = {
 	/** Force the next call to re-acquire a token (tests / 401 recovery). */
 	invalidateToken(): void;
 };
+export type AdoPage = { data: unknown; continuationToken: string | null };
+export type AdoPagedClient = AdoClient & {
+	getPage(url: string): Promise<AdoPage>;
+	checkAuth(organization?: string): Promise<void>;
+};
 
-export function createAdoClient(opts: AdoClientOptions): AdoClient {
+export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 	const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
 	const maxRetries = opts.maxRetries ?? 3;
 	const jitter = opts.jitterMs ?? (() => Math.floor(Math.random() * 250));
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-	let token: TokenState = null;
+	const tokens = new Map<string, NonNullable<TokenState>>();
+	const acquiring = new Map<string, Promise<string>>();
+	const organizationTenants = new Map<string, string>();
 
-	async function acquireToken(nowMs: number): Promise<string> {
+	async function acquireToken(nowMs: number, tenantId = ""): Promise<string> {
+		const token = tokens.get(tenantId);
 		if (token && token.expiresAtMs - REFRESH_MARGIN_MS > nowMs) {
 			return token.token;
 		}
-		const r = await opts.exec("az", [
-			"account",
-			"get-access-token",
-			"--resource",
-			ADO_RESOURCE,
-			"-o",
-			"json",
-		]);
-		if (r.exitCode !== 0) {
-			throw new AdoError(
-				"unauthenticated",
-				r.stderr.trim() || "az account get-access-token failed; run `az login`",
-			);
+		let pending = acquiring.get(tenantId);
+		if (!pending) {
+			pending = readAzToken(opts.exec, nowMs, tenantId || undefined)
+				.then((next) => {
+					tokens.set(tenantId, next);
+					return next.token;
+				})
+				.finally(() => {
+					acquiring.delete(tenantId);
+				});
+			acquiring.set(tenantId, pending);
 		}
-		let parsed: { accessToken?: string; expires_on?: string | number };
-		try {
-			parsed = JSON.parse(r.stdout) as typeof parsed;
-		} catch {
-			throw new AdoError("bad_response", "az returned unparseable token JSON");
-		}
-		if (!parsed.accessToken) {
-			throw new AdoError("unauthenticated", "az returned no accessToken");
-		}
-		// `expires_on` is unix seconds; fall back to a short lease if absent.
-		const expSec = Number(parsed.expires_on);
-		token = {
-			token: parsed.accessToken,
-			expiresAtMs: Number.isFinite(expSec)
-				? expSec * 1000
-				: nowMs + 10 * 60_000,
-		};
-		return token.token;
+		return pending;
 	}
 
 	/**
@@ -193,25 +240,30 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 	async function attemptFetch(
 		method: string,
 		url: string,
-		bearer: string,
+		bearer: string | undefined,
 		body?: unknown,
 	): Promise<{ res: AdoResponse } | { failure: string }> {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeoutMs);
 		try {
+			const response = await opts.fetchFn(url, {
+				method,
+				redirect: "manual",
+				headers: {
+					...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+					accept: "application/json",
+					...(body === undefined ? {} : { "content-type": "application/json" }),
+				},
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+				signal: controller.signal,
+			});
+			const payload = await response.text();
 			return {
-				res: await opts.fetchFn(url, {
-					method,
-					headers: {
-						authorization: `Bearer ${bearer}`,
-						accept: "application/json",
-						...(body === undefined
-							? {}
-							: { "content-type": "application/json" }),
-					},
-					...(body === undefined ? {} : { body: JSON.stringify(body) }),
-					signal: controller.signal,
-				}),
+				res: {
+					status: response.status,
+					headers: response.headers,
+					text: async () => payload,
+				},
 			};
 		} catch (e) {
 			// Name the timeout: "aborted" alone reads like someone hit Ctrl-C.
@@ -224,11 +276,39 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 		}
 	}
 
+	async function discoverTenant(
+		url: string,
+		hint?: string | null,
+	): Promise<string | null> {
+		let candidate = hint;
+		if (!candidate) {
+			// ADO omits the tenant header on AadUserStateException (403). An
+			// anonymous HEAD returns its authentication challenge without credentials.
+			const probe = await attemptFetch("HEAD", url, undefined);
+			candidate =
+				"res" in probe ? probe.res.headers.get("x-vss-resourcetenant") : null;
+		}
+		return candidate &&
+			/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(candidate)
+			? candidate
+			: null;
+	}
+
 	/** How a response is reported once the retry budget is spent. */
 	async function exhaustedError(
 		res: AdoResponse,
 		url: string,
 	): Promise<AdoError> {
+		if (isLoginResponse(res.status))
+			return new AdoError("unauthenticated", ADO_LOGIN_HINT, 401);
+		if (res.status === 403)
+			return new AdoError(
+				"forbidden",
+				"Authenticated but not authorized for this org/project; check access",
+				403,
+			);
+		if (res.status === 404)
+			return new AdoError("not_found", `not found: ${url}`, 404);
 		if (res.status === 429) {
 			return new AdoError(
 				"rate_limited",
@@ -252,15 +332,52 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 		);
 	}
 
+	async function correctTenant(
+		res: AdoResponse,
+		url: string,
+		organization: string | undefined,
+		tenantId: string,
+	): Promise<boolean> {
+		if (!organization || (res.status !== 401 && res.status !== 403))
+			return false;
+		const tenantHint = await discoverTenant(
+			url,
+			res.headers.get("x-vss-resourcetenant"),
+		);
+		if (!tenantHint || tenantHint === tenantId) return false;
+		organizationTenants.set(organization, tenantHint);
+		return true;
+	}
+
+	async function parsePage(res: AdoResponse, url: string): Promise<AdoPage> {
+		const payload = await res.text();
+		try {
+			return {
+				data: JSON.parse(payload),
+				continuationToken: res.headers.get("x-ms-continuationtoken"),
+			};
+		} catch {
+			throw new AdoError("bad_response", `non-JSON body from ${url}`, 200);
+		}
+	}
+
 	async function request(
 		method: "GET" | "POST",
 		url: string,
 		body?: unknown,
-	): Promise<unknown> {
+	): Promise<AdoPage> {
 		let refreshedOn401 = false;
+		let correctedTenant = false;
+		const target = new URL(url);
+		const organization =
+			target.protocol === "https:" && target.host === "dev.azure.com"
+				? target.pathname.split("/")[1]?.toLowerCase()
+				: undefined;
 
 		for (let attempt = 0; ; attempt++) {
-			const bearer = await acquireToken(Date.now());
+			const tenantId =
+				(organization && organizationTenants.get(organization)) || "";
+			const bearer = await acquireToken(Date.now(), tenantId);
 			const attempted = await attemptFetch(method, url, bearer, body);
 			if ("failure" in attempted) {
 				// Letting a transport error escape as a bare Error would exit
@@ -275,51 +392,27 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 				);
 			}
 			const res = attempted.res;
-
-			if (res.status === 200) {
-				const text = await res.text();
-				try {
-					return JSON.parse(text);
-				} catch {
-					throw new AdoError(
-						"bad_response",
-						`non-JSON body from ${url} (${text.slice(0, 120)})`,
-						200,
-					);
-				}
+			if (
+				!correctedTenant &&
+				(await correctTenant(res, url, organization, tenantId))
+			) {
+				correctedTenant = true;
+				attempt--;
+				continue;
 			}
 
-			if (res.status === 401 && !refreshedOn401) {
+			if (res.status === 200) return parsePage(res, url);
+
+			const rejectedToken = isLoginResponse(res.status);
+			if (rejectedToken && !refreshedOn401) {
 				// The token may have been revoked mid-run; try once with a fresh
 				// one. This does NOT spend a retry: a token refresh is not a
 				// transient remote failure, and letting it eat one would mean a
 				// run that hits 401 gets fewer retries than the doc promises.
 				refreshedOn401 = true;
-				token = null;
+				if (tokens.get(tenantId)?.token === bearer) tokens.delete(tenantId);
 				attempt--;
 				continue;
-			}
-
-			if (res.status === 401) {
-				throw new AdoError(
-					"unauthenticated",
-					"Azure DevOps rejected the token; run `az login`",
-					401,
-				);
-			}
-
-			if (res.status === 403) {
-				// Distinct from 401 on purpose: the user IS signed in. Telling them
-				// to log in again sends them in circles.
-				throw new AdoError(
-					"forbidden",
-					"Authenticated but not authorized for this org/project; check access",
-					403,
-				);
-			}
-
-			if (res.status === 404) {
-				throw new AdoError("not_found", `not found: ${url}`, 404);
 			}
 
 			const transient = res.status === 429 || res.status >= 500;
@@ -333,10 +426,26 @@ export function createAdoClient(opts: AdoClientOptions): AdoClient {
 	}
 
 	return {
-		get: (url) => request("GET", url),
-		post: (url, body) => request("POST", url, body),
+		get: async (url) => (await request("GET", url)).data,
+		post: async (url, body) => (await request("POST", url, body)).data,
+		getPage: (url) => request("GET", url),
+		checkAuth: async (organization) => {
+			const key = organization?.toLowerCase();
+			if (key && !organizationTenants.has(key)) {
+				const tenant = await discoverTenant(
+					`https://dev.azure.com/${encodeURIComponent(key)}/_apis/connectionData`,
+				);
+				if (tenant) organizationTenants.set(key, tenant);
+			}
+			await acquireToken(
+				Date.now(),
+				key
+					? organizationTenants.get(key)
+					: organizationTenants.values().next().value,
+			);
+		},
 		invalidateToken: () => {
-			token = null;
+			tokens.clear();
 		},
 	};
 }
@@ -346,6 +455,7 @@ export function adoUrl(
 	base: string,
 	path: string,
 	params: Record<string, string | number | undefined> = {},
+	apiVersion: "7.1" | "7.1-preview.1" = ADO_API_VERSION,
 ): string {
 	const url = new URL(
 		path.replace(/^\/+/, ""),
@@ -356,6 +466,6 @@ export function adoUrl(
 			url.searchParams.set(k, String(v));
 		}
 	}
-	url.searchParams.set("api-version", ADO_API_VERSION);
+	url.searchParams.set("api-version", apiVersion);
 	return url.toString();
 }

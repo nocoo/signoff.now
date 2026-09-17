@@ -47,6 +47,18 @@ function scriptedFetch(replies: Reply[]) {
 const noSleep = async () => {};
 
 describe("adoUrl", () => {
+	test("allows an explicit preview version for ADO policy evaluations", () => {
+		const url = adoUrl(
+			"https://dev.azure.com/acme/Project",
+			"_apis/policy/evaluations",
+			{ artifactId: "vstfs:///CodeReview/CodeReviewId/project/123" },
+			"7.1-preview.1",
+		);
+		expect(new URL(url).searchParams.get("api-version")).toBe("7.1-preview.1");
+		expect(new URL(url).searchParams.get("artifactId")).toBe(
+			"vstfs:///CodeReview/CodeReviewId/project/123",
+		);
+	});
 	test("pins the api version and encodes params", () => {
 		const u = adoUrl("https://dev.azure.com/acme/Alpha/", "_apis/git/repos", {
 			"searchCriteria.status": "completed",
@@ -76,6 +88,63 @@ describe("adoUrl", () => {
 });
 
 describe("token acquisition", () => {
+	test("checks the actual ADO token and coalesces concurrent refreshes", async () => {
+		let calls = 0;
+		const c = createAdoClient({
+			exec: async () => {
+				calls++;
+				await Promise.resolve();
+				return { exitCode: 0, stdout: TOKEN_JSON, stderr: "" };
+			},
+			fetchFn: scriptedFetch([]).fetchFn,
+		});
+		await Promise.all([c.checkAuth(), c.checkAuth(), c.get("https://x/y")]);
+		expect(calls).toBe(1);
+	});
+	test("expired login stops before HTTP and gives a safe recovery command", async () => {
+		const { fetchFn, calls } = scriptedFetch([]);
+		const c = createAdoClient({
+			exec: async () => ({
+				exitCode: 1,
+				stdout: "",
+				stderr: "AADSTS700082 refresh expired private-token-value",
+			}),
+			fetchFn,
+		});
+		await expect(c.checkAuth()).rejects.toMatchObject({
+			kind: "unauthenticated",
+			message: expect.stringContaining("az login"),
+		});
+		try {
+			await c.checkAuth();
+		} catch (error) {
+			expect(String(error)).not.toContain("private-token-value");
+		}
+		expect(calls).toHaveLength(0);
+	});
+	test("rejects already expired token output and reports missing CLI", async () => {
+		const expired = createAdoClient({
+			exec: async () => ({
+				exitCode: 0,
+				stdout: JSON.stringify({ accessToken: "old", expires_on: 1 }),
+				stderr: "",
+			}),
+			fetchFn: scriptedFetch([]).fetchFn,
+		});
+		await expect(expired.checkAuth()).rejects.toMatchObject({
+			kind: "unauthenticated",
+		});
+		const missing = createAdoClient({
+			exec: async () => {
+				throw new Error("ENOENT");
+			},
+			fetchFn: scriptedFetch([]).fetchFn,
+		});
+		await expect(missing.checkAuth()).rejects.toMatchObject({
+			kind: "unauthenticated",
+			message: expect.stringContaining("Azure CLI"),
+		});
+	});
 	test("sends the token as a bearer header", async () => {
 		const { fetchFn, calls } = scriptedFetch([{ status: 200, body: "{}" }]);
 		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
@@ -167,6 +236,84 @@ describe("token acquisition", () => {
 });
 
 describe("status handling", () => {
+	test("corrects a default-tenant mismatch once and reuses the organization tenant", async () => {
+		const commands: string[][] = [];
+		const tenant = "72f988bf-86f1-41af-91ab-2d7cd011db47";
+		const { fetchFn, calls } = scriptedFetch([
+			{ status: 403 },
+			{ status: 302, headers: { "x-vss-resourcetenant": tenant } },
+			{ status: 200, body: "{}" },
+			{ status: 200, body: "{}" },
+		]);
+		const c = createAdoClient({
+			exec: async (_cmd, args) => {
+				commands.push(args);
+				return {
+					exitCode: 0,
+					stdout: JSON.stringify({
+						accessToken: args.includes(tenant) ? "org-token" : "default-token",
+						expires_on: Math.floor(Date.now() / 1000) + 3600,
+					}),
+					stderr: "",
+				};
+			},
+			fetchFn,
+		});
+		await c.get("https://dev.azure.com/acme/Project/_apis/git/repositories");
+		await c.get("https://dev.azure.com/acme/Other/_apis/git/repositories");
+		expect(commands).toHaveLength(2);
+		expect(commands[1]).toContain(tenant);
+		expect((calls[1]?.init as RequestInit).method).toBe("HEAD");
+		expect(
+			(calls[1]?.init as { headers: Record<string, string> }).headers
+				.authorization,
+		).toBeUndefined();
+		expect(
+			(calls[3]?.init as { headers: Record<string, string> }).headers
+				.authorization,
+		).toBe("Bearer org-token");
+	});
+	test("does not trust a tenant hint from another host or hide a real forbidden response", async () => {
+		const tenant = "72f988bf-86f1-41af-91ab-2d7cd011db47";
+		for (const host of [
+			"https://dev.azure.com/acme/Project",
+			"https://evil.test/acme/Project",
+		]) {
+			const { fetchFn, calls } = scriptedFetch([
+				{ status: 403, headers: { "x-vss-resourcetenant": tenant } },
+				{ status: 403, headers: { "x-vss-resourcetenant": tenant } },
+			]);
+			const c = createAdoClient({ exec: okExec, fetchFn });
+			await expect(c.get(host)).rejects.toMatchObject({ kind: "forbidden" });
+			expect(calls).toHaveLength(host.includes("evil") ? 1 : 2);
+		}
+	});
+	test("exposes opaque continuation tokens and never follows a login redirect", async () => {
+		const { fetchFn, calls } = scriptedFetch([
+			{ status: 302 },
+			{
+				status: 200,
+				body: '{"value":[1]}',
+				headers: { "x-ms-continuationtoken": "opaque+/=" },
+			},
+		]);
+		const c = createAdoClient({ exec: okExec, fetchFn, sleep: noSleep });
+		expect(await c.getPage("https://x/y")).toEqual({
+			data: { value: [1] },
+			continuationToken: "opaque+/=",
+		});
+		expect((calls[0]?.init as RequestInit).redirect).toBe("manual");
+	});
+	test("a persistent login redirect requires reauthentication", async () => {
+		const c = createAdoClient({
+			exec: okExec,
+			fetchFn: scriptedFetch([{ status: 302 }, { status: 302 }]).fetchFn,
+			sleep: noSleep,
+		});
+		await expect(c.get("https://x/y")).rejects.toMatchObject({
+			kind: "unauthenticated",
+		});
+	});
 	test("401 triggers exactly one silent token refresh, then fails", async () => {
 		let execCount = 0;
 		const exec: ExecFn = async () => {
@@ -548,6 +695,30 @@ describe("network failures", () => {
 });
 
 describe("timeouts and the retry budget", () => {
+	test("keeps the timeout active until the response body has arrived", async () => {
+		const fetchFn: FetchFn = async (_url, init) => ({
+			status: 200,
+			headers: headers(),
+			text: () =>
+				new Promise((resolve, reject) => {
+					const timer = setTimeout(() => resolve("{}"), 80);
+					init?.signal?.addEventListener("abort", () => {
+						clearTimeout(timer);
+						reject(new Error("Aborted body"));
+					});
+				}),
+		});
+		const client = createAdoClient({
+			exec: okExec,
+			fetchFn,
+			timeoutMs: 10,
+			maxRetries: 0,
+		});
+		await expect(client.get("https://x/slow-body")).rejects.toMatchObject({
+			kind: "server",
+			message: expect.stringContaining("timed out after 10ms"),
+		});
+	});
 	test("a hung request is aborted and named as a timeout", async () => {
 		// "aborted" alone reads like the operator hit Ctrl-C. It did not.
 		const fetchFn: FetchFn = (_url, init) =>

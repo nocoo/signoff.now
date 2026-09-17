@@ -2,15 +2,24 @@ import { describe, expect, test } from "bun:test";
 import { checkAz, type ExecFn } from "./az.ts";
 
 describe("checkAz", () => {
-	test("ok when exit 0", async () => {
-		const exec: ExecFn = async () => ({
-			exitCode: 0,
-			stdout: JSON.stringify({ user: { name: "ada@x.com" } }),
-			stderr: "",
-		});
+	test("checks an ADO token rather than a cached account record", async () => {
+		const calls: string[][] = [];
+		const exec: ExecFn = async (_command, args) => {
+			calls.push(args);
+			return {
+				exitCode: 0,
+				stdout: JSON.stringify({
+					accessToken: "private-token",
+					expires_on: Math.floor(Date.now() / 1000) + 3600,
+				}),
+				stderr: "",
+			};
+		};
 		const r = await checkAz(exec);
 		expect(r.ok).toBe(true);
-		expect(r.detail).toBe("ada@x.com");
+		expect(r.detail).toContain("valid");
+		expect(r.detail).not.toContain("private-token");
+		expect(calls[0]).toContain("get-access-token");
 	});
 
 	test("fail when exit non-zero", async () => {
@@ -30,17 +39,16 @@ describe("checkAz", () => {
 		};
 		const r = await checkAz(exec);
 		expect(r.ok).toBe(false);
-		expect(r.detail).toBe("ENOENT");
+		expect(r.detail).toContain("Azure CLI");
 	});
 
-	test("ok with unparseable stdout still logged in", async () => {
+	test("malformed token output cannot claim login is valid", async () => {
 		const exec: ExecFn = async () => ({
 			exitCode: 0,
 			stdout: "not-json",
 			stderr: "",
 		});
 		const r = await checkAz(exec);
-		expect(r.ok).toBe(true);
-		expect(r.detail).toBe("logged in");
+		expect(r.ok).toBe(false);
 	});
 });
