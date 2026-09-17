@@ -1,5 +1,3 @@
-import { HeaderTooltip, HexlyLink } from "./header-links";
-import { ThemeToggle } from "./theme-toggle";
 import {
 	Button,
 	ContentIsland,
@@ -21,7 +19,9 @@ import { Github } from "@/components/icons/github";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
 import { fetchMe } from "@/models/entitiesApi";
+import { HeaderTooltip, HexlyLink } from "./header-links";
 import { Sidebar } from "./sidebar";
+import { ThemeToggle } from "./theme-toggle";
 
 const SIDEBAR_KEY = "signoff-sidebar-collapsed";
 
