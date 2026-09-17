@@ -39,8 +39,8 @@ docs/01-*.md    # product docs
 bun run dev
 bun run db:migrate:local
 bun run db:seed:local # resets the five named demo projects only
-bun run dev:worker   # local upstream + SIGNOFF_DEMO_MODE=1
-bun run dev:collector # process UI requests; auto refresh covers the current PR page, default every 2 minutes
+bun run dev:worker   # apply local migrations, then start local upstream + SIGNOFF_DEMO_MODE=1
+bun run dev:collector # independent list (2 min) and current-page checks (5 min) queues; cooldown after each whole round
 bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
 bun run test / test:coverage
 bun run lint
@@ -100,6 +100,13 @@ the `.env.*` rule, or the template would be ignored too.
 - TDD; Biome 0 warnings
 - Coverage ≥95% on CLI/scripts/shared and web Model/ViewModel; Views excluded
 - Do not reintroduce Electron or local better-sqlite3/drizzle for product data
+
+## Git workflow
+
+- Develop directly on `main`; do not create a branch unless the user explicitly asks.
+- Make atomic commits: one coherent, reviewable change per commit, with its relevant tests.
+- Preserve all existing commits when bringing an existing branch into `main`; use a normal merge, never squash or rewrite history.
+- Run the required checks and keep commit/push hooks enabled. Push when authorized by the task.
 
 ## Retrospective
 
