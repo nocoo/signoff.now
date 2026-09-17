@@ -1,184 +1,88 @@
 # SignOff
 
-Project and pull-request workbench for maintainers. PRs are the first phase;
-issues / ADO work items follow later. Azure DevOps project management ships
-first; GitHub will use the same normalized PR contract.
+Project and PR workbench with local Azure DevOps collection and retained Activity/Score analytics.
+Profile: ts-worker-web + ts CLI.
+Direction: [product definition](docs/01-项目定位.md). Frameworks must preserve this handbook.
 
-Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位.md)**.
+## Sources of Truth
 
-## Shape
+This file is the quality contract; hooks, CI and config are enforcement. Close implementation gaps without lowering the contract. Historical test results are not evidence of a current passing run.
 
-| Piece | Role |
-|:------|:-----|
-| **Web** | Basalt + Vite SPA; `/` PR queue, `/projects` project CRUD, PR policies/builds/stages in a detail sheet |
-| **PR data today** | Real ADO projects and repository scopes, plus five sample projects / 46 PRs (ADO and GitHub) selectable separately |
-| **PR collection** | Local `az` tokens → ADO API → provider-neutral snapshots → local Worker jobs/staging → D1; GitHub remains planned |
-| **DB** | Cloudflare D1; local development uses Wrangler SQLite in `.wrangler/state/v3/d1/` |
-| **Existing analytics** | Activity/Score and the ADO activity CLI remain available; Dashboard moved to `/insights` |
+| Fact | Where |
+|---|---|
+| Product / live collection | [README.md](README.md), [PR workbench](docs/10-PR工作台与Mock预览.md), [local collection](docs/11-真实PR采集与本地工作台.md) |
+| Access / identity | [access contract](docs/12-agent-access.md), `packages/worker/src/middleware` |
+| Runtime / versions | root, Worker and web `package.json`; keep those service versions aligned |
+| Tests / enforcement | package Vitest and `bunfig.toml` configs, `.husky`, `scripts/run-security.ts`, CI |
+| Accidents | [Retrospective.md](Retrospective.md) |
+| Machine workflow | global `AGENTS.md` and Git rules |
 
-Current implementation and acceptance: **[docs/10-PR工作台与Mock预览.md](./docs/10-PR工作台与Mock预览.md)**.
-Live CLI collection and recovery: **[docs/11-真实PR采集与本地工作台.md](./docs/11-真实PR采集与本地工作台.md)**.
-The older Activity ingest contract is separate from the new PR snapshot tables.
-Do not wire demo writes to production or widen the machine-token route whitelist.
+## Project Invariants
 
-## Layout
+- ADO PR collection is live locally; GitHub workbench collection is planned despite existing GitHub samples and pulse queries. Keep normalized provider contracts and sample/live separation.
+- PR snapshots/jobs/staging are separate from Activity/Score ingest. Workbench collection writes only a loopback Worker and must not borrow the production pipeline token.
+- Browser Access and pipeline-token routes remain disjoint. Machine credentials may bootstrap/ingest/recompute/live/me, never entity CRUD or identity roster creation.
+- CRUD automation needs an Access service token plus a Service Auth policy; identify service JWTs by `common_name` and mark `service: true`. Never assume email/sub.
+- D1 is the product store. Use TDD; do not reintroduce Electron or local better-sqlite3/Drizzle product storage. Keep credentials in ignored `.env` (0600) and preserve its tracked example.
+- Activity artifacts bind to the target environment IDs/config version: recollect after environment changes, retain idempotent chunks and run only one ingest at a time.
 
-```
-apps/gitinfo/   # quality-bar CLI (local git)
-apps/pulse/     # quality-bar CLI (remote collab patterns)
-apps/web/       # PR workbench and retained activity analytics
-packages/domain/src/workbench.ts  # shared PR facts and readiness rules
-packages/domain/src/demo.ts       # deterministic sample scenarios
-docs/01-*.md    # product docs
-.data/          # local payloads — never commit
-```
+## Stack / Layout
+
+| Component | Path / choice |
+|---|---|
+| Web / API / storage | `apps/web` Vite/Basalt; `packages/worker` Hono; `packages/db` D1 migrations |
+| PR / analytics domain | `packages/domain`, provider-neutral facts and readiness rules |
+| CLIs | `apps/collect` ADO/ingest; `apps/gitinfo` local Git; `apps/pulse` collaboration queries |
 
 ## Commands
 
+Run from root with Bun 1.4.0, Node 22.22.1–22.x/24.x/26+, Git, gitleaks and OSV. Unit tests use injected providers/local SQLite and need no live Azure login. Actual collection requires an authorized `az` session and dedicated local data scope.
+
 ```bash
-bun run dev
-bun run db:migrate:local
-bun run db:seed:local # resets the five named demo projects only
-bun run dev:worker   # local upstream + SIGNOFF_DEMO_MODE=1
-bun run dev:collector # process UI requests; auto refresh covers the current PR page, default every 2 minutes
-bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
-bun run test / test:coverage
+bun install --frozen-lockfile
 bun run lint
 bun run typecheck
-bun run security   # osv-scanner (osv-scanner.toml) + gitleaks
+bun run build:web
+bun run test:coverage
+bun run security
 bun run gitinfo -- --help
 bun run pulse -- --help
+bun run signoff -- --help
 ```
 
-## Production access
+## Verification
 
-Two hosts, one Worker, two auth paths — see README「运维手册」for the full setup.
+6DQ = L1/L2/L3 + G1/G2 + D1 (test isolation). Status: `enforced`, `planned`, `manual`, or `N/A`; partial enforcement below does not certify the full required bar.
+L1 requires statements, branches, functions and lines each ≥95%, with no skipped/focused tests; preserve any stricter package threshold. Native tools must identify unmeasured metrics as gaps.
+G1 requires check-only strict analysis/formatting with zero errors/warnings. G2 requires dependency and secret scans, with missing required scanners failing.
 
-| Host | Caller | Auth |
-|:-----|:-------|:-----|
-| `signoff.hexly.ai` | people, and automation needing **CRUD** | Cloudflare Access |
-| `signoff-ingest.hexly.ai` | CLI ingest | `SIGNOFF_PIPELINE_WRITE_TOKEN` |
+| Dimension | Status | Required proof and current evidence/gap |
+|---|---|---|
+| L1 TypeScript | planned | Vitest gates web four metrics at 95%, gitinfo branches at 88%, pulse at 90%; Bun packages lack branch coverage and collect functions is 93%. Exclusions also leave full 95% incomplete. |
+| L2 Worker / CLI | planned | Unit suites include real SQLite behind an in-process D1 adapter. `scripts/e2e-06-local.sh` sends real local HTTP but is not hooked/CI-wired and shares dev state; require isolated 100% route/command proof. |
+| L3 browser / CLI | manual | Verify PR queues/details/policies/readiness, sample/live separation and CLI output/workflows using disposable data. No complete browser/system gate is configured. |
+| G1 TypeScript | planned | CI uses full Biome with errors on warnings and typecheck. Local pre-commit uses autofixing lint-staged; index check-only behavior is incomplete. |
+| G2 | enforced | `security` runs OSV and gitleaks in parallel, failing on missing tools/findings; CI shares the security gate. Existing ignores must stay explicit and reviewed. |
+| D1 | planned | Unit harnesses use memory/temp SQLite, but shell E2E mutates default local D1 and fixed `.data` fixtures without per-run state or marker/cleanup guards. |
 
-`GET /api/live` is public in the Worker on both hosts. It checks D1, returns
-`status: "ok"` and the root package version on success, or HTTP 503 with bounded
-failure data. Every response uses `Cache-Control: no-store`. Keep the root,
-Worker, and web package versions aligned when releasing this service. The human
-hostname also needs an Access application scoped to `signoff.hexly.ai/api/live`
-with a Bypass / Everyone policy; business paths retain Access and JWT checks.
+Pre-commit runs coverage, lint-staged and typecheck. Pre-push runs G2 only; the Electron-era L2 was removed. Secret scope is upstream..HEAD (or full history without upstream), not every stdin push ref. CI adds quality/security, not L2/L3.
 
-**The pipeline token cannot create entities.** `MACHINE_ROUTES`
-(`middleware/entry-control.ts`) whitelists only bootstrap / ingest /
-recompute / live / me; every CRUD route answers 403. That is deliberate — a
-leaked ingest token should be able to write activity data, never to add an
-identity to the roster and start scoring it.
+Target hooks: pre-commit checks G1 + L1 against the index snapshot (`git checkout-index`) in <30s; pre-push checks L2 and G2 in parallel against every stdin push ref/commit in <3min, plus build where applicable. L3 runs in CI or an explicit manual lane.
+Never bypass commit/push hooks, force-push, or use autofix in checks. Documentation changes do not authorize deploying or implementing new gates.
 
-So automation that needs CRUD authenticates as an Access **service token**:
+## Resources / Isolation
 
-```bash
-curl -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-     -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-     https://signoff.hexly.ai/api/repos
-```
+Dev: web 7042, local Worker 37042, optional trusted `https://signoff.dev.hexly.ai`. `SIGNOFF_DATA_DIR` controls collector artifacts; default is `.data`. The legacy shell E2E requires a running disposable loopback Worker (`SIGNOFF_PORT`) and resets named fixture rows in default local state; do not run it against daily data. Required direction: per-run `--local --persist-to`, separate SQLite, `NODE_ENV=test`, checked marker and ownership guards. No remote test provisioning.
 
-Two things that cost time when they were missing:
+## Operations / Release
 
-- Creating the token is **not enough**. The Application protecting
-  `signoff.hexly.ai` needs a **Service Auth** policy including that token, or
-  Access answers 302 (measured — the redirect still carries the right AUD, so
-  it looks like a credential problem and is not).
-- A service-token JWT has **no `email`** and an empty `sub`; the only
-  identifier is `common_name`. `principalFromPayload` reads it and sets
-  `service: true`, otherwise `/api/me` reports a blank identity and an
-  automated session is indistinguishable from a person's.
-
-Credentials live in `.env` (gitignored, chmod 600). `.env.example` documents
-the shape and is tracked — `.gitignore` has an explicit `!.env.example` after
-the `.env.*` rule, or the template would be ignored too.
-
-## Quality
-
-- TDD; Biome 0 warnings
-- Coverage ≥95% on CLI/scripts/shared and web Model/ViewModel; Views excluded
-- Do not reintroduce Electron or local better-sqlite3/drizzle for product data
+Keep `/api/live` public, no-store, versioned and D1-aware (503 on failure); Access must also bypass that exact path while business routes retain verification. Follow README for current CI release and separate environment credentials; `db:seed:local` resets only named demo projects and is not a production workflow.
 
 ## Retrospective
 
-### 2026-07-28 — D1 batch 不因 0 行回滚；预读回写会吞掉并发修改
+Move accident narratives to [Retrospective.md](Retrospective.md); keep at most about ten concise recurring project rules here. Put architecture and operational detail in linked docs.
 
-**背景**：Codex review 指出 developer PATCH 两处缺陷，**本地都复现了**。
-
-**缺陷 1（预读回写 / lost update）**：PATCH 先 `SELECT` 整行，再把 name/alias/
-avatar 三个标量**全部**写回。两个只改不同字段的请求并发时，后落地的那个会用自己
-读到的旧值覆盖对方刚写的新值，而**两个都返回 200**。实测：avatar-only + alias-only
-并发后 avatar 丢失。
-→ 改为 SQL 内 `CASE WHEN ?n = 1 THEN ? ELSE 列 END`，只写请求真正提到的列，不预读。
-
-**缺陷 2（batch 不回滚）**：`UPDATE ... WHERE archived_at IS NULL` 命中 0 行时，
-**D1 不会回滚同一 batch 的后续语句**（只有报错才回滚）。实测：membership INSERT
-提交了、`pipeline_config_version` 也 +1 了，然后路由返回 404 —— 一次没人要求的
-版本 bump，会让 Dashboard 一直 stale。
-→ 每条依赖语句自带守卫。
-
-**守卫选型（重要）**：`changes()` 报告的是**上一条改行语句**，含义随语句顺序变化。
-夹在中间的语句一多就会悄悄失效。因此新增 `onlyIfLive: {table, id}`，用
-`EXISTS(SELECT 1 FROM <表> WHERE id=? AND archived_at IS NULL)` —— **与顺序无关**。
-`changes()` 版本保留给 archive/restore 那种"紧跟其后"的场景。
-
-**规则化提醒**：
-
-- **D1 batch 只在报错时回滚**，`changes === 0` 不回滚。凡是"前一条决定后面该不该做"
-  的 batch，后面每一条都必须自带 SQL 守卫。
-- **PATCH 不要预读整行再全量回写**。只写请求点名的列，并发修改才能叠加而非互相覆盖。
-- **`changes()` 是位置相关的**，别在多语句 batch 中间用；要顺序无关就用 EXISTS。
-- **验证安全修复时先怀疑测试脚手架**。这轮 shell 循环里 `$u` 展开导致一次假的
-  "生产 200 通过"，换成逐条 single-quote 后三种凭据 URL 全是 400。
-- **变异测试要覆盖谓词的每个分支**：`u.username || u.password` 把后半截删掉后测试
-  仍然全绿（`https://:pw@host` 没被测到），补了用例才杀掉。
-
-### 2026-07-28 — 采集产物绑定环境，跨环境重放必然 422
-
-**背景**：把一份 06:59 采集的 artifact ingest 到生产，得到 `HTTP 422`。
-
-**原因**：artifact 里的 `developerId` / `repoId` 是**采集当时那个环境的主键**。生产的
-developer 行创建于 01:44 UTC、repo 是 `9f9ff2bc…`，而 artifact 里写的是
-`05ab05e8…` / `7614d977…` —— 两边对不上，服务端按 05 §5.5 拒收。
-
-**做对的**：
-
-- 服务端拒收是**正确行为**，不是 bug。核对后确认 `activities` 仍为 0、游标未推进，
-  422 干净回滚，没有留下半截状态。
-- 没有去改服务端放宽校验，而是重新采集。
-
-**规则化提醒**：
-
-- **artifact 不是环境无关的**。换目标环境（或目标环境的 roster/repo 重建过）之后，
-  旧 artifact 必须**重新采集**，不能重放。
-- ingest 报 422 先查**主键是否属于目标环境**，再怀疑数据本身。
-- 判断"有没有写脏"要直接查 `activities` 计数与游标，别靠 CLI 退出码推测。
-
-### 2026-07-19 — 05 文档职责越界与 Ingest 契约错误
-
-**背景**：写 `docs/05-管线铺垫与Ingest实现.md` 时,把"05 铺垫 + 06 实装"混成"05 实施 P1..P4",且 Ingest 契约包含多处技术错误。经 Codex review + 用户认可,重写为「06 开工前置契约」。
-
-**具体错误**：
-
-1. **职责越界**:把 Activity/Score 真实写入、fixture 首次落库、Web 数据读回、真实 ADO 采集全部塞进 05 的 P1..P4;正确边界是 05 只做"契约与基础设施",实装留 06。
-2. **INSERT ... VALUES ... WHERE 无效 SQL**:SQLite/D1 不支持 `INSERT OR REPLACE ... VALUES (...) WHERE ...`;应改用 `INSERT ... ON CONFLICT(external_ref) DO UPDATE`。
-3. **误判 batch 语义**:错误声称"batch 中 `changes===0` 会让整个 batch 回滚"。实际上 D1 batch 只在 statement 报错时回滚;CAS 保护必须写进 SQL `WHERE`,并读 `meta.changes` 判定 200/409。
-4. **无视 D1 查询预算**:提"单次 5000 条 activity",实际 D1 每次 Worker invocation 上限 Free 50 / Paid 1000 stmt;应用层硬上限应设 ≤500 条/chunk,预留二次查询与 Score UPSERT 余量。
-5. **假想的"单 batch 全链路原子"**:Activity 写 + 二次查询 + TS 聚合 + Score 写不可能在一个 batch 完成——D1 中间不能返回查询结果给 TS。必须拆多阶段 + chunk 幂等 + CLI 重试兜底。
-6. **鉴权契约不一致**:03 与 `pipeline-auth.ts` 都放行"Access 浏览器 → pipeline write";应明确浏览器 Access 禁 pipeline write,同步修中间件与 03。
-7. **服务端过度信任 CLI**:客户端不应提供 `id` / `externalRef` / `dayKey` / `config_version`;服务端必须重算并比对。
-8. **parseUniqueName 剥前缀属猜测**:01 明确"人类身份 uniqueName 几乎全是邮箱 + 精确匹配";剥 `vsts:` 之类前缀是没有真实数据支持的过度设计,已删除。
-
-**做对的**:
-
-- 用 `herdr agent read` 拿 Codex 完整意见后**未跳过任何一条**,每条都在重写里响应。
-- 分 3 个原子 commit(范围重定位 / Ingest 契约 / §6-§13 收缩)分别提交,便于 review 追溯。
-
-**规则化提醒**:
-
-- **写"设计文档"时必须先划清"本文档不做什么"**——防止范围膨胀。
-- **凡涉及具体 SQL / 平台限制,必须查最新官方文档**(D1 statement 上限、事务语义、batch 行为);不要凭印象写。
-- **多阶段流程 vs 单事务**:D1 上任何需要"写→读→算→再写"的路径必须显式建模为多阶段 + 幂等 + 状态机,禁止承诺跨阶段原子。
-- **契约收敛先于实施**:契约不定死就开工实施 = 后期返工;05 这种"铺垫文档"要么冻结契约,要么就明确"待 06 定"。
+- PATCH only fields present in the request; avoid read-whole-row/write-whole-row lost updates.
+- D1 batches roll back on errors, not zero affected rows; guard each dependent statement with SQL predicates.
+- `changes()` depends on statement order; use EXISTS for order-independent guards.
+- Keep write/read/aggregate/write flows staged and idempotent; test auth and validation predicates branch by branch.
