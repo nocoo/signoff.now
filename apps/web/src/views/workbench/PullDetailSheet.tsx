@@ -257,9 +257,11 @@ function PullDetail({
 												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 													{issue.action}
 												</p>
-												<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
-													{issue.owner}
-												</p>
+												<EntityLabel
+													name={issue.owner}
+													size="xs"
+													className="mt-1.5 text-[11px] text-basalt-muted-foreground"
+												/>
 											</div>
 										</LayerCard>
 									))}
@@ -426,9 +428,11 @@ function PullDetail({
 													<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 														{policy.detail}
 													</p>
-													<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-														{policy.owner}
-													</p>
+													<EntityLabel
+														name={policy.owner}
+														size="xs"
+														className="mt-1 text-[11px] text-basalt-muted-foreground"
+													/>
 												</div>
 											</div>
 										);
@@ -622,9 +626,11 @@ function BuildPipeline({ build, href }: { build: Build; href?: string }) {
 									<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 										{stage.detail}
 									</p>
-									<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-										{stage.owner}
-									</p>
+									<EntityLabel
+										name={stage.owner}
+										size="xs"
+										className="mt-1 text-[11px] text-basalt-muted-foreground"
+									/>
 								</div>
 								<span className="shrink-0 pt-0.5 font-mono text-[11px] text-basalt-muted-foreground">
 									{duration(stage.durationSeconds)}

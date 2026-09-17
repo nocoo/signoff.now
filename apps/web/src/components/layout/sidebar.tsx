@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import type { ElementType } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { avatarInitial } from "@/lib/avatar";
 import { NAV_GROUPS, type NavGroupDef } from "@/lib/navigation";
 
 const ICON_MAP: Record<string, ElementType> = {
@@ -83,7 +84,7 @@ export function Sidebar({
 }) {
 	const { pathname } = useLocation();
 	const navigate = useNavigate();
-	const initial = (userLabel[0] ?? "S").toUpperCase();
+	const initial = avatarInitial(userLabel);
 	const go = (href: string) => {
 		navigate(href);
 		onNavigate?.();

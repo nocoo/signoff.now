@@ -31,7 +31,7 @@ import {
 import { useRef } from "react";
 import { Link } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
-import { EntityAvatar } from "@/components/EntityAvatar";
+import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import {
@@ -394,9 +394,15 @@ export function PullsPage() {
 													<PullSourceLink pull={pull} project={project} />
 												</div>
 												<div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
-													<span className="font-mono text-basalt-foreground/75">
+													<a
+														href={pullUrl(project, pull)}
+														target="_blank"
+														rel="noopener noreferrer"
+														title={`Open PR #${pull.number} in ${project.provider === "ado" ? "Azure DevOps" : "GitHub"} (new tab)`}
+														className="rounded-sm font-mono text-basalt-foreground/75 underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
+													>
 														#{pull.number}
-													</span>
+													</a>
 													<span aria-hidden>·</span>
 													<span>
 														{project.organization} / {project.projectKey}
@@ -404,8 +410,8 @@ export function PullsPage() {
 													<span aria-hidden>/</span>
 													<span>{pull.repository.name}</span>
 												</div>
-												<div className="mt-1 text-[11px] text-basalt-muted-foreground">
-													{pull.author.name}
+												<div className="mt-1 flex items-center text-[11px] text-basalt-muted-foreground">
+													<EntityLabel name={pull.author.name} size="xs" />
 													{pull.labels.includes("release blocker") ? (
 														<Badge
 															variant="error"
@@ -471,9 +477,11 @@ export function PullsPage() {
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
 												<p className="text-xs leading-5">{readiness.action}</p>
-												<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-													{readiness.owner}
-												</p>
+												<EntityLabel
+													name={readiness.owner}
+													size="xs"
+													className="mt-1 text-[11px] text-basalt-muted-foreground"
+												/>
 											</TableCell>
 											<TableCell className="py-3.5 align-top text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
 												<time
