@@ -126,7 +126,7 @@ export function DevelopersPage() {
 								<TableHead>Developer</TableHead>
 								<TableHead>Teams</TableHead>
 								<TableHead>Tags</TableHead>
-								<TableHead>
+								<TableHead className="relative">
 									<span className="sr-only">Actions</span>
 								</TableHead>
 							</TableRow>

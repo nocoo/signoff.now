@@ -134,7 +134,7 @@ export function ReposPage() {
 								<TableHead>Repo GUID</TableHead>
 								<TableHead>Project GUID</TableHead>
 								<TableHead>Collection</TableHead>
-								<TableHead>
+								<TableHead className="relative">
 									<span className="sr-only">Actions</span>
 								</TableHead>
 							</TableRow>

@@ -108,7 +108,7 @@ export function TeamsPage() {
 							<TableRow>
 								<TableHead>Team</TableHead>
 								<TableHead>Tags</TableHead>
-								<TableHead>
+								<TableHead className="relative">
 									<span className="sr-only">Actions</span>
 								</TableHead>
 							</TableRow>
