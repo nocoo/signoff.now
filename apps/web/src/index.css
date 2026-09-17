@@ -19,3 +19,57 @@
 @utility font-display {
 	font-family: "DM Sans", system-ui, sans-serif;
 }
+
+@layer components {
+	.pull-markdown > * + * {
+		@apply mt-3;
+	}
+	.pull-markdown :where(h1, h2, h3, h4, h5, h6) {
+		@apply mt-5 font-semibold text-basalt-foreground;
+	}
+	.pull-markdown :where(h1, h2) {
+		@apply text-base;
+	}
+	.pull-markdown > :first-child {
+		@apply mt-0;
+	}
+	.pull-markdown :where(strong, th) {
+		@apply font-semibold text-basalt-foreground;
+	}
+	.pull-markdown ul {
+		@apply list-disc pl-5;
+	}
+	.pull-markdown ol {
+		@apply list-decimal pl-5;
+	}
+	.pull-markdown li + li {
+		@apply mt-1;
+	}
+	.pull-markdown .contains-task-list {
+		@apply list-none pl-0;
+	}
+	.pull-markdown input[type="checkbox"] {
+		@apply mr-1.5;
+	}
+	.pull-markdown a {
+		@apply text-basalt-primary underline underline-offset-2;
+	}
+	.pull-markdown blockquote {
+		@apply border-l-2 border-basalt-border pl-4;
+	}
+	.pull-markdown code {
+		@apply rounded bg-basalt-muted px-1 py-0.5 font-mono text-xs text-basalt-foreground;
+	}
+	.pull-markdown pre {
+		@apply overflow-x-auto rounded-basalt-md bg-basalt-muted p-3;
+	}
+	.pull-markdown pre code {
+		@apply bg-transparent p-0;
+	}
+	.pull-markdown img {
+		@apply h-auto max-w-full rounded-basalt-md;
+	}
+	.pull-markdown hr {
+		@apply border-basalt-border;
+	}
+}

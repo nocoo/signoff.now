@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { advanceDemoPull, demoWorkspace, makeDemoPulls } from "./demo.js";
 import {
 	isFailed,
+	type PullRequest,
 	projectSchema,
 	projectUrl,
 	projectWriteSchema,
@@ -154,6 +155,19 @@ describe("normalized PR contract", () => {
 			"https://github.com/nocoo/signoff.now/pull/101",
 		);
 	});
+	test("includes a near-complete ADO sample awaiting only PoP", () => {
+		const pull = fixture.pullRequests.find((pr) =>
+			pr.policies.some((policy) => policy.name === "Proof Of Presence"),
+		);
+		expect(pull).toBeDefined();
+		if (!pull) throw new Error("Expected a PoP sample");
+		const owner = fixture.projects.find((p) => p.id === pull.projectId)!;
+		const readiness = pullReadiness(pull, owner);
+		expect(readiness.label).toBe("PoP");
+		expect(readiness.issues).toHaveLength(1);
+		expect(pull.builds.every((build) => build.state === "passed")).toBe(true);
+		expect(pull.description).toContain("## Summary");
+	});
 	test("retains one provider-neutral shape and safely constructs provider links", () => {
 		const github = projectSchema.parse({
 			...project,
@@ -196,6 +210,115 @@ describe("normalized PR contract", () => {
 });
 
 describe("merge readiness", () => {
+	describe("ADO Proof Of Presence", () => {
+		const pop = {
+			id: "policy-pop",
+			name: "Proof Of Presence",
+			state: "failed" as const,
+			required: true,
+			detail:
+				"Resolve Proof Of Presence in Azure DevOps, then rerun the check.",
+			owner: "Project maintainers",
+		};
+
+		test.each([
+			"failed",
+			"queued",
+			"waiting",
+		] as const)("treats %s PoP as a remaining human verification step", (state) => {
+			const pull = { ...ready, policies: [{ ...pop, state }] };
+			expect(pullReadiness(pull, project)).toMatchObject({
+				kind: "approval",
+				label: "PoP",
+				action: "Complete PoP human verification in Azure DevOps",
+			});
+			expect(pull.policies[0]?.state).toBe(state);
+			expect(pullProgress(pull).checksPassed).toBeLessThan(
+				pullProgress(pull).checksTotal,
+			);
+		});
+
+		test("does not hide another failed policy, build, or merge conflict", () => {
+			const pull = { ...ready, policies: [pop] };
+			for (const extra of [
+				{ mergeable: "conflicts" as const },
+				{ policies: [pop, { ...pop, id: "ci", name: "CI validation" }] },
+				{ builds: [{ ...ready.builds[0]!, state: "failed" as const }] },
+			]) {
+				const result = pullReadiness({ ...pull, ...extra }, project);
+				expect(result.kind).toBe("blocked");
+				expect(result.issues).toContainEqual(
+					expect.objectContaining({ kind: "approval", label: "PoP" }),
+				);
+			}
+		});
+
+		test("keeps PoP last until every other required gate is green", () => {
+			const cases: Partial<PullRequest>[] = [
+				{ builds: [{ ...ready.builds[0]!, state: "running" }] },
+				{ builds: [{ ...ready.builds[0]!, state: "queued" }] },
+				{ builds: [{ ...ready.builds[0]!, state: "waiting" }] },
+				{ policies: [pop, { ...pop, id: "ci", name: "CI", state: "running" }] },
+				{ policies: [pop, { ...pop, id: "ci", name: "CI", state: "unknown" }] },
+				{ policies: [pop, { ...pop, id: "ci", name: "CI", state: "waiting" }] },
+				{ requiredApprovals: ready.reviewers.length + 1 },
+				{ coverage: "partial" },
+				{ checksObservedAt: null },
+				{ mergeable: "unknown" },
+			];
+			for (const extra of cases) {
+				const result = pullReadiness(
+					{ ...ready, policies: [pop], ...extra },
+					project,
+				);
+				expect(result.label).not.toBe("PoP");
+				expect(result.issues.at(-1)?.label).toBe("PoP");
+			}
+			expect(pullReadiness({ ...ready, policies: [pop] }, project).label).toBe(
+				"PoP",
+			);
+		});
+
+		test("preserves passed, unavailable, and canceled results and limits the rule to ADO", () => {
+			for (const [state, kind] of [
+				["passed", "ready"],
+				["unknown", "unknown"],
+				["skipped", "unknown"],
+				["canceled", "blocked"],
+				["running", "running"],
+			] as const) {
+				expect(
+					pullReadiness({ ...ready, policies: [{ ...pop, state }] }, project)
+						.kind,
+				).toBe(kind);
+			}
+			expect(
+				pullReadiness(
+					{ ...ready, policies: [pop] },
+					{ ...project, provider: "github" },
+				).kind,
+			).toBe("blocked");
+			expect(
+				pullReadiness(
+					{ ...ready, policies: [{ ...pop, name: "Proof Of Presence CI" }] },
+					project,
+				).kind,
+			).toBe("blocked");
+			expect(
+				pullReadiness(
+					{ ...ready, policies: [{ ...pop, name: " proof of presence " }] },
+					project,
+				).label,
+			).toBe("PoP");
+			expect(
+				pullReadiness(
+					{ ...ready, policies: [{ ...pop, required: false }] },
+					project,
+				).kind,
+			).toBe("ready");
+		});
+	});
+
 	test("keeps uncollected checks unknown while preserving known blockers", () => {
 		const pull = { ...ready, checksObservedAt: null };
 		expect(pullReadiness(pull, project)).toMatchObject({

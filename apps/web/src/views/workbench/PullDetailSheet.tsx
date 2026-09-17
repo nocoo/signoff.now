@@ -22,6 +22,7 @@ import {
 	approvalCount,
 	type Build,
 	type PullRequest,
+	policyPresentation,
 	pullUrl,
 } from "@signoff/domain/workbench";
 import {
@@ -39,6 +40,7 @@ import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { duration, type PullRow, relativeTime } from "@/models/workbench";
+import { PullDescription } from "./PullDescription";
 import {
 	CHECK_LABELS,
 	CheckIcon,
@@ -306,9 +308,10 @@ function PullDetail({
 						<Reviewers pull={pull} />
 						<section>
 							<h3 className="mb-3 text-sm font-semibold">About this change</h3>
-							<p className="whitespace-pre-line text-sm leading-6 text-basalt-muted-foreground">
-								{pull.description || "No description provided."}
-							</p>
+							<PullDescription
+								description={pull.description}
+								sourceUrl={pullUrl(project, pull)}
+							/>
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{pull.labels.map((label) => (
 									<Badge key={label} variant="secondary">
@@ -382,36 +385,54 @@ function PullDetail({
 							</h3>
 							<LayerCard padding="none">
 								<div className="divide-y divide-basalt-border">
-									{pull.policies.map((policy) => (
-										<div
-											key={policy.id}
-											className="flex items-start gap-3 p-3.5"
-										>
-											<CheckIcon state={policy.state} className="mt-0.5" />
-											<div className="min-w-0 flex-1">
-												<div className="flex flex-wrap items-center gap-2">
-													<span className="text-xs font-medium">
-														{policy.name}
-													</span>
-													<Badge
-														variant={policy.required ? "outline" : "secondary"}
-														className="text-[10px]"
-													>
-														{policy.required ? "Required" : "Advisory"}
-													</Badge>
-													<span className="text-[11px] text-basalt-muted-foreground">
-														{CHECK_LABELS[policy.state]}
-													</span>
+									{pull.policies.map((fact) => {
+										const policy = policyPresentation(fact, project.provider);
+										const awaitingPresence =
+											policy.isPoP && policy.state === "waiting";
+										return (
+											<div
+												key={policy.id}
+												className="flex items-start gap-3 p-3.5"
+											>
+												<CheckIcon state={policy.state} className="mt-0.5" />
+												<div className="min-w-0 flex-1">
+													<div className="flex flex-wrap items-center gap-2">
+														{awaitingPresence ? (
+															<ReadinessBadge
+																readiness={{ kind: "approval", label: "PoP" }}
+															/>
+														) : (
+															<span
+																className="text-xs font-medium"
+																title={fact.name}
+															>
+																{policy.name}
+															</span>
+														)}
+														<Badge
+															variant={
+																policy.required ? "outline" : "secondary"
+															}
+															className="text-[10px]"
+														>
+															{policy.required ? "Required" : "Advisory"}
+														</Badge>
+														<span className="text-[11px] text-basalt-muted-foreground">
+															{awaitingPresence
+																? "Awaiting human verification"
+																: CHECK_LABELS[policy.state]}
+														</span>
+													</div>
+													<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
+														{policy.detail}
+													</p>
+													<p className="mt-1 text-[11px] text-basalt-muted-foreground">
+														{policy.owner}
+													</p>
 												</div>
-												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
-													{policy.detail}
-												</p>
-												<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-													{policy.owner}
-												</p>
 											</div>
-										</div>
-									))}
+										);
+									})}
 								</div>
 							</LayerCard>
 						</section>

@@ -255,10 +255,50 @@ export type PullReadiness = {
 	owner: string;
 	issues: PullIssue[];
 };
-const PRIORITY = { blocked: 0, approval: 1, unknown: 2, review: 3, running: 4 };
+export const READINESS_PRIORITY = {
+	blocked: 0,
+	approval: 1,
+	unknown: 2,
+	review: 3,
+	running: 4,
+	ready: 6,
+	draft: 7,
+	merged: 8,
+	closed: 9,
+};
+
+/** PoP is the final human gate, after every other required check. */
+export function readinessPriority(
+	readiness: Pick<PullReadiness, "kind" | "label">,
+): number {
+	return readiness.kind === "approval" && readiness.label === "PoP"
+		? 5
+		: READINESS_PRIORITY[readiness.kind];
+}
 
 export function isFailed(state: CheckState): boolean {
 	return state === "failed" || state === "canceled";
+}
+
+/** Interpret the human gate without changing the provider's stored result. */
+export function policyPresentation(
+	policy: Policy,
+	provider: Project["provider"],
+): Policy & { isPoP: boolean } {
+	const isPoP =
+		provider === "ado" &&
+		policy.name.trim().toLowerCase() === "proof of presence";
+	const awaitingPresence =
+		isPoP && ["failed", "queued", "waiting"].includes(policy.state);
+	return {
+		...policy,
+		isPoP,
+		name: isPoP ? "PoP" : policy.name,
+		state: awaitingPresence ? "waiting" : policy.state,
+		detail: awaitingPresence
+			? "Complete PoP human verification in Azure DevOps"
+			: policy.detail,
+	};
 }
 
 export function approvalCount(pr: Pick<PullRequest, "reviewers">): number {
@@ -379,11 +419,17 @@ export function pullReadiness(
 			`Address ${changes.map((r) => r.name).join(" and ")}'s review feedback`,
 			pr.author.name,
 		);
-	for (const policy of pr.policies.filter((p) => p.required)) {
+	for (const fact of pr.policies.filter((p) => p.required)) {
+		const policy = policyPresentation(fact, project.provider);
 		if (isFailed(policy.state))
 			add("blocked", "Policy failed", policy.detail, policy.owner);
 		else if (policy.state === "waiting")
-			add("approval", "Approval needed", policy.detail, policy.owner);
+			add(
+				"approval",
+				policy.isPoP ? "PoP" : "Approval needed",
+				policy.detail,
+				policy.owner,
+			);
 		else if (policy.state === "running" || policy.state === "queued")
 			add("running", "Checks running", policy.detail, policy.owner);
 		else if (policy.state !== "passed")
@@ -437,7 +483,7 @@ export function pullReadiness(
 		);
 	const uniqueIssues = [
 		...new Map(issues.map((issue) => [JSON.stringify(issue), issue])).values(),
-	].sort((a, b) => PRIORITY[a.kind] - PRIORITY[b.kind]);
+	].sort((a, b) => readinessPriority(a) - readinessPriority(b));
 	const first = uniqueIssues[0];
 	return first
 		? { ...first, issues: uniqueIssues }

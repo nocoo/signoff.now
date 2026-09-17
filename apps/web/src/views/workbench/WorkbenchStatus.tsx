@@ -41,8 +41,18 @@ export function ReadinessBadge({
 	readiness: Pick<PullReadiness, "kind" | "label">;
 }) {
 	const { variant, Icon } = READINESS[readiness.kind];
+	const isPoP = readiness.kind === "approval" && readiness.label === "PoP";
 	return (
-		<Badge variant={variant} className="gap-1.5 whitespace-nowrap font-medium">
+		<Badge
+			variant={variant}
+			title={
+				isPoP ? "Proof of Presence · awaiting human verification" : undefined
+			}
+			className={cn(
+				"gap-1.5 whitespace-nowrap font-medium",
+				isPoP && "bg-basalt-chart-7/30 text-basalt-foreground",
+			)}
+		>
 			<Icon className="h-3.5 w-3.5" aria-hidden strokeWidth={1.8} />
 			{readiness.label}
 		</Badge>

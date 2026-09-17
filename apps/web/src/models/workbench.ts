@@ -4,6 +4,8 @@ import {
 	type PullRequest,
 	pullProgress,
 	pullReadiness,
+	READINESS_PRIORITY,
+	readinessPriority,
 	type Workbench,
 } from "@signoff/domain/workbench";
 
@@ -50,17 +52,6 @@ export const PULL_FILTER_PARAMS = {
 } as const;
 export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
 const ATTENTION = new Set(["blocked", "approval", "review", "unknown"]);
-const ORDER = {
-	blocked: 0,
-	approval: 1,
-	unknown: 2,
-	review: 3,
-	running: 4,
-	ready: 5,
-	draft: 6,
-	merged: 7,
-	closed: 8,
-};
 
 export function pullRows(data: Workbench): PullRow[] {
 	const projects = new Map(data.projects.map((p) => [p.id, p]));
@@ -106,7 +97,9 @@ export function readPullFilter(
 		state: ["open", "merged", "closed", "all"].includes(state)
 			? (state as PullFilter["state"])
 			: "open",
-		status: ["all", "attention", ...Object.keys(ORDER)].includes(status)
+		status: ["all", "attention", ...Object.keys(READINESS_PRIORITY)].includes(
+			status,
+		)
 			? (status as PullFilter["status"])
 			: "all",
 		sort: ["attention", "updated", "oldest"].includes(sort)
@@ -214,7 +207,7 @@ export function visiblePulls(scoped: PullRow[], filter: PullFilter): PullRow[] {
 				);
 			const priority =
 				filter.sort === "attention"
-					? ORDER[a.readiness.kind] - ORDER[b.readiness.kind]
+					? readinessPriority(a.readiness) - readinessPriority(b.readiness)
 					: 0;
 			return (
 				priority ||

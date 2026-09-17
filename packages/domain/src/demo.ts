@@ -14,6 +14,7 @@ type Scenario =
 	| "canceled"
 	| "policy"
 	| "approval"
+	| "presence"
 	| "running"
 	| "queued"
 	| "conflict"
@@ -90,7 +91,7 @@ const CATALOG: readonly {
 			["canceled", "Add tax calculation for European markets"],
 			["review", "Support partial refunds on split orders"],
 			["running", "Persist checkout recovery sessions"],
-			["approval", "Enable the new billing reconciliation job"],
+			["presence", "Enable the new billing reconciliation job"],
 			["ready", "Validate inventory before confirming an order"],
 			["draft", "Introduce multi-currency price display"],
 			["merged", "Handle duplicate invoice notifications"],
@@ -324,6 +325,7 @@ const ACTIVITY_TITLES: Record<Scenario, string> = {
 	canceled: "PR validation was canceled",
 	policy: "Dependency policy blocked the pull request",
 	approval: "Deployment is waiting for approval",
+	presence: "Only Proof of Presence human verification remains",
 	running: "PR validation is running",
 	queued: "PR validation is waiting for a build agent",
 	conflict: "Merge conflicts detected",
@@ -336,6 +338,12 @@ const ACTIVITY_TITLES: Record<Scenario, string> = {
 	closed: "Pull request closed",
 	unknown: "Incomplete build timeline",
 };
+
+function descriptionFor(scenario: Scenario, title: string): string {
+	return scenario === "presence"
+		? `## Summary\n\n${title}.\n\nThe automated checks and required reviews are complete. **Proof of Presence (PoP)** needs human verification before merging.\n\n### Validation\n\n| Gate | Status |\n| --- | --- |\n| Build and tests | Passed |\n| Code review | Approved |\n| PoP | Awaiting human verification |\n\n- [x] Automated validation\n- [x] Required reviews\n- [ ] Complete PoP in Azure DevOps`
+		: `## Summary\n\n${title}.\n\nIncludes **regression coverage** and a staged rollout. Review the required checks and deployment gates before merging.`;
+}
 
 export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 	const definition = CATALOG.find((d) => d.id === project.id);
@@ -369,7 +377,7 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				name: repositoryName,
 			},
 			title,
-			description: `${title}.\n\nIncludes regression coverage and a staged rollout. Review the required checks and deployment gates before merging.`,
+			description: descriptionFor(scenario, title),
 			author,
 			sourceBranch: `${scenario === "failed" || scenario === "conflict" ? "fix" : "feature"}/${title
 				.toLowerCase()
@@ -403,6 +411,18 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				},
 			],
 			policies: [
+				...(scenario === "presence"
+					? [
+							{
+								id: "proof-of-presence",
+								name: "Proof Of Presence",
+								state: "failed",
+								required: true,
+								detail: "Human verification is required in Azure DevOps.",
+								owner: author.name,
+							},
+						]
+					: []),
 				{
 					id: "linked-work",
 					name: `Linked ${linkedWork}`,

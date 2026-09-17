@@ -406,6 +406,23 @@ describe("URL filters and review queue", () => {
 		).toEqual(["a", "z", "blocked"]);
 		expect(input.map((row) => row.pull.id)).toEqual(["z", "a", "blocked"]);
 	});
+	it("places PoP-only PRs after all other pending readiness states, just before ready", () => {
+		const queue = visiblePulls(
+			scopePulls(rows, DEFAULT_PULL_FILTER),
+			DEFAULT_PULL_FILTER,
+		);
+		const popIndex = queue.findIndex((row) => row.readiness.label === "PoP");
+		expect(popIndex).toBeGreaterThan(0);
+		expect(
+			queue.slice(0, popIndex).every((row) => row.readiness.kind !== "ready"),
+		).toBe(true);
+		expect(
+			queue.slice(popIndex + 1).every((row) => row.readiness.kind === "ready"),
+		).toBe(true);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "approval" }),
+		).toContain(queue[popIndex]);
+	});
 });
 
 describe("live collection presentation", () => {
