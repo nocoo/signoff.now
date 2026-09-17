@@ -1,6 +1,7 @@
 import {
 	Avatar,
 	AvatarFallback,
+	Badge,
 	Sidebar as BasaltSidebar,
 	Button,
 	SidebarFooter,
@@ -94,43 +95,38 @@ export function Sidebar({
 
 	return (
 		<BasaltSidebar collapsed={collapsed}>
-			<SidebarHeader className={collapsed ? "justify-center px-0" : undefined}>
-				{collapsed ? (
-					<img
-						src="/logo-64.png"
-						alt="signoff.now"
-						width={28}
-						height={28}
-						className="h-7 w-7 object-contain"
-					/>
-				) : (
-					<div className="flex w-full items-center justify-between">
+			<SidebarHeader className="gap-3 overflow-hidden px-5">
+				<img
+					src="/logo-64.png"
+					alt="signoff.now"
+					width={28}
+					height={28}
+					className="h-7 w-7 shrink-0 object-contain"
+				/>
+				{!collapsed ? (
+					<div className="flex min-w-0 flex-1 items-center justify-between gap-2">
 						<div className="flex min-w-0 items-center gap-3">
-							<img
-								src="/logo-64.png"
-								alt="signoff.now"
-								width={28}
-								height={28}
-								className="h-7 w-7 shrink-0 object-contain"
-							/>
 							<span className="truncate text-lg font-semibold tracking-tight text-basalt-foreground">
 								signoff
 							</span>
-							<span className="shrink-0 rounded-md bg-basalt-secondary px-1.5 py-0.5 text-[10px] font-medium leading-none text-basalt-muted-foreground">
+							<Badge
+								variant="secondary"
+								className="shrink-0 px-1.5 py-0.5 text-[10px] leading-none"
+							>
 								v{__APP_VERSION__}
-							</span>
+							</Badge>
 						</div>
 						<Button
 							variant="ghost"
 							size="icon"
 							className="h-7 w-7 shrink-0"
 							onClick={onToggle}
-							aria-label="Collapse sidebar"
+							aria-label={onNavigate ? "Close navigation" : "Collapse sidebar"}
 						>
 							<PanelLeft className="h-4 w-4" aria-hidden strokeWidth={1.5} />
 						</Button>
 					</div>
-				)}
+				) : null}
 			</SidebarHeader>
 
 			{collapsed ? (

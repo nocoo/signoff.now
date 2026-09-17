@@ -3,6 +3,7 @@ import {
 	ContentIsland,
 	Sheet,
 	SheetContent,
+	SheetDescription,
 	SheetTitle,
 	ThemeToggle,
 } from "@nocoo/basalt";
@@ -13,7 +14,7 @@ import {
 	AppShell as BasaltAppShell,
 } from "@nocoo/basalt/components/app-shell";
 import { Menu } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { Github } from "@/components/icons/github";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -44,6 +45,7 @@ export function AppShell() {
 	const location = useLocation();
 	const [collapsed, setCollapsed] = useState(storedSidebarState);
 	const [mobileOpen, setMobileOpen] = useState(false);
+	const menuRef = useRef<HTMLButtonElement>(null);
 	const [userLabel, setUserLabel] = useState("Loading…");
 	const [userEmail, setUserEmail] = useState<string | undefined>();
 
@@ -76,7 +78,7 @@ export function AppShell() {
 	const ancestors = trail.slice(0, -1);
 
 	return (
-		<BasaltAppShell>
+		<BasaltAppShell className="relative">
 			<AppSkipLink>Skip to main content</AppSkipLink>
 			{!isMobile ? (
 				<Sidebar
@@ -90,8 +92,15 @@ export function AppShell() {
 					<SheetContent
 						side="left"
 						className="w-[260px] max-w-[260px] border-0 bg-basalt-background p-0"
+						onCloseAutoFocus={(event) => {
+							event.preventDefault();
+							menuRef.current?.focus();
+						}}
 					>
 						<SheetTitle className="sr-only">Navigation</SheetTitle>
+						<SheetDescription className="sr-only">
+							Choose a page in signoff.now.
+						</SheetDescription>
 						<Sidebar
 							collapsed={false}
 							userLabel={userLabel}
@@ -102,11 +111,12 @@ export function AppShell() {
 					</SheetContent>
 				</Sheet>
 			)}
-			<AppMain>
+			<AppMain tabIndex={-1}>
 				<AppHeader
 					leading={
 						isMobile ? (
 							<Button
+								ref={menuRef}
 								variant="ghost"
 								size="icon"
 								className="h-8 w-8"
@@ -140,7 +150,7 @@ export function AppShell() {
 					}
 				/>
 				<div className="flex min-h-0 flex-1 flex-col px-2 pb-2 md:px-3 md:pb-3">
-					<ContentIsland>
+					<ContentIsland className="relative">
 						<Outlet />
 					</ContentIsland>
 				</div>
