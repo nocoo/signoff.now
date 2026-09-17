@@ -76,7 +76,7 @@ export function TagPicker({
 							pressed={on}
 							disabled={disabled}
 							onPressedChange={() => onToggle(t.id)}
-							className="gap-1.5"
+							className="h-auto min-h-8 max-w-full gap-1.5 whitespace-normal py-1.5 text-left [overflow-wrap:anywhere]"
 							style={
 								on
 									? {
@@ -87,7 +87,7 @@ export function TagPicker({
 							}
 						>
 							<span
-								className="h-2 w-2 rounded-full"
+								className="h-2 w-2 shrink-0 rounded-full"
 								style={{
 									backgroundColor: on ? contrastTextColor(t.color) : t.color,
 								}}

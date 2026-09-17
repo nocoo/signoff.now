@@ -120,7 +120,7 @@ export function DeveloperDialog({
 											pressed={on}
 											disabled={vm.busy}
 											onPressedChange={() => vm.toggleTeam(t.id)}
-											className="gap-1.5"
+											className="h-auto min-h-8 max-w-full gap-1.5 whitespace-normal py-1.5 text-left [overflow-wrap:anywhere]"
 										>
 											<EntityAvatar
 												name={t.name}
