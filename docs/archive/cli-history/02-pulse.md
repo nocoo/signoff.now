@@ -385,7 +385,7 @@ Lock down JSON output format with snapshot tests:
 ### Future Phases (not in v1)
 
 - **`pr-detail` subcommand** — ~~Per-PR detail with reviews, comments, commits, files, CI status~~ **Implemented (Phase 3).** Nested collections use fixed `first:N` limits; full nested pagination is a follow-up
-- **Desktop integration** — ~~In-process execution from Electron main~~ **Implemented.** See [03-pulse-pr-cache.md](./03-pulse-pr-cache.md)
+- **Desktop integration** — ~~In-process execution from Electron main~~ **Implemented.** See [03-pulse-pr-cache.md](../cli-desktop/03-pulse-pr-cache.md)
 - **Nested pagination** — Follow `pageInfo.hasNextPage` on nested GraphQL connections (reviews, comments, commits, files) to fetch beyond `first:N` limits
 - **Time-window search** — `--search "created:{start}..{end}"` for incremental batch sync (legacy parity)
 - **PR diff** — File patches + full unified diff via REST fallback

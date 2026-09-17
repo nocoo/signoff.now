@@ -189,6 +189,7 @@ Use a separate test checkout for the pipeline fixture. Run `bun run build:web`, 
 The design and operational documents below are primarily in Chinese.
 
 - [Documentation index](README.md): product scope, D1, web, Settings, and pipeline design.
+- [Architecture review draft](14-collector-architecture.md): explicit PR watch lists, automatic retirement, separate scheduling, and cached web/CLI queries. Documents 14–18 describe proposed behavior; the new commands and watch-list UI are not implemented yet.
 - [Collection commands, artifacts, and cursors](07-CLI命令矩阵与ADO落盘.md) · [Activity and Score rules](06-Activity重建与Score算法.md).
 - [Deployment and Dashboard statistics](08-真实数据上线与Dashboard统计.md): deployment, queries, and reconciliation.
 - [Helper CLIs](cli/README.md) · [Logo usage](09-logo-usage.md) · [Brand presentation](https://hexly.ai/logos/signoff-now).

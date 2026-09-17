@@ -1,6 +1,6 @@
 # 04 — Settings 设计
 
-> 状态：设计稿（待实现）  
+> 状态：既有 Settings 的设计记录；当前页面、API 与 CLI 读取入口已实现，本文保留原阶段设计内容。实际行为参见 `apps/web/src/viewmodels/useSettingsViewModel.ts` 与 `packages/worker/src/routes/settings.ts`。
 > 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)、[03-Web模块模板](./03-Web模块模板.md)  
 > 范围：Settings 的 DB 语义、Web 页面与 CRUD、CLI/管线如何读取 D1 中的 Settings 供采集使用
 

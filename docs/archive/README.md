@@ -1,10 +1,9 @@
-# Archive
+# 历史文档归档
 
-Historical documents. Not maintained — use [docs/cli/](../cli/) for current CLI docs.
+这里保留退役的 Electron 架构、旧 CLI 草稿与桌面 PR UI。正文中的“当前”“目标”和源码路径都属于当时的版本，不能用来实施现有系统。现行入口见 [文档索引](../README.md) 与 [CLI 导航](../cli/README.md)。
 
-| Directory | Description |
+| 目录 | 历史内容 |
 |:----------|:------------|
-| [architecture/](./architecture/) | Electron-era monorepo bootstrap and desktop wiring |
-| [cli-history/](./cli-history/) | Earlier gitinfo/pulse design drafts and target-spec iterations |
-| [cli-desktop/](./cli-desktop/) | Pulse PR cache & desktop PR UI enhancement plans |
-| [misc/](./misc/) | Reserved for other retired notes |
+| [architecture/](architecture/README.md) | Electron monorepo 初始化与桌面接线 |
+| [cli-history/](cli-history/README.md) | gitinfo / pulse 早期设计和命令规格迭代 |
+| [cli-desktop/](cli-desktop/README.md) | 旧 Pulse PR 缓存与桌面 UI 方案 |

@@ -3,7 +3,8 @@
 > 状态：**已实施（P1–P4 代码已合入 main；remote migration / full local E2E 待运维执行）**
 > 依赖：[05-管线铺垫与Ingest实现](./05-管线铺垫与Ingest实现.md)（**契约冻结**）、[01](./01-项目定位.md)、[02](./02-数据结构与D1.md)、[04](./04-Settings设计.md)
 > **不含**：真实 ADO / `az` REST 采集、raw 逐字段 schema、增量游标（属 **07**）
-> **前提**：05 S1–S5 已落地；`/api/pipeline/ingest` 预检后仍 **501**；domain 仅有 DTO / 类型别名
+> **实施前的历史前提**：当时 05 S1–S5 已落地，`/api/pipeline/ingest` 预检后仍为 501。本文实施后已提供真实写入，不是当前运行状态。
+> 本章是保留的 Activity / Score 契约；当前 PR 贡献页面使用 [13](13-成员目录与PR贡献统计.md) 的统计口径。
 
 ---
 

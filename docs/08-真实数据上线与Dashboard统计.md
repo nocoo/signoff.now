@@ -1,5 +1,7 @@
 # 08 — 真实数据上线与 Dashboard 统计
 
+> 历史阶段记录：本章的 Dashboard 指 Activity / Score 展示，相关 API 与管线仍保留；当前 Repos / Insights 页面使用 [13](13-成员目录与PR贡献统计.md) 的 PR 快照统计。下列部署与验收状态是当时的记录，不构成本次远端检查证据。
+
 > 状态：已实装；本地端到端验收通过，生产待配 Cloudflare Access
 > 依赖：[01](./01-项目定位.md) §6.4 展示要求、[03](./03-Web模块模板.md) MVVM 与 basalt、[06](./06-Activity重建与Score算法.md) 只读 API、[07](./07-CLI命令矩阵与ADO落盘.md) 采集链路
 > 范围：把 07 采到的**真实 ADO 数据**推到远端 D1，并让 Web Dashboard 展示可用的统计

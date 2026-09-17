@@ -12,6 +12,7 @@ This file is the quality contract; hooks, CI and config are enforcement. Close i
 |---|---|
 | Product / live collection | [README.md](README.md), [PR workbench](docs/10-PR工作台与Mock预览.md), [local collection](docs/11-真实PR采集与本地工作台.md) |
 | Directory / PR contributions | [members, relationships and manual statistics](docs/13-成员目录与PR贡献统计.md) |
+| Proposed observation / query architecture | [review entry and documents 14–18](docs/14-collector-architecture.md); planned, review before implementation |
 | Access / identity | [access contract](docs/12-agent-access.md), `packages/worker/src/middleware` |
 | Runtime / versions | root, Worker and web `package.json`; keep those service versions aligned |
 | Tests / enforcement | package Vitest and `bunfig.toml` configs, `.husky`, `scripts/run-security.ts`, CI |

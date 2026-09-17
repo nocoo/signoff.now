@@ -1,6 +1,6 @@
 # 03 — Web 模块模板
 
-> 状态：已实装
+> 状态：Basalt / MVVM 模板已采用；本文保留早期落地计划。当前功能见 [11](11-真实PR采集与本地工作台.md)、[13](13-成员目录与PR贡献统计.md)，各项测试门禁的实际执行与差距以 [CLAUDE.md](../CLAUDE.md) 为准。
 > 依赖：[01-项目定位](./01-项目定位.md)、[02-数据结构与D1](./02-数据结构与D1.md)  
 > 范围：`apps/web` + Worker 服务端的**工程模板**——如何消费官方包、怎么分层、怎么测、怎么卡门禁、CF Access 怎么验
 > 不在本文：Settings 字段语义（→ [04](./04-Settings设计.md)）、Activity 计分算法、具体页面文案
@@ -130,7 +130,7 @@ wrangler.toml                      # D1 binding + assets + env secrets 占位
 scripts/run-security.ts            # 已有：osv + gitleaks
 ```
 
-当前仓库状态：`apps/web` 已有 Vite scaffold + coverage 阈值；Worker 业务路由与 Access 中间件**待按本文落地**；`wrangler.toml` 已绑 D1 migrations。
+当前落点为 `apps/web`、`packages/worker` 与 `packages/db`。Worker 业务路由、Access 中间件和 D1 migrations 已存在；上方目录树保留模板示意，不能把其中的候选路径或早期 scaffold 进度当作当前状态。
 
 ---
 

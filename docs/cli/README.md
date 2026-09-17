@@ -1,37 +1,34 @@
-# CLI Tools
+# CLI 导航
 
-First-class CLI packages in the signoff.now monorepo. Both are Bun-native TypeScript tools with JSON-first output.
+[返回文档索引](../README.md) · [根目录使用说明](../../README.md)
 
-| Tool | Package | Description |
-|:-----|:--------|:------------|
-| [gitinfo](./gitinfo.md) | `@signoff/gitinfo` | Local git repository insight (metadata, branches, status, logs, contributors, tags, files, config) |
-| [pulse](./pulse.md) | `@signoff/pulse` | Remote GitHub collaboration data (PRs, detail, diff, search, repo) |
+SignOff 当前有三个 CLI 包。工作台采集与辅助工具的数据来源不同，新设计的缓存消费者不能与 `pulse` 的直接 GitHub 查询混淆。
 
-## Quick start
+| 工具 | 当前用途 | 当前说明 |
+| --- | --- | --- |
+| `signoff` / `@signoff/collect` | ADO 工作台采集，以及保留的 Activity collect / ingest 管线 | [11 — 真实 PR 采集](../11-真实PR采集与本地工作台.md)、[07 — Activity 落盘](../07-CLI命令矩阵与ADO落盘.md) |
+| `gitinfo` / `@signoff/gitinfo` | 本地 Git 仓库、分支、工作区和提交分析 | [gitinfo 使用文档](gitinfo.md) |
+| `pulse` / `@signoff/pulse` | 通过本机 GitHub CLI 查询 PR、详情、diff、搜索和仓库，需要有效 GitHub 访问权限 | [pulse 使用文档](pulse.md) |
+
+## 下一阶段待 Review
+
+[18 — CLI 查询、观察与命令契约](../18-cli-query-contract.md) 定义新的 `signoff pr`、`watch list / add / remove`、`discover`、`refresh` 和 `daemon`。这些命令尚未实现；设计中短命消费者只读本机 Worker / D1 的已发布缓存，无需 Azure / GitHub 登录，增删观察与刷新命令通过 API 交给后台模块。
+
+架构入口见 [14](../14-collector-architecture.md)，调度和自动淘汰见 [16](../16-scheduler-state-machine.md)，消费者自己的 Query 周期见 [17](../17-query-cadence.md)。
+
+## 当前帮助入口
+
+从仓库根目录执行：
 
 ```bash
-# From monorepo root
-bun run apps/gitinfo/src/main.ts --help
-bun run apps/pulse/src/main.ts --help
-
-# Or via package scripts
-bun run --cwd apps/gitinfo dev -- --help
-bun run --cwd apps/pulse dev -- --help
+bun run signoff --help
+bun run signoff workbench --help
+bun run gitinfo --help
+bun run pulse --help
 ```
 
-## Shared conventions
+`gitinfo` / `pulse` 使用 JSON 输出，`--pretty` 用于缩进显示；当前 `signoff workbench` 是采集与进度日志入口，还不是上述待评审的机器查询契约。运行时为 Bun，类型与静态检查沿用根目录命令；各包实际测试 runner 和门禁见 [CLAUDE.md](../../CLAUDE.md)。
 
-| Concern | Convention |
-|:--------|:-----------|
-| Runtime | Bun (`#!/usr/bin/env bun`) |
-| Default output | Compact JSON (stdout) |
-| Human output | `--pretty` |
-| Errors | stderr + non-zero exit |
-| Target dir | `--cwd <path>` (default: process cwd) |
-| Platform | macOS and Linux only |
-| Lint | Biome (`--error-on-warnings`) |
-| Tests | Vitest unit tests + coverage thresholds |
+## 历史记录
 
-## Historical drafts
-
-Earlier design iterations live under [`docs/archive/cli-history/`](../archive/cli-history/) and desktop-era PR UI notes under [`docs/archive/cli-desktop/`](../archive/cli-desktop/). Prefer the docs in this directory as the source of truth.
+[旧 CLI 草稿](../archive/cli-history/README.md) 与 [桌面 PR 方案](../archive/cli-desktop/README.md) 已归档，保留历史内容；当前命令以上方文档和实际 `--help` 为准。

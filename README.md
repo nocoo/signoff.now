@@ -22,6 +22,8 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 
 仓库原有的 Activity / Score API 及 ADO 活动采集 CLI 仍然保留。它们与新 PR 工作台、成员目录和贡献统计的数据契约分开；`pulse` 已有的 GitHub 查询能力也尚未连接到工作台。
 
+📝 **下一阶段待评审**：[采集、观察列表与缓存查询架构](docs/14-collector-architecture.md)。拟将网页和外部 CLI 统一为缓存消费者，通过 API 显式添加 / 移除观察 PR，确认终态后自动停止刷新。14–18 是设计稿，新命令与观察功能尚未实现。
+
 ## 功能
 
 - **项目管理**：添加、编辑、删除多个 organization 下的 ADO 项目，暂停或恢复监控，查看扫描历史。
@@ -191,14 +193,16 @@ PR 工作台的模型、HTTP 契约、ViewModel、CLI 认证、采集归一化�
 | ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white) | 界面样式与主题 |
 | ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white) | 本地开发与 SPA 构建 |
 | ![Hono](https://img.shields.io/badge/Hono-E36002?logo=hono&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-F38020?logo=cloudflareworkers&logoColor=white) | API 路由、中间件与静态资源托管 |
-| ![Cloudflare D1](https://img.shields.io/badge/Cloudflare_D1-F38020?logo=cloudflare&logoColor=white) | 实体、Settings、活动与积分存储 |
+| ![Cloudflare D1](https://img.shields.io/badge/Cloudflare_D1-F38020?logo=cloudflare&logoColor=white) | 实体、配置、PR 快照、贡献统计、活动与积分存储 |
 | ![Cloudflare Access](https://img.shields.io/badge/Cloudflare_Access-F38020?logo=cloudflare&logoColor=white) | Web 入口和管理 API 身份认证 |
 | ![Azure DevOps](https://img.shields.io/badge/Azure_DevOps-0078D7) | PR、评审与工作项数据来源 |
 | ![Vitest](https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white) ![Bun test](https://img.shields.io/badge/Bun_test-000000?logo=bun&logoColor=white) | 各 workspace 测试 |
 
 ## 文档
 
-- [文档索引](docs/README.md) · [PR 工作台实现与验收](docs/10-PR工作台与Mock预览.md)。
+- [文档索引](docs/README.md) · [下一阶段架构评审入口](docs/14-collector-architecture.md)。
+- 评审分册：[网页与多选观察](docs/15-web-query-contract.md) · [刷新状态机与淘汰](docs/16-scheduler-state-machine.md) · [Query 周期](docs/17-query-cadence.md) · [CLI 对外契约](docs/18-cli-query-contract.md)。
+- 当前实现：[真实 PR 工作台](docs/11-真实PR采集与本地工作台.md) · [成员与贡献统计](docs/13-成员目录与PR贡献统计.md) · [Mock 场景](docs/10-PR工作台与Mock预览.md)。
 - [采集命令、落盘与游标](docs/07-CLI命令矩阵与ADO落盘.md) · [Activity 与 Score 规则](docs/06-Activity重建与Score算法.md)。
 - [上线与 Dashboard 统计](docs/08-真实数据上线与Dashboard统计.md)：部署、查询和对账说明。
 - [辅助 CLI](docs/cli/README.md) · [Logo 使用](docs/09-logo-usage.md) · [品牌展示](https://hexly.ai/logos/signoff-now)。

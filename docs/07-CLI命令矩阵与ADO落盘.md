@@ -1,5 +1,7 @@
 # 07 — 真实 ADO 采集：命令矩阵与落盘
 
+> 本章属于仍保留的 Activity / Score 采集管线。当前 PR 工作台的 `workbench sync / watch` 见 [11](11-真实PR采集与本地工作台.md)；新的缓存 Query / 观察 CLI 处于 [18](18-cli-query-contract.md) 评审阶段。
+
 > 状态：已实装并经真实 ADO 验证（`domoreexp/Teamspace/workshop-v7`）
 > 依赖：[01](./01-项目定位.md) §6.1 稳定数据源、[02](./02-数据结构与D1.md) §5.2 external_ref、[05](./05-管线铺垫与Ingest实现.md) Ingest 契约、[06](./06-Activity重建与Score算法.md) 算法与 domain 函数
 > 范围：把 `signoff collect` 从 `--dry-run` 骨架变成**真实拉取 ADO → 落盘 → 校验 → transform → 复用 06 ingest** 的完整链路
