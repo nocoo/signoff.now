@@ -70,6 +70,39 @@ const CI_ID = "build:pipeline-1";
 const POP_ID = "policy:proof of presence";
 
 describe("actual project merge requirements", () => {
+	test("a fresh rejection by a required reviewer blocks a cached passing policy", () => {
+		const pull: PullRequest = {
+			...ready,
+			policies: [{ ...review, state: "passed" }],
+			requiredApprovals: 2,
+			reviewers: [
+				{
+					id: "required",
+					name: "Required reviewer",
+					vote: "changes_requested",
+					required: true,
+				},
+				{ id: "one", name: "One", vote: "approved", required: false },
+				{ id: "two", name: "Two", vote: "approved", required: false },
+			],
+		};
+		const result = pullReadiness(pull, project);
+		expect(result.kind).toBe("blocked");
+		expect(result.gateId).toBe(REVIEW_ID);
+		expect(result.action).toContain("Required reviewer");
+		expect(result.issues).toHaveLength(1);
+		// An optional downvote can be allowed by the source review policy.
+		expect(
+			pullReadiness(
+				{
+					...pull,
+					allowDownvotes: true,
+					reviewers: pull.reviewers.map((r) => ({ ...r, required: false })),
+				},
+				project,
+			).kind,
+		).toBe("ready");
+	});
 	test("groups same-named source policies, preserves saved preferences, and requires every member to pass", () => {
 		const policies: Policy[] = [
 			{ ...review, state: "passed" },

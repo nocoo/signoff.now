@@ -90,12 +90,12 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 	const required =
 		cfg.isBlocking !== false && cfg.isEnabled !== false && !isNotApplicable;
 	const state = mapCheckState(evaluation.status);
+	const typeId = cfg.type?.id?.toLowerCase();
 	const review =
-		cfg.type?.id?.toLowerCase() === "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" ||
-		cfg.type?.id?.toLowerCase() === "fd2167ab-b0be-447a-8ec8-39368250530e" ||
-		/reviewer/i.test(name);
-	const build =
-		cfg.type?.id?.toLowerCase() === "0609b952-1397-4640-95ec-e00a01b2c241";
+		typeId === "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" ||
+		typeId === "fd2167ab-b0be-447a-8ec8-39368250530e" ||
+		(!typeId && /reviewer/i.test(name));
+	const build = typeId === "0609b952-1397-4640-95ec-e00a01b2c241";
 	const reviewAction = `Request the required reviewer approvals for ${name}.`;
 	const details: Record<CheckState, string> = {
 		passed: `${name} passed.`,
@@ -118,7 +118,7 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 			? "review"
 			: build
 				? "build"
-				: cfg.type?.id?.toLowerCase() === "cbdc66da-9728-4af8-aada-9a5a32e4a226"
+				: typeId === "cbdc66da-9728-4af8-aada-9a5a32e4a226"
 					? "status"
 					: "policy",
 		definitionId:
@@ -348,14 +348,16 @@ export function normalizePullRequest(opts: {
 
 	const policies = resolvePoliciesAndStatuses(opts.evaluations, opts.statuses);
 	const normalizedBuilds = (opts.builds || []).map(normalizeBuild);
-	const excludeCreator = (opts.evaluations ?? []).some(
+	const reviewerPolicies = (opts.evaluations ?? []).filter(
 		(ev) =>
 			ev.configuration.type?.id?.toLowerCase() ===
 				"fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" &&
 			ev.configuration.isEnabled !== false &&
 			ev.configuration.isBlocking !== false &&
-			ev.status?.toLowerCase() !== "notapplicable" &&
-			ev.configuration.settings?.creatorVoteCounts === false,
+			ev.status?.toLowerCase() !== "notapplicable",
+	);
+	const excludeCreator = reviewerPolicies.some(
+		(ev) => ev.configuration.settings?.creatorVoteCounts === false,
 	);
 
 	const reviewers = (rawPr.reviewers || []).map((r) => ({
@@ -405,6 +407,12 @@ export function normalizePullRequest(opts: {
 		checksObservedAt:
 			opts.checksObservedAt === undefined ? nowSec : opts.checksObservedAt,
 		requiredApprovals: evalRequiredApprovals,
+		authorCountsTowardApproval: opts.evaluations ? !excludeCreator : undefined,
+		allowDownvotes: opts.evaluations
+			? reviewerPolicies.every(
+					(ev) => ev.configuration.settings?.allowDownvotes === true,
+				)
+			: undefined,
 		reviewers,
 		policies,
 		builds: normalizedBuilds,

@@ -239,6 +239,9 @@ export const pullRequestSchema = z.object({
 	targetSha: z.string().max(240).nullable().optional(),
 	checksObservedAt: instant.nullable().optional(),
 	requiredApprovals: z.number().int().nonnegative(),
+	/** Applies even before the author appears in the reviewer list. */
+	authorCountsTowardApproval: z.boolean().optional(),
+	allowDownvotes: z.boolean().optional(),
 	reviewers: z.array(
 		actorSchema.extend({
 			vote: z.enum(["approved", "changes_requested", "pending", "commented"]),
@@ -533,10 +536,15 @@ export function isFailed(state: CheckState): boolean {
 	return state === "failed" || state === "canceled";
 }
 
-export function approvalCount(pr: Pick<PullRequest, "reviewers">): number {
+export function approvalCount(
+	pr: Pick<PullRequest, "reviewers" | "author" | "authorCountsTowardApproval">,
+): number {
 	return pr.reviewers.filter(
 		(reviewer) =>
 			!reviewer.isGroup &&
+			!(
+				pr.authorCountsTowardApproval === false && reviewer.id === pr.author.id
+			) &&
 			reviewer.countsTowardApproval !== false &&
 			reviewer.vote === "approved",
 	).length;
@@ -718,11 +726,15 @@ export function pullReadiness(
 			pr.author.name,
 			CONFLICT_GATE,
 		);
-	const changes = pr.reviewers.filter((r) => r.vote === "changes_requested");
 	const hasReviewPolicy = pr.policies.some(
 		(policy) => policy.required && policyKind(policy) === "review",
 	);
-	if (changes.length && !hasReviewPolicy)
+	const changes = pr.reviewers.filter(
+		(r) =>
+			r.vote === "changes_requested" &&
+			(r.required || !hasReviewPolicy || pr.allowDownvotes !== true),
+	);
+	if (changes.length)
 		add(
 			"blocked",
 			"Changes requested",
