@@ -52,25 +52,26 @@ describe("useDashboardViewModel", () => {
 		expect(result.current.preset).toBe(28);
 	});
 
-	it("zero-fills the daily series before deriving bar heights", async () => {
+	it("zero-fills daily scores and event counts before plotting", async () => {
 		// The server returns one day; the window is 28. Without the fill the
 		// chart would show a single full bar and read as constant activity.
 		const { result } = await mounted();
 		expect(result.current.daily).toHaveLength(28);
 		expect(result.current.daily[27]).toMatchObject({
 			dayKey: "2026-07-26",
-			ratio: 1,
+			score: 40,
+			activityCount: 5,
 		});
 		expect(result.current.daily[0]).toMatchObject({
 			dayKey: "2026-06-29",
 			score: 0,
-			ratio: 0,
+			activityCount: 0,
 		});
 	});
 
-	it("derives type shares and passes through developers and totals", async () => {
+	it("passes through type scores, event counts, developers and totals", async () => {
 		const { result } = await mounted();
-		expect(result.current.byType.map((t) => t.share)).toEqual([0.75, 0.25]);
+		expect(result.current.byType).toEqual(summary().byType);
 		expect(result.current.topDevelopers[0]?.name).toBe("Ada");
 		expect(result.current.totals.activeDevelopers).toBe(2);
 		expect(result.current.presets).toEqual([7, 28, 92]);

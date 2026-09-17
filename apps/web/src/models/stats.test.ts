@@ -1,14 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
-	byTypeShares,
 	DEFAULT_PRESET,
-	dailyLevels,
 	emptyKind,
 	fillDailyGaps,
 	isTrustworthy,
 	parseStatsSummary,
 	presetWindow,
-	ratioLevel,
 	type StatsSummary,
 	WINDOW_PRESETS,
 } from "./stats";
@@ -203,71 +200,6 @@ describe("fillDailyGaps", () => {
 				(d) => d.dayKey,
 			),
 		).toEqual(["2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02"]);
-	});
-});
-
-describe("dailyLevels", () => {
-	test("scales against the busiest day", () => {
-		const levels = dailyLevels([
-			{ dayKey: "a", score: 10, activityCount: 1 },
-			{ dayKey: "b", score: 5, activityCount: 1 },
-			{ dayKey: "c", score: 0, activityCount: 0 },
-		]);
-		expect(levels.map((l) => l.ratio)).toEqual([1, 0.5, 0]);
-		expect(levels.map((l) => l.level)).toEqual([4, 2, 0]);
-	});
-
-	test("an all-zero window has no bars rather than full ones", () => {
-		const levels = dailyLevels([
-			{ dayKey: "a", score: 0, activityCount: 0 },
-			{ dayKey: "b", score: 0, activityCount: 0 },
-		]);
-		expect(levels.every((l) => l.ratio === 0)).toBe(true);
-		// Every day at level 0 — not every day at full shade.
-		expect(levels.every((l) => l.level === 0)).toBe(true);
-	});
-
-	test("an empty series is empty", () => {
-		expect(dailyLevels([])).toEqual([]);
-	});
-});
-
-describe("ratioLevel", () => {
-	test("an empty and a maximal ratio sit at the ends of the scale", () => {
-		expect(ratioLevel(0)).toBe(0);
-		expect(ratioLevel(1)).toBe(4);
-	});
-
-	test("boundaries belong to the lower bucket", () => {
-		// Off-by-one here shifts the whole chart one shade; pin the edges.
-		expect(ratioLevel(0.25)).toBe(1);
-		expect(ratioLevel(0.2501)).toBe(2);
-		expect(ratioLevel(0.5)).toBe(2);
-		expect(ratioLevel(0.75)).toBe(3);
-		expect(ratioLevel(0.7501)).toBe(4);
-	});
-
-	test("the smallest positive score is still visible", () => {
-		// Level 0 means "nothing happened". A day with one event must not
-		// render identically to an empty one.
-		expect(ratioLevel(0.001)).toBe(1);
-	});
-});
-
-describe("byTypeShares", () => {
-	test("shares sum to one", () => {
-		const shares = byTypeShares([
-			{ type: "pr.merged", count: 3, score: 30 },
-			{ type: "pr.vote", count: 4, score: 10 },
-		]);
-		expect(shares[0]?.share).toBe(0.75);
-		expect(shares.reduce((n, s) => n + s.share, 0)).toBeCloseTo(1);
-	});
-
-	test("an all-zero-score window does not divide by zero", () => {
-		// Reachable with an all-zero weight configuration.
-		const shares = byTypeShares([{ type: "pr.merged", count: 3, score: 0 }]);
-		expect(shares[0]?.share).toBe(0);
 	});
 });
 

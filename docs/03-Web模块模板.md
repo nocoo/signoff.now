@@ -246,6 +246,13 @@ AppShell (L0)
 
 ### 5.3 组件与交互
 
+2026-09-17 控件迁移完成：依赖锁定 `@nocoo/basalt@2.1.7`。目录页使用
+`PageHeader.actions`、独立筛选 `LayerCard`、官方 `Table` / `Field` / `Toggle`；
+Dashboard 使用 `BarChart` / `SegmentControl` / `DescriptionList`，Activity 使用
+`DatePicker` 与 `Timeline.items`（支持跨日期分页）。删除本地 Field 和旧 CSS 柱图计算。
+`AccentProvider.paletteOverrides` 保留 Microsoft Blue 默认主题，实体标签通过
+`EntityTag`（官方 Badge）保留数据库中的任意 hex 颜色。
+
 - 侧栏：桌面可折叠；移动端使用 Basalt `Sheet`；壳和交互由包提供
 - `⌘K` 命令面板：二期；一期可用侧栏导航  
 - Toast：全局只挂一个 Basalt `Toaster`

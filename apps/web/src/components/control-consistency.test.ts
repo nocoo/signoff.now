@@ -35,10 +35,12 @@ describe("views use the shared controls", () => {
 		expect(entries.length).toBeGreaterThan(5);
 	});
 
-	it("no page renders a bare <select>", () => {
-		// A native select shows the browser's arrow jammed against the border,
-		// which is the reported bug. Select redraws it inset.
-		expect(offenders((src) => src.includes("<select"))).toEqual([]);
+	it("pages use Basalt for common controls and tables", () => {
+		expect(
+			offenders((src) =>
+				/<(button|select|input|textarea|table)(\s|>)/.test(src),
+			),
+		).toEqual([]);
 	});
 
 	it("no page hand-rolls a control with border + height utilities", () => {

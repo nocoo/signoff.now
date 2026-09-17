@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	byTypeShares,
 	DEFAULT_PRESET,
-	dailyLevels,
 	emptyKind,
 	fillDailyGaps,
 	presetWindow,
@@ -100,15 +98,10 @@ export function useDashboardViewModel() {
 		if (!summary) {
 			return [];
 		}
-		// Zero-fill before computing heights, or idle days vanish and the chart
+		// Zero-fill before plotting, or idle days vanish and the chart
 		// reads as uninterrupted activity (08 §3.3).
-		return dailyLevels(fillDailyGaps(summary.daily, summary.window));
+		return fillDailyGaps(summary.daily, summary.window);
 	}, [summary]);
-
-	const byType = useMemo(
-		() => (summary ? byTypeShares(summary.byType) : []),
-		[summary],
-	);
 
 	const empty = summary ? emptyKind(summary) : "has-data";
 
@@ -120,7 +113,7 @@ export function useDashboardViewModel() {
 		error,
 		summary,
 		daily,
-		byType,
+		byType: summary?.byType ?? [],
 		topDevelopers: summary?.topDevelopers ?? [],
 		totals: summary?.totals ?? {
 			activities: 0,

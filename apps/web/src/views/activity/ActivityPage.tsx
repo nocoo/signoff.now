@@ -1,4 +1,13 @@
-import { Button, Field, Input, LayerCard } from "@nocoo/basalt";
+import {
+	Badge,
+	Button,
+	DescriptionList,
+	Field,
+	Input,
+	LayerCard,
+} from "@nocoo/basalt";
+import { Timeline } from "@nocoo/basalt/charts/timeline";
+import { DatePicker } from "@nocoo/basalt/components/date-picker";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SectionRule } from "@nocoo/basalt/components/section-rule";
 import {
@@ -16,15 +25,21 @@ import { useActivityHeatmapViewModel } from "@/viewmodels/useActivityHeatmapView
 
 export function ActivityPage() {
 	const vm = useActivityHeatmapViewModel();
+	const scoresStale = vm.data?.scoresStale || vm.timeline?.scoresStale;
 
 	return (
 		<div className="space-y-6">
 			<PageHeader
 				title="Activity"
 				description="Read-only heatmaps and scores — written exclusively by the local pipeline."
+				actions={
+					<Button disabled={vm.loading} onClick={() => void vm.load()}>
+						{vm.loading ? "Loading…" : "Load heatmap"}
+					</Button>
+				}
 			/>
 
-			{vm.data?.scoresStale || vm.timeline?.scoresStale ? (
+			{scoresStale ? (
 				<AlertBanner variant="warning">
 					Scores are stale
 					{vm.data?.staleReason || vm.timeline?.staleReason
@@ -35,7 +50,11 @@ export function ActivityPage() {
 				</AlertBanner>
 			) : null}
 
-			<div className="grid gap-3 sm:grid-cols-4">
+			<LayerCard
+				role="search"
+				aria-label="Activity filters"
+				className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+			>
 				<Field label="Developer ids" className="sm:col-span-2">
 					<Input
 						value={vm.devs}
@@ -44,36 +63,25 @@ export function ActivityPage() {
 					/>
 				</Field>
 				<Field label="From">
-					<Input
-						type="date"
-						value={vm.from}
-						onChange={(e) => vm.setFrom(e.target.value)}
-					/>
+					<DatePicker value={vm.from} onChange={vm.setFrom} />
 				</Field>
 				<Field label="To">
-					<Input
-						type="date"
-						value={vm.to}
-						onChange={(e) => vm.setTo(e.target.value)}
-					/>
+					<DatePicker value={vm.to} onChange={vm.setTo} />
 				</Field>
-			</div>
-
-			<Button disabled={vm.loading} onClick={() => void vm.load()}>
-				{vm.loading ? "Loading…" : "Load heatmap"}
-			</Button>
+			</LayerCard>
 
 			{vm.rosterError ? (
-				<p className="text-sm text-basalt-muted-foreground" role="status">
+				<AlertBanner>
 					Names unavailable ({vm.rosterError}); showing ids.{" "}
-					<button
+					<Button
 						type="button"
-						className="underline"
+						variant="link"
+						className="h-auto p-0"
 						onClick={() => void vm.reloadRoster()}
 					>
 						Retry
-					</button>
-				</p>
+					</Button>
+				</AlertBanner>
 			) : null}
 
 			{vm.error ? (
@@ -82,31 +90,36 @@ export function ActivityPage() {
 				</p>
 			) : null}
 
-			{vm.comparison.length > 1 ? (
-				<LayerCard>
-					<p className="mb-2 text-sm font-medium">Developer totals</p>
-					<ul className="flex flex-wrap gap-3 text-sm">
-						{vm.comparison.map((c) => {
-							const who = vm.describe(c.developerId);
-							return (
-								<li
-									key={c.developerId}
-									className="flex items-center gap-2 rounded-md bg-basalt-secondary px-3 py-1.5"
-								>
-									<EntityLabel
-										name={who.name}
-										avatarUrl={who.avatarUrl}
-										size="sm"
-									/>
-									<span className="font-medium">{c.total}</span>
-								</li>
-							);
-						})}
-					</ul>
+			{!scoresStale && vm.comparison.length > 1 ? (
+				<LayerCard padding="none">
+					<LayerCard.Header>
+						<h2 className="text-sm font-medium">Developer totals</h2>
+					</LayerCard.Header>
+					<LayerCard.Well>
+						<DescriptionList columns={3}>
+							{vm.comparison.map((c) => {
+								const who = vm.describe(c.developerId);
+								return (
+									<DescriptionList.Item
+										key={c.developerId}
+										term={
+											<EntityLabel
+												name={who.name}
+												avatarUrl={who.avatarUrl}
+												size="sm"
+											/>
+										}
+									>
+										{c.total}
+									</DescriptionList.Item>
+								);
+							})}
+						</DescriptionList>
+					</LayerCard.Well>
 				</LayerCard>
 			) : null}
 
-			{vm.levels.length > 0 ? (
+			{!scoresStale && vm.levels.length > 0 ? (
 				<LayerCard padding="none" className="overflow-x-auto">
 					<Table aria-label="Daily developer scores">
 						<TableHeader>
@@ -132,8 +145,9 @@ export function ActivityPage() {
 									<TableCell>{r.total}</TableCell>
 									<TableCell>{r.activityCount}</TableCell>
 									<TableCell>
-										<span
-											className="inline-block h-4 w-4 rounded-sm"
+										<Badge
+											variant={null}
+											className="h-4 w-4 rounded-basalt-sm p-0"
 											style={{ background: heatmapColor(r.level) }}
 											title={`level ${r.level}`}
 											role="img"
@@ -145,7 +159,7 @@ export function ActivityPage() {
 						</TableBody>
 					</Table>
 				</LayerCard>
-			) : vm.data && !vm.data.scoresStale ? (
+			) : vm.data && !scoresStale ? (
 				<p className="text-sm text-basalt-muted-foreground">
 					No scores in range.
 				</p>
@@ -157,8 +171,12 @@ export function ActivityPage() {
 						Single-developer activity list (settings timezone day keys). Uses
 						the same date range as heatmap.
 					</p>
-					<div className="flex flex-wrap items-end gap-3">
-						<Field label="Developer id" className="min-w-[16rem] flex-1">
+					<LayerCard
+						role="search"
+						aria-label="Timeline filters"
+						className="flex flex-wrap items-end gap-3"
+					>
+						<Field label="Developer id" className="min-w-0 flex-1 basis-64">
 							<Input
 								className="font-mono"
 								value={vm.timelineDev}
@@ -173,7 +191,7 @@ export function ActivityPage() {
 						>
 							{vm.timelineLoading ? "Loading…" : "Load timeline"}
 						</Button>
-					</div>
+					</LayerCard>
 
 					{vm.timelineError ? (
 						<p className="text-sm text-basalt-destructive" role="alert">
@@ -181,32 +199,25 @@ export function ActivityPage() {
 						</p>
 					) : null}
 
-					{vm.timelineItems.length > 0 ? (
-						<LayerCard padding="none">
-							<ul className="divide-y divide-basalt-border">
-								{vm.timelineItems.map((item) => (
-									<li key={item.id} className="px-3 py-2 text-sm">
-										<div className="flex flex-wrap items-baseline justify-between gap-2">
-											<span className="font-medium">{item.type}</span>
-											<span className="text-xs text-basalt-muted-foreground">
-												{item.dayKey} · {item.occurredAt}
-											</span>
-										</div>
-										<p className="mt-0.5 text-xs text-basalt-muted-foreground">
-											{item.org} / {item.project}
-											{item.repoId ? ` · ${item.repoId}` : ""}
-										</p>
-									</li>
-								))}
-							</ul>
+					{!scoresStale && vm.timelineItems.length > 0 ? (
+						<LayerCard>
+							<Timeline
+								ariaLabel="Developer activity timeline"
+								className="[&>li]:flex-col [&>li]:break-words sm:[&>li]:flex-row"
+								items={vm.timelineItems.map((item) => ({
+									id: item.id,
+									at: `${item.dayKey} · ${item.occurredAt}`,
+									title: `${item.type} · ${item.org} / ${item.project}${item.repoId ? ` · ${item.repoId}` : ""}`,
+								}))}
+							/>
 						</LayerCard>
-					) : vm.timeline && !vm.timeline.scoresStale ? (
+					) : vm.timeline && !scoresStale ? (
 						<p className="text-sm text-basalt-muted-foreground">
 							No activities in range.
 						</p>
 					) : null}
 
-					{vm.timeline?.nextCursor ? (
+					{!scoresStale && vm.timeline?.nextCursor ? (
 						<Button
 							variant="outline"
 							disabled={vm.timelineLoading}
