@@ -418,16 +418,18 @@ export function pullReadiness(
 			"Scan incomplete",
 			"Rescan to retrieve the missing PR checks",
 		);
-	issues.sort((a, b) => PRIORITY[a.kind] - PRIORITY[b.kind]);
-	const first = issues[0];
+	const uniqueIssues = [
+		...new Map(issues.map((issue) => [JSON.stringify(issue), issue])).values(),
+	].sort((a, b) => PRIORITY[a.kind] - PRIORITY[b.kind]);
+	const first = uniqueIssues[0];
 	return first
-		? { ...first, issues }
+		? { ...first, issues: uniqueIssues }
 		: {
 				kind: "ready",
 				label: "Ready to merge",
 				action: `Merge into ${pr.targetBranch}`,
 				owner,
-				issues,
+				issues: uniqueIssues,
 			};
 }
 

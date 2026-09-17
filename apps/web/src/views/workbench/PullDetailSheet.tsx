@@ -242,7 +242,7 @@ function PullDetail({
 								<div className="space-y-2">
 									{readiness.issues.map((issue, index) => (
 										<LayerCard
-											key={`${issue.kind}-${issue.label}-${issue.action}-${issue.owner}`}
+											key={JSON.stringify(issue)}
 											padding="sm"
 											className="flex items-start gap-3"
 										>

@@ -178,6 +178,34 @@ describe("normalized PR contract", () => {
 });
 
 describe("merge readiness", () => {
+	test("consolidates identical next actions from distinct policy gates", () => {
+		const policies = ["review-policy-a", "review-policy-b"].map((id) => ({
+			id,
+			name: "Minimum number of reviewers",
+			state: "queued" as const,
+			required: true,
+			detail: "Request the required reviewer approvals",
+			owner: "Reviewers",
+		}));
+		const pull = { ...ready, policies };
+		const result = pullReadiness(pull, project);
+		expect(pull.policies).toHaveLength(2);
+		expect(result.kind).toBe("running");
+		expect(result.issues).toHaveLength(1);
+		expect(
+			pullReadiness(
+				{
+					...pull,
+					policies: [
+						{ ...policies[0]!, state: "passed" },
+						{ ...policies[1]!, state: "failed" },
+					],
+				},
+				project,
+			).kind,
+		).toBe("blocked");
+	});
+
 	test("does not let optional failures block an otherwise approved PR", () => {
 		const optional = fixture.pullRequests.find(
 			(pr) => pullProgress(pr).optionalFailures === 2,
