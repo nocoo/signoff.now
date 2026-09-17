@@ -21,6 +21,27 @@ const ready = fixture.pullRequests.find(
 )!;
 
 describe("normalized PR contract", () => {
+	test("retains late job failures in pipelines with more than 100 stages", () => {
+		const build = ready.builds[0]!;
+		const stages = Array.from({ length: 131 }, (_, index) => ({
+			...build.stages[0]!,
+			id: `matrix-job-${index}`,
+			name: `Matrix job ${index + 1}`,
+			required: true,
+			state: index === 130 ? ("failed" as const) : ("passed" as const),
+			detail: index === 130 ? "Fix the final matrix job" : "Job passed",
+		}));
+		const pull = pullRequestSchema.parse({
+			...ready,
+			builds: [{ ...build, required: true, state: "passed", stages }],
+		});
+		expect(pull.builds[0]?.stages).toHaveLength(131);
+		expect(pullReadiness(pull, project)).toMatchObject({
+			kind: "blocked",
+			action: "Fix the final matrix job",
+		});
+	});
+
 	test("a queued build can be in progress before its timeline exists", () => {
 		expect(
 			pullReadiness(

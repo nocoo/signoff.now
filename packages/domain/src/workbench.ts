@@ -114,7 +114,7 @@ export const buildSchema = z.object({
 	number: z.number().int().positive(),
 	state: checkStateSchema,
 	required: z.boolean(),
-	stages: z.array(stageSchema).max(100),
+	stages: z.array(stageSchema),
 });
 export type Build = z.infer<typeof buildSchema>;
 
