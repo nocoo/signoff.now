@@ -228,7 +228,7 @@ export const adoBuildsSchema = z
 export const adoTimelineRecordSchema = z
 	.object({
 		id: z.string(),
-		identifier: z.string().optional(),
+		identifier: z.string().nullish(),
 		parentId: z.string().nullable().optional(),
 		type: z.string().optional(),
 		name: z.string().default("Unknown"),

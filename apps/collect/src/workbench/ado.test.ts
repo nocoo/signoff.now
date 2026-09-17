@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Project } from "@signoff/domain/workbench";
 import { AdoError, type AdoPagedClient } from "../ado/client.js";
 import {
+	BuildService,
 	collectProjectPulls,
 	policyArtifactId,
 	policyEvaluationsUrl,
@@ -29,6 +30,45 @@ function makeMockProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("collectProjectPulls", () => {
+	test("keeps stages when Azure timeline tasks have null identifiers", async () => {
+		const client: AdoPagedClient = {
+			get: async (url) =>
+				url.includes("/timeline")
+					? {
+							records: [
+								{
+									id: "checkout-task",
+									identifier: null,
+									type: "Task",
+									name: "Checkout",
+									state: "completed",
+									result: "succeeded",
+								},
+								{
+									id: "build-stage",
+									identifier: "Build",
+									type: "Stage",
+									name: "Build",
+									state: "completed",
+									result: "succeeded",
+								},
+							],
+						}
+					: { id: 123, status: "completed", result: "succeeded" },
+			getPage: async () => ({ data: {}, continuationToken: null }),
+			post: async () => ({}),
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+		};
+		const build = await new BuildService(
+			client,
+			"test-org",
+		).fetchBuildWithStages(123, "test-project");
+		expect(build.stages).toHaveLength(1);
+		expect(build.stages[0]?.state).toBe("passed");
+		expect(build.collectionIssues).toBeUndefined();
+	});
+
 	test("policyArtifactId and policyEvaluationsUrl format preview url correctly", () => {
 		const artifact = policyArtifactId("proj-guid", 1234);
 		expect(artifact).toBe("vstfs:///CodeReview/CodeReviewId/proj-guid/1234");
