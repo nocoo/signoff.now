@@ -3,7 +3,6 @@ import {
 	type HeatmapResponse,
 	type HeatmapRow,
 	heatmapLevel,
-	type TimelineItem,
 	type TimelineResponse,
 } from "@/models/activity";
 import { fetchHeatmap, fetchTimeline } from "@/models/activityApi";
@@ -21,7 +20,7 @@ export function useActivityHeatmapViewModel() {
 	const [timelineError, setTimelineError] = useState<string | null>(null);
 	const [data, setData] = useState<HeatmapResponse | null>(null);
 	const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
-	const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
+	const timelineItems = timeline?.items ?? [];
 	const [roster, setRoster] = useState<Developer[]>([]);
 	const [rosterError, setRosterError] = useState<string | null>(null);
 
@@ -59,6 +58,11 @@ export function useActivityHeatmapViewModel() {
 		try {
 			const res = await fetchHeatmap({ devs: ids, from, to });
 			setData(res);
+			// A stale response invalidates the peer cache. A clean refresh also
+			// discards a stale peer, so its old flag cannot hide recovered data.
+			setTimeline((previous) =>
+				res.scoresStale || previous?.scoresStale ? null : previous,
+			);
 			// Prefill single-dev timeline when only one id is requested.
 			if (ids.length === 1 && !timelineDev) {
 				setTimelineDev(ids[0] ?? "");
@@ -89,15 +93,19 @@ export function useActivityHeatmapViewModel() {
 					to,
 					cursor: opts?.more ? cursor : null,
 				});
-				setTimeline(res);
-				setTimelineItems((prev) =>
-					opts?.more ? [...prev, ...res.items] : res.items,
+				setTimeline((previous) => ({
+					...res,
+					items: opts?.more
+						? [...(previous?.items ?? []), ...res.items]
+						: res.items,
+				}));
+				setData((previous) =>
+					res.scoresStale || previous?.scoresStale ? null : previous,
 				);
 			} catch (e) {
 				setTimelineError(e instanceof Error ? e.message : String(e));
 				if (!opts?.more) {
 					setTimeline(null);
-					setTimelineItems([]);
 				}
 			} finally {
 				setTimelineLoading(false);

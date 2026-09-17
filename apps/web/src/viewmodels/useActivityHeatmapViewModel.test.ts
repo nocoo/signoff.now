@@ -184,6 +184,58 @@ describe("useActivityHeatmapViewModel", () => {
 		});
 	});
 
+	it.each([
+		"heatmap",
+		"timeline",
+	] as const)("recovers %s after the other endpoint reports stale scores", async (recover) => {
+		const { result } = renderHook(() => useActivityHeatmapViewModel());
+		act(() => {
+			result.current.setDevs("d1");
+			result.current.setTimelineDev("d1");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-07");
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		await act(async () => {
+			await result.current.loadTimeline();
+		});
+		expect(result.current.data).not.toBeNull();
+		expect(result.current.timelineItems).toHaveLength(1);
+		if (recover === "heatmap") {
+			vi.mocked(fetchTimeline).mockResolvedValueOnce({
+				...timelineSample,
+				scoresStale: true,
+			});
+			await act(async () => {
+				await result.current.loadTimeline();
+			});
+			expect(result.current.data).toBeNull();
+			await act(async () => {
+				await result.current.load();
+			});
+			expect(result.current.data?.scoresStale).toBe(false);
+			expect(result.current.timeline).toBeNull();
+			expect(result.current.timelineItems).toEqual([]);
+		} else {
+			vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+				...sample,
+				scoresStale: true,
+			});
+			await act(async () => {
+				await result.current.load();
+			});
+			expect(result.current.timeline).toBeNull();
+			expect(result.current.timelineItems).toEqual([]);
+			await act(async () => {
+				await result.current.loadTimeline();
+			});
+			expect(result.current.timeline?.scoresStale).toBe(false);
+			expect(result.current.data).toBeNull();
+		}
+	});
+
 	it("timeline validation error when missing fields", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
 		await act(async () => {
