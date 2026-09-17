@@ -21,7 +21,7 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 					aria-hidden
 					className={cn("h-4 w-4", vm.refreshing && "motion-safe:animate-spin")}
 				/>
-				Refresh
+				Reload
 			</Button>
 			<Button
 				size="sm"
@@ -32,7 +32,11 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 				onClick={() => void vm.scan()}
 			>
 				<ScanLine aria-hidden className="h-4 w-4" />
-				{vm.busy === "scan-all" ? "Scanning…" : "Scan projects"}
+				{vm.busy === "scan-all"
+					? "Queuing…"
+					: vm.filter.source === "cli"
+						? "Refresh list"
+						: "Scan projects"}
 			</Button>
 		</>
 	);
@@ -98,26 +102,50 @@ export function WorkbenchConnection({
 						? `Refreshed ${relativeTime(vm.data.fetchedAt)}`
 						: "Loading snapshot…"}
 				</span>
-				<div className="flex items-center gap-2">
-					<Label
-						htmlFor={refreshId}
-						className="text-xs font-normal text-basalt-muted-foreground"
-					>
-						Auto refresh
-					</Label>
-					<SelectControl
-						id={refreshId}
-						value={String(vm.refreshInterval)}
-						onChange={(value) => vm.setRefreshInterval(Number(value))}
-						className="h-8 w-24 text-xs"
-					>
-						{REFRESH_INTERVALS.map((seconds) => (
-							<option key={seconds} value={String(seconds)}>
-								{seconds === 0 ? "Off" : `${seconds / 60} min`}
-							</option>
-						))}
-					</SelectControl>
-				</div>
+				{!samplesOnly
+					? (["list", "details"] as const).map((kind) => (
+							<div
+								key={kind}
+								className="flex items-center gap-2"
+								title={
+									kind === "list"
+										? "Refresh PR lists after every project finishes, then wait this interval. Continues in the background."
+										: "Refresh every PR on this page, then wait this interval. Pauses in the background; resumes on return."
+								}
+							>
+								<Label
+									htmlFor={`${refreshId}-${kind}`}
+									className="text-xs font-normal text-basalt-muted-foreground"
+								>
+									{kind === "list" ? "List" : "Checks"}
+								</Label>
+								<SelectControl
+									id={`${refreshId}-${kind}`}
+									aria-label={
+										kind === "list"
+											? "PR list refresh cooldown"
+											: "PR checks refresh cooldown"
+									}
+									value={String(
+										kind === "list"
+											? vm.listCooldownSeconds
+											: vm.detailCooldownSeconds,
+									)}
+									disabled={vm.loading || Boolean(vm.busy)}
+									onChange={(value) => {
+										void vm.setRefreshCooldown(kind, Number(value));
+									}}
+									className="h-8 w-24 text-xs"
+								>
+									{REFRESH_INTERVALS.map((seconds) => (
+										<option key={seconds} value={String(seconds)}>
+											{seconds === 0 ? "Off" : `${seconds / 60} min`}
+										</option>
+									))}
+								</SelectControl>
+							</div>
+						))
+					: null}
 			</div>
 		</div>
 	);

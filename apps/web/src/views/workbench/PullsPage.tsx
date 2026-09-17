@@ -50,11 +50,7 @@ import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { ReadinessDialog } from "./ReadinessDialog";
 import { RepositoryFilters } from "./RepositoryFilters";
-import {
-	ScanControls,
-	WorkbenchConnection,
-	WorkbenchFeedback,
-} from "./WorkbenchControls";
+import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
@@ -64,15 +60,10 @@ export function PullsPage() {
 		null,
 	);
 	usePageCollection(
-		vm.collectPage,
-		vm.autoRefresh && vm.filter.source === "cli" && !vm.loading,
-		JSON.stringify([
-			vm.filter,
-			vm.page,
-			vm.refreshInterval,
-			vm.pageRows.map(({ pull }) => pull.id),
-			vm.selected?.pull.id,
-		]),
+		vm.publishCollectionView,
+		vm.detailCooldownSeconds > 0 && vm.filter.source === "cli" && !vm.loading,
+		vm.collectionPageKey,
+		vm.collectionPullIds,
 	);
 	const scopedProject = vm.projectOptions.find(
 		({ project }) => project.id === vm.filter.projectId,
@@ -136,57 +127,58 @@ export function PullsPage() {
 							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`}
 					</span>
 				}
-				actions={<ScanControls vm={vm} />}
+				actions={<WorkbenchConnection vm={vm} compact />}
 			/>
-			<WorkbenchConnection vm={vm} compact />
 			<WorkbenchFeedback vm={vm} />
 			<RepositoryFilters vm={vm} />
-			<section
-				className="grid grid-cols-2 gap-2 xl:grid-cols-4"
-				aria-label="Pull request overview"
-			>
-				{metrics.map(({ key, label, value, detail, Icon, color }) => {
-					const selected =
-						vm.filter.state === "open" && vm.filter.status === key;
-					return (
-						<LayerCard
-							padding="none"
-							key={key}
-							className={cn(
-								"border border-transparent transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-basalt-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-basalt-card",
-								selected && "border-basalt-primary/40",
-							)}
-						>
-							<Button
-								variant="ghost"
-								aria-pressed={selected}
-								className={cn(
-									"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
-									selected && "bg-basalt-primary/5 hover:bg-basalt-primary/5",
-								)}
-								onClick={() => vm.setFilter({ state: "open", status: key })}
-							>
-								<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
-									<Icon
-										className={cn("h-4 w-4 shrink-0", color)}
-										aria-hidden
-										strokeWidth={1.6}
-									/>
-									{label}
-									<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
-										{vm.loading ? "—" : value.toLocaleString()}
-									</span>
-								</span>
-								<span className="text-[11px] font-normal text-basalt-muted-foreground">
-									{detail}
-								</span>
-							</Button>
-						</LayerCard>
-					);
-				})}
-			</section>
+
 			<LayerCard padding="none">
 				<LayerCard.Header className="flex-col gap-2 p-3">
+					<section
+						className="grid w-full grid-cols-2 gap-2 xl:grid-cols-4"
+						aria-label="Pull request overview"
+					>
+						{metrics.map(({ key, label, value, detail, Icon, color }) => {
+							const selected =
+								vm.filter.state === "open" && vm.filter.status === key;
+							return (
+								<LayerCard
+									padding="none"
+									key={key}
+									className={cn(
+										"border border-transparent transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-basalt-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-basalt-card",
+										selected && "border-basalt-primary/40",
+									)}
+								>
+									<Button
+										variant="ghost"
+										aria-pressed={selected}
+										className={cn(
+											"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
+											selected &&
+												"bg-basalt-primary/5 hover:bg-basalt-primary/5",
+										)}
+										onClick={() => vm.setFilter({ state: "open", status: key })}
+									>
+										<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
+											<Icon
+												className={cn("h-4 w-4 shrink-0", color)}
+												aria-hidden
+												strokeWidth={1.6}
+											/>
+											{label}
+											<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
+												{vm.loading ? "—" : value.toLocaleString()}
+											</span>
+										</span>
+										<span className="text-[11px] font-normal text-basalt-muted-foreground">
+											{detail}
+										</span>
+									</Button>
+								</LayerCard>
+							);
+						})}
+					</section>
 					<search
 						aria-label="Filter pull requests"
 						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_1fr_170px_1.2fr]"
@@ -582,8 +574,13 @@ export function PullsPage() {
 				missing={vm.missingSelection}
 				onClose={() => vm.selectPull(null)}
 				returnFocus={opener}
-				onScan={() => void vm.scan(vm.selected?.project.id)}
-				canScan={Boolean(vm.selected && vm.canScan(vm.selected.project))}
+				onScan={() => {
+					if (vm.selected) void vm.refreshPull(vm.selected.pull.id);
+				}}
+				canScan={Boolean(
+					vm.selected?.project.enabled &&
+						(vm.selected.project.source === "cli" || vm.data?.demoMode),
+				)}
 				busy={Boolean(vm.busy)}
 			/>
 			{readinessProject ? (

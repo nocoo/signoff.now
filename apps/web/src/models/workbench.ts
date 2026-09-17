@@ -7,6 +7,7 @@ import {
 	pullReadiness,
 	readinessKindSchema,
 	readinessPriority,
+	refreshQueuePhase,
 	type Workbench,
 } from "@signoff/domain/workbench";
 
@@ -55,9 +56,8 @@ export const PULL_FILTER_PARAMS = {
 	sortDirection: "direction",
 } as const;
 export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
-export const AUTO_REFRESH_STORAGE_KEY = "signoff-auto-refresh-seconds";
-export const REFRESH_INTERVALS = [0, 60, 120, 300, 600];
-export const DEFAULT_REFRESH_INTERVAL = 120;
+export const REFRESH_SETTINGS_STORAGE_KEY = "signoff-refresh-cooldowns";
+export const REFRESH_INTERVALS = [0, 60, 120, 300, 600] as const;
 const ATTENTION = new Set(["blocked", "approval", "review", "unknown"]);
 
 export function pullRows(data: Workbench): PullRow[] {
@@ -382,6 +382,9 @@ export function projectSummaries(
 }
 
 export function canScanProject(project: Project, data: Workbench): boolean {
+	const listOff = data.refreshQueues?.some(
+		(queue) => queue.kind === "list" && queue.cooldownSeconds === 0,
+	);
 	return (
 		project.enabled &&
 		(project.source === "demo" ? data.demoMode : project.provider === "ado") &&
@@ -389,9 +392,93 @@ export function canScanProject(project: Project, data: Workbench): boolean {
 			(job) =>
 				job.projectId === project.id &&
 				job.revision === project.revision &&
-				(job.state === "queued" || job.state === "running"),
+				(job.kind === "list" ||
+					job.kind === "full" ||
+					(job.kind === undefined && !job.pullIds?.length)) &&
+				(job.state === "running" ||
+					(job.state === "queued" &&
+						!(job.kind === "list" && job.roundId && listOff))),
 		)
 	);
+}
+
+export function collectionQueueProgress(data: Workbench | null) {
+	if (!data) return [];
+	const now = data.fetchedAt;
+	const live = new Set(
+		data.projects
+			.filter((project) => project.source === "cli")
+			.map((project) => project.id),
+	);
+	const jobs = (data.collectionJobs ?? []).filter((job) =>
+		live.has(job.projectId),
+	);
+	return (["list", "details"] as const).flatMap((kind) => {
+		const queue = data.refreshQueues?.find(
+			(candidate) => candidate.kind === kind,
+		);
+		const lane = jobs.filter(
+			(job) =>
+				(job.kind === "list" || job.pullIds?.length === 0
+					? "list"
+					: "details") === kind,
+		);
+		const active = lane.filter((job) =>
+			["queued", "running", "auth_required"].includes(job.state),
+		);
+		const problem =
+			active.find((job) => job.state === "auth_required") ??
+			lane.find(
+				(job) =>
+					(job.state === "failed" || job.state === "partial") &&
+					job.completedAt !== null &&
+					now - job.completedAt < 120 &&
+					!job.message.startsWith("Page changed;") &&
+					job.message !== "Project changed" &&
+					!lane.some(
+						(newer) =>
+							newer.id !== job.id &&
+							newer.projectId === job.projectId &&
+							(newer.roundId !== job.roundId || !job.roundId) &&
+							newer.requestedAt > job.requestedAt,
+					),
+			) ??
+			null;
+		const round = queue?.roundId && queue.totalJobs > 0 ? queue : null;
+		if (!round && !active.length && !problem) return [];
+		const completed = round
+			? round.completedJobs
+			: kind === "list"
+				? 0
+				: active.reduce((sum, job) => sum + job.completedPulls, 0);
+		const total = round
+			? round.totalJobs
+			: kind === "list"
+				? active.length
+				: active.every((job) => job.totalPulls !== null || job.pullIds?.length)
+					? active.reduce(
+							(sum, job) => sum + (job.totalPulls ?? job.pullIds?.length ?? 0),
+							0,
+						)
+					: null;
+		const phase = active.some((job) => !job.roundId)
+			? "running"
+			: queue
+				? refreshQueuePhase(queue, now)
+				: "cooldown";
+		return [
+			{
+				kind,
+				key:
+					round?.roundId ??
+					(active.map((job) => job.id).join(",") || problem?.id),
+				completed,
+				total,
+				phase,
+				problem,
+			},
+		];
+	});
 }
 
 export function collectorConnection(

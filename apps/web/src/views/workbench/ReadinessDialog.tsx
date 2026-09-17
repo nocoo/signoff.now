@@ -158,8 +158,11 @@ export function ReadinessDialog({
 												className="mt-1 truncate text-[11px] text-basalt-muted-foreground"
 												title={requirement?.detail}
 											>
+												{requirement?.definitionId
+													? `Pipeline #${requirement.definitionId} · `
+													: ""}
 												{(requirement?.sourceIds?.length ?? 0) > 1
-													? `${requirement?.sourceIds?.length} policies · all must pass`
+													? `${requirement?.sourceIds?.length} policies · applicable checks must pass`
 													: requirement?.detail || requirement?.name}
 											</p>
 										</div>

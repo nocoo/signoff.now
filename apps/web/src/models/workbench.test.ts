@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	authorOptions,
 	canScanProject,
+	collectionQueueProgress,
 	collectorConnection,
 	DEFAULT_PULL_FILTER,
 	duration,
@@ -33,6 +34,112 @@ const snapshot: Workbench = {
 const rows = pullRows(snapshot);
 
 describe("workbench projections", () => {
+	it("shows independent whole-round progress even when both queues contain jobs for the same project", () => {
+		const data: Workbench = {
+			...snapshot,
+			projects: [{ ...snapshot.projects[0], source: "cli" }],
+			refreshQueues: [
+				{
+					kind: "list",
+					cooldownSeconds: 120,
+					lastCompletedAt: null,
+					roundId: "list-round",
+					requested: false,
+					foregroundUntil: 0,
+					totalJobs: 2,
+					completedJobs: 1,
+				},
+				{
+					kind: "details",
+					cooldownSeconds: 300,
+					lastCompletedAt: null,
+					roundId: "detail-round",
+					requested: false,
+					foregroundUntil: 0,
+					totalJobs: 20,
+					completedJobs: 8,
+				},
+			],
+		};
+		expect(collectionQueueProgress(data)).toMatchObject([
+			{ kind: "list", completed: 1, total: 2, phase: "running" },
+			{ kind: "details", completed: 8, total: 20, phase: "paused" },
+		]);
+		expect(collectionQueueProgress(null)).toEqual([]);
+		expect(collectionQueueProgress(snapshot)).toEqual([]);
+	});
+	it("shows manual work and actionable failures, suppressing canceled, expired, or superseded errors", () => {
+		const project = { ...snapshot.projects[0], source: "cli" as const };
+		const failed = {
+			id: "failure",
+			projectId: project.id,
+			revision: project.revision,
+			kind: "details" as const,
+			roundId: "old",
+			state: "failed" as const,
+			requestedAt: NOW - 30,
+			startedAt: NOW - 30,
+			updatedAt: NOW - 10,
+			completedAt: NOW - 10,
+			completedPulls: 0,
+			totalPulls: 1,
+			message: "Check read failed",
+		};
+		const data: Workbench = {
+			...snapshot,
+			projects: [project],
+			collectionJobs: [failed],
+		};
+		expect(collectionQueueProgress(data)[0]?.problem?.message).toBe(
+			"Check read failed",
+		);
+		for (const job of [
+			{ ...failed, message: "Page changed; pending collection canceled" },
+			{ ...failed, message: "Project changed" },
+			{ ...failed, completedAt: NOW - 121 },
+		])
+			expect(
+				collectionQueueProgress({ ...data, collectionJobs: [job] }),
+			).toEqual([]);
+		const active = {
+			...failed,
+			id: "active",
+			state: "running" as const,
+			roundId: null,
+			requestedAt: NOW,
+			updatedAt: NOW,
+			completedAt: null,
+			completedPulls: 1,
+			totalPulls: 3,
+		};
+		expect(
+			collectionQueueProgress({ ...data, collectionJobs: [active, failed] })[0],
+		).toMatchObject({
+			completed: 1,
+			total: 3,
+			phase: "running",
+			problem: null,
+		});
+		expect(
+			collectionQueueProgress({
+				...data,
+				collectionJobs: [
+					{
+						...active,
+						state: "auth_required",
+						message: "Run az login",
+						totalPulls: null,
+					},
+				],
+			})[0],
+		).toMatchObject({ total: null, problem: { state: "auth_required" } });
+		expect(
+			collectionQueueProgress({
+				...data,
+				collectionJobs: [{ ...active, kind: "list", pullIds: [] }],
+			})[0],
+		).toMatchObject({ kind: "list", completed: 0, total: 1 });
+	});
 	it("normalizes legacy draft links into the dedicated draft filter", () => {
 		expect(readPullFilter(new URLSearchParams("status=draft"))).toMatchObject({
 			status: "all",
@@ -657,6 +764,12 @@ describe("live collection presentation", () => {
 		const active = { ...snapshot, collectionJobs: [job] };
 		expect(canScanProject(project, active)).toBe(false);
 		expect(
+			canScanProject(project, {
+				...active,
+				collectionJobs: [{ ...job, kind: "details", pullIds: ["pr"] }],
+			}),
+		).toBe(true);
+		expect(
 			canScanProject({ ...project, revision: project.revision + 1 }, active),
 		).toBe(true);
 		expect(projectSummaries(active, rows)[0]?.job).toEqual(job);
@@ -675,6 +788,51 @@ describe("live collection presentation", () => {
 				rows,
 			)[0]?.job,
 		).toEqual(nextJob);
+	});
+	it("allows manual list refresh to resume an automatic job paused by disabling its queue", () => {
+		const project = { ...snapshot.projects[0], source: "cli" as const };
+		const job = {
+			id: "paused-list",
+			projectId: project.id,
+			revision: project.revision,
+			kind: "list" as const,
+			roundId: "automatic-round",
+			state: "queued" as const,
+			requestedAt: NOW,
+			startedAt: null,
+			updatedAt: NOW,
+			completedAt: null,
+			completedPulls: 0,
+			totalPulls: null,
+			message: "Waiting to refresh PR list",
+		};
+		const data: Workbench = {
+			...snapshot,
+			projects: [project],
+			collectionJobs: [job],
+			refreshQueues: [
+				{
+					kind: "list",
+					cooldownSeconds: 0,
+					lastCompletedAt: null,
+					roundId: job.roundId,
+					requested: false,
+					foregroundUntil: 0,
+					totalJobs: 1,
+					completedJobs: 0,
+				},
+			],
+		};
+		expect(canScanProject(project, data)).toBe(true);
+		for (const active of [
+			{ ...job, state: "running" as const },
+			{ ...job, roundId: null },
+			{ ...job, kind: "full" as const },
+		])
+			expect(
+				canScanProject(project, { ...data, collectionJobs: [active] }),
+			).toBe(false);
+		expect(canScanProject(project, { ...data, refreshQueues: [] })).toBe(false);
 	});
 });
 

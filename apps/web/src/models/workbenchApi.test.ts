@@ -8,7 +8,9 @@ import {
 	loadWorkbench,
 	patchProject,
 	patchReadiness,
+	patchRefreshSettings,
 	scanProject,
+	updateCollectionView,
 } from "./workbenchApi";
 
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
@@ -34,6 +36,51 @@ beforeEach(() => {
 });
 
 describe("workbench HTTP contract", () => {
+	it("writes cooldowns independently and sends sequenced foreground updates with a keepalive hide", async () => {
+		const queues = [
+			{
+				kind: "list",
+				cooldownSeconds: 120,
+				lastCompletedAt: null,
+				roundId: null,
+				requested: false,
+				foregroundUntil: 0,
+				totalJobs: 0,
+				completedJobs: 0,
+			},
+		];
+		vi.mocked(apiFetch).mockResolvedValue(queues);
+		expect(await patchRefreshSettings({ detailCooldownSeconds: 600 })).toEqual(
+			queues,
+		);
+		expect(apiFetch).toHaveBeenLastCalledWith("/api/collection/settings", {
+			method: "PATCH",
+			body: '{"detailCooldownSeconds":600}',
+		});
+		const view = {
+			viewId: "54e0ad34-8504-49ec-9a1d-1bb0543552cc",
+			sequence: 2,
+			visible: false,
+			refresh: false,
+			pageKey: "first",
+			pullIds: [],
+		};
+		await updateCollectionView(view);
+		expect(apiFetch).toHaveBeenLastCalledWith(
+			"/api/collection/view",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify(view),
+				keepalive: true,
+			}),
+		);
+		vi.mocked(apiFetch).mockResolvedValue([
+			{ ...queues[0], cooldownSeconds: -1 },
+		]);
+		await expect(
+			patchRefreshSettings({ listCooldownSeconds: 120 }),
+		).rejects.toThrow();
+	});
 	it("saves readiness with its own revision and validates the returned settings", async () => {
 		const saved = {
 			...demo.projects[0],
