@@ -11,12 +11,13 @@ Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位
 | Piece | Role |
 |:------|:-----|
 | **Web** | Basalt + Vite SPA; `/` PR queue, `/projects` project CRUD, PR policies/builds/stages in a detail sheet |
-| **PR data today** | Four sample ADO projects, 38 PRs; local-only demo scans advance build stages and persist snapshots |
-| **PR collection next** | Local `az` / `gh` → normalized provider-neutral snapshots → Worker → D1; live PR collectors are not wired yet |
+| **PR data today** | Real ADO projects and repository scopes, plus four sample projects / 38 PRs selectable separately |
+| **PR collection** | Local `az` tokens → ADO API → provider-neutral snapshots → local Worker jobs/staging → D1; GitHub remains planned |
 | **DB** | Cloudflare D1; local development uses Wrangler SQLite in `.wrangler/state/v3/d1/` |
 | **Existing analytics** | Activity/Score and the ADO activity CLI remain available; Dashboard moved to `/insights` |
 
 Current implementation and acceptance: **[docs/10-PR工作台与Mock预览.md](./docs/10-PR工作台与Mock预览.md)**.
+Live CLI collection and recovery: **[docs/11-真实PR采集与本地工作台.md](./docs/11-真实PR采集与本地工作台.md)**.
 The older Activity ingest contract is separate from the new PR snapshot tables.
 Do not wire demo writes to production or widen the machine-token route whitelist.
 
@@ -39,6 +40,8 @@ bun run dev
 bun run db:migrate:local
 bun run db:seed:local # resets the four named demo projects only
 bun run dev:worker   # local upstream + SIGNOFF_DEMO_MODE=1
+bun run dev:collector # watch UI queue and refresh real ADO projects
+bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
 bun run test / test:coverage
 bun run lint
 bun run typecheck

@@ -12,13 +12,13 @@
 
 SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azure DevOps 项目后，可以查看各仓库的 PR、必需 policy、评审、多个 build 和每个 build 的 stage，知道哪里失败、谁需要处理、下一步做什么。第一期专注 PR，issue / ADO work item 放在后续阶段。
 
-**当前为本地 Mock UI 预览**：4 个 ADO 项目、12 个仓库、38 个 PR 已存入 Wrangler 管理的本地 SQLite。项目管理和模拟扫描使用真实 API 与数据库；扫描可推进构建阶段。真实 PR 收集尚未接入。后续通过本机 `az`、`gh` 获取数据，统一后写入相同的 D1 结构。
+**当前支持本地真实 ADO PR 采集**：本机 Azure CLI 提供登录令牌，采集器读取 ADO API，将统一后的 PR、policy、build 和 stage 快照写入本地 Worker / Wrangler SQLite。工作台显示采集队列、进度和登录状态。4 个项目、38 个 PR 的示例数据仍可通过 Samples 切换查看；新添加的项目使用真实采集。GitHub 后续通过 `gh` 接入同一数据契约。
 
 | 能力 | Azure DevOps | GitHub |
 | --- | --- | --- |
 | 项目增删改查 | 已实现 | 后续开放 |
-| PR / policy / build / stage 展示 | 已实现，当前使用 Mock | 复用统一数据结构，尚未接入 |
-| 真实 PR 快照采集 | 下一阶段接入 `az` | 后续接入 `gh` |
+| PR / policy / build / stage 展示 | 已接入真实数据，保留示例预览 | 复用统一数据结构，尚未接入 |
+| 真实 PR 快照采集 | 本地 `az` 登录 + ADO API | 后续接入 `gh` |
 
 仓库原有的 Activity / Score 分析及 ADO 活动采集 CLI 仍然保留。它们与新 PR 工作台的快照数据分开；`pulse` 已有的 GitHub 查询能力也尚未连接到工作台。
 
@@ -28,12 +28,29 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 - **跨项目 PR 队列**：按项目、仓库、标题、作者、状态和下一步搜索筛选；以待处理优先排序，支持分页和可分享的筛选链接。
 - **明确合并条件**：冲突、必需检查失败、评审意见、部署审批、未知检查分别显示；可选检查失败不会误挡合并。
 - **构建阶段详情**：每个 PR 可展开多个 build，逐项查看 stage 状态、时长、说明和负责人。
-- **可观察的模拟进度**：每 15 秒刷新快照；点击扫描推进示例构建，保留失败、冲突和人工审批，刷新页面后数据仍在。
+- **持续采集**：CLI 监听界面扫描请求并按间隔扫描，界面每 15 秒读取最新快照；采集失败、登录过期或断线时保留旧数据并提示原因。
 - **既有分析**：Dashboard 位于 `/insights`；Directory、Activity 和 Settings 继续使用原来的活动数据管线。
 
 ## 使用
 
-按下方[开发](#开发)步骤启动本地预览。在 **Projects** 添加 ADO organization 和 project，点击 **Scan** 生成该项目的 6 个示例 PR；在首页切换项目并打开 PR 查看详情。预置项目涵盖更多复杂情况，点击 **Scan projects** 可以观察阶段变化。页面明确标记 Demo 数据，无需登录真实 ADO。
+按下方[开发](#开发)步骤启动 Worker 和 Web，在 **Projects** 添加 ADO organization、project 和可选的仓库范围，再启动本地采集器：
+
+```bash
+az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
+bun run dev:collector
+```
+
+已有有效 Azure CLI 登录时直接启动即可。点击 **Scan** 排队读取真实 PR；采集器默认每 120 秒检查是否需要重新扫描，界面每 15 秒刷新。大项目首次采集需要数分钟，界面显示已完成的 PR 数。登录过期会先尝试静默续期；需要交互登录时，按页面或 CLI 提示重新运行 `az login`，采集器随后恢复。
+
+也可一次性添加并采集仓库（示例地址请替换为自己的仓库）：
+
+```bash
+bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
+bun run signoff workbench sync
+bun run signoff workbench watch --interval 300
+```
+
+采集全部开放 PR，并保留每个仓库最近最多 20 条已合并和 10 条已关闭 PR。切换 **Live ADO / Samples / All data** 查看不同来源。PR 采集命令只写回环地址上的本地 Worker，不读取既有 Activity 管线的生产写入令牌。详细契约、恢复行为与验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)。
 
 以下运维命令用于既有 Activity / Score 管线。生产站点仍使用 Cloudflare Access；这次本地预览没有部署到线上。既有管线先建立 Developer 和 Repo 绑定，再配置 Settings，不会读取新 `projects` 表作为采集范围。
 
@@ -120,7 +137,7 @@ bun run dev
 
 打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。开发脚本已包含 `--local-upstream localhost` 和本地 Demo 开关。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
 
-数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 4 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 migration `0011_pr_workbench.sql`。本地与线上 D1 使用相同的 schema，这次仅应用了本地 migration。
+数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 4 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 migrations `0011_pr_workbench.sql`、`0012_live_collection.sql`。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
 
 本地回环地址与 `*.dev.hexly.ai` 使用开发认证分支，无须生产 Access 或 pipeline 凭据。`.env.example` 预填生产机器域名，只在需要连接已有部署时复制并填写。
 
@@ -157,7 +174,7 @@ bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 | Git 子进程集成 | `bun run --cwd apps/gitinfo test:integration` | 本机可运行 Git |
 | 本地采集管线 fixture | `PATH="$PWD/packages/worker/node_modules/.bin:$PATH" bash scripts/e2e-06-local.sh` | 新的默认本地 D1，且 Worker 已运行 |
 
-PR 工作台的模型、HTTP 契约、ViewModel 和 SQLite API 测试包含在上述测试中。浏览器验收步骤见 [10 — PR 工作台与 Mock 预览](docs/10-PR工作台与Mock预览.md)。
+PR 工作台的模型、HTTP 契约、ViewModel、CLI 认证、采集归一化和 SQLite 并发写入测试包含在上述测试中。真实数据验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)，示例预览见 [10 — PR 工作台与 Mock 预览](docs/10-PR工作台与Mock预览.md)。
 
 管线 fixture 测试请使用独立测试副本，先执行 `bun run build:web`，再在另一终端运行 `bun run --cwd packages/worker dev --local-upstream localhost`。测试命令的 PATH 让原脚本使用 workspace 已安装的 Wrangler。脚本会应用本地 migrations、种入测试实体、写入 `.data/` 并验证 ingest、热力图和时间线；它要求初始 Settings（配置版本 `1`），会改写该副本的本地数据。
 

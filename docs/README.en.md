@@ -12,7 +12,7 @@
 
 SignOff helps maintainers manage Azure DevOps projects and understand their PR queues. It shows reviews, policies, multiple builds and their stages, along with blockers, responsible people, and concrete next actions. This phase focuses on PRs; issues and ADO work items come later.
 
-**The current implementation is a local mock preview:** four ADO projects, twelve repositories, and thirty-eight PRs persist in Wrangler's local SQLite database. Project CRUD and simulated scans use real Worker APIs and D1 queries. Live PR collectors are the next step: local `az` and later `gh` will feed the same normalized contract. GitHub project creation is not enabled yet.
+**Live ADO PR collection is available locally:** Azure CLI provides authentication for read-only ADO API requests, and the collector publishes normalized PR, policy, build and stage snapshots through the local Worker into Wrangler SQLite. The UI shows queue progress and expired-login guidance. Four sample projects and 38 sample PRs remain available under Samples; newly added projects use live collection. GitHub will use the same normalized contract in a later phase.
 
 The existing Activity / Score analytics and ADO activity CLI remain available separately. Their ingest contract is not connected to the new PR snapshot tables. The `pulse` helper can query GitHub, but does not feed this workbench.
 
@@ -22,12 +22,22 @@ The existing Activity / Score analytics and ADO activity CLI remain available se
 - **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
 - **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
 - **Inspect builds:** expand each build to see all stages, durations, results, and owners.
-- **Observe progress:** refresh snapshots every 15 seconds; simulated scans advance eligible stages while preserving failures and human decisions.
+- **Observe progress:** watch live collection jobs and refresh snapshots every 15 seconds; interrupted scans and expired sessions preserve the previous snapshot.
 - **Retain existing analytics:** the original Dashboard is at `/insights`; Directory, Activity, and Settings use their existing data pipeline.
 
 ## Usage
 
-Start the local preview using [Development](#development). Explore the seeded projects, or add an ADO organization and project in **Projects**, then click **Scan** to create six sample PRs. Open a PR to inspect its reviews, checks, builds, and activity. All sample data is visibly marked; no live ADO login is needed.
+Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. With a valid Azure CLI session, run `bun run dev:collector` and click **Scan**. Live ADO is the default source when real projects exist; use the source picker to view Samples or All data.
+
+```bash
+# Only needed when the existing Azure session is unavailable or expired:
+az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
+bun run dev:collector
+# Alternatively, register a repository and collect once:
+bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
+```
+
+The collector reads all active PRs plus up to 20 recently merged and 10 closed PRs per repository. It silently refreshes tokens when possible and shows the required tenant-specific login command when interactive authentication is needed. `workbench watch --interval 300` changes the default 120-second scan interval. PR collection currently writes only to the local Worker and does not use production pipeline credentials. See [live PR collection](11-真实PR采集与本地工作台.md) for the contract and recovery behavior.
 
 The operations below apply to the retained Activity / Score pipeline. The production website uses Cloudflare Access. This PR preview has not been deployed or applied to remote D1; the existing collector still uses Developer and Repo bindings rather than the new `projects` table.
 
@@ -114,7 +124,7 @@ bun run dev
 
 Open `http://localhost:7042`. Vite proxies `/api` to the local Worker on `37042`. The dev script includes the local upstream and demo flag. If you already have a trusted HTTPS reverse proxy, `https://signoff.dev.hexly.ai` is supported.
 
-Local data lives in `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`. The seed command resets only the four named demo projects and their PR / scan rows; other projects and existing analytics are preserved. It has no remote option. Migration `0011_pr_workbench.sql` defines the shared local / D1 schema.
+Local data lives in `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`. The seed command resets only the four named demo projects and their PR / scan rows; other projects and existing analytics are preserved. It has no remote option. Migrations `0011_pr_workbench.sql` and `0012_live_collection.sql` define the workbench schema and live collection queue.
 
 Loopback addresses and `*.dev.hexly.ai` use the development authentication path without production Access or pipeline credentials. `.env.example` is prefilled with the production machine endpoint; copy and configure it only when connecting to an existing deployment.
 
