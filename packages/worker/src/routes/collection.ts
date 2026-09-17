@@ -310,6 +310,15 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 	});
 }
 
+export async function collectorJobRoute(c: Context<AppEnv>) {
+	const remote = rejectRemote(c);
+	if (remote) return remote;
+	const job = await jobById(c, c.req.param("id") ?? "");
+	return job
+		? c.json(mapJob(job))
+		: c.json({ error: "Collection job not found" }, 404);
+}
+
 export async function collectorProgressRoute(c: Context<AppEnv>) {
 	const remote = rejectRemote(c);
 	if (remote) return remote;

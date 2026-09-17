@@ -12,6 +12,7 @@ import {
 	collectorCompleteRoute,
 	collectorFailRoute,
 	collectorHeartbeatRoute,
+	collectorJobRoute,
 	collectorProgressRoute,
 } from "./routes/collection.js";
 import {
@@ -82,6 +83,7 @@ app.get("/api/collection/refresh", refreshQueuesRoute);
 app.patch("/api/collection/settings", refreshSettingsRoute);
 app.post("/api/collection/view", collectionViewRoute);
 app.post("/api/collector/schedule", collectorScheduleRoute);
+app.get("/api/collector/jobs/:id", collectorJobRoute);
 app.post("/api/projects", projectsCreateRoute);
 app.patch("/api/projects/:id", projectsPatchRoute);
 app.patch("/api/projects/:id/readiness", projectsReadinessRoute);

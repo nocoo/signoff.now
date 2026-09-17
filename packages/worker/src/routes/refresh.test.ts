@@ -196,6 +196,33 @@ async function finish(job: CollectorClaim, failure = false) {
 }
 
 describe("two completion-based refresh queues", () => {
+	test("manual sync can read its completed job even after it leaves the recent workbench history", async () => {
+		const p = await project();
+		const response = await request(`/api/projects/${p.id}/scan`, {
+			revision: p.revision,
+		});
+		const { id } = (await response.json()) as { id: string };
+		const job = collectorClaimSchema.parse(
+			await (await request(`/api/collector/claim?jobId=${id}`)).json(),
+		);
+		await finish(job);
+		for (let i = 1; i <= 21; i++) {
+			sqlite.raw
+				.query(`INSERT INTO collection_jobs (id,project_id,revision,state,requested_at,updated_at,completed_at,message,kind)
+			VALUES (?,?,1,'complete',?,?,?,'Other completed work','full')`)
+				.run(`newer-${i}`, p.id, epoch + i, epoch + i, epoch + i);
+		}
+		const workbench = (await (
+			await request("/api/workbench", undefined, "GET")
+		).json()) as { collectionJobs: { id: string }[] };
+		expect(workbench.collectionJobs.some((item) => item.id === id)).toBe(false);
+		const status = await request(`/api/collector/jobs/${id}`, undefined, "GET");
+		expect(status.status).toBe(200);
+		expect(await status.json()).toMatchObject({ id, state: "complete" });
+		expect(
+			(await request("/api/collector/jobs/missing", undefined, "GET")).status,
+		).toBe(404);
+	});
 	test("explicit full sync claims only its requested job, waits for publication, and can bypass queued automatic work", async () => {
 		for (const busy of [false, true]) {
 			const p = await project(`Selected-${busy}`);
@@ -587,6 +614,7 @@ describe("two completion-based refresh queues", () => {
 			["/api/collector/schedule", "POST"],
 			["/api/collection/refresh", "GET"],
 			["/api/collection/settings", "PATCH"],
+			["/api/collector/jobs/example", "GET"],
 		]) {
 			const res = await app.request(
 				`https://signoff.hexly.ai${path}`,

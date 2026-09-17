@@ -7,6 +7,49 @@ import {
 } from "./client.ts";
 
 describe("local collection API client", () => {
+	test("schedules and claims the two independent queues explicitly", async () => {
+		const calls: { url: string; body: unknown }[] = [];
+		const api = createCollectionClient({
+			fetchImpl: async (url, init) => {
+				const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+				calls.push({ url: String(url), body });
+				return Response.json(
+					String(url).includes("/schedule")
+						? {
+								kind: body.kind,
+								cooldownSeconds: 120,
+								lastCompletedAt: null,
+								roundId: null,
+								requested: false,
+								foregroundUntil: 0,
+								completedJobs: 0,
+								totalJobs: 0,
+							}
+						: null,
+				);
+			},
+		});
+		await api.schedule("list");
+		await api.schedule("details");
+		expect(await api.claim("list")).toBeNull();
+		expect(await api.claim("details")).toBeNull();
+		expect(await api.claim(undefined, "manual-full")).toBeNull();
+		expect(
+			calls.map(
+				(call) => new URL(call.url).pathname + new URL(call.url).search,
+			),
+		).toEqual([
+			"/api/collector/schedule",
+			"/api/collector/schedule",
+			"/api/collector/claim?kind=list",
+			"/api/collector/claim?kind=details",
+			"/api/collector/claim?jobId=manual-full",
+		]);
+		expect(calls.slice(0, 2).map((call) => call.body)).toEqual([
+			{ kind: "list" },
+			{ kind: "details" },
+		]);
+	});
 	test("refuses a remote upload target and URLs carrying credentials", () => {
 		expect(collectionApiBase()).toBe("http://127.0.0.1:37042");
 		expect(collectionApiBase("http://localhost:37042/")).toBe(
@@ -126,6 +169,7 @@ describe("local collection API client", () => {
 			job,
 			scan,
 			{},
+			job,
 		];
 		const calls: Array<{ path: string; method: string; body: any }> = [];
 		const api = createCollectionClient({
@@ -159,6 +203,7 @@ describe("local collection API client", () => {
 		await api.progress(claim, 3, 8, "Collecting");
 		expect(await api.complete(claim, "complete", 8, "Published")).toEqual(scan);
 		await api.fail(claim, "auth_required", "x".repeat(1500));
+		expect(await api.job(job.id)).toEqual(job);
 		expect(calls.map((call) => call.method)).toEqual([
 			"GET",
 			"POST",
@@ -168,6 +213,7 @@ describe("local collection API client", () => {
 			"POST",
 			"POST",
 			"POST",
+			"GET",
 		]);
 		expect(calls[2]).toMatchObject({
 			path: "/api/projects/project%20%2F%201",
@@ -188,6 +234,7 @@ describe("local collection API client", () => {
 			message: "Published",
 		});
 		expect(calls[7]?.body.message).toHaveLength(1000);
+		expect(calls[8]?.path).toBe("/api/collector/jobs/job%20%2F%201");
 	});
 	test("rejects malformed successful responses and propagates Worker errors", async () => {
 		const malformed = createCollectionClient({
@@ -195,6 +242,7 @@ describe("local collection API client", () => {
 		});
 		await expect(malformed.load()).rejects.toBeInstanceOf(Error);
 		await expect(malformed.claim()).rejects.toBeInstanceOf(Error);
+		await expect(malformed.job("missing")).rejects.toBeInstanceOf(Error);
 		const unavailable = createCollectionClient({
 			fetchImpl: async () =>
 				Response.json({ error: "Lease no longer active" }, { status: 409 }),

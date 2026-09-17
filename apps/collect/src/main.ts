@@ -40,67 +40,40 @@ async function main(): Promise<void> {
 			const { createCollectionClient } = await import("./workbench/client.ts");
 			const { createAdoClient } = await import("./ado/client.ts");
 			const { collectProjectPulls } = await import("./workbench/ado.ts");
-			const { registerRepositories, queueDueProjects, runCollectionOnce } =
-				await import("./workbench/run.ts");
+			const { registerRepositories, syncCollections } = await import(
+				"./workbench/run.ts"
+			);
 			const api = createCollectionClient({ apiBase: options.apiBase });
 			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
 			const ids = options.repo
 				? await registerRepositories(api, options.repo)
 				: undefined;
-			const queued = await queueDueProjects(
+			const succeeded = await syncCollections({
 				api,
-				0,
-				Math.floor(Date.now() / 1000),
-				ids,
-			);
-			log.info(`Queued ${queued} project(s) for real collection.`);
-			let failed = false;
-			for (;;) {
-				const result = await runCollectionOnce({
-					api,
-					ado,
-					collect: collectProjectPulls,
-					log,
-				});
-				if (result.state === "failed" || result.state === "auth_required")
-					failed = true;
-				if (!result.processed || result.state === "auth_required") break;
-			}
-			process.exitCode = failed ? ExitCode.ENV : ExitCode.OK;
+				ado,
+				collect: collectProjectPulls,
+				log,
+				projectIds: ids,
+			});
+			process.exitCode = succeeded ? ExitCode.OK : ExitCode.ENV;
 		});
 	workbench
 		.command("watch")
 		.description(
-			"Process visible-PR collection and scan requests from the local UI",
+			"Refresh PR lists in the background and collect checks for the current page",
 		)
 		.option("--api-base <url>", "Local Worker origin", "http://127.0.0.1:37042")
 		.action(async (options: { apiBase: string }) => {
 			const { createCollectionClient } = await import("./workbench/client.ts");
 			const { createAdoClient } = await import("./ado/client.ts");
 			const { collectProjectPulls } = await import("./workbench/ado.ts");
-			const { runCollectionOnce, collectionError } = await import(
-				"./workbench/run.ts"
-			);
+			const { watchCollections } = await import("./workbench/run.ts");
 			const api = createCollectionClient({ apiBase: options.apiBase });
 			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
 			log.info(
-				"Local collector online. UI requests checked every 3s; only visible PR checks are collected automatically.",
+				"Local collector online. Independent list and current-page check queues use completion-based cooldowns.",
 			);
-			for (;;) {
-				try {
-					const result = await runCollectionOnce({
-						api,
-						ado,
-						collect: collectProjectPulls,
-						log,
-					});
-					if (!result.processed || result.state === "auth_required")
-						await Bun.sleep(result.state === "auth_required" ? 15_000 : 3000);
-				} catch (error) {
-					log.error(collectionError(error).message);
-					await Bun.sleep(10_000);
-				}
-			}
+			await watchCollections({ api, ado, collect: collectProjectPulls, log });
 		});
 
 	program

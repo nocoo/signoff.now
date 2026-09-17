@@ -1,8 +1,12 @@
-import { parseAdoRepositoryUrl } from "@signoff/domain/collection";
+import {
+	type KnownOpenPull,
+	parseAdoRepositoryUrl,
+} from "@signoff/domain/collection";
 import type {
 	MergeRequirement,
 	Project,
 	PullRequest,
+	RefreshQueueKind,
 } from "@signoff/domain/workbench";
 import { AdoError, type AdoPagedClient } from "../ado/client.ts";
 import type { Logger } from "../logger.ts";
@@ -49,6 +53,7 @@ type Collect = (opts: {
 	client: AdoPagedClient;
 	now: number;
 	targets?: PullRequest[];
+	knownOpenPulls?: KnownOpenPull[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }) => Promise<{
 	pulls: PullRequest[];
@@ -67,6 +72,8 @@ export async function runCollectionOnce(opts: {
 	collect: Collect;
 	log: Logger;
 	keepAliveMs?: number;
+	kind?: RefreshQueueKind;
+	jobId?: string;
 }): Promise<RunResult> {
 	const { api, ado, log } = opts;
 	try {
@@ -84,7 +91,7 @@ export async function runCollectionOnce(opts: {
 		};
 	}
 	await api.heartbeat("ready", "Azure session verified");
-	const claim = await api.claim();
+	const claim = await api.claim(opts.kind, opts.jobId);
 	if (!claim) return { processed: false, state: "idle" };
 	let done = 0;
 	let total: number | null = null;
@@ -121,6 +128,7 @@ export async function runCollectionOnce(opts: {
 			client: ado,
 			now: Math.floor(Date.now() / 1000),
 			targets: claim.targets,
+			knownOpenPulls: claim.knownOpenPulls,
 			onProgress: async (completed, count) => {
 				done = Math.max(done, completed);
 				total = count;
@@ -171,6 +179,33 @@ export async function runCollectionOnce(opts: {
 	}
 }
 
+/** Each lane waits for publication before asking the persistent scheduler for its next job. */
+export async function watchCollections(
+	opts: Omit<Parameters<typeof runCollectionOnce>[0], "kind"> & {
+		signal?: AbortSignal;
+		sleep?: (ms: number) => Promise<unknown>;
+	},
+): Promise<void> {
+	const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
+	await Promise.all(
+		(["list", "details"] as const).map(async (kind) => {
+			while (!opts.signal?.aborted) {
+				try {
+					await opts.api.schedule(kind);
+					if (opts.signal?.aborted) break;
+					const result = await runCollectionOnce({ ...opts, kind });
+					if (opts.signal?.aborted) break;
+					if (!result.processed || result.state === "auth_required")
+						await sleep(result.state === "auth_required" ? 15_000 : 3000);
+				} catch (error) {
+					opts.log.error(`${kind}: ${collectionError(error).message}`);
+					if (!opts.signal?.aborted) await sleep(10_000);
+				}
+			}
+		}),
+	);
+}
+
 export async function registerRepositories(
 	api: CollectionClient,
 	urls: string[],
@@ -218,39 +253,47 @@ export async function registerRepositories(
 	return [...ids];
 }
 
-export async function queueDueProjects(
-	api: CollectionClient,
-	intervalSeconds: number,
-	now = Math.floor(Date.now() / 1000),
-	projectIds?: string[],
-): Promise<number> {
+/** Explicit sync owns full-scan requests, even when automatic page work is paused. */
+export async function syncCollections(
+	opts: Omit<Parameters<typeof runCollectionOnce>[0], "kind"> & {
+		projectIds?: string[];
+		sleep?: (ms: number) => Promise<unknown>;
+	},
+): Promise<boolean> {
+	const { api, log } = opts;
 	const data = await api.load();
-	let queued = 0;
+	const pending = new Set<string>();
 	for (const project of data.projects) {
 		if (
 			!project.enabled ||
 			project.source !== "cli" ||
-			(projectIds && !projectIds.includes(project.id))
+			project.provider !== "ado" ||
+			(opts.projectIds && !opts.projectIds.includes(project.id))
 		)
 			continue;
-		const jobs = (data.collectionJobs ?? []).filter(
-			(job) => job.projectId === project.id,
-		);
-		if (
-			jobs.some(
-				(job) =>
-					job.revision === project.revision &&
-					["queued", "running", "auth_required"].includes(job.state),
-			)
-		)
-			continue;
-		const lastAttempt = Math.max(
-			project.lastScannedAt ?? 0,
-			...jobs.map((job) => job.completedAt ?? job.updatedAt),
-		);
-		if (now - lastAttempt < intervalSeconds) continue;
-		await api.enqueue(project);
-		queued++;
+		pending.add((await api.enqueue(project)).id);
 	}
-	return queued;
+	log.info(`Queued ${pending.size} project(s) for real collection.`);
+	const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
+	while (pending.size) {
+		// Another collector may hold our project lease; an idle claim is not a
+		// completed sync. Unrelated queued work must not consume this invocation.
+		const result = await runCollectionOnce({
+			...opts,
+			jobId: pending.values().next().value,
+		});
+		if (result.state === "failed" || result.state === "auth_required")
+			return false;
+		for (const id of pending) {
+			const job = await api.job(id);
+			if (job.state === "failed" || job.state === "auth_required") {
+				log.error(job.message || `Sync job ${id} did not complete`);
+				return false;
+			}
+			if (job.state === "complete" || job.state === "partial")
+				pending.delete(id);
+		}
+		if (pending.size && !result.processed) await sleep(3000);
+	}
+	return true;
 }

@@ -1,3 +1,4 @@
+import type { KnownOpenPull } from "@signoff/domain/collection";
 import {
 	type MergeRequirement,
 	type Project,
@@ -727,6 +728,7 @@ export async function collectProjectPulls(opts: {
 	client: AdoPagedClient;
 	now: number;
 	targets?: PullRequest[];
+	knownOpenPulls?: KnownOpenPull[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<{
 	pulls: PullRequest[];
@@ -747,7 +749,7 @@ export async function collectProjectPulls(opts: {
 	const completedPrs: AdoPullRequestSummary[] = [];
 	const abandonedPrs: AdoPullRequestSummary[] = [];
 	const globalIssues: string[] = [];
-	for (const target of opts.targets ?? []) {
+	async function summary(target: KnownOpenPull) {
 		const url = adoUrl(
 			`${BASE_URL}/${org}/${encodeURIComponent(projectKey)}`,
 			`_apis/git/repositories/${encodeURIComponent(target.repository.id)}/pullrequests/${target.number}`,
@@ -765,8 +767,10 @@ export async function collectProjectPulls(opts: {
 				"bad_response",
 				"Selected PR identity changed during collection",
 			);
-		activePrs.push(raw);
+		return raw;
 	}
+	for (const target of opts.targets ?? [])
+		activePrs.push(await summary(target));
 
 	for (const repo of targetRepos) {
 		const active = await enumerateActivePullRequests(client, org, repo);
@@ -786,6 +790,25 @@ export async function collectProjectPulls(opts: {
 		if (!combinedPrMap.has(prKey(pr))) combinedPrMap.set(prKey(pr), pr);
 	for (const pr of abandonedPrs)
 		if (!combinedPrMap.has(prKey(pr))) combinedPrMap.set(prKey(pr), pr);
+	// A busy repository may merge more PRs than the recent-history window between scans.
+	// Explicitly resolve any previously open PR that disappeared from those lists.
+	for (const known of opts.knownOpenPulls ?? []) {
+		const key = `${known.repository.id}:${known.number}`;
+		if (
+			combinedPrMap.has(key) ||
+			!targetRepos.some((repo) => repo.id === known.repository.id)
+		)
+			continue;
+		try {
+			combinedPrMap.set(key, await summary(known));
+		} catch (error) {
+			if (error instanceof AdoError && error.kind === "unauthenticated")
+				throw error;
+			globalIssues.push(
+				`PR #${known.number}: ${issueMessage(error, "Could not confirm its current state")}`,
+			);
+		}
+	}
 
 	const allPrs = Array.from(combinedPrMap.values());
 	const totalPulls = allPrs.length;
@@ -922,7 +945,7 @@ export async function collectProjectPulls(opts: {
 		listOnly && !hasPartialDetails
 			? `Refreshed ${normalizedPulls.length} PR summaries. Checks load for the current PR page.`
 			: hasPartialDetails
-				? `Collected ${normalizedPulls.length} PRs with partial check/detail coverage.`
+				? `Collected ${normalizedPulls.length} PRs with partial coverage. ${globalIssues.join(" ")}`.trim()
 				: `Collected ${normalizedPulls.length} PRs completely.`;
 
 	return {
