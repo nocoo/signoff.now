@@ -348,6 +348,82 @@ describe("useActivityHeatmapViewModel", () => {
 		expect(result.current.data).toBeNull();
 	});
 
+	it.each([
+		"heatmap",
+		"timeline",
+	] as const)("keeps a newer successful refresh when an older %s reports stale in the same version", async (delayed) => {
+		const { result } = renderHook(() => useActivityHeatmapViewModel());
+		act(() => {
+			result.current.setDevs("d1");
+			result.current.setTimelineDev("d1");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-07");
+		});
+		let release = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let request: Promise<void>;
+		if (delayed === "heatmap") {
+			vi.mocked(fetchHeatmap).mockImplementationOnce(async () => {
+				await gate;
+				return { ...sample, scoresStale: true };
+			});
+			act(() => {
+				request = result.current.load();
+			});
+			await act(async () => {
+				await result.current.loadTimeline();
+			});
+		} else {
+			vi.mocked(fetchTimeline).mockImplementationOnce(async () => {
+				await gate;
+				return { ...timelineSample, scoresStale: true };
+			});
+			act(() => {
+				request = result.current.loadTimeline();
+			});
+			await act(async () => {
+				await result.current.load();
+			});
+		}
+		await act(async () => {
+			release();
+			await request;
+		});
+		expect(
+			result.current.data?.scoresStale || result.current.timeline?.scoresStale,
+		).toBeFalsy();
+		expect(
+			delayed === "heatmap" ? result.current.timeline : result.current.data,
+		).not.toBeNull();
+	});
+
+	it("withholds old snapshots when restarting pagination fails", async () => {
+		const { result } = renderHook(() => useActivityHeatmapViewModel());
+		act(() => {
+			result.current.setDevs("d1");
+			result.current.setTimelineDev("d1");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-07");
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		await act(async () => {
+			await result.current.loadTimeline();
+		});
+		vi.mocked(fetchTimeline)
+			.mockResolvedValueOnce({ ...timelineSample, pipelineConfigVersion: 2 })
+			.mockRejectedValueOnce(new Error("Restart unavailable"));
+		await act(async () => {
+			await result.current.loadTimeline({ more: true });
+		});
+		expect(result.current.data).toBeNull();
+		expect(result.current.timeline).toBeNull();
+		expect(result.current.timelineError).toBe("Restart unavailable");
+	});
+
 	it("timeline validation error when missing fields", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
 		await act(async () => {

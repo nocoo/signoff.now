@@ -9,6 +9,11 @@ import { fetchHeatmap, fetchTimeline } from "@/models/activityApi";
 import type { Developer } from "@/models/entities";
 import { listDevelopers } from "@/models/entitiesApi";
 
+type PipelineSnapshot = Pick<
+	HeatmapResponse,
+	"pipelineConfigVersion" | "scoresStale"
+>;
+
 export function useActivityHeatmapViewModel() {
 	const [devs, setDevs] = useState("");
 	const [from, setFrom] = useState("");
@@ -23,9 +28,45 @@ export function useActivityHeatmapViewModel() {
 	const timelineItems = timeline?.items ?? [];
 	const [roster, setRoster] = useState<Developer[]>([]);
 	const [rosterError, setRosterError] = useState<string | null>(null);
-	// Both endpoints describe the same monotonic pipeline configuration.
-	// A delayed response must not revive data invalidated by a newer version.
-	const latestConfigVersion = useRef(0);
+	const sequence = useRef(0);
+	const latestSnapshot = useRef<
+		(PipelineSnapshot & { request: number }) | null
+	>(null);
+	const acceptSnapshot = useCallback(
+		(res: PipelineSnapshot, request: number) => {
+			const latest = latestSnapshot.current;
+			if (
+				latest &&
+				(res.pipelineConfigVersion < latest.pipelineConfigVersion ||
+					(res.pipelineConfigVersion === latest.pipelineConfigVersion &&
+						res.scoresStale !== latest.scoresStale &&
+						request < latest.request))
+			) {
+				return false;
+			}
+			if (
+				!latest ||
+				res.pipelineConfigVersion > latest.pipelineConfigVersion ||
+				request >= latest.request
+			) {
+				latestSnapshot.current = {
+					pipelineConfigVersion: res.pipelineConfigVersion,
+					scoresStale: res.scoresStale,
+					request,
+				};
+			}
+			// Invalidate immediately, including before a pagination restart can fail.
+			const compatible = (previous: PipelineSnapshot | null) =>
+				previous &&
+				!res.scoresStale &&
+				!previous.scoresStale &&
+				previous.pipelineConfigVersion === res.pipelineConfigVersion;
+			setData((previous) => (compatible(previous) ? previous : null));
+			setTimeline((previous) => (compatible(previous) ? previous : null));
+			return true;
+		},
+		[],
+	);
 
 	// The heatmap keys on developer ids, but a manager reads names. Loading the
 	// roster here rather than in the view keeps the id → person mapping — and
@@ -58,21 +99,11 @@ export function useActivityHeatmapViewModel() {
 		}
 		setLoading(true);
 		setError(null);
+		const request = ++sequence.current;
 		try {
 			const res = await fetchHeatmap({ devs: ids, from, to });
-			if (res.pipelineConfigVersion < latestConfigVersion.current) return;
-			latestConfigVersion.current = res.pipelineConfigVersion;
+			if (!acceptSnapshot(res, request)) return;
 			setData(res);
-			// A stale response invalidates the peer cache. A clean refresh also
-			// discards a stale peer, so its old flag cannot hide recovered data.
-			setTimeline((previous) =>
-				res.scoresStale ||
-				previous?.scoresStale ||
-				(previous &&
-					previous.pipelineConfigVersion !== res.pipelineConfigVersion)
-					? null
-					: previous,
-			);
 			// Prefill single-dev timeline when only one id is requested.
 			if (ids.length === 1 && !timelineDev) {
 				setTimelineDev(ids[0] ?? "");
@@ -83,7 +114,7 @@ export function useActivityHeatmapViewModel() {
 		} finally {
 			setLoading(false);
 		}
-	}, [devs, from, to, timelineDev]);
+	}, [devs, from, to, timelineDev, acceptSnapshot]);
 
 	const loadTimeline = useCallback(
 		async (opts?: { more?: boolean }) => {
@@ -94,6 +125,7 @@ export function useActivityHeatmapViewModel() {
 			}
 			setTimelineLoading(true);
 			setTimelineError(null);
+			const request = ++sequence.current;
 			try {
 				const cursor =
 					opts?.more && timeline?.nextCursor ? timeline.nextCursor : null;
@@ -103,6 +135,7 @@ export function useActivityHeatmapViewModel() {
 					to,
 					cursor: opts?.more ? cursor : null,
 				});
+				if (!acceptSnapshot(res, request)) return;
 				// A cursor from another configuration cannot extend this snapshot.
 				const restart = Boolean(
 					opts?.more &&
@@ -111,9 +144,8 @@ export function useActivityHeatmapViewModel() {
 				);
 				if (restart && !res.scoresStale) {
 					res = await fetchTimeline({ dev, from, to, cursor: null });
+					if (!acceptSnapshot(res, request)) return;
 				}
-				if (res.pipelineConfigVersion < latestConfigVersion.current) return;
-				latestConfigVersion.current = res.pipelineConfigVersion;
 				setTimeline((previous) => ({
 					...res,
 					items:
@@ -121,14 +153,6 @@ export function useActivityHeatmapViewModel() {
 							? [...(previous?.items ?? []), ...res.items]
 							: res.items,
 				}));
-				setData((previous) =>
-					res.scoresStale ||
-					previous?.scoresStale ||
-					(previous &&
-						previous.pipelineConfigVersion !== res.pipelineConfigVersion)
-						? null
-						: previous,
-				);
 			} catch (e) {
 				setTimelineError(e instanceof Error ? e.message : String(e));
 				if (!opts?.more) {
@@ -138,7 +162,7 @@ export function useActivityHeatmapViewModel() {
 				setTimelineLoading(false);
 			}
 		},
-		[timelineDev, from, to, timeline],
+		[timelineDev, from, to, timeline, acceptSnapshot],
 	);
 
 	const maxTotal = data?.rows.reduce((m, r) => Math.max(m, r.total), 0) ?? 0;
