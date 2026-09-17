@@ -14,10 +14,11 @@ Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位
 | **PR data today** | Real ADO projects and repository scopes, plus five sample projects / 46 PRs (ADO and GitHub) selectable separately |
 | **PR collection** | Local `az` tokens → ADO API → provider-neutral snapshots → local Worker jobs/staging → D1; GitHub remains planned |
 | **DB** | Cloudflare D1; local development uses Wrangler SQLite in `.wrangler/state/v3/d1/` |
-| **Existing analytics** | Activity/Score and the ADO activity CLI remain available; Dashboard moved to `/insights` |
+| **Directory / Insights** | Followed members with exact provider accounts, teams/tags, and manually refreshed Recharts PR contribution modules; legacy Activity/Score APIs and CLI remain separate |
 
 Current implementation and acceptance: **[docs/10-PR工作台与Mock预览.md](./docs/10-PR工作台与Mock预览.md)**.
 Live CLI collection and recovery: **[docs/11-真实PR采集与本地工作台.md](./docs/11-真实PR采集与本地工作台.md)**.
+Member relationships, manual statistics and source isolation: **[docs/13-成员目录与PR贡献统计.md](./docs/13-成员目录与PR贡献统计.md)**.
 The older Activity ingest contract is separate from the new PR snapshot tables.
 Do not wire demo writes to production or widen the machine-token route whitelist.
 
@@ -38,7 +39,8 @@ docs/01-*.md    # product docs
 ```bash
 bun run dev
 bun run db:migrate:local
-bun run db:seed:local # resets the five named demo projects only
+bun run db:seed:local # resets the five named demo projects and initializes Sample directory
+bun run db:seed:local --directory-only # initializes Sample directory without resetting project settings
 bun run dev:worker   # apply local migrations, then start local upstream + SIGNOFF_DEMO_MODE=1
 bun run dev:collector # independent list (2 min) and current-page checks (5 min) queues; cooldown after each whole round
 bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
