@@ -38,23 +38,25 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
+import { relativeAge } from "@/models/freshness";
 import {
 	DEFAULT_PULL_FILTER,
 	nextPullSort,
 	type PullFilter,
 	type PullRow,
-	relativeTime,
 } from "@/models/workbench";
+import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { usePageCollection } from "@/viewmodels/usePageCollection";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { ReadinessDialog } from "./ReadinessDialog";
-import { RepositoryFilters } from "./RepositoryFilters";
+import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
 	const vm = useWorkbench();
+	const now = useMinuteNow();
 	const opener = useRef<HTMLElement | null>(null);
 	const [readinessProject, setReadinessProject] = useState<Project | null>(
 		null,
@@ -69,15 +71,10 @@ export function PullsPage() {
 		({ project }) => project.id === vm.filter.projectId,
 	)?.project;
 	const repository = vm.selectedRepository;
-	const scope = [
-		repository?.project.organization ??
-			scopedProject?.organization ??
-			vm.filter.organization,
-		repository?.project.projectKey ?? scopedProject?.projectKey,
-		repository?.name,
-	]
-		.filter(Boolean)
-		.join(" / ");
+	const scopeProject =
+		repository?.project ??
+		scopedProject ??
+		(vm.filter.organization ? vm.projectOptions[0]?.project : undefined);
 	const metrics = [
 		{
 			key: "all",
@@ -123,8 +120,16 @@ export function PullsPage() {
 				title="Pull requests"
 				description={
 					<span className="break-words">
-						{scope ||
-							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`}
+						{scopeProject ? (
+							<RepositoryScopeLinks
+								project={scopeProject}
+								repository={repository?.name}
+								organizationOnly={!scopedProject && !repository}
+							/>
+						) : (
+							vm.filter.organization ||
+							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`
+						)}
 					</span>
 				}
 				actions={<WorkbenchConnection vm={vm} compact />}
@@ -376,11 +381,11 @@ export function PullsPage() {
 									<TableRow>
 										{(
 											[
-												["title", "Pull request", "w-[33%]"],
+												["title", "Pull request", "w-[32%]"],
 												["readiness", "Readiness", "w-[15%]"],
 												["progress", "Checks & stages", "w-[18%]"],
-												["action", "Next action", "w-[24%]"],
-												["updated", "Updated", "w-[10%] text-right"],
+												["action", "Next action", "w-[21%]"],
+												["updated", "PR updated", "w-[14%] text-right"],
 											] as const
 										).map(([sort, label, className]) => (
 											<SortableHead
@@ -430,13 +435,18 @@ export function PullsPage() {
 													</a>
 													<span aria-hidden>·</span>
 													<span>
-														{project.organization} / {project.projectKey}
+														<RepositoryScopeLinks
+															project={project}
+															repository={pull.repository.name}
+														/>
 													</span>
-													<span aria-hidden>/</span>
-													<span>{pull.repository.name}</span>
 												</div>
 												<div className="mt-1 flex items-center text-[11px] text-basalt-muted-foreground">
-													<EntityLabel name={pull.author.name} size="xs" />
+													<EntityLabel
+														name={pull.author.name}
+														avatarUrl={pull.author.avatarUrl}
+														size="xs"
+													/>
 													{pull.labels.includes("release blocker") ? (
 														<Badge
 															variant="error"
@@ -485,21 +495,20 @@ export function PullsPage() {
 															{progress.optionalFailures
 																? ` · ${progress.optionalFailures} advisory`
 																: ""}
-															{project.source === "cli" ? (
-																<span
-																	className="ml-2"
-																	title={new Date(
-																		(pull.checksObservedAt ?? pull.observedAt) *
-																			1000,
-																	).toLocaleString()}
-																>
-																	Checked{" "}
-																	{relativeTime(
-																		pull.checksObservedAt ?? pull.observedAt,
-																	)}
-																</span>
-															) : null}
 														</p>
+														{typeof pull.checksObservedAt === "number" ? (
+															<p className="mt-1 text-[11px] text-basalt-muted-foreground">
+																Checks synced{" "}
+																<time
+																	dateTime={new Date(
+																		pull.checksObservedAt * 1000,
+																	).toISOString()}
+																	title={`SignOff collected checks: ${new Date(pull.checksObservedAt * 1000).toLocaleString()}`}
+																>
+																	{relativeAge(pull.checksObservedAt, now)}
+																</time>
+															</p>
+														) : null}
 													</>
 												)}
 											</TableCell>
@@ -520,8 +529,19 @@ export function PullsPage() {
 														pull.updatedAt * 1000,
 													).toLocaleString()}
 												>
-													{relativeTime(pull.updatedAt)}
+													{relativeAge(pull.updatedAt, now)}
 												</time>
+												<p className="mt-1.5">
+													Synced{" "}
+													<time
+														dateTime={new Date(
+															pull.observedAt * 1000,
+														).toISOString()}
+														title={`SignOff collected PR data: ${new Date(pull.observedAt * 1000).toLocaleString()}`}
+													>
+														{relativeAge(pull.observedAt, now)}
+													</time>
+												</p>
 											</TableCell>
 										</TableRow>
 									))}

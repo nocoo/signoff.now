@@ -62,7 +62,7 @@ export function WorkbenchConnection({
 			className={cn(
 				"flex flex-wrap items-center justify-between gap-3 text-xs text-basalt-muted-foreground",
 				compact
-					? "w-full sm:w-auto sm:flex-1"
+					? "w-full max-w-full sm:w-auto sm:flex-1 md:max-w-64 lg:max-w-none"
 					: "rounded-basalt-md bg-basalt-muted/40 px-3 py-2.5",
 			)}
 		>
@@ -97,55 +97,59 @@ export function WorkbenchConnection({
 				)}
 			</div>
 			<div className="flex flex-wrap items-center gap-3">
-				<span>
-					{vm.data
-						? `Refreshed ${relativeTime(vm.data.fetchedAt)}`
-						: "Loading snapshot…"}
-				</span>
-				{!samplesOnly
-					? (["list", "details"] as const).map((kind) => (
-							<div
-								key={kind}
-								className="flex items-center gap-2"
-								title={
-									kind === "list"
-										? "Refresh PR lists after every project finishes, then wait this interval. Continues in the background."
-										: "Refresh every PR on this page, then wait this interval. Pauses in the background; resumes on return."
-								}
-							>
-								<Label
-									htmlFor={`${refreshId}-${kind}`}
-									className="text-xs font-normal text-basalt-muted-foreground"
-								>
-									{kind === "list" ? "List" : "Checks"}
-								</Label>
-								<SelectControl
-									id={`${refreshId}-${kind}`}
-									aria-label={
+				{!compact ? (
+					<span>
+						{vm.data
+							? `Snapshot loaded ${relativeTime(vm.data.fetchedAt)}`
+							: "Loading snapshot…"}
+					</span>
+				) : null}
+				<div className="flex items-center gap-3">
+					{!samplesOnly
+						? (["list", "details"] as const).map((kind) => (
+								<div
+									key={kind}
+									className="flex items-center gap-2"
+									title={
 										kind === "list"
-											? "PR list refresh cooldown"
-											: "PR checks refresh cooldown"
+											? "Refresh PR lists after every project finishes, then wait this interval. Continues in the background."
+											: "Refresh every PR on this page, then wait this interval. Pauses in the background; resumes on return."
 									}
-									value={String(
-										kind === "list"
-											? vm.listCooldownSeconds
-											: vm.detailCooldownSeconds,
-									)}
-									disabled={vm.loading || Boolean(vm.busy)}
-									onChange={(value) => {
-										void vm.setRefreshCooldown(kind, Number(value));
-									}}
-									className="h-8 w-24 text-xs"
 								>
-									{REFRESH_INTERVALS.map((seconds) => (
-										<option key={seconds} value={String(seconds)}>
-											{seconds === 0 ? "Off" : `${seconds / 60} min`}
-										</option>
-									))}
-								</SelectControl>
-							</div>
-						))
-					: null}
+									<Label
+										htmlFor={`${refreshId}-${kind}`}
+										className="text-xs font-normal text-basalt-muted-foreground"
+									>
+										{kind === "list" ? "List" : "Checks"}
+									</Label>
+									<SelectControl
+										id={`${refreshId}-${kind}`}
+										aria-label={
+											kind === "list"
+												? "PR list refresh cooldown"
+												: "PR checks refresh cooldown"
+										}
+										value={String(
+											kind === "list"
+												? vm.listCooldownSeconds
+												: vm.detailCooldownSeconds,
+										)}
+										disabled={vm.loading || Boolean(vm.busy)}
+										onChange={(value) => {
+											void vm.setRefreshCooldown(kind, Number(value));
+										}}
+										className={cn("h-8 text-xs", compact ? "w-20" : "w-24")}
+									>
+										{REFRESH_INTERVALS.map((seconds) => (
+											<option key={seconds} value={String(seconds)}>
+												{seconds === 0 ? "Off" : `${seconds / 60} min`}
+											</option>
+										))}
+									</SelectControl>
+								</div>
+							))
+						: null}
+				</div>
 			</div>
 		</div>
 	);
