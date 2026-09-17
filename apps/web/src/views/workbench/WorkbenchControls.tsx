@@ -1,9 +1,10 @@
-import { Badge, Button, Label, Switch } from "@nocoo/basalt";
+import { Badge, Button, Label } from "@nocoo/basalt";
 import { FlaskConical, Radio, RefreshCw, ScanLine } from "lucide-react";
 import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
+import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
-import { relativeTime } from "@/models/workbench";
+import { REFRESH_INTERVALS, relativeTime } from "@/models/workbench";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 
 export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
@@ -98,18 +99,24 @@ export function WorkbenchConnection({
 						: "Loading snapshot…"}
 				</span>
 				<div className="flex items-center gap-2">
-					<Switch
-						id={refreshId}
-						size="sm"
-						checked={vm.autoRefresh}
-						onCheckedChange={vm.setAutoRefresh}
-					/>
 					<Label
 						htmlFor={refreshId}
 						className="text-xs font-normal text-basalt-muted-foreground"
 					>
-						{compact ? "Auto collect" : "Auto refresh · 15s"}
+						Auto refresh
 					</Label>
+					<SelectControl
+						id={refreshId}
+						value={String(vm.refreshInterval)}
+						onChange={(value) => vm.setRefreshInterval(Number(value))}
+						className="h-8 w-24 text-xs"
+					>
+						{REFRESH_INTERVALS.map((seconds) => (
+							<option key={seconds} value={String(seconds)}>
+								{seconds === 0 ? "Off" : `${seconds / 60} min`}
+							</option>
+						))}
+					</SelectControl>
 				</div>
 			</div>
 		</div>

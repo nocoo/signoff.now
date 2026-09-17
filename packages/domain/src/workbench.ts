@@ -93,12 +93,12 @@ export const projectPatchSchema = projectWriteSchema
 export const revisionSchema = z
 	.object({ revision: z.number().int().positive() })
 	.strict();
-const visiblePullIdsSchema = z
+const scopedPullIdsSchema = z
 	.array(name)
 	.max(20)
 	.refine((ids) => new Set(ids).size === ids.length, "PR IDs must be unique");
 export const scanRequestSchema = revisionSchema.extend({
-	pullIds: visiblePullIdsSchema.optional(),
+	pullIds: scopedPullIdsSchema.optional(),
 });
 
 const actorSchema = z.object({ id: name, name });
@@ -206,8 +206,8 @@ export const collectionJobSchema = z.object({
 	completedPulls: instant,
 	totalPulls: instant.nullable(),
 	message: z.string(),
-	/** Omitted: full scan. Empty: list only. Otherwise: visible PR checks. */
-	pullIds: visiblePullIdsSchema.optional(),
+	/** Omitted: full scan. Empty: list only. Otherwise: selected PR checks. */
+	pullIds: scopedPullIdsSchema.optional(),
 });
 export type CollectionJob = z.infer<typeof collectionJobSchema>;
 export const collectorStatusSchema = z.object({
@@ -469,7 +469,7 @@ export function pullReadiness(
 		add(
 			"unknown",
 			"Awaiting checks",
-			"Keep this PR in view to collect policies, builds, and stages",
+			"Enable auto refresh on this page to collect policies, builds, and stages",
 		);
 	else if (
 		pr.coverage === "partial" ||

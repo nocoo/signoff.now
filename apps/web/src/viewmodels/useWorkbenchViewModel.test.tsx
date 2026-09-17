@@ -19,6 +19,7 @@ import {
 	patchProject,
 	scanProject,
 } from "@/models/workbenchApi";
+import { usePageCollection } from "./usePageCollection";
 import {
 	useProjectFormViewModel,
 	useWorkbenchViewModel,
@@ -96,6 +97,132 @@ afterEach(() => {
 });
 
 describe("workbench loading and URL state", () => {
+	it.each([
+		"leave page",
+		"hide tab",
+		"turn Off",
+		"change interval",
+		"change filters",
+		"next page",
+	])("cancels the remaining automatic requests after %s while a POST is pending", async (trigger) => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW * 1000);
+		const data = snapshot();
+		data.projects = data.projects
+			.filter((p) => p.provider === "ado")
+			.map((p) => ({ ...p, source: "cli", lastScannedAt: NOW }));
+		data.pullRequests = data.pullRequests.map((pull) => ({
+			...pull,
+			checksObservedAt: NOW - 180,
+		}));
+		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		const first = pending<Awaited<ReturnType<typeof scanProject>>>();
+		vi.mocked(scanProject).mockReturnValueOnce(first.promise);
+		const hook = renderHook(
+			() => {
+				const vm = useWorkbenchViewModel();
+				const location = useLocation();
+				const navigate = useNavigate();
+				usePageCollection(
+					vm.collectPage,
+					location.pathname === "/" && vm.autoRefresh && !vm.loading,
+					JSON.stringify([location.search, vm.refreshInterval]),
+				);
+				return { vm, navigate };
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<MemoryRouter>{children}</MemoryRouter>
+				),
+			},
+		);
+		await act(async () => {});
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(600);
+		});
+		expect(scanProject).toHaveBeenCalledTimes(1);
+		act(() => {
+			if (trigger === "leave page") hook.result.current.navigate("/projects");
+			if (trigger === "hide tab")
+				vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+			if (trigger === "turn Off") hook.result.current.vm.setRefreshInterval(0);
+			if (trigger === "change interval")
+				hook.result.current.vm.setRefreshInterval(600);
+			if (trigger === "change filters")
+				hook.result.current.vm.setFilter({ projectId: data.projects[0]!.id });
+			if (trigger === "next page") hook.result.current.vm.setPage(2);
+		});
+		await act(async () => {
+			first.resolve(data.scans[0]!);
+			await first.promise;
+		});
+		expect(scanProject).toHaveBeenCalledTimes(1);
+	});
+	it("defaults refresh to two minutes and persists the configured interval including Off", async () => {
+		const first = await loaded();
+		expect(first.result.current.refreshInterval).toBe(120);
+		act(() => first.result.current.setRefreshInterval(300));
+		first.unmount();
+		const second = await loaded();
+		expect(second.result.current.refreshInterval).toBe(300);
+		act(() => second.result.current.setRefreshInterval(0));
+		second.unmount();
+		const third = await loaded();
+		expect(third.result.current.refreshInterval).toBe(0);
+		expect(third.result.current.autoRefresh).toBe(false);
+	});
+	it.each([
+		"",
+		"invalid",
+		"-1",
+		"Infinity",
+		"30",
+	])("restores the two-minute default for invalid saved interval %s", async (value) => {
+		localStorage.setItem("signoff-auto-refresh-seconds", value);
+		const { result } = await loaded();
+		expect(result.current.refreshInterval).toBe(120);
+	});
+	it("uses the selected interval for both lists and checks while loading missing checks immediately", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
+		const data = snapshot();
+		data.projects = [
+			{ ...data.projects[0]!, source: "cli", lastScannedAt: NOW - 180 },
+		];
+		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
+		data.pullRequests = data.pullRequests.map((pull) => ({
+			...pull,
+			checksObservedAt: NOW - 180,
+		}));
+		vi.mocked(loadWorkbench).mockResolvedValue(data);
+		const { result } = await loaded();
+		act(() => result.current.setRefreshInterval(600));
+		await act(() => result.current.collectPage());
+		expect(scanProject).not.toHaveBeenCalled();
+		const target = result.current.pageRows[0]!.pull.id;
+		vi.mocked(loadWorkbench).mockResolvedValue({
+			...data,
+			pullRequests: data.pullRequests.map((pull) =>
+				pull.id === target ? { ...pull, checksObservedAt: null } : pull,
+			),
+		});
+		await act(() => result.current.reload());
+		await act(() => result.current.collectPage());
+		expect(scanProject).toHaveBeenCalledWith(
+			data.projects[0]!.id,
+			data.projects[0]!.revision,
+			[target],
+		);
+		vi.mocked(scanProject).mockClear();
+		vi.spyOn(Date, "now").mockReturnValue((NOW + 20) * 1000);
+		act(() => result.current.setRefreshInterval(120));
+		await act(() => result.current.collectPage());
+		expect(scanProject).toHaveBeenCalledWith(
+			data.projects[0]!.id,
+			data.projects[0]!.revision,
+			[],
+		);
+	});
 	it("prioritizes an open detail's checks even when its project is outside the table filters", async () => {
 		vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
 		const data = snapshot();
@@ -115,7 +242,7 @@ describe("workbench loading and URL state", () => {
 			`/?source=cli&project=${data.projects[0]!.id}&pr=${target.id}`,
 		);
 		expect(result.current.selected?.pull.id).toBe(target.id);
-		await act(() => result.current.collectVisible([]));
+		await act(() => result.current.collectPage());
 		expect(scanProject).toHaveBeenCalledTimes(1);
 		expect(scanProject).toHaveBeenCalledWith(
 			data.projects[1]!.id,
@@ -123,14 +250,12 @@ describe("workbench loading and URL state", () => {
 			[target.id],
 		);
 	});
-	it("automatically collects only stale PRs visible on the current page", async () => {
+	it("collects all 20 PRs on the current page and switches scope after pagination", async () => {
 		vi.spyOn(Date, "now").mockReturnValue(NOW * 1000);
 		const data = snapshot();
-		data.projects = data.projects.map((p) => ({
-			...p,
-			source: "cli",
-			lastScannedAt: NOW - 10,
-		}));
+		data.projects = data.projects
+			.filter((p) => p.provider === "ado")
+			.map((p) => ({ ...p, source: "cli", lastScannedAt: NOW - 10 }));
 		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
 		data.pullRequests = data.pullRequests.map((p) => ({
 			...p,
@@ -138,22 +263,32 @@ describe("workbench loading and URL state", () => {
 		}));
 		vi.mocked(loadWorkbench).mockResolvedValue(data);
 		const { result } = await loaded();
-		const visible = result.current.pageRows[0]!;
-		const offscreen = result.current.visible[20]!;
-		await act(() =>
-			result.current.collectVisible([visible.pull.id, offscreen.pull.id]),
-		);
-		expect(scanProject).toHaveBeenCalledTimes(1);
-		expect(scanProject).toHaveBeenCalledWith(
-			visible.project.id,
-			visible.project.revision,
-			[visible.pull.id],
-		);
+		const firstPage = result.current.pageRows.map((row) => row.pull.id);
+		expect(firstPage).toHaveLength(20);
+		await act(() => result.current.collectPage());
+		expect(
+			vi
+				.mocked(scanProject)
+				.mock.calls.flatMap((call) => call[2] ?? [])
+				.sort(),
+		).toEqual([...firstPage].sort());
 		vi.mocked(scanProject).mockClear();
-		await act(() => result.current.collectVisible([visible.pull.id]));
+		await act(() => result.current.collectPage());
 		expect(scanProject).not.toHaveBeenCalled();
-		act(() => result.current.setAutoRefresh(false));
-		await act(() => result.current.collectVisible([visible.pull.id]));
+		vi.spyOn(Date, "now").mockReturnValue((NOW + 15) * 1000);
+		act(() => result.current.setPage(2));
+		await act(() => result.current.collectPage());
+		const nextPage = result.current.pageRows.map((row) => row.pull.id);
+		expect(
+			vi
+				.mocked(scanProject)
+				.mock.calls.flatMap((call) => call[2] ?? [])
+				.sort(),
+		).toEqual([...nextPage].sort());
+		expect(nextPage.every((id) => !firstPage.includes(id))).toBe(true);
+		vi.mocked(scanProject).mockClear();
+		act(() => result.current.setRefreshInterval(0));
+		await act(() => result.current.collectPage());
 		expect(scanProject).not.toHaveBeenCalled();
 	});
 	it("refreshes a stale repository list without prefetching its PR details", async () => {
@@ -165,7 +300,7 @@ describe("workbench loading and URL state", () => {
 		data.collector = { lastSeenAt: NOW, state: "ready", message: "Connected" };
 		vi.mocked(loadWorkbench).mockResolvedValue(data);
 		const { result } = await loaded();
-		await act(() => result.current.collectVisible([]));
+		await act(() => result.current.collectPage());
 		expect(scanProject).toHaveBeenCalledWith(
 			data.projects[0]!.id,
 			data.projects[0]!.revision,
@@ -244,6 +379,9 @@ describe("workbench loading and URL state", () => {
 		expect(result.current.pageSize).toBe(20);
 		expect(result.current.pageRows).toHaveLength(20);
 		expect(result.current.filter.draft).toBe("exclude");
+		expect(result.current.refreshInterval).toBe(120);
+		act(() => result.current.setRefreshInterval(600));
+		expect(result.current.refreshInterval).toBe(600);
 		act(() => result.current.setFilter({ draft: "include" }));
 		expect(result.current.visible).toHaveLength(36);
 	});
@@ -484,16 +622,20 @@ describe("workbench loading and URL state", () => {
 	});
 	it("polls only while visible, enabled, and free of mutations", async () => {
 		const { result } = await loaded();
-		act(() => result.current.setAutoRefresh(false));
+		act(() => result.current.setRefreshInterval(0));
 		vi.useFakeTimers();
-		act(() => result.current.setAutoRefresh(true));
+		act(() => result.current.setRefreshInterval(120));
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(15000);
+			await vi.advanceTimersByTimeAsync(119_999);
+		});
+		expect(loadWorkbench).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1);
 		});
 		expect(loadWorkbench).toHaveBeenCalledTimes(2);
 		vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(15000);
+			await vi.advanceTimersByTimeAsync(120_000);
 		});
 		expect(loadWorkbench).toHaveBeenCalledTimes(2);
 		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
@@ -504,7 +646,7 @@ describe("workbench loading and URL state", () => {
 			mutation = result.current.save(draft, null);
 		});
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(15000);
+			await vi.advanceTimersByTimeAsync(120_000);
 		});
 		expect(loadWorkbench).toHaveBeenCalledTimes(2);
 		await act(async () => {
@@ -512,11 +654,69 @@ describe("workbench loading and URL state", () => {
 			await mutation;
 		});
 		expect(loadWorkbench).toHaveBeenCalledTimes(3);
-		act(() => result.current.setAutoRefresh(false));
+		act(() => result.current.setRefreshInterval(0));
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(30000);
+			await vi.advanceTimersByTimeAsync(120_000);
 		});
 		expect(loadWorkbench).toHaveBeenCalledTimes(3);
+	});
+	it("reschedules polling after an interval change without keeping the old timer", async () => {
+		const { result } = await loaded();
+		act(() => result.current.setRefreshInterval(0));
+		vi.useFakeTimers();
+		act(() => result.current.setRefreshInterval(120));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(30_000);
+		});
+		act(() => result.current.setRefreshInterval(300));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(299_999);
+		});
+		expect(loadWorkbench).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1);
+		});
+		expect(loadWorkbench).toHaveBeenCalledTimes(2);
+	});
+	it.each([
+		"queued",
+		"running",
+		"auth_required",
+	] as const)("updates %s collection progress every three seconds even with automatic refresh off", async (state) => {
+		const data: Workbench = {
+			...snapshot(),
+			collectionJobs: [
+				{
+					id: "job",
+					projectId: project.id,
+					revision: project.revision,
+					state,
+					requestedAt: NOW,
+					startedAt: NOW,
+					updatedAt: NOW,
+					completedAt: null,
+					completedPulls: 2,
+					totalPulls: 20,
+					message: "Collecting",
+				},
+			],
+		};
+		vi.mocked(loadWorkbench).mockResolvedValueOnce(data);
+		const { result } = await loaded();
+		vi.useFakeTimers();
+		act(() => result.current.setRefreshInterval(0));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(2999);
+		});
+		expect(loadWorkbench).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(1);
+		});
+		expect(loadWorkbench).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(120_000);
+		});
+		expect(loadWorkbench).toHaveBeenCalledTimes(2);
 	});
 });
 

@@ -359,7 +359,7 @@ function PullDetail({
 						</div>
 						{checksAt === null ? (
 							<AlertBanner>
-								Checks load while this PR is open and Auto collect is enabled.
+								Checks load while this PR is open and auto refresh is enabled.
 							</AlertBanner>
 						) : pull.coverage === "partial" ? (
 							<AlertBanner variant="warning">

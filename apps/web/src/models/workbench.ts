@@ -51,6 +51,9 @@ export const PULL_FILTER_PARAMS = {
 	sort: "sort",
 } as const;
 export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
+export const AUTO_REFRESH_STORAGE_KEY = "signoff-auto-refresh-seconds";
+export const REFRESH_INTERVALS = [0, 60, 120, 300, 600];
+export const DEFAULT_REFRESH_INTERVAL = 120;
 const ATTENTION = new Set(["blocked", "approval", "review", "unknown"]);
 
 export function pullRows(data: Workbench): PullRow[] {
@@ -324,7 +327,7 @@ export function canScanProject(project: Project, data: Workbench): boolean {
 
 export function collectorConnection(
 	data: Workbench | null,
-	now = Date.now() / 1000,
+	now = data?.fetchedAt ?? Date.now() / 1000,
 ) {
 	if (!data?.collector || now - data.collector.lastSeenAt > 65)
 		return {

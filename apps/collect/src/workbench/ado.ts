@@ -666,7 +666,7 @@ export async function collectProjectPulls(opts: {
 		const raw = parseRaw(
 			adoPullRequestSummarySchema,
 			await client.get(url),
-			`visible PR ${target.number}`,
+			`selected PR ${target.number}`,
 		);
 		if (
 			raw.repository.id !== target.repository.id ||
@@ -674,7 +674,7 @@ export async function collectProjectPulls(opts: {
 		)
 			throw new AdoError(
 				"bad_response",
-				"Visible PR identity changed during collection",
+				"Selected PR identity changed during collection",
 			);
 		activePrs.push(raw);
 	}
@@ -792,7 +792,9 @@ export async function collectProjectPulls(opts: {
 						rawPr: item,
 						now,
 						checksObservedAt: null,
-						collectionIssues: ["Checks load when this PR is visible."],
+						collectionIssues: [
+							"Checks load with auto refresh on the current PR page.",
+						],
 					})
 				: await enrichPullRequest(item);
 			normalizedPulls.push(normalized);
@@ -812,7 +814,7 @@ export async function collectProjectPulls(opts: {
 	const state = hasPartialDetails ? "partial" : "complete";
 	const message =
 		listOnly && !hasPartialDetails
-			? `Refreshed ${normalizedPulls.length} PR summaries. Checks load for visible PRs.`
+			? `Refreshed ${normalizedPulls.length} PR summaries. Checks load for the current PR page.`
 			: hasPartialDetails
 				? `Collected ${normalizedPulls.length} PRs with partial check/detail coverage.`
 				: `Collected ${normalizedPulls.length} PRs completely.`;

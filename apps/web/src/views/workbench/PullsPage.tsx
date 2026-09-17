@@ -39,7 +39,7 @@ import {
 	type PullRow,
 	relativeTime,
 } from "@/models/workbench";
-import { useViewportCollection } from "@/viewmodels/useViewportCollection";
+import { usePageCollection } from "@/viewmodels/usePageCollection";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { RepositoryFilters } from "./RepositoryFilters";
@@ -53,13 +53,16 @@ import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 export function PullsPage() {
 	const vm = useWorkbench();
 	const opener = useRef<HTMLElement | null>(null);
-	const table = useRef<HTMLTableElement | null>(null);
-	useViewportCollection(
-		table,
-		vm.pageRows.map(({ pull }) => pull.id),
-		vm.collectVisible,
+	usePageCollection(
+		vm.collectPage,
 		vm.autoRefresh && vm.filter.source === "cli" && !vm.loading,
-		vm.selected?.pull.id,
+		JSON.stringify([
+			vm.filter,
+			vm.page,
+			vm.refreshInterval,
+			vm.pageRows.map(({ pull }) => pull.id),
+			vm.selected?.pull.id,
+		]),
 	);
 	const metrics = [
 		{
@@ -337,7 +340,6 @@ export function PullsPage() {
 					<>
 						<div className="overflow-x-auto">
 							<Table
-								ref={table}
 								aria-label="Pull requests"
 								className="min-w-[960px] table-fixed"
 							>
@@ -409,7 +411,7 @@ export function PullsPage() {
 													<div className="space-y-1 text-xs text-basalt-muted-foreground">
 														<p>Checks not collected</p>
 														<p className="text-[11px]">
-															Loads while visible with Auto collect
+															Loads with auto refresh on this page
 														</p>
 													</div>
 												) : (

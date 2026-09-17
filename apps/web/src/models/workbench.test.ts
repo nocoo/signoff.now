@@ -426,6 +426,31 @@ describe("URL filters and review queue", () => {
 });
 
 describe("live collection presentation", () => {
+	it("judges a collector heartbeat at the snapshot time between scheduled refreshes", () => {
+		vi.spyOn(Date, "now").mockReturnValue((NOW + 600) * 1000);
+		try {
+			expect(
+				collectorConnection({
+					...snapshot,
+					fetchedAt: NOW,
+					collector: {
+						lastSeenAt: NOW - 10,
+						state: "ready",
+						message: "Connected",
+					},
+				}).state,
+			).toBe("ready");
+			expect(
+				collectorConnection({
+					...snapshot,
+					fetchedAt: NOW + 600,
+					collector: { lastSeenAt: NOW, state: "ready", message: "Connected" },
+				}).state,
+			).toBe("offline");
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
 	it("defaults to real data when available and never mixes live and sample sources", () => {
 		expect(readPullFilter(new URLSearchParams(), true).source).toBe("cli");
 		expect(readPullFilter(new URLSearchParams("source=all"), true).source).toBe(

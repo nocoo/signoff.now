@@ -7,9 +7,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
+	AUTO_REFRESH_STORAGE_KEY,
 	authorOptions,
 	canScanProject,
 	collectorConnection,
+	DEFAULT_REFRESH_INTERVAL,
 	matchesRepository,
 	PULL_FILTER_PARAMS,
 	PULL_FILTER_STORAGE_KEY,
@@ -18,6 +20,7 @@ import {
 	pullAuthorId,
 	pullMetrics,
 	pullRows,
+	REFRESH_INTERVALS,
 	readPullFilter,
 	scopePulls,
 	visiblePulls,
@@ -43,6 +46,18 @@ function storedFilters(): string {
 	}
 }
 
+function storedRefreshInterval(): number {
+	try {
+		const saved = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
+		return (
+			REFRESH_INTERVALS.find((seconds) => String(seconds) === saved) ??
+			DEFAULT_REFRESH_INTERVAL
+		);
+	} catch {
+		return DEFAULT_REFRESH_INTERVAL;
+	}
+}
+
 export function useWorkbenchViewModel() {
 	const [data, setData] = useState<Workbench | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -51,11 +66,12 @@ export function useWorkbenchViewModel() {
 	const [mutationError, setMutationError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
-	const [autoRefresh, setAutoRefresh] = useState(true);
+	const [refreshInterval, setRefreshInterval] = useState(storedRefreshInterval);
+	const autoRefresh = refreshInterval > 0;
 	const mounted = useRef(false);
 	const ticket = useRef(0);
 	const mutationLock = useRef(false);
-	const visibleAttempts = useRef(new Map<string, number>());
+	const collectionAttempts = useRef(new Map<string, number>());
 	const [params, setParams] = useSearchParams();
 	const [savedFilters, setSavedFilters] = useState(storedFilters);
 	const hasLiveProjects =
@@ -90,6 +106,14 @@ export function useWorkbenchViewModel() {
 		}
 	}, [filter, loading, savedFilters]);
 
+	useEffect(() => {
+		try {
+			localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, String(refreshInterval));
+		} catch {
+			// The current session still works when browser storage is unavailable.
+		}
+	}, [refreshInterval]);
+
 	const reload = useCallback(async () => {
 		if (!mounted.current) return;
 		const request = ++ticket.current;
@@ -119,8 +143,8 @@ export function useWorkbenchViewModel() {
 		};
 	}, [reload]);
 	const collecting =
-		data?.collectionJobs?.some(
-			(job) => job.state === "running" || job.state === "queued",
+		data?.collectionJobs?.some((job) =>
+			["running", "queued", "auth_required"].includes(job.state),
 		) ?? false;
 	useEffect(() => {
 		if (!autoRefresh && !collecting) return;
@@ -129,10 +153,10 @@ export function useWorkbenchViewModel() {
 				if (document.visibilityState === "visible" && !mutationLock.current)
 					void reload();
 			},
-			collecting ? 3000 : 15000,
+			collecting ? 3000 : refreshInterval * 1000,
 		);
 		return () => clearInterval(timer);
-	}, [autoRefresh, collecting, reload]);
+	}, [autoRefresh, refreshInterval, collecting, reload]);
 
 	const mutate = useCallback(
 		async (label: string, operation: () => Promise<string>) => {
@@ -254,8 +278,9 @@ export function useWorkbenchViewModel() {
 		[visible, page],
 	);
 
-	const collectVisible = async (ids: string[]) => {
+	const collectPage = async (signal?: AbortSignal) => {
 		if (
+			signal?.aborted ||
 			!autoRefresh ||
 			filter.source !== "cli" ||
 			document.visibilityState !== "visible" ||
@@ -264,10 +289,10 @@ export function useWorkbenchViewModel() {
 		)
 			return false;
 		const timestamp = Date.now() / 1000;
-		const candidates = selected
-			? [selected]
-			: pageRows.filter((row) => ids.includes(row.pull.id));
-		const eligible = selected
+		const externalDetail =
+			selected && !pageRows.some((row) => row.pull.id === selected.pull.id);
+		const candidates = externalDetail ? [selected] : pageRows;
+		const eligible = externalDetail
 			? [selected.project]
 			: projectOptions
 					.filter(
@@ -279,19 +304,20 @@ export function useWorkbenchViewModel() {
 			if (
 				!data ||
 				!canScanProject(project, data) ||
-				timestamp - (visibleAttempts.current.get(project.id) ?? 0) < 15
+				timestamp - (collectionAttempts.current.get(project.id) ?? 0) < 15
 			)
 				return [];
 			const listDue =
-				!selected &&
+				!externalDetail &&
 				(project.lastScannedAt === null ||
-					timestamp - project.lastScannedAt >= 120);
+					timestamp - project.lastScannedAt >= refreshInterval);
 			const pullIds = candidates
 				.filter(
 					({ pull }) =>
 						pull.projectId === project.id &&
 						(pull.checksObservedAt === null ||
-							timestamp - (pull.checksObservedAt ?? pull.observedAt) >= 120),
+							timestamp - (pull.checksObservedAt ?? pull.observedAt) >=
+								refreshInterval),
 				)
 				.map(({ pull }) => pull.id);
 			return listDue || pullIds.length
@@ -299,11 +325,12 @@ export function useWorkbenchViewModel() {
 				: [];
 		});
 		if (!requests.length) return false;
-		for (const { project } of requests)
-			visibleAttempts.current.set(project.id, timestamp);
-		return mutate("collect-visible", async () => {
-			for (const { project, pullIds } of requests)
+		return mutate("collect-page", async () => {
+			for (const { project, pullIds } of requests) {
+				if (signal?.aborted || document.visibilityState !== "visible") break;
+				collectionAttempts.current.set(project.id, timestamp);
 				await scanProject(project.id, project.revision, pullIds);
+			}
 			return "";
 		});
 	};
@@ -383,8 +410,9 @@ export function useWorkbenchViewModel() {
 		notice,
 		busy,
 		autoRefresh,
-		setAutoRefresh,
-		collectVisible,
+		refreshInterval,
+		setRefreshInterval,
+		collectPage,
 		reload,
 		page,
 		pageCount,
