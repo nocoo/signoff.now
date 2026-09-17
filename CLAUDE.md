@@ -11,7 +11,7 @@ Canonical product definition: **[docs/01-项目定位.md](./docs/01-项目定位
 | Piece | Role |
 |:------|:-----|
 | **Web** | Basalt + Vite SPA; `/` PR queue, `/projects` project CRUD, PR policies/builds/stages in a detail sheet |
-| **PR data today** | Real ADO projects and repository scopes, plus four sample projects / 38 PRs selectable separately |
+| **PR data today** | Real ADO projects and repository scopes, plus five sample projects / 46 PRs (ADO and GitHub) selectable separately |
 | **PR collection** | Local `az` tokens → ADO API → provider-neutral snapshots → local Worker jobs/staging → D1; GitHub remains planned |
 | **DB** | Cloudflare D1; local development uses Wrangler SQLite in `.wrangler/state/v3/d1/` |
 | **Existing analytics** | Activity/Score and the ADO activity CLI remain available; Dashboard moved to `/insights` |
@@ -38,9 +38,9 @@ docs/01-*.md    # product docs
 ```bash
 bun run dev
 bun run db:migrate:local
-bun run db:seed:local # resets the four named demo projects only
+bun run db:seed:local # resets the five named demo projects only
 bun run dev:worker   # local upstream + SIGNOFF_DEMO_MODE=1
-bun run dev:collector # watch UI queue and refresh real ADO projects
+bun run dev:collector # process UI requests; auto refresh covers the current PR page, default every 2 minutes
 bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
 bun run test / test:coverage
 bun run lint

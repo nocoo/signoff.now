@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-	breadcrumbsFromPathname,
-	NAV_GROUPS,
-	ROUTE_LABELS,
-} from "./navigation";
+import { breadcrumbsFromPathname, NAV_GROUPS } from "./navigation";
 
 describe("navigation", () => {
 	test("nav groups cover core product routes", () => {
@@ -16,23 +12,28 @@ describe("navigation", () => {
 		expect(hrefs).toContain("/activity");
 	});
 
-	test("route labels", () => {
-		expect(ROUTE_LABELS.developers).toBe("Developers");
-		expect(ROUTE_LABELS.settings).toBe("Settings");
+	test("directory breadcrumbs use the navigation group without inventing a destination", () => {
+		expect(breadcrumbsFromPathname("/developers/")).toEqual([
+			{ label: "Directory" },
+			{ label: "Developers" },
+		]);
 	});
 
 	test("breadcrumbs root", () => {
-		expect(breadcrumbsFromPathname("/")).toEqual([{ label: "Pull requests" }]);
+		expect(breadcrumbsFromPathname("/")).toEqual([
+			{ label: "Workspace" },
+			{ label: "Pull requests" },
+		]);
 	});
 
 	test("breadcrumbs nested", () => {
 		const items = breadcrumbsFromPathname("/settings");
-		expect(items[0]).toEqual({ label: "Home", href: "/" });
+		expect(items[0]).toEqual({ label: "System" });
 		expect(items[1]).toEqual({ label: "Settings" });
 	});
 
 	test("breadcrumbs unknown segment falls back to raw name", () => {
 		const items = breadcrumbsFromPathname("/unknown-page");
-		expect(items[1]).toEqual({ label: "unknown-page" });
+		expect(items).toEqual([{ label: "unknown-page" }]);
 	});
 });

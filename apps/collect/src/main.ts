@@ -71,33 +71,23 @@ async function main(): Promise<void> {
 	workbench
 		.command("watch")
 		.description(
-			"Keep the local collector online for UI scan requests and scheduled refreshes",
+			"Process visible-PR collection and scan requests from the local UI",
 		)
 		.option("--api-base <url>", "Local Worker origin", "http://127.0.0.1:37042")
-		.option(
-			"--interval <seconds>",
-			"Minimum time between automatic project scans (30–3600)",
-			"120",
-		)
-		.action(async (options: { apiBase: string; interval: string }) => {
-			const interval = Number(options.interval);
-			if (!Number.isInteger(interval) || interval < 30 || interval > 3600)
-				throw new Error(
-					"Scan interval must be an integer from 30 to 3600 seconds",
-				);
+		.action(async (options: { apiBase: string }) => {
 			const { createCollectionClient } = await import("./workbench/client.ts");
 			const { createAdoClient } = await import("./ado/client.ts");
 			const { collectProjectPulls } = await import("./workbench/ado.ts");
-			const { queueDueProjects, runCollectionOnce, collectionError } =
-				await import("./workbench/run.ts");
+			const { runCollectionOnce, collectionError } = await import(
+				"./workbench/run.ts"
+			);
 			const api = createCollectionClient({ apiBase: options.apiBase });
 			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
 			log.info(
-				`Local collector online. Automatic scans every ${interval}s; UI requests checked every 3s.`,
+				"Local collector online. UI requests checked every 3s; only visible PR checks are collected automatically.",
 			);
 			for (;;) {
 				try {
-					await queueDueProjects(api, interval);
 					const result = await runCollectionOnce({
 						api,
 						ado,

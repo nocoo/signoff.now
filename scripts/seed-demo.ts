@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { demoWorkspace } from "../packages/domain/src/demo.js";
 
-// This command has no remote option. It resets only the four named demo projects.
+// This command has no remote option. It resets only the named demo projects.
 if (process.argv.length > 2)
 	throw new Error("db:seed:local takes no arguments and only writes local D1");
 const fixture = demoWorkspace(Math.floor(Date.now() / 1000));
@@ -19,8 +19,8 @@ const statements = [
 	...fixture.projects.map(
 		(
 			p,
-		) => `INSERT INTO projects (id, provider, name, organization, project_key, description, owner, enabled, source, revision, created_at, updated_at, last_scanned_at, scan_state, scan_message)
-		VALUES (${[p.id, p.provider, p.name, p.organization, p.projectKey, p.description, p.owner, Number(p.enabled), p.source, p.revision, p.createdAt, p.updatedAt, p.lastScannedAt, p.scanState, p.scanMessage].map(sql).join(",")});`,
+		) => `INSERT INTO projects (id, provider, name, organization, project_key, repositories_json, description, owner, enabled, source, revision, created_at, updated_at, last_scanned_at, scan_state, scan_message)
+		VALUES (${[p.id, p.provider, p.name, p.organization, p.projectKey, JSON.stringify(p.repositories), p.description, p.owner, Number(p.enabled), p.source, p.revision, p.createdAt, p.updatedAt, p.lastScannedAt, p.scanState, p.scanMessage].map(sql).join(",")});`,
 	),
 	...fixture.pullRequests.map(
 		(

@@ -100,9 +100,9 @@ describe("normalized PR contract", () => {
 			action: "1 more approval needed",
 		});
 	});
-	test("contains 38 persistent-ready scenarios across four projects", () => {
-		expect(fixture.projects).toHaveLength(4);
-		expect(fixture.pullRequests).toHaveLength(38);
+	test("contains 46 persistent-ready scenarios across five projects", () => {
+		expect(fixture.projects).toHaveLength(5);
+		expect(fixture.pullRequests).toHaveLength(46);
 		expect(
 			workbenchSchema.safeParse({
 				...fixture,
@@ -133,18 +133,49 @@ describe("normalized PR contract", () => {
 		]);
 		expect(
 			new Set(fixture.pullRequests.map((pr) => pr.repository.id)).size,
-		).toBe(12);
+		).toBe(13);
+	});
+	test("organizes GitHub samples by host, owner, and repository", () => {
+		const github = fixture.projects.find((p) => p.provider === "github");
+		expect(github).toMatchObject({
+			organization: "github.com",
+			projectKey: "nocoo",
+			repositories: ["signoff.now"],
+			source: "demo",
+		});
+		if (!github) throw new Error("Expected the GitHub sample project");
+		const pulls = fixture.pullRequests.filter((p) => p.projectId === github.id);
+		expect(pulls).toHaveLength(8);
+		expect(pulls.every((p) => p.repository.name === "signoff.now")).toBe(true);
+		expect(pulls[0]?.activity.at(-1)?.actor).toBe("GitHub Actions");
+		expect(pulls[0]?.policies[0]?.name).toBe("Linked issue");
+		expect(projectUrl(github)).toBe("https://github.com/nocoo");
+		expect(pullUrl(github, pulls[0]!)).toBe(
+			"https://github.com/nocoo/signoff.now/pull/101",
+		);
+	});
+	test("includes an ADO sample with one remaining required policy", () => {
+		const pull = fixture.pullRequests.find((pr) =>
+			pr.policies.some((policy) => policy.name === "Proof Of Presence"),
+		);
+		expect(pull).toBeDefined();
+		if (!pull) throw new Error("Expected a PoP sample");
+		const owner = fixture.projects.find((p) => p.id === pull.projectId)!;
+		const readiness = pullReadiness(pull, owner);
+		expect(readiness.label).toBe("Policy failed");
+		expect(readiness.issues).toHaveLength(1);
+		expect(pull.builds.every((build) => build.state === "passed")).toBe(true);
+		expect(pull.description).toContain("## Summary");
 	});
 	test("retains one provider-neutral shape and safely constructs provider links", () => {
 		const github = projectSchema.parse({
 			...project,
 			provider: "github",
-			projectKey: "platform-sdk",
+			organization: "github.com",
+			projectKey: "northstar-demo",
 		});
 		expect(pullRequestSchema.parse(ready)).toEqual(ready);
-		expect(projectUrl(github)).toBe(
-			"https://github.com/northstar-demo/platform-sdk",
-		);
+		expect(projectUrl(github)).toBe("https://github.com/northstar-demo");
 		expect(pullUrl(github, ready)).toContain(`/pull/${ready.number}`);
 		expect(
 			pullUrl({ ...project, projectKey: "Shared Platform" }, ready),
@@ -178,6 +209,19 @@ describe("normalized PR contract", () => {
 });
 
 describe("merge readiness", () => {
+	test("keeps uncollected checks unknown while preserving known blockers", () => {
+		const pull = { ...ready, checksObservedAt: null };
+		expect(pullReadiness(pull, project)).toMatchObject({
+			kind: "unknown",
+			label: "Awaiting checks",
+		});
+		expect(
+			pullReadiness({ ...pull, mergeable: "conflicts" }, project).label,
+		).toBe("Merge conflict");
+		expect(pullReadiness({ ...pull, state: "merged" }, project).kind).toBe(
+			"merged",
+		);
+	});
 	test("consolidates identical next actions from distinct policy gates", () => {
 		const policies = ["review-policy-a", "review-policy-b"].map((id) => ({
 			id,

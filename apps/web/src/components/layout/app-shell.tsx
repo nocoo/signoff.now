@@ -1,6 +1,7 @@
 import {
 	Button,
 	ContentIsland,
+	SegmentControl,
 	Sheet,
 	SheetContent,
 	SheetDescription,
@@ -12,6 +13,7 @@ import {
 	AppSkipLink,
 	AppShell as BasaltAppShell,
 } from "@nocoo/basalt/components/app-shell";
+import { Breadcrumbs } from "@nocoo/basalt/components/breadcrumbs";
 import { Menu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
@@ -19,6 +21,9 @@ import { Github } from "@/components/icons/github";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
 import { fetchMe } from "@/models/entitiesApi";
+import type { PullFilter } from "@/models/workbench";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
+import { CollectionToast } from "@/views/workbench/CollectionToast";
 import { HeaderTooltip, HexlyLink } from "./header-links";
 import { Sidebar } from "./sidebar";
 import { ThemeToggle } from "./theme-toggle";
@@ -42,6 +47,7 @@ function persistSidebarState(collapsed: boolean): void {
 }
 
 export function AppShell() {
+	const vm = useWorkbench();
 	const isMobile = useIsMobile();
 	const location = useLocation();
 	const [collapsed, setCollapsed] = useState(storedSidebarState);
@@ -75,8 +81,6 @@ export function AppShell() {
 		persistSidebarState(next);
 	};
 	const trail = breadcrumbsFromPathname(location.pathname);
-	const current = trail[trail.length - 1]?.label ?? "Pull requests";
-	const ancestors = trail.slice(0, -1);
 
 	return (
 		<BasaltAppShell className="relative">
@@ -115,42 +119,60 @@ export function AppShell() {
 			<AppMain tabIndex={-1}>
 				<AppHeader
 					leading={
-						isMobile ? (
-							<HeaderTooltip label="Open navigation">
-								<Button
-									ref={menuRef}
-									variant="ghost"
-									size="icon"
-									className="h-8 w-8"
-									onClick={() => setMobileOpen(true)}
-									aria-label="Open navigation"
-								>
-									<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
-								</Button>
-							</HeaderTooltip>
-						) : null
+						<>
+							{isMobile ? (
+								<HeaderTooltip label="Open navigation">
+									<Button
+										ref={menuRef}
+										variant="ghost"
+										size="icon"
+										className="h-8 w-8"
+										onClick={() => setMobileOpen(true)}
+										aria-label="Open navigation"
+									>
+										<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
+									</Button>
+								</HeaderTooltip>
+							) : null}
+							<Breadcrumbs
+								items={trail}
+								className="min-w-0 [&>span]:min-w-0 [&>span>span]:truncate [&_svg]:shrink-0"
+							/>
+						</>
 					}
-					breadcrumbs={ancestors}
-					title={current}
 					actions={
 						<>
-							<HeaderTooltip label="GitHub repository">
-								<Button variant="ghost" size="icon" asChild>
-									<a
-										href="https://github.com/nocoo/signoff.now"
-										target="_blank"
-										rel="noopener noreferrer"
-										aria-label="GitHub repository"
-									>
-										<Github
-											className="h-[18px] w-[18px]"
-											aria-hidden
-											strokeWidth={1.5}
-										/>
-									</a>
-								</Button>
-							</HeaderTooltip>
-							<HexlyLink />
+							<SegmentControl
+								legend="Data source"
+								className="mr-2 [&>legend]:sr-only [&_[data-slot=segment-control-viewport]]:overflow-visible [&_[data-slot=segment-control-viewport]]:pb-0"
+								value={vm.filter.source}
+								onValueChange={(source) =>
+									vm.setFilter({ source: source as PullFilter["source"] })
+								}
+								options={[
+									{ value: "cli", label: "Live" },
+									{ value: "demo", label: "Sample" },
+								]}
+							/>
+							<div className="hidden items-center gap-1 sm:flex">
+								<HeaderTooltip label="GitHub repository">
+									<Button variant="ghost" size="icon" asChild>
+										<a
+											href="https://github.com/nocoo/signoff.now"
+											target="_blank"
+											rel="noopener noreferrer"
+											aria-label="GitHub repository"
+										>
+											<Github
+												className="h-[18px] w-[18px]"
+												aria-hidden
+												strokeWidth={1.5}
+											/>
+										</a>
+									</Button>
+								</HeaderTooltip>
+								<HexlyLink />
+							</div>
 							<ThemeToggle aria-label="Change theme" />
 						</>
 					}
@@ -161,6 +183,7 @@ export function AppShell() {
 					</ContentIsland>
 				</div>
 			</AppMain>
+			<CollectionToast />
 		</BasaltAppShell>
 	);
 }

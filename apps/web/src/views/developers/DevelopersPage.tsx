@@ -26,7 +26,7 @@ export function DevelopersPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Developers"
-				description="Roster used for identity matching (alias + email suffix)."
+				description="Manage the developer roster and match contribution identities."
 				actions={
 					<>
 						<p className="text-xs text-basalt-muted-foreground">

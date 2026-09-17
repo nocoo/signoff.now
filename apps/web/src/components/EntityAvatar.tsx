@@ -3,6 +3,7 @@ import { avatarColor, avatarInitial, usableAvatarUrl } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 
 const SIZES = {
+	xs: "h-5 w-5 text-[9px]",
 	sm: "h-6 w-6 text-[10px]",
 	md: "h-8 w-8 text-xs",
 	lg: "h-10 w-10 text-sm",
@@ -17,7 +18,7 @@ export type EntityAvatarProps = {
 
 /**
  * A team or developer avatar: the custom image when there is a usable one,
- * otherwise an initial on a colour derived from the name.
+ * otherwise two initials on a colour derived from the name.
  *
  * Radix falls back on its own when the image 404s, so a dead URL degrades to
  * the generated swatch rather than a broken-image icon.
@@ -35,12 +36,12 @@ export function EntityAvatar({
 }: EntityAvatarProps) {
 	const src = usableAvatarUrl(avatarUrl);
 	return (
-		<Avatar className={cn(SIZES[size], className)}>
+		<Avatar aria-hidden className={cn(SIZES[size], className)}>
 			{src ? (
 				<AvatarImage src={src} alt="" referrerPolicy="no-referrer" />
 			) : null}
 			<AvatarFallback
-				className="font-medium text-white"
+				className="font-medium text-white [font-size:inherit]"
 				style={{ backgroundColor: avatarColor(name) }}
 			>
 				{avatarInitial(name)}

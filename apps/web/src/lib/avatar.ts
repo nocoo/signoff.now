@@ -119,14 +119,7 @@ export function contrastTextColor(hex: string): "#000000" | "#FFFFFF" {
 	return blackContrast >= whiteContrast ? "#000000" : "#FFFFFF";
 }
 
-/**
- * The glyph shown when there is no image.
- *
- * Latin names are commonly "Ada Lovelace", where the leading letter reads as
- * the person; Chinese names are commonly 张伟, where the leading character is
- * the surname and shared by millions, so the two trailing characters carry the
- * identity. Hence CJK takes the given name, everything else takes one letter.
- */
+/** Two initials, or two characters for single names, when there is no image. */
 export function avatarInitial(name: string): string {
 	const trimmed = name.trim();
 	if (!trimmed) {
@@ -135,9 +128,14 @@ export function avatarInitial(name: string): string {
 	const chars = [...trimmed];
 	const cjk = /\p{Script=Han}/u;
 	if (cjk.test(chars[0] as string)) {
-		return chars.length > 1 ? chars.slice(1, 3).join("") : (chars[0] as string);
+		return chars.slice(-2).join("");
 	}
-	return (chars[0] as string).toUpperCase();
+	const words = trimmed.split(/\s+/u);
+	return (
+		words.length > 1
+			? `${chars[0]}${[...(words[words.length - 1] as string)][0]}`
+			: chars.slice(0, 2).join("")
+	).toUpperCase();
 }
 
 /**

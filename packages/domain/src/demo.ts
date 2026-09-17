@@ -14,6 +14,7 @@ type Scenario =
 	| "canceled"
 	| "policy"
 	| "approval"
+	| "presence"
 	| "running"
 	| "queued"
 	| "conflict"
@@ -40,6 +41,7 @@ const person = (index: number) => PEOPLE[index % PEOPLE.length] ?? PEOPLE[0];
 
 const CATALOG: readonly {
 	id: string;
+	provider: Project["provider"];
 	name: string;
 	organization: string;
 	projectKey: string;
@@ -51,6 +53,7 @@ const CATALOG: readonly {
 }[] = [
 	{
 		id: "demo-platform",
+		provider: "ado",
 		name: "Core Platform",
 		organization: "northstar-demo",
 		projectKey: "Platform",
@@ -75,6 +78,7 @@ const CATALOG: readonly {
 	},
 	{
 		id: "demo-commerce",
+		provider: "ado",
 		name: "Commerce",
 		organization: "northstar-demo",
 		projectKey: "Commerce",
@@ -87,7 +91,7 @@ const CATALOG: readonly {
 			["canceled", "Add tax calculation for European markets"],
 			["review", "Support partial refunds on split orders"],
 			["running", "Persist checkout recovery sessions"],
-			["approval", "Enable the new billing reconciliation job"],
+			["presence", "Enable the new billing reconciliation job"],
 			["ready", "Validate inventory before confirming an order"],
 			["draft", "Introduce multi-currency price display"],
 			["merged", "Handle duplicate invoice notifications"],
@@ -97,6 +101,7 @@ const CATALOG: readonly {
 	},
 	{
 		id: "demo-devex",
+		provider: "ado",
 		name: "Developer Experience",
 		organization: "fabrikam-demo",
 		projectKey: "Developer Experience",
@@ -118,6 +123,7 @@ const CATALOG: readonly {
 	},
 	{
 		id: "demo-mobile",
+		provider: "ado",
 		name: "Mobile Apps",
 		organization: "northstar-demo",
 		projectKey: "Mobile",
@@ -133,6 +139,27 @@ const CATALOG: readonly {
 			["draft", "Add a compact layout for small screens"],
 			["merged", "Fix attachment previews in dark mode"],
 			["closed", "Experiment with predictive list prefetching"],
+		],
+	},
+	{
+		id: "demo-github-nocoo",
+		provider: "github",
+		name: "nocoo",
+		organization: "github.com",
+		projectKey: "nocoo",
+		owner: "Maya Chen",
+		description: "GitHub repositories and Actions in the shared PR workbench.",
+		repositories: ["signoff.now"],
+		firstNumber: 101,
+		pulls: [
+			["failed", "Keep reviewer votes in sync after new commits"],
+			["review", "Add repository ownership to the PR queue"],
+			["running", "Run browser checks for the compact workbench"],
+			["ready", "Preserve filters between workbench visits"],
+			["approval", "Publish the preview after environment approval"],
+			["draft", "Explore issue triage alongside pull requests"],
+			["merged", "Improve keyboard navigation in PR details"],
+			["closed", "Experiment with a daily review digest"],
 		],
 	},
 ];
@@ -298,6 +325,7 @@ const ACTIVITY_TITLES: Record<Scenario, string> = {
 	canceled: "PR validation was canceled",
 	policy: "Dependency policy blocked the pull request",
 	approval: "Deployment is waiting for approval",
+	presence: "Only Proof of Presence human verification remains",
 	running: "PR validation is running",
 	queued: "PR validation is waiting for a build agent",
 	conflict: "Merge conflicts detected",
@@ -311,6 +339,12 @@ const ACTIVITY_TITLES: Record<Scenario, string> = {
 	unknown: "Incomplete build timeline",
 };
 
+function descriptionFor(scenario: Scenario, title: string): string {
+	return scenario === "presence"
+		? `## Summary\n\n${title}.\n\nThe automated checks and required reviews are complete. **Proof of Presence (PoP)** needs human verification before merging.\n\n### Validation\n\n| Gate | Status |\n| --- | --- |\n| Build and tests | Passed |\n| Code review | Approved |\n| PoP | Awaiting human verification |\n\n- [x] Automated validation\n- [x] Required reviews\n- [ ] Complete PoP in Azure DevOps`
+		: `## Summary\n\n${title}.\n\nIncludes **regression coverage** and a staged rollout. Review the required checks and deployment gates before merging.`;
+}
+
 export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 	const definition = CATALOG.find((d) => d.id === project.id);
 	const templates: readonly [Scenario, string][] = definition?.pulls ?? [
@@ -322,6 +356,9 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 		["draft", "Introduce a shared health endpoint"],
 	];
 	const repositories = definition?.repositories ?? ["services", "web-client"];
+	const linkedWork = project.provider === "github" ? "issue" : "work item";
+	const buildActor =
+		project.provider === "github" ? "GitHub Actions" : "Azure Pipelines";
 	return templates.map(([scenario, title], index) => {
 		const number = (definition?.firstNumber ?? 100) + index;
 		const id = `${project.id}-pr-${number}`;
@@ -340,7 +377,7 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				name: repositoryName,
 			},
 			title,
-			description: `${title}.\n\nIncludes regression coverage and a staged rollout. Review the required checks and deployment gates before merging.`,
+			description: descriptionFor(scenario, title),
 			author,
 			sourceBranch: `${scenario === "failed" || scenario === "conflict" ? "fix" : "feature"}/${title
 				.toLowerCase()
@@ -374,12 +411,24 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				},
 			],
 			policies: [
+				...(scenario === "presence"
+					? [
+							{
+								id: "proof-of-presence",
+								name: "Proof Of Presence",
+								state: "failed",
+								required: true,
+								detail: "Human verification is required in Azure DevOps.",
+								owner: author.name,
+							},
+						]
+					: []),
 				{
 					id: "linked-work",
-					name: "Linked work item",
+					name: `Linked ${linkedWork}`,
 					state: "passed",
 					required: true,
-					detail: `Linked to work item #${7600 + index}`,
+					detail: `Linked to ${linkedWork} #${7600 + index}`,
 					owner: author.name,
 				},
 				{
@@ -442,7 +491,7 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				{
 					id: `${id}-build`,
 					at: updatedAt,
-					actor: "Azure Pipelines",
+					actor: buildActor,
 					title: ACTIVITY_TITLES[scenario],
 					detail:
 						scenario === "failed"
@@ -463,9 +512,10 @@ export function demoWorkspace(now: number): {
 		projectSchema.parse({
 			id: d.id,
 			name: d.name,
-			provider: "ado",
+			provider: d.provider,
 			organization: d.organization,
 			projectKey: d.projectKey,
+			repositories: d.repositories,
 			description: d.description,
 			owner: d.owner,
 			enabled: true,

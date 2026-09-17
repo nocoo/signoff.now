@@ -1,11 +1,16 @@
 import { demoWorkspace } from "@signoff/domain/demo";
-import type { Workbench } from "@signoff/domain/workbench";
+import {
+	DEFAULT_READINESS_RULES,
+	type Workbench,
+} from "@signoff/domain/workbench";
 import { describe, expect, it, vi } from "vitest";
 import {
+	authorOptions,
 	canScanProject,
 	collectorConnection,
 	DEFAULT_PULL_FILTER,
 	duration,
+	nextPullSort,
 	projectSummaries,
 	pullMetrics,
 	pullRows,
@@ -14,6 +19,7 @@ import {
 	repositoryOptions,
 	scopePulls,
 	visiblePulls,
+	writePullFilter,
 } from "./workbench";
 
 const NOW = 1_800_000_000;
@@ -26,8 +32,17 @@ const snapshot: Workbench = {
 const rows = pullRows(snapshot);
 
 describe("workbench projections", () => {
+	it("normalizes legacy draft links into the dedicated draft filter", () => {
+		expect(readPullFilter(new URLSearchParams("status=draft"))).toMatchObject({
+			status: "all",
+			draft: "only",
+		});
+		expect(
+			readPullFilter(new URLSearchParams("status=draft&draft=include")),
+		).toMatchObject({ status: "all", draft: "include" });
+	});
 	it("joins PRs to projects and omits snapshots without their project", () => {
-		expect(rows).toHaveLength(38);
+		expect(rows).toHaveLength(46);
 		expect(rows.find((row) => row.pull.number === 4821)).toMatchObject({
 			project: { name: "Core Platform" },
 			readiness: { kind: "blocked" },
@@ -37,13 +52,13 @@ describe("workbench projections", () => {
 	});
 	it("counts only open PRs in readiness metrics, including drafts", () => {
 		expect(pullMetrics(rows)).toEqual({
-			open: 30,
-			attention: 15,
-			running: 5,
-			ready: 6,
-			draft: 4,
-			merged: 5,
-			closed: 3,
+			open: 36,
+			attention: 18,
+			running: 6,
+			ready: 7,
+			draft: 5,
+			merged: 6,
+			closed: 4,
 		});
 		expect(pullMetrics([])).toEqual({
 			open: 0,
@@ -84,13 +99,12 @@ describe("workbench projections", () => {
 		);
 		expect(empty[0]).toMatchObject({
 			total: 0,
-			repositories: [],
 			scans: [],
 			metrics: { open: 0 },
 		});
 	});
 	it("deduplicates repository IDs while keeping equally named repositories in different projects", () => {
-		expect(repositoryOptions(rows)).toHaveLength(12);
+		expect(repositoryOptions(rows)).toHaveLength(13);
 		expect(
 			repositoryOptions(rows, "demo-commerce").map((repo) => repo.name),
 		).toEqual(["billing-api", "checkout", "orders"]);
@@ -110,9 +124,175 @@ describe("workbench projections", () => {
 			"z",
 		]);
 	});
+	it("keeps repository statistics separate across ADO organizations and includes configured empty repositories", () => {
+		const meetings = {
+			...snapshot.projects[0],
+			id: "meetings",
+			name: "Meeting workspace",
+			organization: "msdata",
+			projectKey: "Vienna",
+			repositories: ["online-meetings", "empty-repo"],
+		};
+		const whiteboard = {
+			...meetings,
+			id: "whiteboard",
+			name: "Whiteboard workspace",
+			organization: "intentional",
+			projectKey: "intent",
+			repositories: ["whiteboard-app"],
+		};
+		const input = pullRows({
+			...snapshot,
+			projects: [meetings, whiteboard],
+			pullRequests: [
+				{
+					...snapshot.pullRequests[0],
+					id: "meeting-open",
+					projectId: meetings.id,
+					repository: { id: "shared-id", name: "online-meetings" },
+					state: "open",
+				},
+				{
+					...snapshot.pullRequests[0],
+					id: "meeting-merged",
+					projectId: meetings.id,
+					repository: { id: "shared-id", name: "online-meetings" },
+					state: "merged",
+				},
+				{
+					...snapshot.pullRequests[0],
+					id: "whiteboard-open",
+					projectId: whiteboard.id,
+					repository: { id: "shared-id", name: "whiteboard-app" },
+					state: "open",
+				},
+			],
+		});
+		const summaries = repositoryOptions(input, "", [meetings, whiteboard]);
+		expect(summaries.map((repo) => repo.name)).toEqual([
+			"empty-repo",
+			"online-meetings",
+			"whiteboard-app",
+		]);
+		expect(new Set(summaries.map((repo) => repo.key)).size).toBe(3);
+		expect(summaries[0]).toMatchObject({
+			project: { organization: "msdata", projectKey: "Vienna" },
+			total: 0,
+			metrics: { open: 0 },
+		});
+		expect(summaries[1]).toMatchObject({
+			total: 2,
+			metrics: { open: 1, attention: 1, merged: 1 },
+		});
+		expect(summaries[2]).toMatchObject({
+			total: 1,
+			metrics: { open: 1, merged: 0 },
+		});
+		expect(
+			scopePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				organization: "MSDATA",
+				projectId: meetings.id,
+				repository: "shared-id",
+			}).map(({ pull }) => pull.id),
+		).toEqual(["meeting-open", "meeting-merged"]);
+		expect(
+			scopePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				organization: "intentional",
+				projectId: meetings.id,
+			}),
+		).toEqual([]);
+		expect(
+			scopePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				projectId: meetings.id,
+				repository: "ONLINE-MEETINGS",
+			}),
+		).toHaveLength(2);
+	});
 });
 
 describe("URL filters and review queue", () => {
+	it("excludes drafts by default and combines draft and multiple author filters before counting", () => {
+		const defaults = readPullFilter(new URLSearchParams());
+		expect(defaults.draft).toBe("exclude");
+		expect(defaults.authors).toEqual([]);
+		expect(scopePulls(rows, defaults).every(({ pull }) => !pull.draft)).toBe(
+			true,
+		);
+		const included = scopePulls(rows, { ...defaults, draft: "include" });
+		expect(included).toHaveLength(46);
+		const drafts = scopePulls(rows, { ...defaults, draft: "only" });
+		expect(drafts).toHaveLength(5);
+		expect(drafts.every(({ pull }) => pull.draft)).toBe(true);
+		const selected = scopePulls(rows, {
+			...defaults,
+			authors: ["ado:maya", "ado:alex"],
+		});
+		expect(selected.length).toBeGreaterThan(0);
+		expect(
+			selected.every(
+				({ pull, project }) =>
+					!pull.draft &&
+					project.provider === "ado" &&
+					["maya", "alex"].includes(pull.author.id),
+			),
+		).toBe(true);
+		expect(pullMetrics(selected).draft).toBe(0);
+		expect(scopePulls(rows, { ...defaults, authors: ["missing"] })).toEqual([]);
+	});
+	it("keeps same-name author identities distinct across providers", () => {
+		const options = authorOptions(rows);
+		expect(
+			options
+				.filter((author) => author.name === "Maya Chen")
+				.map((author) => author.id)
+				.sort(),
+		).toEqual(["ado:maya", "github:maya"]);
+		expect(new Set(options.map((author) => author.id)).size).toBe(
+			options.length,
+		);
+	});
+	it("round-trips all filters without persisting pagination or PR details", () => {
+		const filter = {
+			...DEFAULT_PULL_FILTER,
+			organization: "github.com",
+			projectId: "demo-github-nocoo",
+			repository: "signoff.now",
+			query: "checks",
+			draft: "include" as const,
+			authors: ["github:maya", "github:alex"],
+			state: "all" as const,
+			sort: "updated" as const,
+		};
+		expect(readPullFilter(writePullFilter(filter))).toEqual(filter);
+		expect(writePullFilter(DEFAULT_PULL_FILTER).toString()).toBe("source=demo");
+		expect(
+			readPullFilter(
+				new URLSearchParams(
+					"draft=invalid&author=&author=ado%3Amaya&author=ado%3Amaya",
+				),
+			),
+		).toMatchObject({ draft: "exclude", authors: ["ado:maya"] });
+	});
+	it("filters repository counters without removing empty repository choices", () => {
+		const matching = scopePulls(rows, {
+			...DEFAULT_PULL_FILTER,
+			authors: ["github:maya"],
+		});
+		const summaries = projectSummaries(snapshot, rows, matching);
+		expect(summaries.flatMap((summary) => summary.repositories)).toHaveLength(
+			13,
+		);
+		expect(
+			summaries[0]?.repositories.every((repo) => repo.metrics.open === 0),
+		).toBe(true);
+		expect(
+			summaries.find((summary) => summary.project.provider === "github")
+				?.metrics.open,
+		).toBe(1);
+	});
 	it("uses defaults and rejects unknown enum values from shared URLs", () => {
 		expect(readPullFilter(new URLSearchParams())).toEqual(DEFAULT_PULL_FILTER);
 		expect(
@@ -123,24 +303,28 @@ describe("URL filters and review queue", () => {
 		expect(
 			readPullFilter(
 				new URLSearchParams(
-					"q=core&project=p&repo=r&state=all&status=unknown&sort=oldest",
+					"q=core&org=MSDATA&project=p&repo=r&state=all&status=unknown&sort=oldest",
 				),
 			),
 		).toEqual({
-			source: "all",
+			source: "demo",
+			draft: "exclude",
+			authors: [],
 			query: "core",
+			organization: "msdata",
 			projectId: "p",
 			repository: "r",
 			state: "all",
 			status: "unknown",
 			sort: "oldest",
+			sortDirection: "asc",
 		});
 	});
 	it("scopes by project, repository, and meaningful search fields before counting", () => {
-		expect(scopePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(38);
+		expect(scopePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(41);
 		expect(
 			scopePulls(rows, { ...DEFAULT_PULL_FILTER, projectId: "demo-platform" }),
-		).toHaveLength(12);
+		).toHaveLength(11);
 		expect(
 			scopePulls(rows, {
 				...DEFAULT_PULL_FILTER,
@@ -180,27 +364,27 @@ describe("URL filters and review queue", () => {
 		).toEqual([]);
 	});
 	it("keeps terminal states out of the default queue and supports exact readiness filters", () => {
-		expect(visiblePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(30);
+		expect(visiblePulls(rows, DEFAULT_PULL_FILTER)).toHaveLength(36);
 		expect(
 			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "merged" }),
-		).toHaveLength(5);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "closed" }),
-		).toHaveLength(3);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "all" }),
-		).toHaveLength(38);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "attention" }),
-		).toHaveLength(15);
-		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "ready" }),
 		).toHaveLength(6);
 		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "draft" }),
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "closed" }),
 		).toHaveLength(4);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, state: "all" }),
+		).toHaveLength(46);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "attention" }),
+		).toHaveLength(18);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "ready" }),
+		).toHaveLength(7);
+		expect(
+			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "draft" }),
+		).toHaveLength(5);
 	});
-	it("prioritizes blockers and keeps timestamp ties deterministic without mutating input", () => {
+	it("prioritizes ready PRs and keeps timestamp ties deterministic without mutating input", () => {
 		const blocked = {
 			...rows[0],
 			pull: { ...rows[0].pull, id: "blocked", updatedAt: 20, createdAt: 20 },
@@ -214,11 +398,13 @@ describe("URL filters and review queue", () => {
 		const input = [z, a, blocked];
 		expect(
 			visiblePulls(input, DEFAULT_PULL_FILTER).map((row) => row.pull.id),
-		).toEqual(["blocked", "a", "z"]);
+		).toEqual(["a", "z", "blocked"]);
 		expect(
-			visiblePulls(input, { ...DEFAULT_PULL_FILTER, sort: "updated" }).map(
-				(row) => row.pull.id,
-			),
+			visiblePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				sort: "updated",
+				sortDirection: "desc",
+			}).map((row) => row.pull.id),
 		).toEqual(["a", "z", "blocked"]);
 		expect(
 			visiblePulls(input, { ...DEFAULT_PULL_FILTER, sort: "oldest" }).map(
@@ -227,13 +413,144 @@ describe("URL filters and review queue", () => {
 		).toEqual(["a", "z", "blocked"]);
 		expect(input.map((row) => row.pull.id)).toEqual(["z", "a", "blocked"]);
 	});
+	it("orders PRs with each owning project's readiness rules", () => {
+		const blocked = rows.find((row) => row.readiness.kind === "blocked")!;
+		const review = rows.find((row) => row.readiness.kind === "review")!;
+		const customized = {
+			...blocked,
+			project: {
+				...blocked.project,
+				readinessRules: [
+					DEFAULT_READINESS_RULES[0]!,
+					DEFAULT_READINESS_RULES[5]!,
+					...DEFAULT_READINESS_RULES.filter((_, i) => i !== 0 && i !== 5),
+				],
+			},
+		};
+		expect(visiblePulls([blocked, review], DEFAULT_PULL_FILTER)[0]).toBe(
+			review,
+		);
+		expect(visiblePulls([customized, review], DEFAULT_PULL_FILTER)[0]).toBe(
+			customized,
+		);
+		expect(
+			visiblePulls([customized, review], {
+				...DEFAULT_PULL_FILTER,
+				sortDirection: "desc",
+			})[0],
+		).toBe(review);
+	});
+	it("sorts the table columns in both directions and keeps missing checks behind complete progress", () => {
+		const a = {
+			...rows[0],
+			pull: {
+				...rows[0].pull,
+				id: "a",
+				title: "Alpha",
+				updatedAt: 10,
+				coverage: "complete" as const,
+			},
+			readiness: { ...rows[0].readiness, action: "Approve" },
+			progress: { ...rows[0].progress, checksPassed: 1, checksTotal: 2 },
+		};
+		const b = {
+			...a,
+			pull: { ...a.pull, id: "b", title: "Zulu", updatedAt: 20 },
+			readiness: { ...a.readiness, action: "Verify" },
+			progress: { ...a.progress, checksPassed: 2 },
+		};
+		for (const sort of ["title", "action", "progress", "updated"] as const) {
+			expect(
+				visiblePulls([b, a], {
+					...DEFAULT_PULL_FILTER,
+					sort,
+					sortDirection: "asc",
+				}).map((row) => row.pull.id),
+			).toEqual(["a", "b"]);
+			expect(
+				visiblePulls([a, b], {
+					...DEFAULT_PULL_FILTER,
+					sort,
+					sortDirection: "desc",
+				}).map((row) => row.pull.id),
+			).toEqual(["b", "a"]);
+		}
+		const missing = {
+			...b,
+			pull: { ...b.pull, id: "missing", checksObservedAt: null },
+		};
+		expect(
+			visiblePulls([missing, a, b], {
+				...DEFAULT_PULL_FILTER,
+				sort: "progress",
+				sortDirection: "desc",
+			}).map((row) => row.pull.id),
+		).toEqual(["b", "a", "missing"]);
+	});
+	it("toggles column sorting and round-trips its direction while migrating saved legacy sorts", () => {
+		expect(nextPullSort(DEFAULT_PULL_FILTER, "readiness")).toEqual({
+			sort: "readiness",
+			sortDirection: "desc",
+		});
+		expect(nextPullSort(DEFAULT_PULL_FILTER, "updated")).toEqual({
+			sort: "updated",
+			sortDirection: "desc",
+		});
+		expect(nextPullSort(DEFAULT_PULL_FILTER, "title")).toEqual({
+			sort: "title",
+			sortDirection: "asc",
+		});
+		const filter = {
+			...DEFAULT_PULL_FILTER,
+			...nextPullSort(DEFAULT_PULL_FILTER, "progress"),
+		};
+		expect(readPullFilter(writePullFilter(filter))).toEqual(filter);
+		expect(readPullFilter(new URLSearchParams("sort=attention"))).toMatchObject(
+			{ sort: "readiness", sortDirection: "asc" },
+		);
+		expect(readPullFilter(new URLSearchParams("sort=updated"))).toMatchObject({
+			sort: "updated",
+			sortDirection: "desc",
+		});
+		expect(
+			readPullFilter(new URLSearchParams("sort=title&direction=invalid")),
+		).toMatchObject({ sort: "title", sortDirection: "asc" });
+	});
 });
 
 describe("live collection presentation", () => {
-	it("defaults to real data when available and keeps an explicit all-data selection", () => {
+	it("judges a collector heartbeat at the snapshot time between scheduled refreshes", () => {
+		vi.spyOn(Date, "now").mockReturnValue((NOW + 600) * 1000);
+		try {
+			expect(
+				collectorConnection({
+					...snapshot,
+					fetchedAt: NOW,
+					collector: {
+						lastSeenAt: NOW - 10,
+						state: "ready",
+						message: "Connected",
+					},
+				}).state,
+			).toBe("ready");
+			expect(
+				collectorConnection({
+					...snapshot,
+					fetchedAt: NOW + 600,
+					collector: { lastSeenAt: NOW, state: "ready", message: "Connected" },
+				}).state,
+			).toBe("offline");
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+	it("defaults to real data when available and never mixes live and sample sources", () => {
 		expect(readPullFilter(new URLSearchParams(), true).source).toBe("cli");
 		expect(readPullFilter(new URLSearchParams("source=all"), true).source).toBe(
-			"all",
+			"cli",
+		);
+		expect(readPullFilter(new URLSearchParams("source=invalid")).source).toBe(
+			"demo",
 		);
 		expect(
 			readPullFilter(new URLSearchParams("source=demo"), true).source,
@@ -310,6 +627,21 @@ describe("live collection presentation", () => {
 			canScanProject({ ...project, revision: project.revision + 1 }, active),
 		).toBe(true);
 		expect(projectSummaries(active, rows)[0]?.job).toEqual(job);
+		const nextJob = {
+			...job,
+			id: "next-job",
+			revision: job.revision + 1,
+			state: "failed" as const,
+		};
+		expect(
+			projectSummaries(
+				{
+					...snapshot,
+					collectionJobs: [{ ...job, state: "complete" }, nextJob],
+				},
+				rows,
+			)[0]?.job,
+		).toEqual(nextJob);
 	});
 });
 

@@ -6,6 +6,7 @@ import {
 	LayerCard,
 	SegmentControl,
 } from "@nocoo/basalt";
+import { MultiSelect } from "@nocoo/basalt/components/multi-select";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import {
 	Table,
@@ -15,28 +16,40 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
+import { type Project, pullUrl } from "@signoff/domain/workbench";
 import {
+	ArrowDown,
 	ArrowRight,
+	ArrowUp,
+	ArrowUpDown,
 	CheckCheck,
 	ChevronLeft,
 	ChevronRight,
+	ExternalLink,
 	GitPullRequest,
+	ListOrdered,
 	LoaderCircle,
 	Search,
 	ShieldAlert,
 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
+import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import {
 	DEFAULT_PULL_FILTER,
+	nextPullSort,
 	type PullFilter,
+	type PullRow,
 	relativeTime,
 } from "@/models/workbench";
-import { useWorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+import { usePageCollection } from "@/viewmodels/usePageCollection";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
+import { ReadinessDialog } from "./ReadinessDialog";
+import { RepositoryFilters } from "./RepositoryFilters";
 import {
 	ScanControls,
 	WorkbenchConnection,
@@ -45,14 +58,46 @@ import {
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
-	const vm = useWorkbenchViewModel();
+	const vm = useWorkbench();
 	const opener = useRef<HTMLElement | null>(null);
+	const [readinessProject, setReadinessProject] = useState<Project | null>(
+		null,
+	);
+	usePageCollection(
+		vm.collectPage,
+		vm.autoRefresh && vm.filter.source === "cli" && !vm.loading,
+		JSON.stringify([
+			vm.filter,
+			vm.page,
+			vm.refreshInterval,
+			vm.pageRows.map(({ pull }) => pull.id),
+			vm.selected?.pull.id,
+		]),
+	);
+	const scopedProject = vm.projectOptions.find(
+		({ project }) => project.id === vm.filter.projectId,
+	)?.project;
+	const repository = vm.selectedRepository;
+	const scope = [
+		repository?.project.organization ??
+			scopedProject?.organization ??
+			vm.filter.organization,
+		repository?.project.projectKey ?? scopedProject?.projectKey,
+		repository?.name,
+	]
+		.filter(Boolean)
+		.join(" / ");
 	const metrics = [
 		{
 			key: "all",
-			label: "Open pull requests",
+			label: "Open PRs",
 			value: vm.metrics.open,
-			detail: `${vm.metrics.draft} drafts included`,
+			detail:
+				vm.filter.draft === "exclude"
+					? "Drafts excluded"
+					: vm.filter.draft === "only"
+						? "Drafts only"
+						: `${vm.metrics.draft} drafts included`,
 			Icon: GitPullRequest,
 			color: "text-basalt-primary",
 		},
@@ -82,16 +127,22 @@ export function PullsPage() {
 		},
 	] as const;
 	return (
-		<div className="space-y-5">
+		<div className="space-y-2">
 			<PageHeader
 				title="Pull requests"
-				description="Every project. Every blocker. A clear next step."
+				description={
+					<span className="break-words">
+						{scope ||
+							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`}
+					</span>
+				}
 				actions={<ScanControls vm={vm} />}
 			/>
-			<WorkbenchConnection vm={vm} />
+			<WorkbenchConnection vm={vm} compact />
 			<WorkbenchFeedback vm={vm} />
+			<RepositoryFilters vm={vm} />
 			<section
-				className="grid grid-cols-2 gap-3 xl:grid-cols-4"
+				className="grid grid-cols-2 gap-2 xl:grid-cols-4"
 				aria-label="Pull request overview"
 			>
 				{metrics.map(({ key, label, value, detail, Icon, color }) => {
@@ -110,21 +161,21 @@ export function PullsPage() {
 								variant="ghost"
 								aria-pressed={selected}
 								className={cn(
-									"h-full w-full flex-col items-start justify-start gap-3 whitespace-normal rounded-none p-4 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
+									"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
 									selected && "bg-basalt-primary/5 hover:bg-basalt-primary/5",
 								)}
 								onClick={() => vm.setFilter({ state: "open", status: key })}
 							>
-								<span className="flex w-full items-center justify-between gap-2 text-xs font-medium text-basalt-muted-foreground">
-									{label}
+								<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
 									<Icon
 										className={cn("h-4 w-4 shrink-0", color)}
 										aria-hidden
 										strokeWidth={1.6}
 									/>
-								</span>
-								<span className="font-display text-3xl font-semibold tabular-nums leading-none tracking-tight">
-									{vm.loading ? "—" : value.toLocaleString()}
+									{label}
+									<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
+										{vm.loading ? "—" : value.toLocaleString()}
+									</span>
 								</span>
 								<span className="text-[11px] font-normal text-basalt-muted-foreground">
 									{detail}
@@ -135,10 +186,10 @@ export function PullsPage() {
 				})}
 			</section>
 			<LayerCard padding="none">
-				<LayerCard.Header className="flex-col gap-4">
+				<LayerCard.Header className="flex-col gap-2 p-3">
 					<search
 						aria-label="Filter pull requests"
-						className="grid w-full gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_1fr_1fr_1fr]"
+						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_1fr_170px_1.2fr]"
 					>
 						<Field label="Search PRs">
 							<div className="relative">
@@ -157,33 +208,6 @@ export function PullsPage() {
 								/>
 							</div>
 						</Field>
-						<Field label="Project">
-							<SelectControl
-								value={vm.filter.projectId}
-								onChange={(projectId) => vm.setFilter({ projectId })}
-							>
-								<option value="">All projects</option>
-								{vm.projects.map(({ project }) => (
-									<option key={project.id} value={project.id}>
-										{project.name}
-									</option>
-								))}
-							</SelectControl>
-						</Field>
-						<Field label="Repository">
-							<SelectControl
-								value={vm.filter.repository}
-								onChange={(repository) => vm.setFilter({ repository })}
-							>
-								<option value="">All repositories</option>
-								{vm.repositories.map((repo) => (
-									<option key={repo.id} value={repo.id}>
-										{repo.name}
-										{!vm.filter.projectId ? ` · ${repo.projectName}` : ""}
-									</option>
-								))}
-							</SelectControl>
-						</Field>
 						<Field label="Readiness">
 							<SelectControl
 								value={vm.filter.status}
@@ -199,11 +223,60 @@ export function PullsPage() {
 								<option value="running">In progress</option>
 								<option value="unknown">Unknown / incomplete</option>
 								<option value="ready">Ready to merge</option>
-								<option value="draft">Draft</option>
 								<option value="merged">Merged</option>
 								<option value="closed">Closed</option>
 							</SelectControl>
 						</Field>
+						<Field label="Draft">
+							<SelectControl
+								value={vm.filter.draft}
+								onChange={(draft) =>
+									vm.setFilter({ draft: draft as PullFilter["draft"] })
+								}
+							>
+								<option value="exclude">Exclude drafts</option>
+								<option value="include">Include drafts</option>
+								<option value="only">Drafts only</option>
+							</SelectControl>
+						</Field>
+						<div className="relative">
+							<Field label="Authors">
+								<MultiSelect
+									label="Authors"
+									placeholder="All authors"
+									showChips={false}
+									searchPlaceholder="Find authors…"
+									value={vm.filter.authors}
+									onValueChange={(authors) => vm.setFilter({ authors })}
+									options={vm.authors.map((author) => ({
+										value: author.id,
+										label: author.name,
+										description: vm.authors.some(
+											(other) =>
+												other.id !== author.id && other.name === author.name,
+										)
+											? author.id
+											: undefined,
+										leading: (
+											<span aria-hidden>
+												<EntityAvatar name={author.name} size="sm" />
+											</span>
+										),
+									}))}
+								/>
+							</Field>
+							{vm.filter.authors.length ? (
+								<Button
+									variant="link"
+									size="sm"
+									className="absolute top-0 right-0 h-5 p-0 text-[11px]"
+									aria-label="Clear author filter"
+									onClick={() => vm.setFilter({ authors: [] })}
+								>
+									Clear
+								</Button>
+							) : null}
+						</div>
 					</search>
 					<div className="flex w-full flex-wrap items-end justify-between gap-3">
 						<SegmentControl
@@ -227,18 +300,27 @@ export function PullsPage() {
 							<span aria-live="polite" className="tabular-nums">
 								{vm.visible.length} results
 							</span>
-							<SelectControl
-								aria-label="Sort pull requests"
-								value={vm.filter.sort}
-								onChange={(sort) =>
-									vm.setFilter({ sort: sort as PullFilter["sort"] })
-								}
-								className="w-40"
-							>
-								<option value="attention">Attention first</option>
-								<option value="updated">Recently updated</option>
-								<option value="oldest">Oldest first</option>
-							</SelectControl>
+							{scopedProject ? (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={(event) => {
+										opener.current = event.currentTarget;
+										vm.clearMutationError();
+										setReadinessProject(scopedProject);
+									}}
+								>
+									<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+									Readiness order
+								</Button>
+							) : (
+								<Button asChild variant="ghost" size="sm">
+									<Link to="/projects">
+										<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+										Readiness order
+									</Link>
+								</Button>
+							)}
 						</div>
 					</div>
 				</LayerCard.Header>
@@ -265,14 +347,19 @@ export function PullsPage() {
 						}
 						description={
 							vm.rows.length
-								? "Try another project, status, or search term."
+								? "Try another repository, author, draft setting, or search term."
 								: "Add an Azure DevOps project, then scan it to load its PRs."
 						}
 						action={
 							vm.rows.length ? (
 								<Button
 									variant="outline"
-									onClick={() => vm.setFilter(DEFAULT_PULL_FILTER)}
+									onClick={() =>
+										vm.setFilter({
+											...DEFAULT_PULL_FILTER,
+											source: vm.filter.source,
+										})
+									}
 								>
 									Clear filters
 								</Button>
@@ -295,39 +382,69 @@ export function PullsPage() {
 							>
 								<TableHeader>
 									<TableRow>
-										<TableHead className="w-[35%]">Pull request</TableHead>
-										<TableHead className="w-[15%]">Readiness</TableHead>
-										<TableHead className="w-[18%]">Checks & stages</TableHead>
-										<TableHead className="w-[25%]">Next action</TableHead>
-										<TableHead className="w-[7%] text-right">Updated</TableHead>
+										{(
+											[
+												["title", "Pull request", "w-[33%]"],
+												["readiness", "Readiness", "w-[15%]"],
+												["progress", "Checks & stages", "w-[18%]"],
+												["action", "Next action", "w-[24%]"],
+												["updated", "Updated", "w-[10%] text-right"],
+											] as const
+										).map(([sort, label, className]) => (
+											<SortableHead
+												key={sort}
+												sort={sort}
+												label={label}
+												className={className}
+												filter={vm.filter}
+												onSort={() =>
+													vm.setFilter(nextPullSort(vm.filter, sort))
+												}
+											/>
+										))}
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{vm.pageRows.map(({ pull, project, readiness, progress }) => (
-										<TableRow key={pull.id} className="group">
+										<TableRow
+											key={pull.id}
+											data-pull-id={pull.id}
+											className="group"
+										>
 											<TableCell className="py-3.5 align-top">
-												<Button
-													variant="link"
-													className="h-auto max-w-full justify-start whitespace-normal p-0 text-left text-[13px] font-semibold leading-5 text-basalt-foreground"
-													aria-label={`Open PR #${pull.number}: ${pull.title}`}
-													onClick={(event) => {
-														opener.current = event.currentTarget;
-														vm.selectPull(pull.id);
-													}}
-												>
-													{pull.title}
-												</Button>
+												<div className="flex items-start gap-1.5">
+													<Button
+														variant="link"
+														className="h-auto min-w-0 justify-start whitespace-normal p-0 text-left text-[13px] font-semibold leading-5 text-basalt-foreground"
+														aria-label={`Open PR #${pull.number}: ${pull.title}`}
+														onClick={(event) => {
+															opener.current = event.currentTarget;
+															vm.selectPull(pull.id);
+														}}
+													>
+														{pull.title}
+													</Button>
+													<PullSourceLink pull={pull} project={project} />
+												</div>
 												<div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
-													<span className="font-mono text-basalt-foreground/75">
+													<a
+														href={pullUrl(project, pull)}
+														target="_blank"
+														rel="noopener noreferrer"
+														title={`Open PR #${pull.number} in ${project.provider === "ado" ? "Azure DevOps" : "GitHub"} (new tab)`}
+														className="rounded-sm font-mono text-basalt-foreground/75 underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
+													>
 														#{pull.number}
-													</span>
+													</a>
 													<span aria-hidden>·</span>
-													<span>{project.name}</span>
+													<span>
+														{project.organization} / {project.projectKey}
+													</span>
 													<span aria-hidden>/</span>
 													<span>{pull.repository.name}</span>
 												</div>
-												<div className="mt-1 text-[11px] text-basalt-muted-foreground">
-													{pull.author.name}
+												<div className="mt-1 flex items-center text-[11px] text-basalt-muted-foreground">
+													<EntityLabel name={pull.author.name} size="xs" />
 													{pull.labels.includes("release blocker") ? (
 														<Badge
 															variant="error"
@@ -339,7 +456,10 @@ export function PullsPage() {
 												</div>
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
-												<ReadinessBadge readiness={readiness} />
+												<ReadinessBadge
+													readiness={readiness}
+													project={project}
+												/>
 												{readiness.issues.length > 1 ? (
 													<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
 														+{readiness.issues.length - 1} pending item
@@ -348,29 +468,56 @@ export function PullsPage() {
 												) : null}
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
-												<div className="mb-2 flex items-baseline justify-between gap-1 text-xs">
-													<span className="font-medium tabular-nums">
-														{progress.checksPassed}/{progress.checksTotal}{" "}
-														required
-													</span>
-													<span className="text-[11px] text-basalt-muted-foreground">
-														{pull.builds.length} builds
-													</span>
-												</div>
-												<StageBar builds={pull.builds} />
-												<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
-													{progress.stagesPassed}/{progress.stagesTotal} stages
-													passed
-													{progress.optionalFailures
-														? ` · ${progress.optionalFailures} advisory`
-														: ""}
-												</p>
+												{pull.checksObservedAt === null ? (
+													<div className="space-y-1 text-xs text-basalt-muted-foreground">
+														<p>Checks not collected</p>
+														<p className="text-[11px]">
+															Loads with auto refresh on this page
+														</p>
+													</div>
+												) : (
+													<>
+														<div className="mb-2 flex items-baseline justify-between gap-1 text-xs">
+															<span className="font-medium tabular-nums">
+																{progress.checksPassed}/{progress.checksTotal}{" "}
+																required
+															</span>
+															<span className="text-[11px] text-basalt-muted-foreground">
+																{pull.builds.length} builds
+															</span>
+														</div>
+														<StageBar builds={pull.builds} />
+														<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
+															{progress.stagesPassed}/{progress.stagesTotal}{" "}
+															stages passed
+															{progress.optionalFailures
+																? ` · ${progress.optionalFailures} advisory`
+																: ""}
+															{project.source === "cli" ? (
+																<span
+																	className="ml-2"
+																	title={new Date(
+																		(pull.checksObservedAt ?? pull.observedAt) *
+																			1000,
+																	).toLocaleString()}
+																>
+																	Checked{" "}
+																	{relativeTime(
+																		pull.checksObservedAt ?? pull.observedAt,
+																	)}
+																</span>
+															) : null}
+														</p>
+													</>
+												)}
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
 												<p className="text-xs leading-5">{readiness.action}</p>
-												<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-													{readiness.owner}
-												</p>
+												<EntityLabel
+													name={readiness.owner}
+													size="xs"
+													className="mt-1 text-[11px] text-basalt-muted-foreground"
+												/>
 											</TableCell>
 											<TableCell className="py-3.5 align-top text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
 												<time
@@ -439,6 +586,86 @@ export function PullsPage() {
 				canScan={Boolean(vm.selected && vm.canScan(vm.selected.project))}
 				busy={Boolean(vm.busy)}
 			/>
+			{readinessProject ? (
+				<ReadinessDialog
+					project={readinessProject}
+					pulls={vm.data?.pullRequests ?? []}
+					busy={vm.busy}
+					error={vm.mutationError}
+					onSave={(rules) => vm.saveReadiness(readinessProject, rules)}
+					onClose={() => setReadinessProject(null)}
+					restoreFocus={() => opener.current?.focus()}
+				/>
+			) : null}
 		</div>
+	);
+}
+
+function SortableHead({
+	sort,
+	label,
+	className,
+	filter,
+	onSort,
+}: {
+	sort: PullFilter["sort"];
+	label: string;
+	className: string;
+	filter: PullFilter;
+	onSort: () => void;
+}) {
+	const active = filter.sort === sort;
+	const Icon = active
+		? filter.sortDirection === "asc"
+			? ArrowUp
+			: ArrowDown
+		: ArrowUpDown;
+	return (
+		<TableHead
+			className={className}
+			aria-sort={
+				active
+					? filter.sortDirection === "asc"
+						? "ascending"
+						: "descending"
+					: "none"
+			}
+		>
+			<Button
+				variant="ghost"
+				size="sm"
+				aria-label={`Sort by ${label}`}
+				onClick={onSort}
+				className={cn(
+					"h-8 gap-1 px-0 text-xs hover:bg-transparent",
+					active && "text-basalt-foreground",
+				)}
+			>
+				{label}
+				<Icon className="h-3 w-3 shrink-0" aria-hidden />
+			</Button>
+		</TableHead>
+	);
+}
+
+function PullSourceLink({ pull, project }: Pick<PullRow, "pull" | "project">) {
+	if (project.source !== "cli") return null;
+	return (
+		<Button
+			asChild
+			variant="ghost"
+			size="icon"
+			className="h-5 w-5 shrink-0 text-basalt-muted-foreground"
+		>
+			<a
+				href={pullUrl(project, pull)}
+				target="_blank"
+				rel="noopener noreferrer"
+				aria-label={`Open PR #${pull.number} in ${project.provider === "ado" ? "Azure DevOps" : "GitHub"} (new tab)`}
+				title="Open source PR in a new tab"
+			>
+				<ExternalLink className="h-3.5 w-3.5" aria-hidden />
+			</a>
+		</Button>
 	);
 }

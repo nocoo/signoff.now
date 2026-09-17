@@ -21,6 +21,7 @@ import {
 	CircleAlert,
 	FolderGit2,
 	GitBranch,
+	ListOrdered,
 	Pause,
 	Pencil,
 	Play,
@@ -35,14 +36,18 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
-import { useWorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ProjectDialog } from "./ProjectDialog";
+import { ReadinessDialog } from "./ReadinessDialog";
 import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
 
 export function ProjectsPage() {
-	const vm = useWorkbenchViewModel();
+	const vm = useWorkbench();
 	const [editing, setEditing] = useState<Project | null | undefined>();
 	const [removing, setRemoving] = useState<Project | null>(null);
+	const [readinessProject, setReadinessProject] = useState<Project | null>(
+		null,
+	);
 	const opener = useRef<HTMLElement | null>(null);
 	const restoreFocus = () =>
 		(opener.current?.isConnected
@@ -53,7 +58,7 @@ export function ProjectsPage() {
 		<div className="space-y-5">
 			<PageHeader
 				title="Projects"
-				description="Keep every repository and review queue within reach."
+				description="Configure organizations, projects, and repository scopes."
 				actions={
 					<>
 						<span className="text-xs text-basalt-muted-foreground">
@@ -171,7 +176,7 @@ export function ProjectsPage() {
 												project.provider === "ado" ? "info" : "secondary"
 											}
 										>
-											{project.source === "demo" ? "Sample" : "Live ADO"}
+											{project.provider === "github" ? "GitHub" : "ADO"}
 										</Badge>
 										<Button
 											variant="ghost"
@@ -249,13 +254,22 @@ export function ProjectsPage() {
 										<GitBranch className="mr-1 h-3.5 w-3.5" aria-hidden />
 										{repositories.length ? (
 											repositories.map((repository) => (
-												<Badge
-													key={repository.id}
-													variant="secondary"
-													className="text-[10px] font-normal"
+												<Button
+													key={repository.key}
+													variant="outline"
+													size="sm"
+													className="h-auto px-2 py-1 text-[11px] font-normal"
+													asChild
 												>
-													{repository.name}
-												</Badge>
+													<Link
+														to={`/?${new URLSearchParams({ source: project.source, org: project.organization, project: project.id, repo: repository.id })}`}
+													>
+														{repository.name}
+														{project.lastScannedAt !== null
+															? ` · ${repository.metrics.open} open`
+															: ""}
+													</Link>
+												</Button>
 											))
 										) : (
 											<span>Repositories appear after the first scan</span>
@@ -272,15 +286,31 @@ export function ProjectsPage() {
 									</div>
 								</LayerCard.Body>
 								<ProjectScanStatus project={project} job={job} />
-								<LayerCard.Footer className="justify-between">
-									<Button variant="ghost" size="sm" asChild>
-										<Link
-											to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+								<LayerCard.Footer className="flex-wrap justify-between gap-2">
+									<div className="flex items-center gap-1">
+										<Button variant="ghost" size="sm" asChild>
+											<Link
+												to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+											>
+												View PRs
+												<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+											</Link>
+										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											disabled={Boolean(vm.busy)}
+											aria-label={`Readiness for ${project.name}`}
+											onClick={(event) => {
+												opener.current = event.currentTarget;
+												vm.clearMutationError();
+												setReadinessProject(project);
+											}}
 										>
-											View PRs
-											<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
-										</Link>
-									</Button>
+											<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+											Readiness
+										</Button>
+									</div>
 									<div className="flex items-center gap-1">
 										<Button
 											variant="ghost"
@@ -337,11 +367,7 @@ export function ProjectsPage() {
 					</LayerCard.Header>
 					<div className="divide-y divide-basalt-border">
 						{vm.data.scans
-							.filter(
-								(scan) =>
-									vm.filter.source === "all" ||
-									scan.source === vm.filter.source,
-							)
+							.filter((scan) => scan.source === vm.filter.source)
 							.slice(0, 5)
 							.map((scan) => (
 								<div
@@ -384,8 +410,8 @@ export function ProjectsPage() {
 				</LayerCard>
 			) : null}
 			<p className="text-xs text-basalt-muted-foreground">
-				Azure DevOps projects are available in this preview. GitHub project
-				connections are planned.
+				Live collection supports Azure DevOps. GitHub is available in Sample;
+				live GitHub connections are planned.
 			</p>
 			{editing !== undefined ? (
 				<ProjectDialog
@@ -394,6 +420,17 @@ export function ProjectsPage() {
 					error={vm.mutationError}
 					onSave={(draft) => vm.save(draft, editing)}
 					onClose={() => setEditing(undefined)}
+					restoreFocus={restoreFocus}
+				/>
+			) : null}
+			{readinessProject ? (
+				<ReadinessDialog
+					project={readinessProject}
+					pulls={vm.data?.pullRequests ?? []}
+					busy={vm.busy}
+					error={vm.mutationError}
+					onSave={(rules) => vm.saveReadiness(readinessProject, rules)}
+					onClose={() => setReadinessProject(null)}
 					restoreFocus={restoreFocus}
 				/>
 			) : null}
@@ -413,7 +450,7 @@ export function ProjectsPage() {
 						<AlertDialogTitle>Remove project?</AlertDialogTitle>
 						<AlertDialogDescription className="break-words">
 							Remove {removing?.name} and its saved PR snapshots from SignOff.
-							The Azure DevOps project is unaffected.
+							The source project is unaffected.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{vm.mutationError ? (

@@ -12,12 +12,12 @@
 
 SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azure DevOps 项目后，可以查看各仓库的 PR、必需 policy、评审、多个 build 和每个 build 的 stage，知道哪里失败、谁需要处理、下一步做什么。第一期专注 PR，issue / ADO work item 放在后续阶段。
 
-**当前支持本地真实 ADO PR 采集**：本机 Azure CLI 提供登录令牌，采集器读取 ADO API，将统一后的 PR、policy、build 和 stage 快照写入本地 Worker / Wrangler SQLite。工作台显示采集队列、进度和登录状态。4 个项目、38 个 PR 的示例数据仍可通过 Samples 切换查看；新添加的项目使用真实采集。GitHub 后续通过 `gh` 接入同一数据契约。
+**当前支持本地真实 ADO PR 采集**：本机 Azure CLI 提供登录令牌，采集器读取 ADO API，将统一后的 PR、policy、build 和 stage 快照写入本地 Worker / Wrangler SQLite。工作台显示采集队列、进度和登录状态。全局 Live / Sample 切换分别查看真实数据与 5 个项目、13 个仓库、46 个 PR 的示例；示例同时包含 ADO 和 GitHub。GitHub 的真实采集后续通过 `gh` 接入同一数据契约。
 
 | 能力 | Azure DevOps | GitHub |
 | --- | --- | --- |
 | 项目增删改查 | 已实现 | 后续开放 |
-| PR / policy / build / stage 展示 | 已接入真实数据，保留示例预览 | 复用统一数据结构，尚未接入 |
+| PR / policy / build / stage 展示 | 已接入真实数据，保留示例预览 | 已有示例预览，真实采集待接入 |
 | 真实 PR 快照采集 | 本地 `az` 登录 + ADO API | 后续接入 `gh` |
 
 仓库原有的 Activity / Score 分析及 ADO 活动采集 CLI 仍然保留。它们与新 PR 工作台的快照数据分开；`pulse` 已有的 GitHub 查询能力也尚未连接到工作台。
@@ -25,10 +25,13 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 ## 功能
 
 - **项目管理**：添加、编辑、删除多个 organization 下的 ADO 项目，暂停或恢复监控，查看扫描历史。
-- **跨项目 PR 队列**：按项目、仓库、标题、作者、状态和下一步搜索筛选；以待处理优先排序，支持分页和可分享的筛选链接。
+- **跨项目 PR 队列**：按 Organization → Project → Repository 筛选，默认排除 Draft，作者可多选。表头可排序，默认按项目的 Readiness 顺序将最就绪的 PR 放在前面；筛选和排序方向保存在 URL 与 localStorage，每页 20 个 PR。
 - **明确合并条件**：冲突、必需检查失败、评审意见、部署审批、未知检查分别显示；可选检查失败不会误挡合并。
 - **构建阶段详情**：每个 PR 可展开多个 build，逐项查看 stage 状态、时长、说明和负责人。
-- **持续采集**：CLI 监听界面扫描请求并按间隔扫描，界面每 15 秒读取最新快照；采集失败、登录过期或断线时保留旧数据并提示原因。
+- **持续采集**：自动刷新默认每 2 分钟一次，可选 1 / 2 / 5 / 10 分钟或关闭，并保存设置。详细检查覆盖当前页全部 PR，不预取其他页。右下角显示动画与进度；失败、登录过期或断线时保留旧数据并提示原因。
+- **PR 阅读与操作**：描述支持 Markdown、表格和任务清单；PR 编号和真实 PR 标题旁的链接可在新标签页打开源 PR。人名前显示圆形双字母头像。
+- **项目 Readiness**：拖动列表或使用上下箭头定义状态顺序、颜色，也可为已采集的必需 Policy 添加规则和显示名称。多个问题取列表中最不就绪的一项；PoP 无内置特例。设置保存在项目数据库中，不影响采集任务。
+- **页面结构**：统一主标题、次标题和顶栏面包屑；PR 页以仓库路径作为次标题，筛选结果的状态统计集中展示。
 - **既有分析**：Dashboard 位于 `/insights`；Directory、Activity 和 Settings 继续使用原来的活动数据管线。
 
 ## 使用
@@ -40,17 +43,17 @@ az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
 bun run dev:collector
 ```
 
-已有有效 Azure CLI 登录时直接启动即可。点击 **Scan** 排队读取真实 PR；采集器默认每 120 秒检查是否需要重新扫描，界面每 15 秒刷新。大项目首次采集需要数分钟，界面显示已完成的 PR 数。登录过期会先尝试静默续期；需要交互登录时，按页面或 CLI 提示重新运行 `az login`，采集器随后恢复。
+已有有效 Azure CLI 登录时直接启动即可。**Auto refresh** 默认每 2 分钟刷新；列表和当前页检查按所选间隔排队更新，未采集的检查可立即加载。手动 **Scan** 仍执行完整扫描。采集器每 3 秒检查队列；界面采集中每 3 秒刷新进度，空闲时按配置间隔刷新快照。登录过期会先尝试静默续期；需要交互登录时，按页面或 CLI 提示重新运行 `az login`，采集器随后恢复。
 
 也可一次性添加并采集仓库（示例地址请替换为自己的仓库）：
 
 ```bash
 bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
 bun run signoff workbench sync
-bun run signoff workbench watch --interval 300
+bun run signoff workbench watch
 ```
 
-采集全部开放 PR，并保留每个仓库最近最多 20 条已合并和 10 条已关闭 PR。切换 **Live ADO / Samples / All data** 查看不同来源。PR 采集命令只写回环地址上的本地 Worker，不读取既有 Activity 管线的生产写入令牌。详细契约、恢复行为与验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)。
+列表发现覆盖全部开放 PR，并保留每个仓库最近最多 20 条已合并和 10 条已关闭 PR；未收集的检查明确标为未知。`watch` 只处理界面请求，不自行触发全项目扫描。PR 采集命令只写回环地址上的本地 Worker，不读取既有 Activity 管线的生产写入令牌。详细契约、恢复行为与验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)。
 
 以下运维命令用于既有 Activity / Score 管线。生产站点仍使用 Cloudflare Access；这次本地预览没有部署到线上。既有管线先建立 Developer 和 Repo 绑定，再配置 Settings，不会读取新 `projects` 表作为采集范围。
 
@@ -137,7 +140,7 @@ bun run dev
 
 打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。开发脚本已包含 `--local-upstream localhost` 和本地 Demo 开关。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
 
-数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 4 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 migrations `0011_pr_workbench.sql`、`0012_live_collection.sql`。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
+数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 5 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 migrations `0011_pr_workbench.sql`、`0012_live_collection.sql`、`0013_visible_pr_collection.sql`。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
 
 本地回环地址与 `*.dev.hexly.ai` 使用开发认证分支，无须生产 Access 或 pipeline 凭据。`.env.example` 预填生产机器域名，只在需要连接已有部署时复制并填写。
 

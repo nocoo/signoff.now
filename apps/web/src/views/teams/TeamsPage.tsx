@@ -26,7 +26,7 @@ export function TeamsPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Teams"
-				description="Organize developers into multi-membership groups for filtering."
+				description="Organize developers into teams for filtering and comparison."
 				actions={
 					<>
 						<p className="text-xs text-basalt-muted-foreground">

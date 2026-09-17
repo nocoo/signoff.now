@@ -29,7 +29,7 @@ export function ReposPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Repos"
-				description="Azure DevOps repository bindings for local pipeline collection."
+				description="Manage Azure DevOps repositories used for contribution tracking."
 				actions={
 					<>
 						<p className="text-xs text-basalt-muted-foreground">

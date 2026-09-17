@@ -44,6 +44,7 @@ type Collect = (opts: {
 	project: Project;
 	client: AdoPagedClient;
 	now: number;
+	targets?: PullRequest[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }) => Promise<{
 	pulls: PullRequest[];
@@ -114,6 +115,7 @@ export async function runCollectionOnce(opts: {
 			project: claim.project,
 			client: ado,
 			now: Math.floor(Date.now() / 1000),
+			targets: claim.targets,
 			onProgress: async (completed, count) => {
 				done = Math.max(done, completed);
 				total = count;

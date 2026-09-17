@@ -124,6 +124,192 @@ async function claim(): Promise<CollectorClaim> {
 }
 
 describe("local collector ingest", () => {
+	test("refreshes only requested visible PRs without deleting other cached PRs", async () => {
+		const project = await create({ repositories: ["whiteboard-app"] });
+		const first = livePull(project);
+		const offscreen = livePull(project, { number: first.number + 1 });
+		await enqueue(project);
+		const initial = await claim();
+		await request(`/api/collector/jobs/${initial.job.id}/batch`, "POST", {
+			leaseToken: initial.leaseToken,
+			pulls: [first, offscreen],
+		});
+		expect(
+			(
+				await request(
+					`/api/collector/jobs/${initial.job.id}/complete`,
+					"POST",
+					{
+						leaseToken: initial.leaseToken,
+						state: "complete",
+						pullRequestCount: 2,
+						message: "Initial scan",
+					},
+				)
+			).status,
+		).toBe(200);
+		const current = (await snapshot()).projects[0]!;
+		const queued = await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: current.revision,
+			pullIds: [first.id],
+		});
+		expect(queued.status).toBe(200);
+		const selected = await claim();
+		expect(selected.job.pullIds).toEqual([first.id]);
+		expect(selected.targets?.map((pull) => pull.id)).toEqual([first.id]);
+		expect(
+			(
+				await request(`/api/collector/jobs/${selected.job.id}/batch`, "POST", {
+					leaseToken: selected.leaseToken,
+					pulls: [offscreen],
+				})
+			).status,
+		).toBe(400);
+		const updated = { ...first, title: "Updated visible PR" };
+		await request(`/api/collector/jobs/${selected.job.id}/batch`, "POST", {
+			leaseToken: selected.leaseToken,
+			pulls: [updated],
+		});
+		expect(
+			(
+				await request(
+					`/api/collector/jobs/${selected.job.id}/complete`,
+					"POST",
+					{
+						leaseToken: selected.leaseToken,
+						state: "complete",
+						pullRequestCount: 1,
+						message: "Visible checks refreshed",
+					},
+				)
+			).status,
+		).toBe(200);
+		const result = await snapshot();
+		expect(result.pullRequests.find((p) => p.id === first.id)).toEqual(updated);
+		expect(result.pullRequests.find((p) => p.id === offscreen.id)).toEqual(
+			offscreen,
+		);
+		expect(result.projects[0]?.lastScannedAt).toBe(current.lastScannedAt);
+		const vanishedJob = collectionJobSchema.parse(
+			await (
+				await request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: result.projects[0]!.revision,
+					pullIds: [first.id],
+				})
+			).json(),
+		);
+		sqlite.raw.query("DELETE FROM pull_requests WHERE id = ?").run(first.id);
+		expect((await request("/api/collector/claim", "POST")).status).toBe(409);
+		expect(
+			(await snapshot()).collectionJobs?.find(
+				(job) => job.id === vanishedJob.id,
+			)?.state,
+		).toBe("failed");
+		expect(
+			await (await request("/api/collector/claim", "POST")).json(),
+		).toBeNull();
+	});
+	test("refreshes the lightweight list while retaining cached checks only for the same commit", async () => {
+		const project = await create();
+		const first = livePull(project, {
+			headSha: "same-commit",
+			checksObservedAt: 1_789_632_000,
+		});
+		const second = livePull(project, {
+			number: first.number + 1,
+			headSha: "old-commit",
+			checksObservedAt: 1_789_632_000,
+		});
+		await enqueue(project);
+		const initial = await claim();
+		await request(`/api/collector/jobs/${initial.job.id}/batch`, "POST", {
+			leaseToken: initial.leaseToken,
+			pulls: [first, second],
+		});
+		await request(`/api/collector/jobs/${initial.job.id}/complete`, "POST", {
+			leaseToken: initial.leaseToken,
+			state: "complete",
+			pullRequestCount: 2,
+			message: "Initial scan",
+		});
+		const current = (await snapshot()).projects[0]!;
+		expect(
+			(
+				await request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: current.revision,
+					pullIds: [],
+				})
+			).status,
+		).toBe(200);
+		const index = await claim();
+		expect(index.targets).toEqual([]);
+		const lightweight = [first, second].map((pull) => ({
+			...pull,
+			updatedAt: pull.updatedAt - 30,
+			title: "Latest title",
+			policies: [],
+			builds: [],
+			headSha: pull.id === first.id ? "same-commit" : "new-commit",
+			coverage: "partial",
+			checksObservedAt: null,
+			collectionIssues: ["Checks load when this PR is visible"],
+		}));
+		await request(`/api/collector/jobs/${index.job.id}/batch`, "POST", {
+			leaseToken: index.leaseToken,
+			pulls: lightweight,
+		});
+		expect(
+			(
+				await request(`/api/collector/jobs/${index.job.id}/complete`, "POST", {
+					leaseToken: index.leaseToken,
+					state: "complete",
+					pullRequestCount: 2,
+					message: "PR list refreshed",
+				})
+			).status,
+		).toBe(200);
+		const result = await snapshot();
+		expect(result.pullRequests.find((p) => p.id === first.id)).toMatchObject({
+			title: "Latest title",
+			policies: first.policies,
+			builds: first.builds,
+			checksObservedAt: first.checksObservedAt,
+			coverage: "complete",
+		});
+		expect(result.pullRequests.find((p) => p.id === second.id)).toMatchObject({
+			policies: [],
+			builds: [],
+			coverage: "partial",
+			checksObservedAt: null,
+		});
+		for (const original of [first, second]) {
+			expect(
+				result.pullRequests.find((p) => p.id === original.id)?.updatedAt,
+			).toBe(original.updatedAt);
+			expect(
+				sqlite.raw
+					.query("SELECT updated_at FROM pull_requests WHERE id = ?")
+					.get(original.id),
+			).toEqual({ updated_at: original.updatedAt });
+		}
+	});
+	test("rejects invalid visible selections and PRs outside the requested project", async () => {
+		const project = await create();
+		for (const pullIds of [
+			["missing"],
+			["duplicate", "duplicate"],
+			Array.from({ length: 21 }, (_, i) => `pull-${i}`),
+		]) {
+			expect(
+				(
+					await request(`/api/projects/${project.id}/scan`, "POST", {
+						revision: project.revision,
+						pullIds,
+					})
+				).status,
+			).toBe(400);
+		}
+	});
 	test("publishes a claimed snapshot atomically and hides staging", async () => {
 		const project = await create({ repositories: ["whiteboard-app"] });
 		expect((await request("/api/collector/claim", "POST")).status).toBe(200);

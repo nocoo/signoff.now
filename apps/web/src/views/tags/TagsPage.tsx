@@ -25,7 +25,7 @@ export function TagsPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Tags"
-				description="Color labels for developers (filtering and comparison)."
+				description="Label developers to filter and compare their contributions."
 				actions={
 					<>
 						<p className="text-xs text-basalt-muted-foreground">

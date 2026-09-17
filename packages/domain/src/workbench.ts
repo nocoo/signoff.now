@@ -15,6 +15,79 @@ export const checkStateSchema = z.enum([
 ]);
 export type CheckState = z.infer<typeof checkStateSchema>;
 
+export const readinessKindSchema = z.enum([
+	"ready",
+	"approval",
+	"review",
+	"running",
+	"unknown",
+	"blocked",
+	"draft",
+	"merged",
+	"closed",
+]);
+export type ReadinessKind = z.infer<typeof readinessKindSchema>;
+export const readinessColorSchema = z.enum([
+	"green",
+	"yellow",
+	"orange",
+	"blue",
+	"red",
+	"purple",
+	"gray",
+]);
+export type ReadinessColor = z.infer<typeof readinessColorSchema>;
+const readinessRuleSchema = z.union([
+	z.object({ kind: readinessKindSchema, color: readinessColorSchema }).strict(),
+	z.object({ policy: name, label: name, color: readinessColorSchema }).strict(),
+]);
+export type ReadinessRule = z.infer<typeof readinessRuleSchema>;
+export const READINESS_LABELS: Record<ReadinessKind, string> = {
+	ready: "Ready to merge",
+	approval: "Awaiting approval",
+	review: "Review needed",
+	running: "In progress",
+	unknown: "Unknown / incomplete",
+	blocked: "Blocked",
+	draft: "Draft",
+	merged: "Merged",
+	closed: "Closed",
+};
+export const DEFAULT_READINESS_RULES: ReadinessRule[] = [
+	{ kind: "ready", color: "green" },
+	{ kind: "approval", color: "yellow" },
+	{ kind: "review", color: "orange" },
+	{ kind: "running", color: "blue" },
+	{ kind: "unknown", color: "gray" },
+	{ kind: "blocked", color: "red" },
+	{ kind: "draft", color: "gray" },
+	{ kind: "merged", color: "purple" },
+	{ kind: "closed", color: "gray" },
+];
+export function readinessRuleKey(rule: ReadinessRule): string {
+	return "kind" in rule
+		? `kind:${rule.kind}`
+		: `policy:${rule.policy.trim().toLowerCase()}`;
+}
+export const readinessRulesSchema = z
+	.array(readinessRuleSchema)
+	.max(50)
+	.refine(
+		(rules) =>
+			!rules.length ||
+			(new Set(rules.map(readinessRuleKey)).size === rules.length &&
+				readinessKindSchema.options.every((kind) =>
+					rules.some((rule) => "kind" in rule && rule.kind === kind),
+				)),
+		"Include every readiness state once, with no duplicate policy rules",
+	);
+export const readinessWriteSchema = z
+	.object({
+		revision: z.number().int().positive(),
+		rules: readinessRulesSchema,
+	})
+	.strict();
+
 export const repositoryNameSchema = z
 	.string()
 	.trim()
@@ -37,6 +110,8 @@ export const projectSchema = z.object({
 	organization: name,
 	projectKey: name,
 	repositories: repositoryScopeSchema.optional(),
+	readinessRules: readinessRulesSchema.optional(),
+	readinessRevision: z.number().int().positive().optional(),
 	description: z.string(),
 	owner: name,
 	enabled: z.boolean(),
@@ -93,6 +168,13 @@ export const projectPatchSchema = projectWriteSchema
 export const revisionSchema = z
 	.object({ revision: z.number().int().positive() })
 	.strict();
+const scopedPullIdsSchema = z
+	.array(name)
+	.max(20)
+	.refine((ids) => new Set(ids).size === ids.length, "PR IDs must be unique");
+export const scanRequestSchema = revisionSchema.extend({
+	pullIds: scopedPullIdsSchema.optional(),
+});
 
 const actorSchema = z.object({ id: name, name });
 export const policySchema = z.object({
@@ -138,6 +220,8 @@ export const pullRequestSchema = z.object({
 	createdAt: instant,
 	updatedAt: instant,
 	observedAt: instant,
+	headSha: z.string().max(240).nullable().optional(),
+	checksObservedAt: instant.nullable().optional(),
 	requiredApprovals: z.number().int().nonnegative(),
 	reviewers: z.array(
 		actorSchema.extend({
@@ -197,6 +281,8 @@ export const collectionJobSchema = z.object({
 	completedPulls: instant,
 	totalPulls: instant.nullable(),
 	message: z.string(),
+	/** Omitted: full scan. Empty: list only. Otherwise: selected PR checks. */
+	pullIds: scopedPullIdsSchema.optional(),
 });
 export type CollectionJob = z.infer<typeof collectionJobSchema>;
 export const collectorStatusSchema = z.object({
@@ -221,30 +307,55 @@ export const workbenchSchema = z.object({
 });
 export type Workbench = z.infer<typeof workbenchSchema>;
 
-export type ReadinessKind =
-	| "blocked"
-	| "approval"
-	| "review"
-	| "running"
-	| "unknown"
-	| "ready"
-	| "draft"
-	| "merged"
-	| "closed";
 export type PullIssue = {
 	kind: "blocked" | "approval" | "review" | "running" | "unknown";
 	label: string;
 	action: string;
 	owner: string;
+	policy?: string;
 };
 export type PullReadiness = {
 	kind: ReadinessKind;
 	label: string;
 	action: string;
 	owner: string;
+	policy?: string;
 	issues: PullIssue[];
 };
-const PRIORITY = { blocked: 0, approval: 1, unknown: 2, review: 3, running: 4 };
+export function projectReadinessRules(project: Project): ReadinessRule[] {
+	return project.readinessRules?.length
+		? project.readinessRules
+		: DEFAULT_READINESS_RULES;
+}
+
+/** Smaller ranks are closer to ready; named policy rules precede kind fallbacks. */
+export function readinessPriority(
+	readiness: Pick<PullReadiness, "kind" | "policy">,
+	project: Project,
+): number {
+	const rules = projectReadinessRules(project);
+	const policy = readiness.policy?.trim().toLowerCase();
+	const index =
+		policy === undefined
+			? -1
+			: rules.findIndex(
+					(rule) =>
+						"policy" in rule && rule.policy.trim().toLowerCase() === policy,
+				);
+	return index >= 0
+		? index
+		: rules.findIndex((rule) => "kind" in rule && rule.kind === readiness.kind);
+}
+export function readinessColor(
+	readiness: Pick<PullReadiness, "kind" | "policy">,
+	project: Project,
+): ReadinessColor {
+	return (
+		projectReadinessRules(project)[
+			readinessPriority(readiness, project)
+		] as ReadinessRule
+	).color;
+}
 
 export function isFailed(state: CheckState): boolean {
 	return state === "failed" || state === "canceled";
@@ -259,11 +370,8 @@ export function approvalCount(pr: Pick<PullRequest, "reviewers">): number {
 	).length;
 }
 
-function buildIssue(
-	build: Build,
-	author: string,
-	owner: string,
-): PullIssue | null {
+function buildIssues(build: Build, author: string, owner: string): PullIssue[] {
+	const issues: PullIssue[] = [];
 	const required = build.stages.filter((stage) => stage.required);
 	const failed = required.find((stage) => isFailed(stage.state));
 	const waiting = required.find((stage) => stage.state === "waiting");
@@ -274,35 +382,35 @@ function buildIssue(
 		(stage) => stage.state === "unknown" || stage.state === "skipped",
 	);
 	if (failed || isFailed(build.state))
-		return {
+		issues.push({
 			kind: "blocked",
 			label: build.state === "canceled" ? "Build canceled" : "Build failed",
 			action: failed?.detail ?? `Rerun ${build.name}`,
 			owner: failed?.owner ?? author,
-		};
+		});
 	if (waiting || build.state === "waiting")
-		return {
+		issues.push({
 			kind: "approval",
 			label: "Approval needed",
 			action: waiting?.detail ?? `Approve ${build.name}`,
 			owner: waiting?.owner ?? owner,
-		};
+		});
 	const inProgress =
 		active || build.state === "running" || build.state === "queued";
 	if (
 		unknown ||
 		build.state === "unknown" ||
 		build.state === "skipped" ||
-		(!required.length && !inProgress)
+		(!required.length && build.state === "passed")
 	)
-		return {
+		issues.push({
 			kind: "unknown",
 			label: "Build unavailable",
 			action: `Rescan ${build.name} to verify its stages`,
 			owner,
-		};
+		});
 	if (inProgress)
-		return {
+		issues.push({
 			kind: "running",
 			label:
 				active?.state === "queued" || build.state === "queued"
@@ -312,8 +420,8 @@ function buildIssue(
 				? `${active.name} · ${active.detail}`
 				: `Wait for ${build.name}`,
 			owner: active?.owner ?? "Build agents",
-		};
-	return null;
+		});
+	return issues;
 }
 
 /** A passed pipeline never overrides a conflict, missing review, or unknown gate. */
@@ -352,7 +460,15 @@ export function pullReadiness(
 		label: string,
 		action: string,
 		who = owner,
-	) => issues.push({ kind, label, action, owner: who });
+		policy?: string,
+	) =>
+		issues.push({
+			kind,
+			label,
+			action,
+			owner: who,
+			...(policy === undefined ? {} : { policy }),
+		});
 	if (pr.mergeable === "conflicts")
 		add(
 			"blocked",
@@ -370,22 +486,34 @@ export function pullReadiness(
 		);
 	for (const policy of pr.policies.filter((p) => p.required)) {
 		if (isFailed(policy.state))
-			add("blocked", "Policy failed", policy.detail, policy.owner);
+			add("blocked", "Policy failed", policy.detail, policy.owner, policy.name);
 		else if (policy.state === "waiting")
-			add("approval", "Approval needed", policy.detail, policy.owner);
+			add(
+				"approval",
+				"Approval needed",
+				policy.detail,
+				policy.owner,
+				policy.name,
+			);
 		else if (policy.state === "running" || policy.state === "queued")
-			add("running", "Checks running", policy.detail, policy.owner);
+			add(
+				"running",
+				"Checks running",
+				policy.detail,
+				policy.owner,
+				policy.name,
+			);
 		else if (policy.state !== "passed")
 			add(
 				"unknown",
 				"Check unavailable",
 				`Verify ${policy.name.toLowerCase()}`,
 				policy.owner,
+				policy.name,
 			);
 	}
 	for (const build of pr.builds.filter((b) => b.required)) {
-		const issue = buildIssue(build, pr.author.name, owner);
-		if (issue) issues.push(issue);
+		issues.push(...buildIssues(build, pr.author.name, owner));
 	}
 	const approvals = approvalCount(pr);
 	const pending = pr.reviewers.find(
@@ -408,6 +536,12 @@ export function pullReadiness(
 			"Monitoring paused",
 			"Resume monitoring and scan this project",
 		);
+	else if (pr.checksObservedAt === null)
+		add(
+			"unknown",
+			"Awaiting checks",
+			"Enable auto refresh on this page to collect policies, builds, and stages",
+		);
 	else if (
 		pr.coverage === "partial" ||
 		pr.mergeable === "unknown" ||
@@ -420,7 +554,16 @@ export function pullReadiness(
 		);
 	const uniqueIssues = [
 		...new Map(issues.map((issue) => [JSON.stringify(issue), issue])).values(),
-	].sort((a, b) => PRIORITY[a.kind] - PRIORITY[b.kind]);
+	]
+		.map((issue) => {
+			const rule = projectReadinessRules(project)[
+				readinessPriority(issue, project)
+			] as ReadinessRule;
+			return "policy" in rule ? { ...issue, label: rule.label } : issue;
+		})
+		.sort(
+			(a, b) => readinessPriority(b, project) - readinessPriority(a, project),
+		);
 	const first = uniqueIssues[0];
 	return first
 		? { ...first, issues: uniqueIssues }
@@ -452,11 +595,11 @@ export function pullProgress(pr: PullRequest) {
 export function projectUrl(project: Project): string {
 	return project.provider === "ado"
 		? `https://dev.azure.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(project.projectKey)}`
-		: `https://github.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(project.projectKey)}`;
+		: `https://github.com/${encodeURIComponent(project.projectKey)}`;
 }
 
 export function pullUrl(project: Project, pr: PullRequest): string {
 	return project.provider === "ado"
 		? `${projectUrl(project)}/_git/${encodeURIComponent(pr.repository.name)}/pullrequest/${pr.number}`
-		: `https://github.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(pr.repository.name)}/pull/${pr.number}`;
+		: `${projectUrl(project)}/${encodeURIComponent(pr.repository.name)}/pull/${pr.number}`;
 }

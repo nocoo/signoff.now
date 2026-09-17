@@ -31,7 +31,7 @@ export function ActivityPage() {
 		<div className="space-y-6">
 			<PageHeader
 				title="Activity"
-				description="Read-only heatmaps and scores — written exclusively by the local pipeline."
+				description="Explore contribution heatmaps and scores across developers and repositories."
 				actions={
 					<Button disabled={vm.loading} onClick={() => void vm.load()}>
 						{vm.loading ? "Loading…" : "Load heatmap"}

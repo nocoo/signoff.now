@@ -4,6 +4,8 @@ import {
 	type PullRequest,
 	pullProgress,
 	pullReadiness,
+	readinessKindSchema,
+	readinessPriority,
 	type Workbench,
 } from "@signoff/domain/workbench";
 
@@ -14,35 +16,48 @@ export type PullRow = {
 	progress: ReturnType<typeof pullProgress>;
 };
 export type PullFilter = {
-	source: "all" | "cli" | "demo";
+	source: "cli" | "demo";
 	query: string;
+	organization: string;
 	projectId: string;
 	repository: string;
+	draft: "exclude" | "include" | "only";
+	authors: string[];
 	state: "open" | "merged" | "closed" | "all";
 	status: "all" | "attention" | PullReadiness["kind"];
-	sort: "attention" | "updated" | "oldest";
+	sort: "readiness" | "title" | "progress" | "action" | "updated" | "oldest";
+	sortDirection: "asc" | "desc";
 };
 export const DEFAULT_PULL_FILTER: PullFilter = {
-	source: "all",
+	source: "demo",
 	query: "",
+	organization: "",
 	projectId: "",
 	repository: "",
+	draft: "exclude",
+	authors: [],
 	state: "open",
 	status: "all",
-	sort: "attention",
+	sort: "readiness",
+	sortDirection: "asc",
 };
+export const PULL_FILTER_PARAMS = {
+	source: "source",
+	query: "q",
+	organization: "org",
+	projectId: "project",
+	repository: "repo",
+	draft: "draft",
+	state: "state",
+	status: "status",
+	sort: "sort",
+	sortDirection: "direction",
+} as const;
+export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
+export const AUTO_REFRESH_STORAGE_KEY = "signoff-auto-refresh-seconds";
+export const REFRESH_INTERVALS = [0, 60, 120, 300, 600];
+export const DEFAULT_REFRESH_INTERVAL = 120;
 const ATTENTION = new Set(["blocked", "approval", "review", "unknown"]);
-const ORDER = {
-	blocked: 0,
-	approval: 1,
-	unknown: 2,
-	review: 3,
-	running: 4,
-	ready: 5,
-	draft: 6,
-	merged: 7,
-	closed: 8,
-};
 
 export function pullRows(data: Workbench): PullRow[] {
 	const projects = new Map(data.projects.map((p) => [p.id, p]));
@@ -65,36 +80,119 @@ export function readPullFilter(
 	params: URLSearchParams,
 	hasLiveProjects = false,
 ): PullFilter {
-	const source = params.get("source") ?? (hasLiveProjects ? "cli" : "all");
+	const defaultSource = hasLiveProjects ? "cli" : "demo";
+	const source = params.get("source") ?? defaultSource;
 	const state = params.get("state") ?? "open";
-	const status = params.get("status") ?? "all";
-	const sort = params.get("sort") ?? "attention";
+	const legacyStatus = params.get("status") ?? "all";
+	const status = legacyStatus === "draft" ? "all" : legacyStatus;
+	const requestedSort = params.get("sort");
+	const sort = [
+		"readiness",
+		"title",
+		"progress",
+		"action",
+		"updated",
+		"oldest",
+	].includes(requestedSort ?? "")
+		? (requestedSort as PullFilter["sort"])
+		: "readiness";
+	const direction = params.get("direction");
+	const draft =
+		params.get("draft") ?? (legacyStatus === "draft" ? "only" : "exclude");
 	return {
-		source: ["all", "cli", "demo"].includes(source)
+		source: ["cli", "demo"].includes(source)
 			? (source as PullFilter["source"])
-			: "all",
+			: defaultSource,
 		query: params.get("q") ?? "",
+		organization: (params.get("org") ?? "").toLowerCase(),
 		projectId: params.get("project") ?? "",
 		repository: params.get("repo") ?? "",
+		draft: ["exclude", "include", "only"].includes(draft)
+			? (draft as PullFilter["draft"])
+			: "exclude",
+		authors: [...new Set(params.getAll("author").filter(Boolean))],
 		state: ["open", "merged", "closed", "all"].includes(state)
 			? (state as PullFilter["state"])
 			: "open",
-		status: ["all", "attention", ...Object.keys(ORDER)].includes(status)
+		status: ["all", "attention", ...readinessKindSchema.options].includes(
+			status,
+		)
 			? (status as PullFilter["status"])
 			: "all",
-		sort: ["attention", "updated", "oldest"].includes(sort)
-			? (sort as PullFilter["sort"])
-			: "attention",
+		sort,
+		sortDirection:
+			direction === "asc" || direction === "desc"
+				? direction
+				: defaultSortDirection(sort),
 	};
+}
+
+export function writePullFilter(
+	filter: PullFilter,
+	previous = new URLSearchParams(),
+): URLSearchParams {
+	const params = new URLSearchParams(previous);
+	for (const key of Object.keys(
+		PULL_FILTER_PARAMS,
+	) as (keyof typeof PULL_FILTER_PARAMS)[]) {
+		const param = PULL_FILTER_PARAMS[key];
+		if (
+			key !== "source" &&
+			filter[key] === DEFAULT_PULL_FILTER[key] &&
+			!(key === "sortDirection" && filter.sort !== "readiness")
+		)
+			params.delete(param);
+		else params.set(param, filter[key]);
+	}
+	params.delete("author");
+	for (const author of filter.authors) params.append("author", author);
+	return params;
+}
+
+export function pullAuthorId(row: PullRow): string {
+	return `${row.project.provider}:${row.pull.author.id}`;
+}
+
+export function authorOptions(rows: PullRow[]) {
+	return [
+		...new Map(
+			rows.map((row) => [
+				pullAuthorId(row),
+				{
+					id: pullAuthorId(row),
+					name: row.pull.author.name,
+					provider: row.project.provider,
+				},
+			]),
+		).values(),
+	].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+export function matchesRepository(
+	repository: PullRequest["repository"],
+	value: string,
+) {
+	const key = value.toLowerCase();
+	return (
+		repository.id.toLowerCase() === key || repository.name.toLowerCase() === key
+	);
 }
 
 export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 	const query = filter.query.trim().toLowerCase();
-	return rows.filter(
-		({ pull, project, readiness }) =>
-			(filter.source === "all" || project.source === filter.source) &&
+	return rows.filter((row) => {
+		const { pull, project, readiness } = row;
+		return (
+			project.source === filter.source &&
+			(filter.draft === "include" ||
+				pull.draft === (filter.draft === "only")) &&
+			(!filter.authors.length || filter.authors.includes(pullAuthorId(row))) &&
+			(!filter.organization ||
+				project.organization.toLowerCase() ===
+					filter.organization.toLowerCase()) &&
 			(!filter.projectId || project.id === filter.projectId) &&
-			(!filter.repository || pull.repository.id === filter.repository) &&
+			(!filter.repository ||
+				matchesRepository(pull.repository, filter.repository)) &&
 			(!query ||
 				[
 					pull.title,
@@ -102,13 +200,16 @@ export function scopePulls(rows: PullRow[], filter: PullFilter): PullRow[] {
 					pull.author.name,
 					pull.repository.name,
 					project.name,
+					project.organization,
+					project.projectKey,
 					readiness.owner,
 					readiness.action,
 				]
 					.join(" ")
 					.toLowerCase()
-					.includes(query)),
-	);
+					.includes(query))
+		);
+	});
 }
 
 export function visiblePulls(scoped: PullRow[], filter: PullFilter): PullRow[] {
@@ -122,21 +223,61 @@ export function visiblePulls(scoped: PullRow[], filter: PullFilter): PullRow[] {
 						: row.readiness.kind === filter.status)),
 		)
 		.sort((a, b) => {
-			if (filter.sort === "oldest")
-				return (
-					a.pull.createdAt - b.pull.createdAt ||
-					a.pull.id.localeCompare(b.pull.id)
-				);
-			const priority =
-				filter.sort === "attention"
-					? ORDER[a.readiness.kind] - ORDER[b.readiness.kind]
-					: 0;
+			let comparison: number;
+			switch (filter.sort) {
+				case "title":
+					comparison = a.pull.title.localeCompare(b.pull.title);
+					break;
+				case "progress":
+					comparison = checkCompletion(a) - checkCompletion(b);
+					break;
+				case "action":
+					comparison = a.readiness.action.localeCompare(b.readiness.action);
+					break;
+				case "updated":
+					comparison = a.pull.updatedAt - b.pull.updatedAt;
+					break;
+				case "oldest":
+					comparison = a.pull.createdAt - b.pull.createdAt;
+					break;
+				default:
+					comparison =
+						readinessPriority(a.readiness, a.project) -
+						readinessPriority(b.readiness, b.project);
+			}
 			return (
-				priority ||
+				comparison * (filter.sortDirection === "desc" ? -1 : 1) ||
 				b.pull.updatedAt - a.pull.updatedAt ||
 				a.pull.id.localeCompare(b.pull.id)
 			);
 		});
+}
+
+function checkCompletion(row: PullRow): number {
+	if (row.pull.checksObservedAt === null || row.pull.coverage === "partial")
+		return -1;
+	return row.progress.checksTotal
+		? row.progress.checksPassed / row.progress.checksTotal
+		: 1;
+}
+function defaultSortDirection(
+	sort: PullFilter["sort"],
+): PullFilter["sortDirection"] {
+	return sort === "updated" || sort === "progress" ? "desc" : "asc";
+}
+export function nextPullSort(
+	filter: PullFilter,
+	sort: PullFilter["sort"],
+): Pick<PullFilter, "sort" | "sortDirection"> {
+	return {
+		sort,
+		sortDirection:
+			filter.sort === sort
+				? filter.sortDirection === "asc"
+					? "desc"
+					: "asc"
+				: defaultSortDirection(sort),
+	};
 }
 
 export function pullMetrics(rows: PullRow[]) {
@@ -152,28 +293,66 @@ export function pullMetrics(rows: PullRow[]) {
 	};
 }
 
-export function repositoryOptions(rows: PullRow[], projectId = "") {
+export function repositoryOptions(
+	rows: PullRow[],
+	projectId = "",
+	projects: Project[] = [],
+	matchingRows = rows,
+) {
+	const matchingIds = new Set(matchingRows.map((row) => row.pull.id));
 	const repositories = new Map<
 		string,
-		{ id: string; name: string; projectName: string }
+		{ key: string; id: string; name: string; project: Project; rows: PullRow[] }
 	>();
-	for (const { pull, project } of rows) {
-		if (!projectId || project.id === projectId)
-			repositories.set(pull.repository.id, {
-				...pull.repository,
-				projectName: project.name,
-			});
+	for (const row of rows) {
+		const { pull, project } = row;
+		if (projectId && project.id !== projectId) continue;
+		const key = JSON.stringify([project.id, pull.repository.id]);
+		const repository = repositories.get(key) ?? {
+			key,
+			...pull.repository,
+			project,
+			rows: [],
+		};
+		repository.rows.push(row);
+		repositories.set(key, repository);
 	}
-	return [...repositories.values()].sort(
-		(a, b) =>
-			a.name.localeCompare(b.name) ||
-			a.projectName.localeCompare(b.projectName),
-	);
+	for (const project of projects) {
+		if (projectId && project.id !== projectId) continue;
+		const known = [...repositories.values()].filter(
+			(repo) => repo.project.id === project.id,
+		);
+		for (const name of project.repositories ?? []) {
+			if (known.some((repo) => matchesRepository(repo, name))) continue;
+			const key = JSON.stringify([project.id, name]);
+			repositories.set(key, { key, id: name, name, project, rows: [] });
+		}
+	}
+	return [...repositories.values()]
+		.map(({ rows: pulls, ...repository }) => {
+			const matching = pulls.filter((row) => matchingIds.has(row.pull.id));
+			return {
+				...repository,
+				metrics: pullMetrics(matching),
+				total: matching.length,
+			};
+		})
+		.sort(
+			(a, b) =>
+				a.name.localeCompare(b.name) ||
+				a.project.organization.localeCompare(b.project.organization) ||
+				a.project.projectKey.localeCompare(b.project.projectKey) ||
+				a.key.localeCompare(b.key),
+		);
 }
 
-export function projectSummaries(data: Workbench, rows: PullRow[]) {
+export function projectSummaries(
+	data: Workbench,
+	rows: PullRow[],
+	matchingRows = rows,
+) {
 	return data.projects.map((project) => {
-		const pulls = rows.filter((row) => row.project.id === project.id);
+		const pulls = matchingRows.filter((row) => row.project.id === project.id);
 		return {
 			project,
 			job:
@@ -181,11 +360,13 @@ export function projectSummaries(data: Workbench, rows: PullRow[]) {
 					.filter((job) => job.projectId === project.id)
 					.sort(
 						(a, b) =>
-							b.requestedAt - a.requestedAt || b.updatedAt - a.updatedAt,
+							b.revision - a.revision ||
+							b.requestedAt - a.requestedAt ||
+							b.updatedAt - a.updatedAt,
 					)[0] ?? null,
 			metrics: pullMetrics(pulls),
 			total: pulls.length,
-			repositories: repositoryOptions(pulls),
+			repositories: repositoryOptions(rows, project.id, [project], pulls),
 			scans: data.scans.filter((scan) => scan.projectId === project.id),
 		};
 	});
@@ -194,8 +375,7 @@ export function projectSummaries(data: Workbench, rows: PullRow[]) {
 export function canScanProject(project: Project, data: Workbench): boolean {
 	return (
 		project.enabled &&
-		project.provider === "ado" &&
-		(project.source === "cli" || data.demoMode) &&
+		(project.source === "demo" ? data.demoMode : project.provider === "ado") &&
 		!(data.collectionJobs ?? []).some(
 			(job) =>
 				job.projectId === project.id &&
@@ -207,7 +387,7 @@ export function canScanProject(project: Project, data: Workbench): boolean {
 
 export function collectorConnection(
 	data: Workbench | null,
-	now = Date.now() / 1000,
+	now = data?.fetchedAt ?? Date.now() / 1000,
 ) {
 	if (!data?.collector || now - data.collector.lastSeenAt > 65)
 		return {

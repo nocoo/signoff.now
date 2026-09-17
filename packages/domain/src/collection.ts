@@ -17,11 +17,25 @@ export const collectorHeartbeatSchema = z
 		message,
 	})
 	.strict();
-export const collectorClaimSchema = z.object({
-	job: collectionJobSchema,
-	project: projectSchema,
-	leaseToken,
-});
+export const collectorClaimSchema = z
+	.object({
+		job: collectionJobSchema,
+		project: projectSchema,
+		leaseToken,
+		targets: z.array(pullRequestSchema).max(20).optional(),
+	})
+	.refine(({ job, project, targets }) => {
+		const ids = job.pullIds;
+		if (ids === undefined) return targets === undefined;
+		return (
+			targets !== undefined &&
+			targets.length === ids.length &&
+			new Set(targets.map((pull) => pull.id)).size === ids.length &&
+			targets.every(
+				(pull) => ids.includes(pull.id) && pull.projectId === project.id,
+			)
+		);
+	}, "Claim targets must match the requested PRs");
 export type CollectorClaim = z.infer<typeof collectorClaimSchema>;
 export const collectionBatchSchema = z
 	.object({

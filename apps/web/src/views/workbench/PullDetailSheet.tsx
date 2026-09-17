@@ -39,6 +39,7 @@ import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { duration, type PullRow, relativeTime } from "@/models/workbench";
+import { PullDescription } from "./PullDescription";
 import {
 	CHECK_LABELS,
 	CheckIcon,
@@ -124,6 +125,10 @@ function PullDetail({
 	busy: boolean;
 }) {
 	const { pull, project, readiness, progress } = row;
+	const checksAt =
+		pull.checksObservedAt === null
+			? null
+			: (pull.checksObservedAt ?? pull.observedAt);
 	return (
 		<>
 			<div className="space-y-4 border-b border-basalt-border px-5 py-5 sm:px-6">
@@ -132,7 +137,7 @@ function PullDetail({
 						<span className="font-mono text-sm text-basalt-muted-foreground">
 							#{pull.number}
 						</span>
-						<ReadinessBadge readiness={readiness} />
+						<ReadinessBadge readiness={readiness} project={project} />
 						{project.source === "demo" ? (
 							<Badge variant="secondary">Sample PR</Badge>
 						) : null}
@@ -150,14 +155,11 @@ function PullDetail({
 				</div>
 				<SheetTitle className="pr-4 text-xl leading-7">{pull.title}</SheetTitle>
 				<SheetDescription>
-					{project.name} / {pull.repository.name}{" "}
+					{project.organization} / {project.projectKey} / {pull.repository.name}{" "}
 					<span className="mx-1" aria-hidden>
 						·
 					</span>{" "}
 					{project.provider === "ado" ? "Azure DevOps" : "GitHub"}{" "}
-					<span className="text-basalt-muted-foreground/80">
-						· {project.organization}
-					</span>
 				</SheetDescription>
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<EntityLabel
@@ -218,7 +220,7 @@ function PullDetail({
 								<h3 className="text-xs font-medium uppercase tracking-wider">
 									Next action
 								</h3>
-								<ReadinessBadge readiness={readiness} />
+								<ReadinessBadge readiness={readiness} project={project} />
 							</LayerCard.Header>
 							<LayerCard.Well>
 								<p className="text-base font-semibold leading-6">
@@ -250,13 +252,15 @@ function PullDetail({
 												{index + 1}
 											</span>
 											<div className="min-w-0 flex-1">
-												<p className="text-xs font-medium">{issue.label}</p>
+												<ReadinessBadge readiness={issue} project={project} />
 												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 													{issue.action}
 												</p>
-												<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
-													{issue.owner}
-												</p>
+												<EntityLabel
+													name={issue.owner}
+													size="xs"
+													className="mt-1.5 text-[11px] text-basalt-muted-foreground"
+												/>
 											</div>
 										</LayerCard>
 									))}
@@ -305,9 +309,10 @@ function PullDetail({
 						<Reviewers pull={pull} />
 						<section>
 							<h3 className="mb-3 text-sm font-semibold">About this change</h3>
-							<p className="whitespace-pre-line text-sm leading-6 text-basalt-muted-foreground">
-								{pull.description || "No description provided."}
-							</p>
+							<PullDescription
+								description={pull.description}
+								sourceUrl={pullUrl(project, pull)}
+							/>
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{pull.labels.map((label) => (
 									<Badge key={label} variant="secondary">
@@ -343,14 +348,21 @@ function PullDetail({
 						<div className="flex flex-wrap items-center justify-between gap-2">
 							<h3 className="flex items-center gap-2 text-sm font-semibold">
 								<ShieldCheck className="h-4 w-4" aria-hidden />
-								{progress.checksPassed} / {progress.checksTotal} required checks
-								passed
+								{checksAt === null
+									? "Checks not collected"
+									: `${progress.checksPassed} / ${progress.checksTotal} required checks passed`}
 							</h3>
 							<span className="text-xs text-basalt-muted-foreground">
-								Observed {relativeTime(pull.observedAt)}
+								{checksAt === null
+									? "Awaiting collection"
+									: `Checked ${relativeTime(checksAt)}`}
 							</span>
 						</div>
-						{pull.coverage === "partial" ? (
+						{checksAt === null ? (
+							<AlertBanner>
+								Checks load while this PR is open and auto refresh is enabled.
+							</AlertBanner>
+						) : pull.coverage === "partial" ? (
 							<AlertBanner variant="warning">
 								Some check results are unavailable. Scan this project again to
 								verify readiness.
@@ -398,9 +410,11 @@ function PullDetail({
 												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 													{policy.detail}
 												</p>
-												<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-													{policy.owner}
-												</p>
+												<EntityLabel
+													name={policy.owner}
+													size="xs"
+													className="mt-1 text-[11px] text-basalt-muted-foreground"
+												/>
 											</div>
 										</div>
 									))}
@@ -476,7 +490,11 @@ function PullDetail({
 						? "Sample data · approvals and failures require attention"
 						: "Collected from the project source"}
 				</span>
-				<span>Last scanned {relativeTime(pull.observedAt)}</span>
+				<span>
+					{checksAt === null
+						? "Checks not collected"
+						: `Checks collected ${relativeTime(checksAt)}`}
+				</span>
 			</div>
 		</>
 	);
@@ -589,9 +607,11 @@ function BuildPipeline({ build, href }: { build: Build; href?: string }) {
 									<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 										{stage.detail}
 									</p>
-									<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-										{stage.owner}
-									</p>
+									<EntityLabel
+										name={stage.owner}
+										size="xs"
+										className="mt-1 text-[11px] text-basalt-muted-foreground"
+									/>
 								</div>
 								<span className="shrink-0 pt-0.5 font-mono text-[11px] text-basalt-muted-foreground">
 									{duration(stage.durationSeconds)}

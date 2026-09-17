@@ -163,9 +163,8 @@ describe("avatarColor distribution", () => {
 });
 
 describe("avatarInitial", () => {
-	it("takes the given name for a Chinese name, not the surname", () => {
-		// 张 is shared by ~95 million people; 伟 is what distinguishes this row.
-		expect(avatarInitial("张伟")).toBe("伟");
+	it("uses two characters for Chinese names", () => {
+		expect(avatarInitial("张伟")).toBe("张伟");
 		expect(avatarInitial("欧阳锋")).toBe("阳锋");
 	});
 
@@ -173,13 +172,16 @@ describe("avatarInitial", () => {
 		expect(avatarInitial("张")).toBe("张");
 	});
 
-	it("uppercases a single latin letter", () => {
-		expect(avatarInitial("ada lovelace")).toBe("A");
+	it("uses uppercase first and last initials, or two letters of a single name", () => {
+		expect(avatarInitial("ada lovelace")).toBe("AL");
+		expect(avatarInitial("  ada   byron lovelace ")).toBe("AL");
+		expect(avatarInitial("ada")).toBe("AD");
+		expect(avatarInitial("a")).toBe("A");
 	});
 
 	it("handles an astral first character as one glyph", () => {
 		// Naive `name[0]` would slice a surrogate pair and render a tofu box.
-		expect(avatarInitial("𝒜lice")).toBe("𝒜");
+		expect(avatarInitial("𝒜lice")).toBe("𝒜L");
 	});
 
 	it("shows a placeholder rather than an empty circle", () => {
