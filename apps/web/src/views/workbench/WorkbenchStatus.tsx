@@ -43,7 +43,7 @@ export function ReadinessBadge({
 	readiness,
 	project,
 }: {
-	readiness: Pick<PullReadiness, "kind" | "label" | "policy">;
+	readiness: Pick<PullReadiness, "kind" | "label" | "gateId" | "color">;
 	project: Project;
 }) {
 	const Icon = READINESS_ICONS[readiness.kind];

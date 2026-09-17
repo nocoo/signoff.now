@@ -65,8 +65,8 @@ async function tagIdsOf(db: D1Database, teamId: string): Promise<string[]> {
 export async function teamsListRoute(c: Context<AppEnv>) {
 	const includeArchived = c.req.query("includeArchived") === "1";
 	const sql = includeArchived
-		? `SELECT * FROM teams ORDER BY name COLLATE NOCASE`
-		: `SELECT * FROM teams WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE`;
+		? `SELECT * FROM teams WHERE source = 'cli' ORDER BY name COLLATE NOCASE`
+		: `SELECT * FROM teams WHERE source = 'cli' AND archived_at IS NULL ORDER BY name COLLATE NOCASE`;
 	const [res, tags] = await Promise.all([
 		c.env.DB.prepare(sql).all<TeamRow>(),
 		tagsByTeam(c.env.DB),
@@ -162,7 +162,7 @@ export async function teamsPatchRoute(c: Context<AppEnv>) {
        SET name = CASE WHEN ?1 = 1 THEN ?2 ELSE name END,
            avatar_url = CASE WHEN ?3 = 1 THEN avatar_url ELSE ?4 END,
            updated_at = unixepoch()
-       WHERE id = ?5 AND archived_at IS NULL`,
+       WHERE id = ?5 AND source = 'cli' AND archived_at IS NULL`,
 	).bind(
 		renaming ? 1 : 0,
 		name,
@@ -197,7 +197,7 @@ export async function teamsArchiveRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
 	const r = await c.env.DB.prepare(
 		`UPDATE teams SET archived_at = unixepoch(), updated_at = unixepoch()
-     WHERE id = ? AND archived_at IS NULL`,
+     WHERE id = ? AND source = 'cli' AND archived_at IS NULL`,
 	)
 		.bind(id)
 		.run();
@@ -212,7 +212,7 @@ export async function teamsRestoreRoute(c: Context<AppEnv>) {
 	try {
 		const r = await c.env.DB.prepare(
 			`UPDATE teams SET archived_at = NULL, updated_at = unixepoch()
-       WHERE id = ? AND archived_at IS NOT NULL`,
+       WHERE id = ? AND source = 'cli' AND archived_at IS NOT NULL`,
 		)
 			.bind(id)
 			.run();

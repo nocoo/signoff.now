@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { advanceDemoPull, demoWorkspace, makeDemoPulls } from "./demo.js";
 import {
 	isFailed,
+	organizationUrl,
 	projectSchema,
 	projectUrl,
 	projectWriteSchema,
@@ -9,6 +10,7 @@ import {
 	pullReadiness,
 	pullRequestSchema,
 	pullUrl,
+	repositoryUrl,
 	workbenchSchema,
 } from "./workbench.js";
 
@@ -21,6 +23,16 @@ const ready = fixture.pullRequests.find(
 )!;
 
 describe("normalized PR contract", () => {
+	test("retains optional author handles and avatars through snapshot validation", () => {
+		const author = {
+			...ready.author,
+			handle: "alice@example.com",
+			avatarUrl: "https://example.com/alice.png",
+		};
+		expect(pullRequestSchema.parse({ ...ready, author }).author).toEqual(
+			author,
+		);
+	});
 	test("retains late job failures in pipelines with more than 100 stages", () => {
 		const build = ready.builds[0]!;
 		const stages = Array.from({ length: 131 }, (_, index) => ({
@@ -181,6 +193,43 @@ describe("normalized PR contract", () => {
 			pullUrl({ ...project, projectKey: "Shared Platform" }, ready),
 		).toContain("Shared%20Platform/_git/");
 	});
+	test("links each provider scope without trusting names as URLs", () => {
+		const ado = {
+			...project,
+			organization: "north star?host=evil.test",
+			projectKey: "Shared Platform/#overview",
+		};
+		const repo = "web app?tab=code#main";
+		expect(organizationUrl(ado)).toBe(
+			"https://dev.azure.com/north%20star%3Fhost%3Devil.test",
+		);
+		expect(projectUrl(ado)).toBe(
+			`${organizationUrl(ado)}/Shared%20Platform%2F%23overview`,
+		);
+		expect(repositoryUrl(ado, repo)).toBe(
+			`${projectUrl(ado)}/_git/web%20app%3Ftab%3Dcode%23main`,
+		);
+		expect(
+			pullUrl(ado, { ...ready, repository: { id: "repo", name: repo } }),
+		).toBe(`${repositoryUrl(ado, repo)}/pullrequest/${ready.number}`);
+		const github = {
+			...project,
+			provider: "github" as const,
+			organization: "https://evil.test",
+			projectKey: "owner/name",
+		};
+		expect(organizationUrl(github)).toBe("https://github.com");
+		expect(projectUrl(github)).toBe("https://github.com/owner%2Fname");
+		expect(repositoryUrl(github, "signoff.now")).toBe(
+			"https://github.com/owner%2Fname/signoff.now",
+		);
+		expect(
+			pullUrl(github, {
+				...ready,
+				repository: { id: "repo", name: "signoff.now" },
+			}),
+		).toBe(`${repositoryUrl(github, "signoff.now")}/pull/${ready.number}`);
+	});
 	test("validates ADO configuration without accepting URLs or unsupported connectors", () => {
 		const body = {
 			name: " Sample ",
@@ -222,7 +271,7 @@ describe("merge readiness", () => {
 			"merged",
 		);
 	});
-	test("consolidates identical next actions from distinct policy gates", () => {
+	test("keeps all source evaluations while grouping same-named review requirements", () => {
 		const policies = ["review-policy-a", "review-policy-b"].map((id) => ({
 			id,
 			name: "Minimum number of reviewers",
@@ -234,7 +283,7 @@ describe("merge readiness", () => {
 		const pull = { ...ready, policies };
 		const result = pullReadiness(pull, project);
 		expect(pull.policies).toHaveLength(2);
-		expect(result.kind).toBe("running");
+		expect(result.kind).toBe("review");
 		expect(result.issues).toHaveLength(1);
 		expect(
 			pullReadiness(
@@ -247,7 +296,7 @@ describe("merge readiness", () => {
 				},
 				project,
 			).kind,
-		).toBe("blocked");
+		).toBe("review");
 	});
 
 	test("does not let optional failures block an otherwise approved PR", () => {

@@ -67,7 +67,7 @@ function makeStatement(db: Database, sql: string, args: unknown[] = []) {
 			const row = db.query(sql).get(...(args as never[]));
 			return (row as T) ?? null;
 		},
-		async run() {
+		execute() {
 			if (isSelect(sql)) {
 				const results = db.query(sql).all(...(args as never[]));
 				return {
@@ -81,6 +81,9 @@ function makeStatement(db: Database, sql: string, args: unknown[] = []) {
 				success: true,
 				meta: { changes: Number(res.changes ?? 0) },
 			} as unknown as D1Result;
+		},
+		async run() {
+			return stmt.execute();
 		},
 		raw: async () => [],
 	};
@@ -130,7 +133,8 @@ export function createSqliteD1(): SqliteD1 {
 			try {
 				const out: D1Result[] = [];
 				for (const s of statements) {
-					out.push(isSelect(s.sql) ? await s.all() : await s.run());
+					// SQLite statements are synchronous: yielding inside BEGIN would let another request enter this transaction.
+					out.push(s.execute());
 				}
 				raw.exec("COMMIT");
 				return out;
@@ -266,7 +270,7 @@ export function createConcurrentSqliteD1(count = 2): ConcurrentSqliteD1 {
 				try {
 					const out: D1Result[] = [];
 					for (const s of statements) {
-						out.push(isSelect(s.sql) ? await s.all() : await s.run());
+						out.push(s.execute());
 					}
 					handle.exec("COMMIT");
 					return out;

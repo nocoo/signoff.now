@@ -11,6 +11,7 @@ This file is the quality contract; hooks, CI and config are enforcement. Close i
 | Fact | Where |
 |---|---|
 | Product / live collection | [README.md](README.md), [PR workbench](docs/10-PR工作台与Mock预览.md), [local collection](docs/11-真实PR采集与本地工作台.md) |
+| Directory / PR contributions | [members, relationships and manual statistics](docs/13-成员目录与PR贡献统计.md) |
 | Access / identity | [access contract](docs/12-agent-access.md), `packages/worker/src/middleware` |
 | Runtime / versions | root, Worker and web `package.json`; keep those service versions aligned |
 | Tests / enforcement | package Vitest and `bunfig.toml` configs, `.husky`, `scripts/run-security.ts`, CI |
@@ -25,6 +26,7 @@ This file is the quality contract; hooks, CI and config are enforcement. Close i
 - CRUD automation needs an Access service token plus a Service Auth policy; identify service JWTs by `common_name` and mark `service: true`. Never assume email/sub.
 - D1 is the product store. Use TDD; do not reintroduce Electron or local better-sqlite3/Drizzle product storage. Keep credentials in ignored `.env` (0600) and preserve its tracked example.
 - Activity artifacts bind to the target environment IDs/config version: recollect after environment changes, retain idempotent chunks and run only one ingest at a time.
+- Directory accounts link by exact provider/organization/actor identity. PR statistics calculate only on explicit module refresh; keep saved calculations and Live/Sample data separate. Demo writes remain restricted to local demo mode.
 
 ## Stack / Layout
 
@@ -40,6 +42,10 @@ Run from root with Bun 1.4.0, Node 22.22.1–22.x/24.x/26+, Git, gitleaks and OS
 
 ```bash
 bun install --frozen-lockfile
+bun run dev
+bun run dev:worker
+bun run dev:collector
+bun run db:seed:local --directory-only
 bun run lint
 bun run typecheck
 bun run build:web
@@ -74,9 +80,20 @@ Never bypass commit/push hooks, force-push, or use autofix in checks. Documentat
 
 Dev: web 7042, local Worker 37042, optional trusted `https://signoff.dev.hexly.ai`. `SIGNOFF_DATA_DIR` controls collector artifacts; default is `.data`. The legacy shell E2E requires a running disposable loopback Worker (`SIGNOFF_PORT`) and resets named fixture rows in default local state; do not run it against daily data. Required direction: per-run `--local --persist-to`, separate SQLite, `NODE_ENV=test`, checked marker and ownership guards. No remote test provisioning.
 
+`dev:worker` applies local migrations before starting. The collector has independent list (default 2 minutes) and current-page checks (default 5 minutes) queues, with cooldowns starting after each completed round. Checks pause without a foreground page; list discovery continues.
+
 ## Operations / Release
 
 Keep `/api/live` public, no-store, versioned and D1-aware (503 on failure); Access must also bypass that exact path while business routes retain verification. Follow README for current CI release and separate environment credentials; `db:seed:local` resets only named demo projects and is not a production workflow.
+
+The Sample seed also initializes its member directory. Use `db:seed:local --directory-only` to add those relationships without resetting existing PR or project settings.
+
+## Git workflow
+
+- Develop directly on `main`; do not create a branch unless the user explicitly asks.
+- Make atomic commits: one coherent, reviewable change per commit, with its relevant tests.
+- Preserve all existing commits when bringing an existing branch into `main`; use a normal merge, never squash or rewrite history.
+- Run the required checks and keep commit/push hooks enabled. Push when authorized by the task.
 
 ## Retrospective
 

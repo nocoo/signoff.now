@@ -4,6 +4,7 @@ import { AdoError, type AdoPagedClient } from "../ado/client.js";
 import {
 	BuildService,
 	collectProjectPulls,
+	discoverMergeRequirements,
 	policyArtifactId,
 	policyEvaluationsUrl,
 } from "./ado.js";
@@ -31,6 +32,142 @@ function makeMockProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("collectProjectPulls", () => {
+	test("reconciles known open PRs beyond the recent history window using summaries only", async () => {
+		const project = makeMockProject();
+		const repository = {
+			id: "repo",
+			name: "app",
+			project: { id: "guid", name: "Project" },
+		};
+		const raw = (number: number, status = "active") => ({
+			pullRequestId: number,
+			status,
+			title: `PR ${number}`,
+			sourceRefName: "refs/heads/feature",
+			targetRefName: "refs/heads/main",
+			repository,
+		});
+		const knownOpenPulls = Array.from({ length: 25 }, (_, i) =>
+			normalizePullRequest({
+				projectId: project.id,
+				rawPr: raw(i + 1),
+				now: 1_789_632_000,
+			}),
+		);
+		const lookups: number[] = [];
+		let lookupError: AdoError | undefined;
+		const client: AdoPagedClient = {
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			post: async () => ({}),
+			get: async (url) => {
+				if (url.includes("status=completed"))
+					return {
+						value: knownOpenPulls
+							.slice(0, 20)
+							.map((p) => raw(p.number, "completed")),
+					};
+				if (url.includes("status=abandoned")) return { value: [] };
+				const number = Number(new URL(url).pathname.split("/").at(-1));
+				lookups.push(number);
+				if (lookupError) throw lookupError;
+				return raw(number, number === 25 ? "abandoned" : "completed");
+			},
+			getPage: async (url) => ({
+				data: {
+					value: url.includes("/_apis/git/repositories?")
+						? [repository]
+						: url.includes("status=active")
+							? [raw(26)]
+							: url.includes("status=completed")
+								? knownOpenPulls
+										.slice(0, 20)
+										.map((p) => raw(p.number, "completed"))
+								: [],
+				},
+				continuationToken: null,
+			}),
+		};
+		const result = await collectProjectPulls({
+			project,
+			client,
+			targets: [],
+			knownOpenPulls,
+			now: 1_789_632_000,
+		});
+		expect(result.state).toBe("complete");
+		expect(result.pulls).toHaveLength(26);
+		expect(
+			result.pulls.filter((p) => p.state === "open").map((p) => p.number),
+		).toEqual([26]);
+		expect(result.pulls.find((p) => p.number === 25)?.state).toBe("closed");
+		expect(lookups).toEqual([21, 22, 23, 24, 25]);
+		expect(result.pulls.every((p) => p.checksObservedAt === null)).toBe(true);
+		lookupError = new AdoError("server", "Summary temporarily unavailable");
+		const partial = await collectProjectPulls({
+			project,
+			client,
+			targets: [],
+			knownOpenPulls,
+			now: 1_789_632_000,
+		});
+		expect(partial.state).toBe("partial");
+		expect(partial.pulls).toHaveLength(21);
+		lookupError = new AdoError("unauthenticated", "Login expired");
+		await expect(
+			collectProjectPulls({
+				project,
+				client,
+				targets: [],
+				knownOpenPulls,
+				now: 1_789_632_000,
+			}),
+		).rejects.toMatchObject({ kind: "unauthenticated" });
+	});
+	test("discovers enabled blocking requirements across policy pages and only within monitored repositories", async () => {
+		const seen: string[] = [];
+		const config = (id: number, repositoryId: string | null, extra = {}) => ({
+			id,
+			isEnabled: true,
+			isBlocking: true,
+			type: {
+				displayName: "Minimum number of reviewers",
+				id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd",
+			},
+			settings: {
+				minimumApproverCount: 2,
+				scope: [{ repositoryId, refName: "refs/heads/main" }],
+			},
+			...extra,
+		});
+		const client = {
+			getPage: async (url: string) => {
+				seen.push(url);
+				return url.includes("continuationToken=")
+					? { data: { value: [config(4, null)] }, continuationToken: null }
+					: {
+							data: {
+								value: [
+									config(1, "repo"),
+									config(2, "other"),
+									config(3, "repo", { isBlocking: false }),
+								],
+							},
+							continuationToken: "next",
+						};
+			},
+		} as AdoPagedClient;
+		const gates = await discoverMergeRequirements(client, makeMockProject(), [
+			{ id: "repo", name: "App", projectGuid: "guid" },
+		]);
+		expect(gates.map((gate) => gate.id)).toEqual(["policy-1", "policy-4"]);
+		expect(gates[0]).toMatchObject({
+			kind: "review",
+			name: "Minimum number of reviewers",
+		});
+		expect(gates[0]?.detail).toContain("2 approvals");
+		expect(seen).toHaveLength(2);
+	});
 	test("collects checks only for the visible selection, without enumerating or prefetching other PRs", async () => {
 		const project = makeMockProject();
 		const raw = (number: number) => ({
@@ -159,7 +296,9 @@ describe("collectProjectPulls", () => {
 		});
 		expect(
 			calls.some((url) =>
-				/policy|statuses|builds|timeline|threads|iterations/.test(url),
+				/policy\/evaluations|statuses|builds|timeline|threads|iterations/.test(
+					url,
+				),
 			),
 		).toBe(false);
 	});

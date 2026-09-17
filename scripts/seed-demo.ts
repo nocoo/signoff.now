@@ -3,10 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { demoWorkspace } from "../packages/domain/src/demo.js";
+import { demoDirectoryStatements } from "../packages/worker/src/lib/demo-directory";
 
-// This command has no remote option. It resets only the named demo projects.
-if (process.argv.length > 2)
-	throw new Error("db:seed:local takes no arguments and only writes local D1");
+// This command has no remote option. Directory-only preserves project settings.
+const directoryOnly =
+	process.argv.length === 3 && process.argv[2] === "--directory-only";
+if (process.argv.length > 2 && !directoryOnly)
+	throw new Error(
+		"db:seed:local only accepts --directory-only and writes local D1",
+	);
 const fixture = demoWorkspace(Math.floor(Date.now() / 1000));
 const sql = (value: string | number | null) =>
 	value === null
@@ -38,7 +43,13 @@ const statements = [
 const directory = mkdtempSync(join(tmpdir(), "signoff-demo-"));
 try {
 	const file = join(directory, "seed.sql");
-	writeFileSync(file, statements.join("\n"));
+	writeFileSync(
+		file,
+		[
+			...(directoryOnly ? [] : statements),
+			...demoDirectoryStatements(fixture),
+		].join("\n"),
+	);
 	const result = spawnSync(
 		"bunx",
 		["wrangler", "d1", "execute", "signoff-db", "--local", "--file", file],
@@ -51,7 +62,9 @@ try {
 	if (result.status !== 0)
 		throw new Error(`Local seed failed (${result.status})`);
 	console.log(
-		`Seeded ${fixture.projects.length} demo projects and ${fixture.pullRequests.length} PRs in local D1.`,
+		directoryOnly
+			? "Initialized Sample directory in local D1; project settings and PRs preserved."
+			: `Seeded ${fixture.projects.length} demo projects, ${fixture.pullRequests.length} PRs, and Sample directory in local D1.`,
 	);
 } finally {
 	rmSync(directory, { recursive: true, force: true });

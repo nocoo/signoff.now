@@ -38,55 +38,43 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
+import { relativeAge } from "@/models/freshness";
 import {
 	DEFAULT_PULL_FILTER,
 	nextPullSort,
 	type PullFilter,
 	type PullRow,
-	relativeTime,
 } from "@/models/workbench";
+import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { usePageCollection } from "@/viewmodels/usePageCollection";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { ReadinessDialog } from "./ReadinessDialog";
-import { RepositoryFilters } from "./RepositoryFilters";
-import {
-	ScanControls,
-	WorkbenchConnection,
-	WorkbenchFeedback,
-} from "./WorkbenchControls";
+import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
+import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
 	const vm = useWorkbench();
+	const now = useMinuteNow();
 	const opener = useRef<HTMLElement | null>(null);
 	const [readinessProject, setReadinessProject] = useState<Project | null>(
 		null,
 	);
 	usePageCollection(
-		vm.collectPage,
-		vm.autoRefresh && vm.filter.source === "cli" && !vm.loading,
-		JSON.stringify([
-			vm.filter,
-			vm.page,
-			vm.refreshInterval,
-			vm.pageRows.map(({ pull }) => pull.id),
-			vm.selected?.pull.id,
-		]),
+		vm.publishCollectionView,
+		vm.detailCooldownSeconds > 0 && vm.filter.source === "cli" && !vm.loading,
+		vm.collectionPageKey,
+		vm.collectionPullIds,
 	);
 	const scopedProject = vm.projectOptions.find(
 		({ project }) => project.id === vm.filter.projectId,
 	)?.project;
 	const repository = vm.selectedRepository;
-	const scope = [
-		repository?.project.organization ??
-			scopedProject?.organization ??
-			vm.filter.organization,
-		repository?.project.projectKey ?? scopedProject?.projectKey,
-		repository?.name,
-	]
-		.filter(Boolean)
-		.join(" / ");
+	const scopeProject =
+		repository?.project ??
+		scopedProject ??
+		(vm.filter.organization ? vm.projectOptions[0]?.project : undefined);
 	const metrics = [
 		{
 			key: "all",
@@ -132,61 +120,70 @@ export function PullsPage() {
 				title="Pull requests"
 				description={
 					<span className="break-words">
-						{scope ||
-							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`}
+						{scopeProject ? (
+							<RepositoryScopeLinks
+								project={scopeProject}
+								repository={repository?.name}
+								organizationOnly={!scopedProject && !repository}
+							/>
+						) : (
+							vm.filter.organization ||
+							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`
+						)}
 					</span>
 				}
-				actions={<ScanControls vm={vm} />}
+				actions={<WorkbenchConnection vm={vm} compact />}
 			/>
-			<WorkbenchConnection vm={vm} compact />
 			<WorkbenchFeedback vm={vm} />
 			<RepositoryFilters vm={vm} />
-			<section
-				className="grid grid-cols-2 gap-2 xl:grid-cols-4"
-				aria-label="Pull request overview"
-			>
-				{metrics.map(({ key, label, value, detail, Icon, color }) => {
-					const selected =
-						vm.filter.state === "open" && vm.filter.status === key;
-					return (
-						<LayerCard
-							padding="none"
-							key={key}
-							className={cn(
-								"border border-transparent transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-basalt-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-basalt-card",
-								selected && "border-basalt-primary/40",
-							)}
-						>
-							<Button
-								variant="ghost"
-								aria-pressed={selected}
-								className={cn(
-									"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
-									selected && "bg-basalt-primary/5 hover:bg-basalt-primary/5",
-								)}
-								onClick={() => vm.setFilter({ state: "open", status: key })}
-							>
-								<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
-									<Icon
-										className={cn("h-4 w-4 shrink-0", color)}
-										aria-hidden
-										strokeWidth={1.6}
-									/>
-									{label}
-									<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
-										{vm.loading ? "—" : value.toLocaleString()}
-									</span>
-								</span>
-								<span className="text-[11px] font-normal text-basalt-muted-foreground">
-									{detail}
-								</span>
-							</Button>
-						</LayerCard>
-					);
-				})}
-			</section>
+
 			<LayerCard padding="none">
 				<LayerCard.Header className="flex-col gap-2 p-3">
+					<section
+						className="grid w-full grid-cols-2 gap-2 xl:grid-cols-4"
+						aria-label="Pull request overview"
+					>
+						{metrics.map(({ key, label, value, detail, Icon, color }) => {
+							const selected =
+								vm.filter.state === "open" && vm.filter.status === key;
+							return (
+								<LayerCard
+									padding="none"
+									key={key}
+									className={cn(
+										"border border-transparent transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-basalt-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-basalt-card",
+										selected && "border-basalt-primary/40",
+									)}
+								>
+									<Button
+										variant="ghost"
+										aria-pressed={selected}
+										className={cn(
+											"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
+											selected &&
+												"bg-basalt-primary/5 hover:bg-basalt-primary/5",
+										)}
+										onClick={() => vm.setFilter({ state: "open", status: key })}
+									>
+										<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
+											<Icon
+												className={cn("h-4 w-4 shrink-0", color)}
+												aria-hidden
+												strokeWidth={1.6}
+											/>
+											{label}
+											<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
+												{vm.loading ? "—" : value.toLocaleString()}
+											</span>
+										</span>
+										<span className="text-[11px] font-normal text-basalt-muted-foreground">
+											{detail}
+										</span>
+									</Button>
+								</LayerCard>
+							);
+						})}
+					</section>
 					<search
 						aria-label="Filter pull requests"
 						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_1fr_170px_1.2fr]"
@@ -384,11 +381,11 @@ export function PullsPage() {
 									<TableRow>
 										{(
 											[
-												["title", "Pull request", "w-[33%]"],
+												["title", "Pull request", "w-[32%]"],
 												["readiness", "Readiness", "w-[15%]"],
 												["progress", "Checks & stages", "w-[18%]"],
-												["action", "Next action", "w-[24%]"],
-												["updated", "Updated", "w-[10%] text-right"],
+												["action", "Next action", "w-[21%]"],
+												["updated", "PR updated", "w-[14%] text-right"],
 											] as const
 										).map(([sort, label, className]) => (
 											<SortableHead
@@ -438,13 +435,18 @@ export function PullsPage() {
 													</a>
 													<span aria-hidden>·</span>
 													<span>
-														{project.organization} / {project.projectKey}
+														<RepositoryScopeLinks
+															project={project}
+															repository={pull.repository.name}
+														/>
 													</span>
-													<span aria-hidden>/</span>
-													<span>{pull.repository.name}</span>
 												</div>
 												<div className="mt-1 flex items-center text-[11px] text-basalt-muted-foreground">
-													<EntityLabel name={pull.author.name} size="xs" />
+													<EntityLabel
+														name={pull.author.name}
+														avatarUrl={pull.author.avatarUrl}
+														size="xs"
+													/>
 													{pull.labels.includes("release blocker") ? (
 														<Badge
 															variant="error"
@@ -493,21 +495,20 @@ export function PullsPage() {
 															{progress.optionalFailures
 																? ` · ${progress.optionalFailures} advisory`
 																: ""}
-															{project.source === "cli" ? (
-																<span
-																	className="ml-2"
-																	title={new Date(
-																		(pull.checksObservedAt ?? pull.observedAt) *
-																			1000,
-																	).toLocaleString()}
-																>
-																	Checked{" "}
-																	{relativeTime(
-																		pull.checksObservedAt ?? pull.observedAt,
-																	)}
-																</span>
-															) : null}
 														</p>
+														{typeof pull.checksObservedAt === "number" ? (
+															<p className="mt-1 text-[11px] text-basalt-muted-foreground">
+																Checks synced{" "}
+																<time
+																	dateTime={new Date(
+																		pull.checksObservedAt * 1000,
+																	).toISOString()}
+																	title={`SignOff collected checks: ${new Date(pull.checksObservedAt * 1000).toLocaleString()}`}
+																>
+																	{relativeAge(pull.checksObservedAt, now)}
+																</time>
+															</p>
+														) : null}
 													</>
 												)}
 											</TableCell>
@@ -528,8 +529,19 @@ export function PullsPage() {
 														pull.updatedAt * 1000,
 													).toLocaleString()}
 												>
-													{relativeTime(pull.updatedAt)}
+													{relativeAge(pull.updatedAt, now)}
 												</time>
+												<p className="mt-1.5">
+													Synced{" "}
+													<time
+														dateTime={new Date(
+															pull.observedAt * 1000,
+														).toISOString()}
+														title={`SignOff collected PR data: ${new Date(pull.observedAt * 1000).toLocaleString()}`}
+													>
+														{relativeAge(pull.observedAt, now)}
+													</time>
+												</p>
 											</TableCell>
 										</TableRow>
 									))}
@@ -582,8 +594,13 @@ export function PullsPage() {
 				missing={vm.missingSelection}
 				onClose={() => vm.selectPull(null)}
 				returnFocus={opener}
-				onScan={() => void vm.scan(vm.selected?.project.id)}
-				canScan={Boolean(vm.selected && vm.canScan(vm.selected.project))}
+				onScan={() => {
+					if (vm.selected) void vm.refreshPull(vm.selected.pull.id);
+				}}
+				canScan={Boolean(
+					vm.selected?.project.enabled &&
+						(vm.selected.project.source === "cli" || vm.data?.demoMode),
+				)}
 				busy={Boolean(vm.busy)}
 			/>
 			{readinessProject ? (

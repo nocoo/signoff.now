@@ -1,8 +1,15 @@
-import type { Project, PullRequest } from "@signoff/domain/workbench";
+import type { KnownOpenPull } from "@signoff/domain/collection";
+import {
+	type MergeRequirement,
+	type Project,
+	type PullRequest,
+	projectMergeRequirements,
+} from "@signoff/domain/workbench";
 import { AdoError, type AdoPagedClient, adoUrl } from "../ado/client.js";
 import {
 	type BuildWithStages,
 	normalizeBuildStages,
+	normalizePolicy,
 	normalizePullRequest,
 	parseSeconds,
 } from "./normalize.js";
@@ -17,6 +24,7 @@ import {
 	adoEvaluationsSchema,
 	adoIterationChangesSchema,
 	adoIterationsSchema,
+	adoPolicyConfigurationsSchema,
 	adoPullRequestSummarySchema,
 	adoPullRequestsSchema,
 	adoRepositoriesSchema,
@@ -215,6 +223,87 @@ export async function enumerateActivePullRequests(
 	}
 
 	return activePrs;
+}
+
+/** Project policy configurations include requirements absent from the currently open page. */
+export async function discoverMergeRequirements(
+	client: AdoPagedClient,
+	project: Project,
+	repositories: RepoMeta[],
+): Promise<MergeRequirement[]> {
+	const ids = new Set(repositories.map((repo) => repo.id.toLowerCase()));
+	const gates = new Map<string, MergeRequirement>();
+	const tokens = new Set<string>();
+	let token: string | null = null;
+	for (;;) {
+		const url = adoUrl(
+			`${BASE_URL}/${project.organization}/${encodeURIComponent(project.projectKey)}`,
+			"_apis/policy/configurations",
+			{ $top: 100, continuationToken: token ?? undefined },
+		);
+		const page = await client.getPage(url);
+		for (const configuration of parseRaw(
+			adoPolicyConfigurationsSchema,
+			page.data,
+			"project policies",
+		).value) {
+			if (
+				configuration.isEnabled === false ||
+				configuration.isBlocking === false
+			)
+				continue;
+			const scope = configuration.settings?.scope;
+			const scopes = Array.isArray(scope)
+				? scope.filter(
+						(value): value is Record<string, unknown> =>
+							typeof value === "object" && value !== null,
+					)
+				: [];
+			const applicable = scopes.filter(
+				(entry) =>
+					!entry.repositoryId ||
+					(typeof entry.repositoryId === "string" &&
+						ids.has(entry.repositoryId.toLowerCase())),
+			);
+			if (scopes.length && !applicable.length) continue;
+			const policy = normalizePolicy({ configuration });
+			const minimum = configuration.settings?.minimumApproverCount;
+			const detail = [
+				typeof minimum === "number" ? `${minimum} approvals` : "",
+				...new Set(
+					applicable.map((entry) =>
+						typeof entry.refName === "string"
+							? entry.refName.replace(/^refs\/heads\//, "")
+							: "All branches",
+					),
+				),
+			]
+				.filter(Boolean)
+				.join(" · ")
+				.slice(0, 1000);
+			gates.set(policy.id, {
+				id: policy.id,
+				name: policy.name,
+				kind: policy.kind ?? "policy",
+				definitionId: policy.definitionId,
+				detail,
+			});
+		}
+		if (gates.size > 1000)
+			throw new AdoError(
+				"bad_response",
+				"Project has more than 1,000 merge requirements; narrow its repository scope.",
+			);
+		if (!page.continuationToken) break;
+		if (tokens.has(page.continuationToken))
+			throw new AdoError(
+				"bad_response",
+				"Policy configuration pagination repeated a token",
+			);
+		tokens.add(page.continuationToken);
+		token = page.continuationToken;
+	}
+	return [...gates.values()];
 }
 
 export async function enumerateRecentHistory(
@@ -639,11 +728,13 @@ export async function collectProjectPulls(opts: {
 	client: AdoPagedClient;
 	now: number;
 	targets?: PullRequest[];
+	knownOpenPulls?: KnownOpenPull[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<{
 	pulls: PullRequest[];
 	state: "complete" | "partial";
 	message: string;
+	mergeRequirements?: MergeRequirement[];
 }> {
 	const { project, client, now } = opts;
 	const org = project.organization;
@@ -658,7 +749,7 @@ export async function collectProjectPulls(opts: {
 	const completedPrs: AdoPullRequestSummary[] = [];
 	const abandonedPrs: AdoPullRequestSummary[] = [];
 	const globalIssues: string[] = [];
-	for (const target of opts.targets ?? []) {
+	async function summary(target: KnownOpenPull) {
 		const url = adoUrl(
 			`${BASE_URL}/${org}/${encodeURIComponent(projectKey)}`,
 			`_apis/git/repositories/${encodeURIComponent(target.repository.id)}/pullrequests/${target.number}`,
@@ -676,8 +767,10 @@ export async function collectProjectPulls(opts: {
 				"bad_response",
 				"Selected PR identity changed during collection",
 			);
-		activePrs.push(raw);
+		return raw;
 	}
+	for (const target of opts.targets ?? [])
+		activePrs.push(await summary(target));
 
 	for (const repo of targetRepos) {
 		const active = await enumerateActivePullRequests(client, org, repo);
@@ -697,6 +790,25 @@ export async function collectProjectPulls(opts: {
 		if (!combinedPrMap.has(prKey(pr))) combinedPrMap.set(prKey(pr), pr);
 	for (const pr of abandonedPrs)
 		if (!combinedPrMap.has(prKey(pr))) combinedPrMap.set(prKey(pr), pr);
+	// A busy repository may merge more PRs than the recent-history window between scans.
+	// Explicitly resolve any previously open PR that disappeared from those lists.
+	for (const known of opts.knownOpenPulls ?? []) {
+		const key = `${known.repository.id}:${known.number}`;
+		if (
+			combinedPrMap.has(key) ||
+			!targetRepos.some((repo) => repo.id === known.repository.id)
+		)
+			continue;
+		try {
+			combinedPrMap.set(key, await summary(known));
+		} catch (error) {
+			if (error instanceof AdoError && error.kind === "unauthenticated")
+				throw error;
+			globalIssues.push(
+				`PR #${known.number}: ${issueMessage(error, "Could not confirm its current state")}`,
+			);
+		}
+	}
 
 	const allPrs = Array.from(combinedPrMap.values());
 	const totalPulls = allPrs.length;
@@ -781,6 +893,23 @@ export async function collectProjectPulls(opts: {
 	const normalizedPulls: PullRequest[] = [];
 	const queue = [...allPrs];
 	const listOnly = opts.targets?.length === 0;
+	let mergeRequirements: MergeRequirement[] | undefined;
+	if (listOnly) {
+		try {
+			mergeRequirements = await discoverMergeRequirements(
+				client,
+				project,
+				targetRepos,
+			);
+		} catch (error) {
+			if (error instanceof AdoError && error.kind === "unauthenticated")
+				throw error;
+			hasPartialDetails = true;
+			globalIssues.push(
+				issueMessage(error, "Project merge requirements unavailable"),
+			);
+		}
+	}
 
 	async function worker() {
 		while (queue.length > 0) {
@@ -816,12 +945,19 @@ export async function collectProjectPulls(opts: {
 		listOnly && !hasPartialDetails
 			? `Refreshed ${normalizedPulls.length} PR summaries. Checks load for the current PR page.`
 			: hasPartialDetails
-				? `Collected ${normalizedPulls.length} PRs with partial check/detail coverage.`
+				? `Collected ${normalizedPulls.length} PRs with partial coverage. ${globalIssues.join(" ")}`.trim()
 				: `Collected ${normalizedPulls.length} PRs completely.`;
 
 	return {
 		pulls: normalizedPulls,
 		state,
 		message,
+		mergeRequirements:
+			mergeRequirements === undefined
+				? undefined
+				: projectMergeRequirements(
+						{ ...project, mergeRequirements },
+						normalizedPulls,
+					),
 	};
 }

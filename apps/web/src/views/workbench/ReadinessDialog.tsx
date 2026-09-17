@@ -11,13 +11,12 @@ import {
 import {
 	type Project,
 	type PullRequest,
-	READINESS_LABELS,
 	type ReadinessColor,
 	type ReadinessRule,
 	readinessColorSchema,
 	readinessRuleKey,
 } from "@signoff/domain/workbench";
-import { ArrowDown, ArrowUp, GripVertical, RotateCcw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";
@@ -67,14 +66,15 @@ export function ReadinessDialog({
 				}}
 			>
 				<DialogHeader>
-					<DialogTitle>Readiness order & colors</DialogTitle>
+					<DialogTitle>Merge requirements & colors</DialogTitle>
 					<DialogDescription className="break-words">
 						{project.organization} / {project.projectKey}
 					</DialogDescription>
 				</DialogHeader>
 				<p className="text-sm text-basalt-muted-foreground">
-					Order from most ready to least ready. When several items are pending,
-					the lowest item determines the PR’s readiness.
+					Arrange the actual requirements from first to resolve to final merge
+					steps. The first unmet requirement determines the next action; PRs
+					with only later steps remaining sort higher.
 				</p>
 				<form
 					className="flex min-h-0 flex-col gap-4"
@@ -88,14 +88,16 @@ export function ReadinessDialog({
 				>
 					<div className="-mx-1 overflow-y-auto px-1">
 						<div className="mb-2 flex items-center justify-between gap-3 text-xs text-basalt-muted-foreground">
-							<span>Most ready first</span>
+							<span>Resolve first → final merge steps</span>
 							<span>Drag or use the arrows</span>
 						</div>
 						<ol aria-label="Readiness priority" className="space-y-2 p-1">
 							{vm.rules.map((rule, index) => {
 								const key = readinessRuleKey(rule);
-								const label =
-									"kind" in rule ? READINESS_LABELS[rule.kind] : rule.label;
+								const label = rule.label;
+								const requirement = vm.requirements.find(
+									(gate) => gate.id === rule.gateId,
+								);
 								return (
 									<li
 										key={key}
@@ -152,14 +154,17 @@ export function ReadinessDialog({
 													{label || "Display name"}
 												</span>
 											</ReadinessSwatch>
-											{"policy" in rule ? (
-												<p
-													className="mt-1 truncate text-[11px] text-basalt-muted-foreground"
-													title={rule.policy}
-												>
-													Policy · {rule.policy}
-												</p>
-											) : null}
+											<p
+												className="mt-1 truncate text-[11px] text-basalt-muted-foreground"
+												title={requirement?.detail}
+											>
+												{requirement?.definitionId
+													? `Pipeline #${requirement.definitionId} · `
+													: ""}
+												{(requirement?.sourceIds?.length ?? 0) > 1
+													? `${requirement?.sourceIds?.length} policies · applicable checks must pass`
+													: requirement?.detail || requirement?.name}
+											</p>
 										</div>
 										<SelectControl
 											aria-label={`${label} color`}
@@ -210,71 +215,30 @@ export function ReadinessDialog({
 												<ArrowDown className="h-3.5 w-3.5" aria-hidden />
 											</Button>
 										</div>
-										{"policy" in rule ? (
-											<div className="flex w-full items-center gap-2 pl-11">
-												<Input
-													aria-label={`${rule.policy} display name`}
-													value={rule.label}
-													maxLength={240}
-													className="h-8"
-													disabled={saving}
-													onChange={(event) =>
-														vm.updateRule(key, {
-															...rule,
-															label: event.target.value,
-														})
-													}
-												/>
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon"
-													className="h-8 w-7 shrink-0"
-													disabled={saving}
-													aria-label={`Remove ${rule.policy} rule`}
-													onClick={(event) => {
-														const row = event.currentTarget.closest("li");
-														focusHandle(
-															row?.nextElementSibling ??
-																row?.previousElementSibling ??
-																null,
-														);
-														vm.removePolicy(key);
-													}}
-												>
-													<X className="h-3.5 w-3.5" aria-hidden />
-												</Button>
-											</div>
-										) : null}
+										<div className="w-full pl-11">
+											<Input
+												aria-label={`${requirement?.name ?? rule.gateId} display name`}
+												value={rule.label}
+												maxLength={240}
+												className="h-8"
+												disabled={saving}
+												onChange={(event) =>
+													vm.updateRule(key, {
+														...rule,
+														label: event.target.value,
+													})
+												}
+											/>
+										</div>
 									</li>
 								);
 							})}
 						</ol>
-						<div className="mt-3">
-							<SelectControl
-								aria-label="Add policy rule"
-								value=""
-								disabled={
-									saving || !vm.policyOptions.length || vm.rules.length >= 50
-								}
-								onChange={vm.addPolicy}
-							>
-								<option value="">
-									{vm.policyOptions.length
-										? "Add a policy rule…"
-										: "No more collected policies to add"}
-								</option>
-								{vm.policyOptions.map((policy) => (
-									<option key={policy} value={policy}>
-										{policy}
-									</option>
-								))}
-							</SelectControl>
-							<p className="mt-2 text-xs text-basalt-muted-foreground">
-								Policy rules apply to pending required policies. Passed checks
-								stay passed; other policies use the general states.
-							</p>
-						</div>
+						<p className="mt-3 text-xs text-basalt-muted-foreground">
+							{vm.rules.length
+								? "All collected merge requirements are included, even those already passing. Colors and order do not change the source results."
+								: "No merge requirements collected yet. Refresh this project's PR list and checks first."}
+						</p>
 					</div>
 					<p aria-live="polite" className="sr-only">
 						{notice}

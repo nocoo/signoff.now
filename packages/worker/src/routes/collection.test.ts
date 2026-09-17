@@ -6,11 +6,13 @@ import {
 } from "@signoff/domain/collection";
 import { demoWorkspace } from "@signoff/domain/demo";
 import {
+	approvalCount,
 	collectionJobSchema,
 	collectorStatusSchema,
 	type Project,
 	type PullRequest,
 	projectSchema,
+	pullReadiness,
 	pullRequestSchema,
 	scanRunSchema,
 	workbenchSchema,
@@ -124,6 +126,135 @@ async function claim(): Promise<CollectorClaim> {
 }
 
 describe("local collector ingest", () => {
+	test("list publication preserves author approval eligibility even when the author was not previously a reviewer", async () => {
+		for (const authorCountsTowardApproval of [false, true, undefined]) {
+			const project = await create({
+				projectKey: `Author-${authorCountsTowardApproval}`,
+			});
+			const first = livePull(project, {
+				author: { id: "author", name: "Author" },
+				authorCountsTowardApproval,
+				allowDownvotes: authorCountsTowardApproval === true,
+				headSha: "head",
+				targetSha: "target",
+				checksObservedAt: 1_789_632_000,
+				mergeable: "clear",
+				draft: false,
+				builds: [],
+				requiredApprovals: 2,
+				policies: [
+					{
+						id: "minimum",
+						name: "Minimum number of reviewers",
+						kind: "review",
+						required: true,
+						state: "passed",
+						detail: "Two approvals required",
+						owner: "Reviewers",
+					},
+				],
+				reviewers: [
+					{ id: "one", name: "One", vote: "approved", required: false },
+					{ id: "two", name: "Two", vote: "approved", required: false },
+				],
+			});
+			await enqueue(project);
+			const initial = await claim();
+			await request(`/api/collector/jobs/${initial.job.id}/batch`, "POST", {
+				leaseToken: initial.leaseToken,
+				pulls: [first],
+			});
+			await request(`/api/collector/jobs/${initial.job.id}/complete`, "POST", {
+				leaseToken: initial.leaseToken,
+				state: "complete",
+				pullRequestCount: 1,
+				message: "Initial checks",
+			});
+			await request(`/api/projects/${project.id}/scan`, "POST", {
+				revision: project.revision,
+				pullIds: [],
+			});
+			const list = await claim();
+			await request(`/api/collector/jobs/${list.job.id}/batch`, "POST", {
+				leaseToken: list.leaseToken,
+				pulls: [
+					{
+						...first,
+						authorCountsTowardApproval: undefined,
+						allowDownvotes: undefined,
+						policies: [],
+						requiredApprovals: 0,
+						checksObservedAt: null,
+						reviewers: [
+							{ ...first.reviewers[0]!, countsTowardApproval: true },
+							{
+								id: "author",
+								name: "Author",
+								vote: "approved",
+								required: false,
+								countsTowardApproval: true,
+							},
+						],
+					},
+				],
+			});
+			expect(
+				(
+					await request(`/api/collector/jobs/${list.job.id}/complete`, "POST", {
+						leaseToken: list.leaseToken,
+						state: "complete",
+						pullRequestCount: 1,
+						message: "Updated votes",
+					})
+				).status,
+			).toBe(200);
+			const current = (await snapshot()).pullRequests.find(
+				(p) => p.id === first.id,
+			)!;
+			expect(current.checksObservedAt).toBe(first.checksObservedAt);
+			expect(current.allowDownvotes).toBe(first.allowDownvotes);
+			expect(approvalCount(current)).toBe(
+				authorCountsTowardApproval === true ? 2 : 1,
+			);
+			expect(pullReadiness(current, project).kind).toBe(
+				authorCountsTowardApproval === true ? "ready" : "review",
+			);
+		}
+	});
+	test("publishes the discovered project requirements without replacing user order or colors", async () => {
+		const project = await create();
+		const rules = [{ gateId: "policy-2", label: "PoP", color: "yellow" }];
+		await request(`/api/projects/${project.id}/readiness`, "PATCH", {
+			revision: 1,
+			rules,
+		});
+		await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: project.revision,
+			pullIds: [],
+		});
+		const job = await claim();
+		const mergeRequirements = [
+			{ id: "policy-1", name: "PR validation", kind: "build" },
+			{ id: "policy-2", name: "Proof Of Presence", kind: "policy" },
+		];
+		const response = await request(
+			`/api/collector/jobs/${job.job.id}/complete`,
+			"POST",
+			{
+				leaseToken: job.leaseToken,
+				state: "complete",
+				pullRequestCount: 0,
+				message: "Discovered requirements",
+				mergeRequirements,
+			},
+		);
+		expect(response.status).toBe(200);
+		expect((await snapshot()).projects[0]).toMatchObject({
+			mergeRequirements,
+			readinessRules: rules,
+			readinessRevision: 2,
+		});
+	});
 	test("refreshes only requested visible PRs without deleting other cached PRs", async () => {
 		const project = await create({ repositories: ["whiteboard-app"] });
 		const first = livePull(project);
@@ -213,23 +344,44 @@ describe("local collector ingest", () => {
 		const project = await create();
 		const first = livePull(project, {
 			headSha: "same-commit",
+			targetSha: "main-commit",
 			checksObservedAt: 1_789_632_000,
+			reviewers: [
+				{
+					id: "self",
+					name: "Author",
+					vote: "approved",
+					required: false,
+					countsTowardApproval: false,
+				},
+				{ id: "reviewer", name: "Reviewer", vote: "pending", required: true },
+			],
 		});
 		const second = livePull(project, {
 			number: first.number + 1,
 			headSha: "old-commit",
 			checksObservedAt: 1_789_632_000,
 		});
+		const third = livePull(project, {
+			number: first.number + 2,
+			headSha: "same-commit",
+			targetSha: "old-main",
+			checksObservedAt: 1_789_632_000,
+		});
+		const history = livePull(project, {
+			number: first.number + 3,
+			state: "merged",
+		});
 		await enqueue(project);
 		const initial = await claim();
 		await request(`/api/collector/jobs/${initial.job.id}/batch`, "POST", {
 			leaseToken: initial.leaseToken,
-			pulls: [first, second],
+			pulls: [first, second, third, history],
 		});
 		await request(`/api/collector/jobs/${initial.job.id}/complete`, "POST", {
 			leaseToken: initial.leaseToken,
 			state: "complete",
-			pullRequestCount: 2,
+			pullRequestCount: 4,
 			message: "Initial scan",
 		});
 		const current = (await snapshot()).projects[0]!;
@@ -243,13 +395,26 @@ describe("local collector ingest", () => {
 		).toBe(200);
 		const index = await claim();
 		expect(index.targets).toEqual([]);
-		const lightweight = [first, second].map((pull) => ({
+		expect(
+			index.knownOpenPulls?.map((pull) => pull.number).sort((a, b) => a - b),
+		).toEqual([first.number, second.number, third.number]);
+		expect(index.knownOpenPulls?.every((pull) => !("policies" in pull))).toBe(
+			true,
+		);
+		const lightweight = [first, second, third].map((pull) => ({
 			...pull,
 			updatedAt: pull.updatedAt - 30,
 			title: "Latest title",
 			policies: [],
 			builds: [],
-			headSha: pull.id === first.id ? "same-commit" : "new-commit",
+			headSha: pull.id === second.id ? "new-commit" : "same-commit",
+			targetSha: pull.id === third.id ? "new-main" : pull.targetSha,
+			state: pull.id === first.id ? "merged" : "open",
+			reviewers: pull.reviewers.map((reviewer) => ({
+				...reviewer,
+				vote: "approved",
+				countsTowardApproval: true,
+			})),
 			coverage: "partial",
 			checksObservedAt: null,
 			collectionIssues: ["Checks load when this PR is visible"],
@@ -263,7 +428,7 @@ describe("local collector ingest", () => {
 				await request(`/api/collector/jobs/${index.job.id}/complete`, "POST", {
 					leaseToken: index.leaseToken,
 					state: "complete",
-					pullRequestCount: 2,
+					pullRequestCount: 3,
 					message: "PR list refreshed",
 				})
 			).status,
@@ -275,7 +440,20 @@ describe("local collector ingest", () => {
 			builds: first.builds,
 			checksObservedAt: first.checksObservedAt,
 			coverage: "complete",
+			state: "merged",
+			reviewers: [
+				{ id: "self", vote: "approved", countsTowardApproval: false },
+				{ id: "reviewer", vote: "approved" },
+			],
 		});
+		expect(result.pullRequests.find((p) => p.id === third.id)).toMatchObject({
+			policies: [],
+			builds: [],
+			checksObservedAt: null,
+		});
+		expect(result.pullRequests.find((p) => p.id === history.id)).toEqual(
+			history,
+		);
 		expect(result.pullRequests.find((p) => p.id === second.id)).toMatchObject({
 			policies: [],
 			builds: [],
@@ -380,7 +558,7 @@ describe("local collector ingest", () => {
 			[pull.id, second.id].sort(),
 		);
 		expect(board.projects[0]?.scanState).toBe("complete");
-		expect(board.projects[0]?.revision).toBe(project.revision + 1);
+		expect(board.projects[0]?.revision).toBe(project.revision);
 		expect(board.scans[0]?.id).toBe(scan.id);
 		expect(board.collector?.state).toBe("ready");
 		expect(board.collectionJobs?.[0]?.state).toBe("complete");
@@ -1225,4 +1403,84 @@ describe("local collector ingest", () => {
 		expect(queued.id).not.toBe(held.job.id);
 		expect(queued.state).toBe("queued");
 	});
+});
+test("invalidates checks for unknown commits or a different target branch even at the same target commit", async () => {
+	const project = await create();
+	const cases = [
+		{
+			headSha: "head",
+			targetSha: "target",
+			targetBranch: "main",
+			reusable: true,
+		},
+		{ headSha: "head", targetSha: null, targetBranch: "main", reusable: false },
+		{ headSha: "head", targetSha: "", targetBranch: "main", reusable: false },
+		{
+			headSha: null,
+			targetSha: "target",
+			targetBranch: "main",
+			reusable: false,
+		},
+		{ headSha: "", targetSha: "target", targetBranch: "main", reusable: false },
+		{
+			headSha: "head",
+			targetSha: "target",
+			targetBranch: "release",
+			reusable: false,
+		},
+	];
+	const pulls = cases.map((item, index) =>
+		livePull(project, {
+			number: 100 + index,
+			headSha: item.headSha,
+			targetSha: item.targetSha,
+			targetBranch: "main",
+			checksObservedAt: 1_789_632_000,
+		}),
+	);
+	await enqueue(project);
+	const initial = await claim();
+	await request(`/api/collector/jobs/${initial.job.id}/batch`, "POST", {
+		leaseToken: initial.leaseToken,
+		pulls,
+	});
+	await request(`/api/collector/jobs/${initial.job.id}/complete`, "POST", {
+		leaseToken: initial.leaseToken,
+		state: "complete",
+		pullRequestCount: pulls.length,
+		message: "Initial checks",
+	});
+	await request(`/api/projects/${project.id}/scan`, "POST", {
+		revision: project.revision,
+		pullIds: [],
+	});
+	const list = await claim();
+	await request(`/api/collector/jobs/${list.job.id}/batch`, "POST", {
+		leaseToken: list.leaseToken,
+		pulls: pulls.map((pull, index) => ({
+			...pull,
+			targetBranch: cases[index]!.targetBranch,
+			policies: [],
+			builds: [],
+			checksObservedAt: null,
+		})),
+	});
+	expect(
+		(
+			await request(`/api/collector/jobs/${list.job.id}/complete`, "POST", {
+				leaseToken: list.leaseToken,
+				state: "complete",
+				pullRequestCount: pulls.length,
+				message: "PR list",
+			})
+		).status,
+	).toBe(200);
+	const result = await snapshot();
+	for (const [index, pull] of pulls.entries()) {
+		const updated = result.pullRequests.find((p) => p.id === pull.id)!;
+		expect(updated.checksObservedAt).toBe(
+			cases[index]!.reusable ? pull.checksObservedAt : null,
+		);
+		if (!cases[index]!.reusable) expect(updated.policies).toEqual([]);
+	}
 });

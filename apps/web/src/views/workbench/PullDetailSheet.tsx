@@ -188,7 +188,7 @@ function PullDetail({
 							disabled={!canScan || busy}
 						>
 							<ScanLine className="h-3.5 w-3.5" aria-hidden />
-							{busy ? "Scanning…" : "Scan project"}
+							{busy ? "Refreshing…" : "Refresh checks"}
 						</Button>
 					</div>
 				</div>
@@ -364,7 +364,7 @@ function PullDetail({
 							</AlertBanner>
 						) : pull.coverage === "partial" ? (
 							<AlertBanner variant="warning">
-								Some check results are unavailable. Scan this project again to
+								Some check results are unavailable. Refresh these checks to
 								verify readiness.
 								{pull.collectionIssues?.length ? (
 									<ul className="mt-2 list-disc space-y-1 pl-4">

@@ -103,7 +103,7 @@ export function staleBumpStatements(
 	const guard = opts?.onlyIfPreviousChanges
 		? " AND changes() > 0"
 		: live
-			? ` AND EXISTS (SELECT 1 FROM ${live.table} WHERE id = ? AND archived_at IS NULL)`
+			? ` AND EXISTS (SELECT 1 FROM ${live.table} WHERE id = ?${live.table === "repos" ? "" : " AND source = 'cli'"} AND archived_at IS NULL)`
 			: "";
 	// The EXISTS form takes a bound id; the others take none. Keeping the
 	// binding next to the guard stops the two from drifting apart.
@@ -142,7 +142,7 @@ export function archiveDeveloperBatch(
 		db
 			.prepare(
 				`UPDATE developers SET archived_at = unixepoch(), updated_at = unixepoch()
-         WHERE id = ? AND archived_at IS NULL`,
+         WHERE id = ? AND source = 'cli' AND archived_at IS NULL`,
 			)
 			.bind(id),
 		...staleBumpStatements(db, "developer archived", {
@@ -160,7 +160,7 @@ export function restoreDeveloperBatch(
 		db
 			.prepare(
 				`UPDATE developers SET archived_at = NULL, updated_at = unixepoch()
-         WHERE id = ? AND archived_at IS NOT NULL`,
+         WHERE id = ? AND source = 'cli' AND archived_at IS NOT NULL`,
 			)
 			.bind(id),
 		...staleBumpStatements(db, "developer restored", {
@@ -371,7 +371,7 @@ export function linkStatements(
 	const t = LINK_TABLES[kind];
 	const live = opts?.onlyIfLiveOwner
 		? ` AND EXISTS (
-             SELECT 1 FROM ${t.ownerTable} WHERE id = ?1 AND archived_at IS NULL
+             SELECT 1 FROM ${t.ownerTable} WHERE id = ?1 AND source = 'cli' AND archived_at IS NULL
            )`
 		: "";
 	// On create the row is brand new, so there is nothing to delete — and that
@@ -391,7 +391,7 @@ export function linkStatements(
 					`INSERT INTO ${t.table} (${t.ownerCol}, ${t.targetCol}, created_at)
            SELECT ?1, ?2, unixepoch()
            WHERE EXISTS (
-             SELECT 1 FROM ${t.targetTable} WHERE id = ?2 AND archived_at IS NULL
+             SELECT 1 FROM ${t.targetTable} WHERE id = ?2 AND source = 'cli' AND archived_at IS NULL
            )${live}`,
 				)
 				.bind(ownerId, targetId),

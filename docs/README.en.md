@@ -14,7 +14,7 @@ SignOff helps maintainers manage Azure DevOps projects and understand their PR q
 
 **Live ADO PR collection is available locally:** Azure CLI provides authentication for read-only ADO API requests, and the collector publishes normalized PR, policy, build and stage snapshots through the local Worker into Wrangler SQLite. The global Live / Sample switch separates real data from five sample projects, 13 repositories, and 46 PRs across ADO and GitHub. Live GitHub collection will use the same normalized contract in a later phase.
 
-The existing Activity / Score analytics and ADO activity CLI remain available separately. Their ingest contract is not connected to the new PR snapshot tables. The `pulse` helper can query GitHub, but does not feed this workbench.
+The existing Activity / Score APIs and ADO activity CLI remain available separately. Their ingest contract is not connected to the new PR snapshot tables. The `pulse` helper can query GitHub, but does not feed this workbench.
 
 ## Features
 
@@ -22,12 +22,13 @@ The existing Activity / Score analytics and ADO activity CLI remain available se
 - **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
 - **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
 - **Inspect builds:** expand each build to see all stages, durations, results, and owners.
-- **Observe progress:** watch live collection jobs and choose automatic refresh every 1, 2 (default), 5, or 10 minutes, or turn it off; interrupted scans and expired sessions preserve the previous snapshot.
-- **Retain existing analytics:** the original Dashboard is at `/insights`; Directory, Activity, and Settings use their existing data pipeline.
+- **Observe progress:** independent list and current-page check queues cool down for 2 and 5 minutes after each complete round. Lists continue in the background; queued checks pause while the page is hidden. Both cooldowns are configurable; interrupted scans preserve previous data.
+- **Manage contributors:** follow observed PR authors, explicitly link provider accounts, and maintain teams and tags separately for Live and Sample.
+- **Compare contributions:** Repos and Insights use normalized PR records, with date, repository, member, team, tag, and state filters. Each chart module calculates only on request; calculation age turns yellow after 24 hours and red after 72 hours. Drafts are excluded by default. See [Directory and contributions](13-成员目录与PR贡献统计.md).
 
 ## Usage
 
-Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. With a valid Azure CLI session, run `bun run dev:collector`. Auto refresh updates PR summaries and stale or missing checks for all PRs on the current page. Its interval persists in localStorage. Manual **Scan** collects the full project. Live is the default source when real projects exist; the global switch also offers Sample.
+Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. With a valid Azure CLI session, run `bun run dev:collector`. List discovery and current-page checks have independent cooldowns persisted in D1 and localStorage. Each cooldown begins after its whole round finishes. Manual **Scan** collects the full project. Live is the default source when real projects exist; the global switch also offers Sample.
 
 ```bash
 # Only needed when the existing Azure session is unavailable or expired:
@@ -37,11 +38,11 @@ bun run dev:collector
 bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
 ```
 
-PR discovery reads all active PRs plus up to 20 recently merged and 10 closed PRs per repository. `workbench watch` processes UI requests every three seconds; it does not schedule full scans. Auto refresh updates summaries and all current-page checks at the selected interval, without prefetching other pages; collection progress updates every three seconds even when automatic refresh is off. A bottom-right toast shows progress. The collector refreshes tokens when possible and shows a tenant-specific login command when interactive authentication is needed. PR collection writes only to the local Worker and does not use production pipeline credentials. See [live PR collection](11-真实PR采集与本地工作台.md) for the contract and recovery behavior.
+PR discovery reads all active PRs plus up to 20 recently merged and 10 closed PRs per repository. `workbench watch` drives both refresh lanes every three seconds. Lists discover new and completed PRs in the background. Checks cover at most 20 PRs on the current page, pause when hidden, and resume or start a due round on return. The foreground workbench reads collection progress every three seconds. A bottom-right toast shows progress. The collector refreshes tokens when possible and shows a tenant-specific login command when interactive authentication is needed. PR collection writes only to the local Worker and does not use production pipeline credentials. See [live PR collection](11-真实PR采集与本地工作台.md) for the contract and recovery behavior.
 
 Filters follow Organization → Project → Repository, exclude drafts by default, and support multiple authors. Filters and column sort directions persist in localStorage and shareable URLs; pages contain 20 PRs. PR numbers and the link beside live PR titles open the source in a new tab. People have circular avatars with two initials. Descriptions render Markdown, tables, and task lists.
 
-Each project has a draggable Readiness list with colors and optional named policy rules. Keyboard arrows also reorder the list. The least ready pending item determines a PR’s readiness, and the table defaults to the project’s most-ready-first order. Settings persist in D1 with an independent revision and do not interrupt collection. Proof Of Presence has no built-in exception.
+Each project discovers its actual required policies and merge conditions. A draggable Readiness list sets their processing order, colors, and display names; keyboard arrows also work. The first unfinished requirement determines the main blocker. PRs waiting only on later requirements sort first. Settings persist in D1 with an independent revision and do not interrupt collection. Proof Of Presence has no built-in exception.
 
 Every page uses a main title, subtitle, and the global breadcrumb trail. The PR subtitle shows the selected organization / project / repository, without a separate repository banner.
 

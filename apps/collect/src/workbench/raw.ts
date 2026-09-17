@@ -47,6 +47,7 @@ export const adoIdentitySchema = z
 		id: z.string(),
 		displayName: z.string().default("Unknown"),
 		uniqueName: z.string().optional(),
+		imageUrl: z.string().url().max(2048).optional().catch(undefined),
 	})
 	.loose();
 

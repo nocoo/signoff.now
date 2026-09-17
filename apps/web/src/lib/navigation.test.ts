@@ -9,13 +9,22 @@ describe("navigation", () => {
 		expect(hrefs).toContain("/insights");
 		expect(hrefs).toContain("/developers");
 		expect(hrefs).toContain("/settings");
-		expect(hrefs).toContain("/activity");
+		expect(hrefs).not.toContain("/activity");
+		expect(
+			NAV_GROUPS.find((group) => group.label === "Workspace")?.items.map(
+				(item) => item.href,
+			),
+		).toEqual(["/", "/repos", "/projects"]);
+		expect(breadcrumbsFromPathname("/insights")).toEqual([
+			{ label: "Insights" },
+			{ label: "Contributions" },
+		]);
 	});
 
 	test("directory breadcrumbs use the navigation group without inventing a destination", () => {
 		expect(breadcrumbsFromPathname("/developers/")).toEqual([
 			{ label: "Directory" },
-			{ label: "Developers" },
+			{ label: "Members" },
 		]);
 	});
 

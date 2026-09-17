@@ -1,18 +1,19 @@
+import { refreshSettingsSchema } from "@signoff/domain/collection";
 import {
 	type Project,
 	type ProjectWrite,
 	projectWriteSchema,
 	type ReadinessRule,
+	type RefreshQueueKind,
+	refreshCooldownSchema,
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
-	AUTO_REFRESH_STORAGE_KEY,
 	authorOptions,
 	canScanProject,
 	collectorConnection,
-	DEFAULT_REFRESH_INTERVAL,
 	matchesRepository,
 	PULL_FILTER_PARAMS,
 	PULL_FILTER_STORAGE_KEY,
@@ -21,7 +22,7 @@ import {
 	pullAuthorId,
 	pullMetrics,
 	pullRows,
-	REFRESH_INTERVALS,
+	REFRESH_SETTINGS_STORAGE_KEY,
 	readPullFilter,
 	scopePulls,
 	visiblePulls,
@@ -33,8 +34,12 @@ import {
 	loadWorkbench,
 	patchProject,
 	patchReadiness,
+	patchRefreshSettings,
 	scanProject,
+	updateCollectionView,
 } from "@/models/workbenchApi";
+
+import type { CollectionPage } from "./usePageCollection";
 
 const PAGE_SIZE = 20;
 const message = (error: unknown) =>
@@ -48,15 +53,15 @@ function storedFilters(): string {
 	}
 }
 
-function storedRefreshInterval(): number {
+function storedRefreshSettings() {
+	const defaults = { listCooldownSeconds: 120, detailCooldownSeconds: 300 };
 	try {
-		const saved = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
-		return (
-			REFRESH_INTERVALS.find((seconds) => String(seconds) === saved) ??
-			DEFAULT_REFRESH_INTERVAL
+		const parsed = refreshSettingsSchema.safeParse(
+			JSON.parse(localStorage.getItem(REFRESH_SETTINGS_STORAGE_KEY) ?? "{}"),
 		);
+		return parsed.success ? { ...defaults, ...parsed.data } : defaults;
 	} catch {
-		return DEFAULT_REFRESH_INTERVAL;
+		return defaults;
 	}
 }
 
@@ -68,12 +73,19 @@ export function useWorkbenchViewModel() {
 	const [mutationError, setMutationError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
-	const [refreshInterval, setRefreshInterval] = useState(storedRefreshInterval);
-	const autoRefresh = refreshInterval > 0;
+	const [cachedRefresh] = useState(storedRefreshSettings);
+	const listCooldownSeconds =
+		data?.refreshQueues?.find((queue) => queue.kind === "list")
+			?.cooldownSeconds ?? cachedRefresh.listCooldownSeconds;
+	const detailCooldownSeconds =
+		data?.refreshQueues?.find((queue) => queue.kind === "details")
+			?.cooldownSeconds ?? cachedRefresh.detailCooldownSeconds;
+	const [collectionError, setCollectionError] = useState<string | null>(null);
+	const [viewId] = useState(() => crypto.randomUUID());
+	const viewSequence = useRef(0);
 	const mounted = useRef(false);
 	const ticket = useRef(0);
 	const mutationLock = useRef(false);
-	const collectionAttempts = useRef(new Map<string, number>());
 	const [params, setParams] = useSearchParams();
 	const [savedFilters, setSavedFilters] = useState(storedFilters);
 	const hasLiveProjects =
@@ -110,11 +122,14 @@ export function useWorkbenchViewModel() {
 
 	useEffect(() => {
 		try {
-			localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, String(refreshInterval));
+			localStorage.setItem(
+				REFRESH_SETTINGS_STORAGE_KEY,
+				JSON.stringify({ listCooldownSeconds, detailCooldownSeconds }),
+			);
 		} catch {
 			// The current session still works when browser storage is unavailable.
 		}
-	}, [refreshInterval]);
+	}, [listCooldownSeconds, detailCooldownSeconds]);
 
 	const reload = useCallback(async () => {
 		if (!mounted.current) return;
@@ -149,16 +164,51 @@ export function useWorkbenchViewModel() {
 			["running", "queued", "auth_required"].includes(job.state),
 		) ?? false;
 	useEffect(() => {
-		if (!autoRefresh && !collecting) return;
-		const timer = setInterval(
-			() => {
-				if (document.visibilityState === "visible" && !mutationLock.current)
-					void reload();
-			},
-			collecting ? 3000 : refreshInterval * 1000,
-		);
-		return () => clearInterval(timer);
-	}, [autoRefresh, refreshInterval, collecting, reload]);
+		if (!hasLiveProjects && !collecting) return;
+		let pending = false;
+		const poll = async () => {
+			if (
+				pending ||
+				document.visibilityState !== "visible" ||
+				mutationLock.current
+			)
+				return;
+			pending = true;
+			try {
+				await reload();
+			} finally {
+				pending = false;
+			}
+		};
+		const timer = setInterval(() => {
+			void poll();
+		}, 3000);
+		const foreground = () => {
+			void poll();
+		};
+		document.addEventListener("visibilitychange", foreground);
+		return () => {
+			clearInterval(timer);
+			document.removeEventListener("visibilitychange", foreground);
+		};
+	}, [hasLiveProjects, collecting, reload]);
+
+	const publishCollectionView = useCallback(
+		async (view: CollectionPage) => {
+			const sequence = ++viewSequence.current;
+			try {
+				await updateCollectionView({ ...view, viewId, sequence });
+				if (mounted.current && sequence === viewSequence.current)
+					setCollectionError(null);
+				return true;
+			} catch (failure) {
+				if (mounted.current && sequence === viewSequence.current)
+					setCollectionError(message(failure));
+				return false;
+			}
+		},
+		[viewId],
+	);
 
 	const mutate = useCallback(
 		async (label: string, operation: () => Promise<string>) => {
@@ -280,62 +330,34 @@ export function useWorkbenchViewModel() {
 		[visible, page],
 	);
 
-	const collectPage = async (signal?: AbortSignal) => {
-		if (
-			signal?.aborted ||
-			!autoRefresh ||
-			filter.source !== "cli" ||
-			document.visibilityState !== "visible" ||
-			collectorConnection(data).state !== "ready" ||
-			mutationLock.current
+	// Only explicit navigation selects an outside-page detail. New data may move an
+	// open row off this page without changing the page's collection round.
+	const detailNavigation = JSON.stringify([filter, page, params.get("pr")]);
+	const detailScope = useRef({ navigation: "", pullId: "" });
+	if (data && detailScope.current.navigation !== detailNavigation) {
+		detailScope.current = {
+			navigation: detailNavigation,
+			pullId:
+				selected && !pageRows.some((row) => row.pull.id === selected.pull.id)
+					? selected.pull.id
+					: "",
+		};
+	}
+	const externalDetail =
+		selected?.pull.id === detailScope.current.pullId ? selected : null;
+	const collectionPullIds = (externalDetail ? [externalDetail] : pageRows)
+		.filter(
+			({ project }) =>
+				project.enabled &&
+				project.source === "cli" &&
+				project.provider === "ado",
 		)
-			return false;
-		const timestamp = Date.now() / 1000;
-		const externalDetail =
-			selected && !pageRows.some((row) => row.pull.id === selected.pull.id);
-		const candidates = externalDetail ? [selected] : pageRows;
-		const eligible = externalDetail
-			? [selected.project]
-			: projectOptions
-					.filter(
-						({ project }) =>
-							!filter.projectId || project.id === filter.projectId,
-					)
-					.map(({ project }) => project);
-		const requests = eligible.flatMap((project) => {
-			if (
-				!data ||
-				!canScanProject(project, data) ||
-				timestamp - (collectionAttempts.current.get(project.id) ?? 0) < 15
-			)
-				return [];
-			const listDue =
-				!externalDetail &&
-				(project.lastScannedAt === null ||
-					timestamp - project.lastScannedAt >= refreshInterval);
-			const pullIds = candidates
-				.filter(
-					({ pull }) =>
-						pull.projectId === project.id &&
-						(pull.checksObservedAt === null ||
-							timestamp - (pull.checksObservedAt ?? pull.observedAt) >=
-								refreshInterval),
-				)
-				.map(({ pull }) => pull.id);
-			return listDue || pullIds.length
-				? [{ project, pullIds: listDue ? [] : pullIds }]
-				: [];
-		});
-		if (!requests.length) return false;
-		return mutate("collect-page", async () => {
-			for (const { project, pullIds } of requests) {
-				if (signal?.aborted || document.visibilityState !== "visible") break;
-				collectionAttempts.current.set(project.id, timestamp);
-				await scanProject(project.id, project.revision, pullIds);
-			}
-			return "";
-		});
-	};
+		.map(({ pull }) => pull.id);
+	const navigation = JSON.stringify([filter, page, externalDetail?.pull.id]);
+	const collectionPage = useMemo(
+		() => ({ navigation, key: crypto.randomUUID() }),
+		[navigation],
+	);
 
 	const setFilter = (patch: Partial<PullFilter>) => {
 		const next = { ...filter, ...patch };
@@ -411,10 +433,24 @@ export function useWorkbenchViewModel() {
 		mutationError,
 		notice,
 		busy,
-		autoRefresh,
-		refreshInterval,
-		setRefreshInterval,
-		collectPage,
+		listCooldownSeconds,
+		detailCooldownSeconds,
+		setRefreshCooldown: async (kind: RefreshQueueKind, seconds: number) => {
+			const parsed = refreshCooldownSchema.safeParse(seconds);
+			if (!parsed.success || !data) return false;
+			return mutate("refresh-settings", async () => {
+				await patchRefreshSettings(
+					kind === "list"
+						? { listCooldownSeconds: parsed.data }
+						: { detailCooldownSeconds: parsed.data },
+				);
+				return "";
+			});
+		},
+		publishCollectionView,
+		collectionPageKey: collectionPage.key,
+		collectionPullIds,
+		collectionError,
 		reload,
 		page,
 		pageCount,
@@ -426,6 +462,24 @@ export function useWorkbenchViewModel() {
 		missingSelection:
 			data !== null && !loading && Boolean(params.get("pr")) && !selected,
 		clearMutationError: () => setMutationError(null),
+		refreshPull: async (id: string) => {
+			const row = rows.find((candidate) => candidate.pull.id === id);
+			if (
+				!row?.project.enabled ||
+				(row.project.source === "demo"
+					? !data?.demoMode
+					: row.project.provider !== "ado")
+			)
+				return false;
+			return mutate("checks", async () => {
+				if (row.project.source === "cli") {
+					await scanProject(row.project.id, row.project.revision, [id]);
+					return `Queued PR #${row.pull.number} checks.`;
+				}
+				await scanProject(row.project.id, row.project.revision);
+				return "Sample PR statuses updated.";
+			});
+		},
 		saveReadiness: (project: Project, rules: ReadinessRule[]) =>
 			mutate("readiness", async () => {
 				await patchReadiness(project.id, project.readinessRevision ?? 1, rules);
@@ -477,7 +531,10 @@ export function useWorkbenchViewModel() {
 				const failures: string[] = [];
 				for (const project of scannableProjects) {
 					try {
-						const result = await scanProject(project.id, project.revision);
+						const result =
+							project.source === "cli"
+								? await scanProject(project.id, project.revision, [])
+								: await scanProject(project.id, project.revision);
 						if ("advancedStages" in result) {
 							count++;
 							stages += result.advancedStages;

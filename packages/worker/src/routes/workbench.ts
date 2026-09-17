@@ -18,6 +18,7 @@ import type { Context } from "hono";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
 import type { AppEnv } from "../types.js";
+import { mapRefreshQueue, REFRESH_QUEUES_SQL } from "./refresh.js";
 
 export type ProjectRow = {
 	id: string;
@@ -27,6 +28,7 @@ export type ProjectRow = {
 	project_key: string;
 	repositories_json?: string;
 	readiness_rules_json?: string;
+	merge_requirements_json?: string;
 	readiness_revision?: number;
 	description: string;
 	owner: string;
@@ -52,6 +54,8 @@ type JobRow = {
 	total_pulls: number | null;
 	message: string;
 	pull_ids_json?: string | null;
+	kind?: CollectionJob["kind"];
+	round_id?: string | null;
 };
 type ScanRow = {
 	id: string;
@@ -81,6 +85,7 @@ export function mapProject(row: ProjectRow): Project {
 		projectKey: row.project_key,
 		repositories,
 		readinessRules: JSON.parse(row.readiness_rules_json || "[]"),
+		mergeRequirements: JSON.parse(row.merge_requirements_json || "[]"),
 		readinessRevision: row.readiness_revision ?? 1,
 		description: row.description,
 		owner: row.owner,
@@ -108,6 +113,8 @@ function mapCollectionJob(row: JobRow): CollectionJob {
 		totalPulls: row.total_pulls,
 		message: row.message,
 		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
+		kind: row.kind,
+		roundId: row.round_id,
 	});
 }
 function scopeKey(items: string[] | undefined) {
@@ -153,11 +160,13 @@ export async function workbenchRoute(c: Context<AppEnv>) {
 			"SELECT last_seen_at, state, message FROM collector_heartbeat WHERE id = 1",
 		),
 		c.env.DB.prepare(
-			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json, kind, round_id
 			 FROM collection_jobs
+			 WHERE state IN ('queued', 'running', 'auth_required') OR id IN (SELECT id FROM collection_jobs WHERE state NOT IN ('queued', 'running', 'auth_required') ORDER BY updated_at DESC LIMIT 20)
 			 ORDER BY CASE WHEN state IN ('queued', 'running', 'auth_required') THEN 0 ELSE 1 END, updated_at DESC
-			 LIMIT 20`,
+			 LIMIT 1000`,
 		),
+		c.env.DB.prepare(REFRESH_QUEUES_SQL),
 	]);
 	const projects = (results[0]?.results ?? []) as ProjectRow[];
 	const pulls = (results[1]?.results ?? []) as { snapshot: string }[];
@@ -169,6 +178,9 @@ export async function workbenchRoute(c: Context<AppEnv>) {
 	)?.[0];
 	const jobs = (results[4]?.results ?? []) as JobRow[];
 	return c.json({
+		refreshQueues: (results[5]?.results ?? []).map((row) =>
+			mapRefreshQueue(row as Parameters<typeof mapRefreshQueue>[0]),
+		),
 		projects: projects.map(mapProject),
 		pullRequests: pulls
 			.slice(0, PR_LIMIT)
@@ -288,16 +300,13 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 		revision: revision + 1,
 		updatedAt: now(),
 	};
-	const sourceChanged =
+	const identityChanged =
 		current.provider !== next.provider ||
 		current.organization.toLowerCase() !== next.organization.toLowerCase() ||
-		current.projectKey.toLowerCase() !== next.projectKey.toLowerCase() ||
+		current.projectKey.toLowerCase() !== next.projectKey.toLowerCase();
+	const sourceChanged =
+		identityChanged ||
 		scopeKey(current.repositories) !== scopeKey(next.repositories);
-	if (sourceChanged) {
-		next.lastScannedAt = null;
-		next.scanState = "never";
-		next.scanMessage = null;
-	}
 	try {
 		// Guard dependent deletes with the OLD revision and run them before the
 		// CAS update, in the same transaction. Zero-row updates do not roll D1 back.
@@ -320,7 +329,14 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?)`,
 			).bind(next.updatedAt, next.updatedAt, current.id, current.id, revision),
 			c.env.DB.prepare(
-				`UPDATE projects SET provider = ?, name = ?, organization = ?, project_key = ?, repositories_json = ?, description = ?, owner = ?, enabled = ?, revision = revision + 1, updated_at = ?, last_scanned_at = ?, scan_state = ?, scan_message = ? WHERE id = ? AND revision = ?`,
+				`UPDATE projects SET provider = ?, name = ?, organization = ?, project_key = ?, repositories_json = ?, description = ?, owner = ?, enabled = ?, revision = revision + 1, updated_at = MAX(updated_at, ?),
+				 last_scanned_at = CASE WHEN ? = 1 THEN NULL ELSE last_scanned_at END,
+				 scan_state = CASE WHEN ? = 1 THEN 'never' ELSE scan_state END,
+				 scan_message = CASE WHEN ? = 1 THEN NULL ELSE scan_message END,
+				 merge_requirements_json = CASE WHEN ? = 1 THEN '[]' ELSE merge_requirements_json END,
+				 readiness_rules_json = CASE WHEN ? = 1 THEN '[]' ELSE readiness_rules_json END,
+				 readiness_revision = readiness_revision + ?
+				 WHERE id = ? AND revision = ?`,
 			).bind(
 				next.provider,
 				next.name,
@@ -331,18 +347,23 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				next.owner,
 				Number(next.enabled),
 				next.updatedAt,
-				next.lastScannedAt,
-				next.scanState,
-				next.scanMessage,
+				Number(sourceChanged),
+				Number(sourceChanged),
+				Number(sourceChanged),
+				Number(sourceChanged),
+				Number(identityChanged),
+				Number(sourceChanged),
 				current.id,
 				revision,
 			),
+			c.env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(current.id),
 		]);
 		if (result[4]?.meta.changes !== 1)
 			return c.json(
 				{ error: "This project changed. Refresh and try again." },
 				409,
 			);
+		return c.json(mapProject(result[5]?.results[0] as ProjectRow));
 	} catch (error) {
 		if (isDuplicate(error))
 			return c.json(
@@ -351,7 +372,6 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 			);
 		throw error;
 	}
-	return c.json(next);
 }
 
 export async function projectsDeleteRoute(c: Context<AppEnv>) {
@@ -379,7 +399,7 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 }
 
 export async function projectsReadinessRoute(c: Context<AppEnv>) {
-	const raw = await readJsonBodyWithSize(c, 65536);
+	const raw = await readJsonBodyWithSize(c, 1024 * 1024);
 	if (!raw.ok)
 		return c.json(
 			{ error: "Invalid readiness settings body" },
@@ -421,15 +441,29 @@ async function enqueueCliScan(
 	project: Project,
 	pullIds?: string[],
 ) {
+	const kind =
+		pullIds === undefined ? "full" : pullIds.length ? "details" : "list";
+	const selection = pullIds === undefined ? null : JSON.stringify(pullIds);
 	const active = await c.env.DB.prepare(
-		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
+		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json, kind, round_id
 		 FROM collection_jobs
-		 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ?
+		 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ? AND kind = ? AND pull_ids_json IS ?
 		 LIMIT 1`,
 	)
-		.bind(project.id, project.revision)
+		.bind(project.id, project.revision, kind, selection)
 		.first<JobRow>();
-	if (active) return c.json(mapCollectionJob(active));
+	if (active) {
+		// A manual refresh must remain runnable when its automatic queue is turned off.
+		const manual = active.round_id
+			? await c.env.DB.prepare(`UPDATE collection_jobs SET round_id = NULL
+			WHERE id = ? AND state IN ('queued', 'auth_required') AND EXISTS (
+			 SELECT 1 FROM collection_refresh q WHERE q.round_id = collection_jobs.round_id AND q.cooldown_seconds = 0
+			) RETURNING *`)
+					.bind(active.id)
+					.first<JobRow>()
+			: null;
+		return c.json(mapCollectionJob(manual ?? active));
+	}
 	const timestamp = now();
 	const id = crypto.randomUUID();
 	const results = await c.env.DB.batch([
@@ -453,11 +487,11 @@ async function enqueueCliScan(
 			project.revision,
 		),
 		c.env.DB.prepare(
-			`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at, pull_ids_json)
-			 SELECT ?, ?, ?, 'queued', ?, NULL, ?, NULL, 0, NULL, 'Waiting for the local collector', NULL, NULL, ?
+			`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at, pull_ids_json, kind, round_id)
+			 SELECT ?, ?, ?, 'queued', ?, NULL, ?, NULL, 0, NULL, 'Waiting for the local collector', NULL, NULL, ?, ?, (SELECT round_id FROM collection_refresh WHERE kind = ? AND cooldown_seconds > 0)
 			 WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ? AND source = 'cli' AND enabled = 1)
 			 AND NOT EXISTS (
-				SELECT 1 FROM collection_jobs WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required')
+				SELECT 1 FROM collection_jobs WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND kind = ? AND pull_ids_json IS ?
 			 )`,
 		).bind(
 			id,
@@ -465,20 +499,24 @@ async function enqueueCliScan(
 			project.revision,
 			timestamp,
 			timestamp,
-			pullIds === undefined ? null : JSON.stringify(pullIds),
+			selection,
+			kind,
+			kind,
 			project.id,
 			project.revision,
 			project.id,
+			kind,
+			selection,
 		),
 	]);
 	if (results[2]?.meta.changes !== 1) {
 		const again = await c.env.DB.prepare(
-			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json, kind, round_id
 			 FROM collection_jobs
-			 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ?
+			 WHERE project_id = ? AND state IN ('queued', 'running', 'auth_required') AND revision = ? AND kind = ? AND pull_ids_json IS ?
 			 LIMIT 1`,
 		)
-			.bind(project.id, project.revision)
+			.bind(project.id, project.revision, kind, selection)
 			.first<JobRow>();
 		if (again) return c.json(mapCollectionJob(again));
 		return c.json(
@@ -500,6 +538,7 @@ async function enqueueCliScan(
 			total_pulls: null,
 			message: "Waiting for the local collector",
 			pull_ids_json: pullIds === undefined ? null : JSON.stringify(pullIds),
+			kind,
 		}),
 	);
 }

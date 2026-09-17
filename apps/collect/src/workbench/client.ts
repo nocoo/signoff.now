@@ -5,10 +5,13 @@ import {
 import {
 	type CollectorStatus,
 	collectionJobSchema,
+	type MergeRequirement,
 	type Project,
 	type ProjectWrite,
 	type PullRequest,
 	projectSchema,
+	type RefreshQueueKind,
+	refreshQueueSchema,
 	scanRunSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
@@ -74,6 +77,10 @@ export function createCollectionClient(
 			{ ...body, leaseToken: lease.leaseToken },
 		);
 	return {
+		job: async (id: string) =>
+			collectionJobSchema.parse(
+				await request("GET", `/api/collector/jobs/${encodeURIComponent(id)}`),
+			),
 		load: async () =>
 			workbenchSchema.parse(await request("GET", "/api/workbench")),
 		createProject: async (body: ProjectWrite) =>
@@ -96,8 +103,18 @@ export function createCollectionClient(
 			),
 		heartbeat: (state: CollectorStatus["state"], message = "") =>
 			request("POST", "/api/collector/heartbeat", { state, message }),
-		claim: async () => {
-			const raw = await request("POST", "/api/collector/claim");
+		schedule: async (kind: RefreshQueueKind) =>
+			refreshQueueSchema.parse(
+				await request("POST", "/api/collector/schedule", { kind }),
+			),
+		claim: async (kind?: RefreshQueueKind, jobId?: string) => {
+			const query = new URLSearchParams();
+			if (kind) query.set("kind", kind);
+			if (jobId) query.set("jobId", jobId);
+			const raw = await request(
+				"POST",
+				`/api/collector/claim${query.size ? `?${query}` : ""}`,
+			);
 			return raw === null ? null : collectorClaimSchema.parse(raw);
 		},
 		progress: (
@@ -115,12 +132,14 @@ export function createCollectionClient(
 			state: "complete" | "partial",
 			pullRequestCount: number,
 			message: string,
+			mergeRequirements?: MergeRequirement[],
 		) =>
 			scanRunSchema.parse(
 				await jobRequest(lease, "complete", {
 					state,
 					pullRequestCount,
 					message,
+					mergeRequirements,
 				}),
 			),
 		fail: (

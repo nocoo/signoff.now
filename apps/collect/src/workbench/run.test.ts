@@ -1,13 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { CollectorClaim } from "@signoff/domain/collection";
 import { demoWorkspace } from "@signoff/domain/demo";
 import { AdoError, type AdoPagedClient } from "../ado/client.ts";
 import type { CollectionClient } from "./client.ts";
 import {
 	collectionError,
-	queueDueProjects,
 	registerRepositories,
 	runCollectionOnce,
+	syncCollections,
+	watchCollections,
 } from "./run.ts";
 
 const time = 1_789_632_000;
@@ -49,6 +50,17 @@ const scan = {
 function setup() {
 	const events: string[] = [];
 	const api: CollectionClient = {
+		job: async () => claim.job,
+		schedule: async (kind) => ({
+			kind,
+			cooldownSeconds: kind === "list" ? 120 : 300,
+			lastCompletedAt: null,
+			roundId: null,
+			requested: false,
+			foregroundUntil: 0,
+			totalJobs: 0,
+			completedJobs: 0,
+		}),
 		load: async () => ({
 			projects: [project],
 			pullRequests: [],
@@ -110,6 +122,92 @@ function setup() {
 }
 
 describe("real collector orchestration", () => {
+	test("continues list discovery while a detail job is still running without overlapping either lane", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		let releaseDetails!: () => void;
+		let completedLists!: () => void;
+		const detailsPending = new Promise<void>((resolve) => {
+			releaseDetails = resolve;
+		});
+		const listsDone = new Promise<void>((resolve) => {
+			completedLists = resolve;
+		});
+		let lists = 0;
+		let details = 0;
+		const lanes: (string | undefined)[] = [];
+		deps.api.claim = async (kind) => {
+			lanes.push(kind);
+			if (kind === "details")
+				return details++ === 0
+					? { ...claim, job: { ...claim.job, id: "details", kind } }
+					: null;
+			return lists++ < 3
+				? {
+						...claim,
+						targets: [],
+						job: { ...claim.job, id: "list", kind: "list", pullIds: [] },
+					}
+				: null;
+		};
+		deps.api.complete = async (job) => {
+			if (job.job.id === "list" && lists === 3) completedLists();
+			return scan;
+		};
+		const busy = { list: 0, details: 0 };
+		const maxima = { list: 0, details: 0 };
+		const watching = watchCollections({
+			...deps,
+			signal: controller.signal,
+			sleep: async () => {
+				controller.abort();
+			},
+			collect: async (opts) => {
+				const kind = opts.targets?.length === 0 ? "list" : "details";
+				busy[kind]++;
+				maxima[kind] = Math.max(maxima[kind], busy[kind]);
+				if (kind === "details") await detailsPending;
+				busy[kind]--;
+				return { pulls: [], state: "complete", message: "done" };
+			},
+		});
+		await listsDone;
+		expect(busy.details).toBe(1);
+		expect(maxima).toEqual({ list: 1, details: 1 });
+		expect(lanes).toContain("list");
+		expect(lanes).toContain("details");
+		controller.abort();
+		releaseDetails();
+		await watching;
+	});
+	test("backs off expired login and transport failures instead of spinning either queue", async () => {
+		for (const auth of [true, false]) {
+			const deps = setup();
+			const controller = new AbortController();
+			const sleeps: number[] = [];
+			if (auth)
+				deps.ado.checkAuth = async () => {
+					throw new AdoError("unauthenticated", "Run az login");
+				};
+			else
+				deps.api.schedule = async () => {
+					throw new Error("Worker unavailable");
+				};
+			await watchCollections({
+				...deps,
+				signal: controller.signal,
+				sleep: async (ms) => {
+					sleeps.push(ms);
+					controller.abort();
+				},
+				collect: async () => {
+					throw new Error("must not collect");
+				},
+			});
+			expect(sleeps).toContain(auth ? 15_000 : 10_000);
+			expect(deps.events).not.toContain("upload");
+		}
+	});
 	test("keeps transport, authorization and malformed data failures distinct", () => {
 		for (const kind of [
 			"not_found",
@@ -336,14 +434,28 @@ describe("real collector orchestration", () => {
 		]);
 		expect(deps.events.length).toBe(before);
 	});
-	test("schedules only enabled real projects that are due and have no current job", async () => {
+	test("explicit sync queues a full scan despite a paused automatic detail job", async () => {
 		const deps = setup();
-		const p = { ...project, lastScannedAt: time - 500 };
+		let full = { ...claim.job, state: "queued" as typeof claim.job.state };
+		let collected = 0;
+		deps.api.job = async () => full;
 		deps.api.load = async () => ({
 			projects: [
-				p,
-				{ ...p, id: "paused", enabled: false },
-				{ ...p, id: "demo", source: "demo" },
+				{ ...project, lastScannedAt: time },
+				{ ...project, id: "paused", enabled: false },
+				{ ...project, id: "demo", source: "demo" },
+				{ ...project, id: "github", provider: "github" },
+				{ ...project, id: "unselected" },
+			],
+			collectionJobs: [
+				{
+					...claim.job,
+					id: "paused-details",
+					state: "queued",
+					kind: "details",
+					roundId: "round",
+				},
+				full,
 			],
 			pullRequests: [],
 			scans: [],
@@ -351,17 +463,112 @@ describe("real collector orchestration", () => {
 			fetchedAt: time,
 			truncated: false,
 		});
-		expect(await queueDueProjects(deps.api, 120, time)).toBe(1);
-		deps.api.load = async () => ({
-			projects: [p],
-			collectionJobs: [claim.job],
-			pullRequests: [],
-			scans: [],
-			demoMode: true,
-			fetchedAt: time,
-			truncated: false,
-		});
-		expect(await queueDueProjects(deps.api, 120, time)).toBe(0);
+		deps.api.enqueue = async (p) => {
+			expect(p.id).toBe(project.id);
+			deps.events.push("enqueue");
+			return full;
+		};
+		deps.api.claim = async (_kind, jobId) => {
+			expect(jobId).toBe(full.id);
+			return claim;
+		};
+		deps.api.complete = async () => {
+			full = { ...full, state: "complete" };
+			return scan;
+		};
+		expect(
+			await syncCollections({
+				...deps,
+				projectIds: [project.id, "paused", "demo", "github"],
+				collect: async ({ targets }) => {
+					expect(targets).toBeUndefined();
+					collected++;
+					return { pulls: [], state: "complete", message: "done" };
+				},
+			}),
+		).toBe(true);
+		expect(collected).toBe(1);
+		expect(deps.events.filter((e) => e === "enqueue")).toHaveLength(1);
+	});
+	test("sync waits through an idle claim until its full scan can run or another collector publishes it", async () => {
+		for (const ownedElsewhere of [false, true]) {
+			const deps = setup();
+			const load = deps.api.load;
+			let state: typeof claim.job.state = "queued";
+			let released = false;
+			let collected = 0;
+			deps.api.job = async () => ({ ...claim.job, state });
+			deps.api.load = async () => ({
+				...(await load()),
+				collectionJobs: [{ ...claim.job, state }],
+			});
+			deps.api.claim = async () => (released && !ownedElsewhere ? claim : null);
+			deps.api.complete = async () => {
+				state = "complete";
+				return scan;
+			};
+			const sleep = spyOn(Bun, "sleep").mockImplementation(async (ms) => {
+				expect(ms).toBe(3000);
+				expect(released).toBe(false);
+				released = true;
+				if (ownedElsewhere) state = "partial";
+			});
+			try {
+				expect(
+					await syncCollections({
+						...deps,
+						collect: async () => {
+							collected++;
+							return { pulls: [], state: "complete", message: "done" };
+						},
+					}),
+				).toBe(true);
+			} finally {
+				sleep.mockRestore();
+			}
+			expect(released).toBe(true);
+			expect(collected).toBe(ownedElsewhere ? 0 : 1);
+		}
+	});
+	test("sync never treats missing, failed or auth-required target work as a successful idle queue", async () => {
+		for (const state of ["failed", "auth_required", null] as const) {
+			const deps = setup();
+			const load = deps.api.load;
+			deps.api.load = async () => ({
+				...(await load()),
+				collectionJobs: state ? [{ ...claim.job, state }] : [],
+			});
+			deps.api.claim = async () => null;
+			deps.api.job = async () => {
+				if (state === null) throw new Error("Collection job not found");
+				return { ...claim.job, state };
+			};
+			const result = syncCollections({
+				...deps,
+				collect: async () => {
+					throw new Error("No collection should run");
+				},
+			});
+			if (state === null)
+				await expect(result).rejects.toThrow("Collection job not found");
+			else expect(await result).toBe(false);
+		}
+	});
+	test("sync stops with a failure on expired authentication and succeeds with no eligible projects", async () => {
+		const deps = setup();
+		deps.ado.checkAuth = async () => {
+			throw new AdoError("unauthenticated", "Run az login");
+		};
+		const opts = {
+			...deps,
+			collect: async () => ({
+				pulls: [],
+				state: "complete" as const,
+				message: "done",
+			}),
+		};
+		expect(await syncCollections(opts)).toBe(false);
+		expect(await syncCollections({ ...opts, projectIds: [] })).toBe(true);
 	});
 	test("validates every URL before writes and never silently converts a demo project", async () => {
 		const deps = setup();
@@ -384,33 +591,5 @@ describe("real collector orchestration", () => {
 			]),
 		).rejects.toThrow(/demo project/);
 		expect(deps.events).toEqual([]);
-	});
-	test("respects retry intervals, explicit project selection and stale job revisions", async () => {
-		const deps = setup();
-		const data = {
-			projects: [{ ...project, lastScannedAt: null }],
-			pullRequests: [],
-			scans: [],
-			demoMode: false,
-			fetchedAt: time,
-			truncated: false,
-			collectionJobs: [
-				{ ...claim.job, state: "failed" as const, completedAt: time - 10 },
-			],
-		};
-		deps.api.load = async () => data;
-		expect(await queueDueProjects(deps.api, 120, time)).toBe(0);
-		data.collectionJobs[0]!.completedAt = time - 200;
-		expect(
-			await queueDueProjects(deps.api, 120, time, ["different-project"]),
-		).toBe(0);
-		expect(await queueDueProjects(deps.api, 120, time, [project.id])).toBe(1);
-		deps.api.load = async () => ({
-			...data,
-			collectionJobs: [
-				{ ...claim.job, revision: project.revision - 1, updatedAt: time - 300 },
-			],
-		});
-		expect(await queueDueProjects(deps.api, 120, time)).toBe(1);
 	});
 });

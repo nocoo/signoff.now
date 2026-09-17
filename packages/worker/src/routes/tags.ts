@@ -22,8 +22,8 @@ function mapTag(r: TagRow) {
 export async function tagsListRoute(c: Context<AppEnv>) {
 	const includeArchived = c.req.query("includeArchived") === "1";
 	const sql = includeArchived
-		? `SELECT * FROM tags ORDER BY name COLLATE NOCASE`
-		: `SELECT * FROM tags WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE`;
+		? `SELECT * FROM tags WHERE source = 'cli' ORDER BY name COLLATE NOCASE`
+		: `SELECT * FROM tags WHERE source = 'cli' AND archived_at IS NULL ORDER BY name COLLATE NOCASE`;
 	const res = await c.env.DB.prepare(sql).all<TagRow>();
 	return c.json({ items: (res.results ?? []).map(mapTag) });
 }
@@ -68,7 +68,9 @@ export async function tagsPatchRoute(c: Context<AppEnv>) {
 	if (!b) {
 		return c.json({ error: "Invalid payload" }, 400);
 	}
-	const existing = await c.env.DB.prepare(`SELECT * FROM tags WHERE id = ?`)
+	const existing = await c.env.DB.prepare(
+		`SELECT * FROM tags WHERE id = ? AND source = 'cli'`,
+	)
 		.bind(id)
 		.first<TagRow>();
 	if (!existing || existing.archived_at !== null) {
@@ -99,7 +101,7 @@ export async function tagsArchiveRoute(c: Context<AppEnv>) {
 	const id = c.req.param("id");
 	const r = await c.env.DB.prepare(
 		`UPDATE tags SET archived_at = unixepoch(), updated_at = unixepoch()
-     WHERE id = ? AND archived_at IS NULL`,
+     WHERE id = ? AND source = 'cli' AND archived_at IS NULL`,
 	)
 		.bind(id)
 		.run();
@@ -114,7 +116,7 @@ export async function tagsRestoreRoute(c: Context<AppEnv>) {
 	try {
 		const r = await c.env.DB.prepare(
 			`UPDATE tags SET archived_at = NULL, updated_at = unixepoch()
-       WHERE id = ? AND archived_at IS NOT NULL`,
+       WHERE id = ? AND source = 'cli' AND archived_at IS NOT NULL`,
 		)
 			.bind(id)
 			.run();

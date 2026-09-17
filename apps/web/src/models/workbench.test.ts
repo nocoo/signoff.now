@@ -1,12 +1,14 @@
 import { demoWorkspace } from "@signoff/domain/demo";
 import {
-	DEFAULT_READINESS_RULES,
+	type Project,
+	pullReadiness,
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { describe, expect, it, vi } from "vitest";
 import {
 	authorOptions,
 	canScanProject,
+	collectionQueueProgress,
 	collectorConnection,
 	DEFAULT_PULL_FILTER,
 	duration,
@@ -32,6 +34,112 @@ const snapshot: Workbench = {
 const rows = pullRows(snapshot);
 
 describe("workbench projections", () => {
+	it("shows independent whole-round progress even when both queues contain jobs for the same project", () => {
+		const data: Workbench = {
+			...snapshot,
+			projects: [{ ...snapshot.projects[0], source: "cli" }],
+			refreshQueues: [
+				{
+					kind: "list",
+					cooldownSeconds: 120,
+					lastCompletedAt: null,
+					roundId: "list-round",
+					requested: false,
+					foregroundUntil: 0,
+					totalJobs: 2,
+					completedJobs: 1,
+				},
+				{
+					kind: "details",
+					cooldownSeconds: 300,
+					lastCompletedAt: null,
+					roundId: "detail-round",
+					requested: false,
+					foregroundUntil: 0,
+					totalJobs: 20,
+					completedJobs: 8,
+				},
+			],
+		};
+		expect(collectionQueueProgress(data)).toMatchObject([
+			{ kind: "list", completed: 1, total: 2, phase: "running" },
+			{ kind: "details", completed: 8, total: 20, phase: "paused" },
+		]);
+		expect(collectionQueueProgress(null)).toEqual([]);
+		expect(collectionQueueProgress(snapshot)).toEqual([]);
+	});
+	it("shows manual work and actionable failures, suppressing canceled, expired, or superseded errors", () => {
+		const project = { ...snapshot.projects[0], source: "cli" as const };
+		const failed = {
+			id: "failure",
+			projectId: project.id,
+			revision: project.revision,
+			kind: "details" as const,
+			roundId: "old",
+			state: "failed" as const,
+			requestedAt: NOW - 30,
+			startedAt: NOW - 30,
+			updatedAt: NOW - 10,
+			completedAt: NOW - 10,
+			completedPulls: 0,
+			totalPulls: 1,
+			message: "Check read failed",
+		};
+		const data: Workbench = {
+			...snapshot,
+			projects: [project],
+			collectionJobs: [failed],
+		};
+		expect(collectionQueueProgress(data)[0]?.problem?.message).toBe(
+			"Check read failed",
+		);
+		for (const job of [
+			{ ...failed, message: "Page changed; pending collection canceled" },
+			{ ...failed, message: "Project changed" },
+			{ ...failed, completedAt: NOW - 121 },
+		])
+			expect(
+				collectionQueueProgress({ ...data, collectionJobs: [job] }),
+			).toEqual([]);
+		const active = {
+			...failed,
+			id: "active",
+			state: "running" as const,
+			roundId: null,
+			requestedAt: NOW,
+			updatedAt: NOW,
+			completedAt: null,
+			completedPulls: 1,
+			totalPulls: 3,
+		};
+		expect(
+			collectionQueueProgress({ ...data, collectionJobs: [active, failed] })[0],
+		).toMatchObject({
+			completed: 1,
+			total: 3,
+			phase: "running",
+			problem: null,
+		});
+		expect(
+			collectionQueueProgress({
+				...data,
+				collectionJobs: [
+					{
+						...active,
+						state: "auth_required",
+						message: "Run az login",
+						totalPulls: null,
+					},
+				],
+			})[0],
+		).toMatchObject({ total: null, problem: { state: "auth_required" } });
+		expect(
+			collectionQueueProgress({
+				...data,
+				collectionJobs: [{ ...active, kind: "list", pullIds: [] }],
+			})[0],
+		).toMatchObject({ kind: "list", completed: 0, total: 1 });
+	});
 	it("normalizes legacy draft links into the dedicated draft filter", () => {
 		expect(readPullFilter(new URLSearchParams("status=draft"))).toMatchObject({
 			status: "all",
@@ -413,33 +521,65 @@ describe("URL filters and review queue", () => {
 		).toEqual(["a", "z", "blocked"]);
 		expect(input.map((row) => row.pull.id)).toEqual(["z", "a", "blocked"]);
 	});
-	it("orders PRs with each owning project's readiness rules", () => {
-		const blocked = rows.find((row) => row.readiness.kind === "blocked")!;
-		const review = rows.find((row) => row.readiness.kind === "review")!;
-		const customized = {
-			...blocked,
-			project: {
-				...blocked.project,
-				readinessRules: [
-					DEFAULT_READINESS_RULES[0]!,
-					DEFAULT_READINESS_RULES[5]!,
-					...DEFAULT_READINESS_RULES.filter((_, i) => i !== 0 && i !== 5),
-				],
-			},
+	it("orders PRs with each owning project's actual merge requirement order", () => {
+		const raw = {
+			...snapshot.pullRequests[0],
+			draft: false,
+			state: "open" as const,
+			mergeable: "clear" as const,
+			coverage: "complete" as const,
+			reviewers: [],
+			requiredApprovals: 0,
+			builds: [],
+			policies: [
+				{
+					id: "ci",
+					name: "CI",
+					state: "running" as const,
+					required: true,
+					detail: "Wait for CI",
+					owner: "Build owners",
+					kind: "build" as const,
+				},
+			],
 		};
-		expect(visiblePulls([blocked, review], DEFAULT_PULL_FILTER)[0]).toBe(
-			review,
-		);
-		expect(visiblePulls([customized, review], DEFAULT_PULL_FILTER)[0]).toBe(
-			customized,
-		);
+		const project: Project = {
+			...snapshot.projects[0],
+			mergeRequirements: [
+				{ id: "ci", name: "CI", kind: "build" },
+				{ id: "review", name: "Review", kind: "review" },
+			],
+			readinessRules: [
+				{ gateId: "ci", label: "CI", color: "blue" },
+				{ gateId: "review", label: "Review", color: "orange" },
+			],
+		};
+		const earlier = {
+			pull: { ...raw, projectId: project.id },
+			project,
+			readiness: pullReadiness({ ...raw, projectId: project.id }, project),
+			progress: rows[0].progress,
+		};
+		const other: Project = {
+			...project,
+			id: "other",
+			readinessRules: [...project.readinessRules!].reverse(),
+		};
+		const later = {
+			...earlier,
+			pull: { ...raw, projectId: other.id },
+			project: other,
+			readiness: pullReadiness({ ...raw, projectId: other.id }, other),
+		};
+		expect(visiblePulls([earlier, later], DEFAULT_PULL_FILTER)[0]).toBe(later);
 		expect(
-			visiblePulls([customized, review], {
+			visiblePulls([earlier, later], {
 				...DEFAULT_PULL_FILTER,
 				sortDirection: "desc",
 			})[0],
-		).toBe(review);
+		).toBe(earlier);
 	});
+
 	it("sorts the table columns in both directions and keeps missing checks behind complete progress", () => {
 		const a = {
 			...rows[0],
@@ -624,6 +764,12 @@ describe("live collection presentation", () => {
 		const active = { ...snapshot, collectionJobs: [job] };
 		expect(canScanProject(project, active)).toBe(false);
 		expect(
+			canScanProject(project, {
+				...active,
+				collectionJobs: [{ ...job, kind: "details", pullIds: ["pr"] }],
+			}),
+		).toBe(true);
+		expect(
 			canScanProject({ ...project, revision: project.revision + 1 }, active),
 		).toBe(true);
 		expect(projectSummaries(active, rows)[0]?.job).toEqual(job);
@@ -642,6 +788,51 @@ describe("live collection presentation", () => {
 				rows,
 			)[0]?.job,
 		).toEqual(nextJob);
+	});
+	it("allows manual list refresh to resume an automatic job paused by disabling its queue", () => {
+		const project = { ...snapshot.projects[0], source: "cli" as const };
+		const job = {
+			id: "paused-list",
+			projectId: project.id,
+			revision: project.revision,
+			kind: "list" as const,
+			roundId: "automatic-round",
+			state: "queued" as const,
+			requestedAt: NOW,
+			startedAt: null,
+			updatedAt: NOW,
+			completedAt: null,
+			completedPulls: 0,
+			totalPulls: null,
+			message: "Waiting to refresh PR list",
+		};
+		const data: Workbench = {
+			...snapshot,
+			projects: [project],
+			collectionJobs: [job],
+			refreshQueues: [
+				{
+					kind: "list",
+					cooldownSeconds: 0,
+					lastCompletedAt: null,
+					roundId: job.roundId,
+					requested: false,
+					foregroundUntil: 0,
+					totalJobs: 1,
+					completedJobs: 0,
+				},
+			],
+		};
+		expect(canScanProject(project, data)).toBe(true);
+		for (const active of [
+			{ ...job, state: "running" as const },
+			{ ...job, roundId: null },
+			{ ...job, kind: "full" as const },
+		])
+			expect(
+				canScanProject(project, { ...data, collectionJobs: [active] }),
+			).toBe(false);
+		expect(canScanProject(project, { ...data, refreshQueues: [] })).toBe(false);
 	});
 });
 

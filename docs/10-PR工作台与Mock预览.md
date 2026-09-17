@@ -66,7 +66,7 @@ Worker 开发脚本固定本地 upstream，并开启 `SIGNOFF_DEMO_MODE=1`。模
 
 首页 `/` 为 PR 工作台，`/projects` 为项目管理，原 Dashboard 位于 `/insights`。来源、三级范围、搜索、Draft、作者多选、状态和排序保存在 URL 与 `signoff-pull-filters` localStorage；分页和详情使用 `page`、`pr` URL 参数。明确的筛选链接优先于本地缓存；直接访问首页恢复上次筛选。
 
-各页面使用 Basalt PageHeader 的主标题、次标题与全局 AppHeader 面包屑，分类名称无跳转目标时不可点击。PR 页主标题为 Pull requests，次标题显示当前组织 / 项目 / 仓库；移除重复仓库横幅，筛选后的状态数量保留在汇总区。自动刷新可选关闭 / 1 / 2 / 5 / 10 分钟，默认 2 分钟，保存在 `signoff-auto-refresh-seconds` localStorage。
+各页面使用 Basalt PageHeader 的主标题、次标题与全局 AppHeader 面包屑，分类名称无跳转目标时不可点击。PR 页主标题为 Pull requests，次标题显示当前组织 / 项目 / 仓库；移除重复仓库横幅，筛选后的状态数量保留在汇总区。Live 列表与当前页检查使用独立刷新队列，默认完成整轮后冷却 2 / 5 分钟，见 11。
 
 初始数据有 36 个 open PR（含 5 draft），默认排除 Draft 后显示 31 个：18 个需要处理、6 个构建中 / 排队中、7 个可合并；另有 6 个 merged、4 个 closed。ADO 按组织 / 项目 / 仓库筛选，GitHub 示例按 `github.com / nocoo / signoff.now` 筛选。
 
@@ -88,9 +88,9 @@ Worker 开发脚本固定本地 upstream，并开启 `SIGNOFF_DEMO_MODE=1`。模
 
 预置项目可以模拟扫描，让各 build 的一个可运行阶段从 queued → running → passed，并恢复不完整的示例 timeline。草稿与终态 PR 不推进；失败、冲突、待评审、必需 Policy 和环境审批继续保留。当前新增项目初始为空，第一次扫描使用真实 ADO 采集。
 
-Projects 的 Readiness 按钮或已选项目 PR 列表中的 Readiness order 打开设置。列表从最就绪排到最不就绪，拖拽或上下箭头调整位置；通用状态始终保留，已采集的必需 Policy 可添加独立规则、自定义显示名和颜色。一个 PR 同时有多个未完成项目时，采用列表中最不就绪的一项；已通过、advisory、草稿和终态事实保持原含义。无 PoP 特例，ADO 与 GitHub 共用规则。
+Projects 的 Readiness 按钮或已选项目 PR 列表中的 Readiness order 打开设置，列出实际 merge requirements，从先解决排到最后步骤，拖拽或上下箭头调整位置、名称和颜色。同类型同名 policy 合并成一行，全部原始评估通过才算整组通过；CI 按 pipeline 区分。一个 PR 同时有多个未完成要求时，采用列表中第一个未完成项；越接近最后步骤的 PR 越靠前。已通过、advisory、草稿和终态事实保持原含义。无 PoP 特例，ADO 与 GitHub 示例共用规则。
 
-Sample 自动刷新只读取快照，模拟扫描成功后才改变示例进度。Live 的 Auto refresh 按所选间隔发现 PR，并收集当前页全部 PR 的检查，见 11；关闭自动刷新不会丢失数据库状态。
+Sample 模拟扫描成功后才改变示例进度。Live 的列表队列在后台继续发现 PR，检查队列只采集前台当前页全部 PR，见 11；关闭自动刷新不会丢失数据库状态。
 
 ## API 与并发
 

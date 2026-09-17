@@ -1,8 +1,5 @@
 import { demoWorkspace } from "@signoff/domain/demo";
-import {
-	DEFAULT_READINESS_RULES,
-	type Project,
-} from "@signoff/domain/workbench";
+import type { Project } from "@signoff/domain/workbench";
 import {
 	cleanup,
 	fireEvent,
@@ -16,9 +13,13 @@ import { ReadinessDialog } from "./ReadinessDialog";
 afterEach(cleanup);
 const project: Project = {
 	...demoWorkspace(1_800_000_000).projects[0],
+	mergeRequirements: [
+		{ id: "ci", name: "CI", kind: "build" },
+		{ id: "review", name: "Review gate", kind: "review" },
+	],
 	readinessRules: [
-		...DEFAULT_READINESS_RULES,
-		{ policy: "Review gate", label: "Human review", color: "yellow" },
+		{ gateId: "ci", label: "CI", color: "blue" },
+		{ gateId: "review", label: "Human review", color: "orange" },
 	],
 };
 const props = {
@@ -63,27 +64,27 @@ describe("readiness dialog interactions", () => {
 				.disabled,
 		).toBe(true);
 	});
-	it("retains keyboard focus when moving into a boundary or removing a policy", async () => {
+	it("retains keyboard focus at a boundary and only offers actual requirements", async () => {
 		render(<ReadinessDialog {...props} />);
-		const up = screen.getByRole("button", {
-			name: "Move Awaiting approval up",
-		});
+		const up = screen.getByRole("button", { name: "Move Human review up" });
 		up.focus();
 		fireEvent.click(up);
 		await waitFor(() =>
 			expect(document.activeElement).toBe(
-				screen.getByRole("button", { name: "Move Awaiting approval" }),
+				screen.getByRole("button", { name: "Move Human review" }),
 			),
 		);
-		const remove = screen.getByRole("button", {
-			name: "Remove Review gate rule",
-		});
-		remove.focus();
-		fireEvent.click(remove);
-		await waitFor(() =>
-			expect(document.activeElement).toBe(
-				screen.getByRole("button", { name: "Move Closed" }),
-			),
-		);
+		fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+		expect(
+			document
+				.querySelector("[data-readiness-rule]")
+				?.getAttribute("data-readiness-rule"),
+		).toBe("build:ci");
+		expect(
+			screen.queryByRole("button", { name: "Move Ready to merge" }),
+		).toBeNull();
+		expect(
+			screen.queryByRole("combobox", { name: "Add policy rule" }),
+		).toBeNull();
 	});
 });
