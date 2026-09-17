@@ -15,7 +15,7 @@
 	},
 	"dependencies": {
 		"@signoff/domain": "workspace:*",
-		"@nocoo/basalt": "2.1.7",
+		"@nocoo/basalt": "2.1.8",
 		"clsx": "^2.1.1",
 		"lucide-react": "1.45.0",
 		"react": "19.3.0",

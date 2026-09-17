@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source-run-id:
+        description: "Successful main CI run ID to deploy"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    name: Deploy Worker (production)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion == 'success')
+    uses: nocoo/base-ci/.github/workflows/deploy-worker.yml@ad43150de3a2be2fa464b5cd2f921dc4fa9f8f0f
+    with:
+      expected-workflow-path: ".github/workflows/ci.yml"
+      expected-workflow-name: "CI"
+      source-run-id: ${{ github.event_name == 'workflow_run' && format('{0}', github.event.workflow_run.id) || inputs.source-run-id }}
+      runtime-version: "1.4.0"
+      node-version: "24.20.0"
+      install-policy: "blocked"
+      build-command: "bun run build:web"
+      wrangler-version: "4.131.1"
+      d1-migrations: true
+      d1-databases: "signoff-db"
+      environment: production
+      concurrency-group: deploy-signoff-production
+      timeout-minutes: 15
+      verify-command: "curl --fail --silent --show-error https://signoff.hexly.ai/api/live"
+      verify-retries: 6
+      verify-retry-seconds: 5
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
