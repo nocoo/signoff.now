@@ -5,12 +5,43 @@ import {
 	projectSchema,
 	projectWriteSchema,
 	pullRequestSchema,
+	refreshCooldownSchema,
 	repositoryNameSchema,
+	scopedPullIdsSchema,
 } from "./workbench.js";
 
 const count = z.number().int().nonnegative();
 const leaseToken = z.uuid();
 const message = z.string().max(1000);
+
+export const refreshSettingsSchema = z
+	.object({
+		listCooldownSeconds: refreshCooldownSchema.optional(),
+		detailCooldownSeconds: refreshCooldownSchema.optional(),
+	})
+	.strict()
+	.refine(
+		(settings) => Object.keys(settings).length > 0,
+		"Provide at least one cooldown",
+	);
+export type RefreshSettings = z.infer<typeof refreshSettingsSchema>;
+export const collectionViewSchema = z
+	.object({
+		viewId: z.uuid(),
+		sequence: z.number().int().nonnegative(),
+		visible: z.boolean(),
+		refresh: z.boolean().default(false),
+		pageKey: z.string().max(4096),
+		pullIds: scopedPullIdsSchema,
+	})
+	.strict();
+export type CollectionView = z.infer<typeof collectionViewSchema>;
+export const knownOpenPullSchema = pullRequestSchema.pick({
+	id: true,
+	number: true,
+	repository: true,
+});
+export type KnownOpenPull = z.infer<typeof knownOpenPullSchema>;
 
 export const collectorHeartbeatSchema = z
 	.object({
@@ -24,6 +55,7 @@ export const collectorClaimSchema = z
 		project: projectSchema,
 		leaseToken,
 		targets: z.array(pullRequestSchema).max(20).optional(),
+		knownOpenPulls: z.array(knownOpenPullSchema).max(10000).optional(),
 	})
 	.refine(({ job, project, targets }) => {
 		const ids = job.pullIds;

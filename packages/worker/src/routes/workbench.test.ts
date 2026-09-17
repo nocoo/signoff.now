@@ -52,6 +52,86 @@ const request = (
 	);
 
 describe("project readiness settings", () => {
+	test("clears source-specific requirements on scope changes and rules when moving to a different ADO project", async () => {
+		const project = await create();
+		const catalogue = [
+			{
+				id: "policy-1",
+				name: "Old project CI",
+				kind: "build" as const,
+				definitionId: "7",
+			},
+		];
+		sqlite.raw
+			.query(
+				"UPDATE projects SET merge_requirements_json = ?, readiness_rules_json = ? WHERE id = ?",
+			)
+			.run(JSON.stringify(catalogue), JSON.stringify(GATE_RULES), project.id);
+		const unchanged = await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: project.revision,
+			owner: "New owner",
+		});
+		const ownerEdit = projectSchema.parse(await unchanged.json());
+		expect(ownerEdit.mergeRequirements).toEqual(catalogue);
+		expect(ownerEdit.readinessRules).toEqual(GATE_RULES);
+		const scope = await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: ownerEdit.revision,
+			repositories: ["new-repo"],
+		});
+		const scopeEdit = projectSchema.parse(await scope.json());
+		expect(scopeEdit.mergeRequirements).toEqual([]);
+		expect(scopeEdit.readinessRules).toEqual(GATE_RULES);
+		expect(scopeEdit.readinessRevision).toBe(2);
+		sqlite.raw
+			.query("UPDATE projects SET merge_requirements_json = ? WHERE id = ?")
+			.run(JSON.stringify(catalogue), project.id);
+		const moved = await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: scopeEdit.revision,
+			projectKey: "Another project",
+		});
+		const movedProject = projectSchema.parse(await moved.json());
+		expect(movedProject.mergeRequirements).toEqual([]);
+		expect(movedProject.readinessRules).toEqual([]);
+		expect(movedProject.readinessRevision).toBe(3);
+		expect(
+			(
+				await request(`/api/projects/${project.id}/readiness`, "PATCH", {
+					revision: 2,
+					rules: GATE_RULES,
+				})
+			).status,
+		).toBe(409);
+	});
+	test("an owner edit preserves scan metadata published after its project pre-read", async () => {
+		const project = await create();
+		sqlite.raw
+			.query(
+				"UPDATE projects SET scan_state = 'failed', scan_message = 'Old failure' WHERE id = ?",
+			)
+			.run(project.id);
+		const publishedAt = Math.floor(Date.now() / 1000);
+		sqlite.beforeBatch("DELETE FROM pull_requests", () => {
+			sqlite.raw
+				.query(
+					"UPDATE projects SET last_scanned_at = ?, scan_state = 'complete', scan_message = NULL WHERE id = ?",
+				)
+				.run(publishedAt, project.id);
+		});
+		const response = await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: project.revision,
+			owner: "New owner",
+		});
+		expect(response.status).toBe(200);
+		const saved = projectSchema.parse(await response.json());
+		expect(saved).toMatchObject({
+			owner: "New owner",
+			revision: project.revision + 1,
+			lastScannedAt: publishedAt,
+			scanState: "complete",
+			scanMessage: null,
+		});
+		expect((await snapshot()).projects[0]).toEqual(saved);
+	});
 	test("persists settings separately from collection revision and retains snapshots and active jobs", async () => {
 		const project = await create();
 		const other = await create({ projectKey: "Other" });

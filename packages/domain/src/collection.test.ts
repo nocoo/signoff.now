@@ -3,13 +3,90 @@ import {
 	adoPullId,
 	collectionBatchSchema,
 	collectionFinishSchema,
+	collectionViewSchema,
 	collectorClaimSchema,
 	parseAdoRepositoryUrl,
+	refreshSettingsSchema,
 } from "./collection.js";
 import { demoWorkspace } from "./demo.js";
-import { projectWriteSchema, pullRequestSchema } from "./workbench.js";
+import {
+	projectWriteSchema,
+	pullRequestSchema,
+	type RefreshQueue,
+	refreshQueuePhase,
+} from "./workbench.js";
 
 describe("live collection contract", () => {
+	test("validates independent cooldown settings and bounded, sequenced current-page updates", () => {
+		expect(
+			refreshSettingsSchema.parse({
+				listCooldownSeconds: 120,
+				detailCooldownSeconds: 300,
+			}),
+		).toEqual({ listCooldownSeconds: 120, detailCooldownSeconds: 300 });
+		for (const invalid of [
+			{},
+			{ listCooldownSeconds: 30 },
+			{ detailCooldownSeconds: -1 },
+			{ interval: 120 },
+		])
+			expect(refreshSettingsSchema.safeParse(invalid).success).toBe(false);
+		const view = {
+			viewId: "52c3e5a2-2261-45a1-95a2-6f6fb9be9a0d",
+			sequence: 1,
+			visible: true,
+			pageKey: "page",
+			pullIds: ["pr-1", "pr-2"],
+		};
+		expect(collectionViewSchema.parse(view).refresh).toBe(false);
+		for (const invalid of [
+			{ ...view, sequence: -1 },
+			{ ...view, pullIds: ["pr-1", "pr-1"] },
+			{ ...view, pullIds: Array.from({ length: 21 }, (_, i) => `pr-${i}`) },
+		])
+			expect(collectionViewSchema.safeParse(invalid).success).toBe(false);
+	});
+	test("reports queue phases from whole-round completion, foreground leases, and explicit refresh requests", () => {
+		const queue: RefreshQueue = {
+			kind: "list",
+			cooldownSeconds: 120,
+			lastCompletedAt: 1000,
+			roundId: null,
+			requested: false,
+			foregroundUntil: 0,
+			totalJobs: 0,
+			completedJobs: 0,
+		};
+		expect(refreshQueuePhase(queue, 1119)).toBe("cooldown");
+		expect(refreshQueuePhase(queue, 1120)).toBe("due");
+		expect(refreshQueuePhase({ ...queue, lastCompletedAt: null }, 1000)).toBe(
+			"due",
+		);
+		expect(refreshQueuePhase({ ...queue, requested: true }, 1000)).toBe("due");
+		expect(refreshQueuePhase({ ...queue, roundId: "long-running" }, 5000)).toBe(
+			"running",
+		);
+		expect(
+			refreshQueuePhase(
+				{ ...queue, kind: "details", roundId: "paused", foregroundUntil: 1119 },
+				1119,
+			),
+		).toBe("paused");
+		expect(
+			refreshQueuePhase(
+				{
+					...queue,
+					kind: "details",
+					roundId: "resumed",
+					foregroundUntil: 1120,
+				},
+				1119,
+			),
+		).toBe("running");
+		expect(refreshQueuePhase({ ...queue, cooldownSeconds: 0 }, 5000)).toBe(
+			"off",
+		);
+	});
 	test("rejects claims that could widen or change the selected collection scope", () => {
 		const data = demoWorkspace(1_789_632_000);
 		const project = data.projects[0]!;

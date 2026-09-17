@@ -48,6 +48,8 @@ type JobRow = {
 	lease_token?: string | null;
 	lease_expires_at?: number | null;
 	pull_ids_json?: string | null;
+	kind?: CollectionJob["kind"];
+	round_id?: string | null;
 };
 
 function mapJob(row: JobRow): CollectionJob {
@@ -64,6 +66,8 @@ function mapJob(row: JobRow): CollectionJob {
 		totalPulls: row.total_pulls,
 		message: row.message,
 		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
+		kind: row.kind,
+		roundId: row.round_id,
 	});
 }
 
@@ -91,7 +95,7 @@ function readError(
 
 async function jobById(c: Context<AppEnv>, id: string): Promise<JobRow | null> {
 	return c.env.DB.prepare(
-		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at, pull_ids_json
+		`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, lease_token, lease_expires_at, pull_ids_json, kind, round_id
 		 FROM collection_jobs WHERE id = ?`,
 	)
 		.bind(id)
@@ -192,9 +196,17 @@ export async function collectorHeartbeatRoute(c: Context<AppEnv>) {
 export async function collectorClaimRoute(c: Context<AppEnv>) {
 	const remote = rejectRemote(c);
 	if (remote) return remote;
+	const kind = c.req.query("kind") ?? null;
+	if (kind !== null && kind !== "list" && kind !== "details")
+		return c.json({ error: "Choose the list or details queue" }, 400);
+	const jobId = c.req.query("jobId") ?? null;
+	if (jobId !== null && !collectionJobSchema.shape.id.safeParse(jobId).success)
+		return c.json({ error: "Provide a valid collection job ID" }, 400);
 	const timestamp = now();
 	const leaseToken = crypto.randomUUID();
 	const results = await c.env.DB.batch([
+		c.env.DB.prepare(`UPDATE collection_jobs SET state = 'queued', lease_token = NULL, lease_expires_at = NULL
+          WHERE state = 'running' AND lease_expires_at <= ?`).bind(timestamp),
 		c.env.DB.prepare(
 			`UPDATE collection_jobs
 			 SET state = 'running',
@@ -209,8 +221,15 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 				SELECT j.id FROM collection_jobs j
 				INNER JOIN projects p ON p.id = j.project_id
 				WHERE p.enabled = 1 AND p.source = 'cli' AND p.revision = j.revision
-				  AND (j.state = 'queued' OR (j.state = 'running' AND j.lease_expires_at <= ?))
-				ORDER BY j.requested_at ASC
+				  AND j.state = 'queued'
+                  AND (? IS NULL OR j.id = ?)
+                  AND (? IS NULL OR j.kind = ? OR (? = 'details' AND j.kind = 'full'))
+                  AND NOT EXISTS (SELECT 1 FROM collection_jobs busy WHERE busy.project_id = j.project_id AND busy.state = 'running')
+                  AND ((? IS NOT NULL AND j.kind = 'full' AND j.round_id IS NULL) OR j.kind = 'list' OR NOT EXISTS (SELECT 1 FROM collection_jobs pending
+                    WHERE pending.project_id = j.project_id AND pending.revision = j.revision AND pending.kind = 'list' AND pending.state = 'queued'
+                    AND (pending.round_id IS NULL OR EXISTS (SELECT 1 FROM collection_refresh q WHERE q.kind = 'list' AND q.round_id = pending.round_id AND q.cooldown_seconds > 0))))
+                  AND (j.round_id IS NULL OR EXISTS (SELECT 1 FROM collection_refresh q WHERE q.kind = j.kind AND q.round_id = j.round_id AND q.cooldown_seconds > 0 AND (q.kind = 'list' OR q.foreground_until > ?)))
+                ORDER BY j.requested_at ASC, j.rowid ASC
 				LIMIT 1
 			 )`,
 		).bind(
@@ -218,6 +237,12 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 			timestamp + LEASE_SECONDS,
 			timestamp,
 			timestamp,
+			jobId,
+			jobId,
+			kind,
+			kind,
+			kind,
+			jobId,
 			timestamp,
 		),
 		c.env.DB.prepare(
@@ -225,15 +250,15 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 			 WHERE job_id = (SELECT id FROM collection_jobs WHERE lease_token = ? AND state = 'running' AND lease_expires_at > ?)`,
 		).bind(leaseToken, timestamp),
 		c.env.DB.prepare(
-			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json
+			`SELECT id, project_id, revision, state, requested_at, started_at, updated_at, completed_at, completed_pulls, total_pulls, message, pull_ids_json, kind, round_id
 			 FROM collection_jobs WHERE lease_token = ? AND state = 'running'`,
 		).bind(leaseToken),
 		c.env.DB.prepare(
 			`SELECT * FROM projects WHERE id = (SELECT project_id FROM collection_jobs WHERE lease_token = ? AND state = 'running')`,
 		).bind(leaseToken),
 	]);
-	const job = (results[2]?.results ?? [])[0] as JobRow | undefined;
-	const project = (results[3]?.results ?? [])[0] as ProjectRow | undefined;
+	const job = (results[3]?.results ?? [])[0] as JobRow | undefined;
+	const project = (results[4]?.results ?? [])[0] as ProjectRow | undefined;
 	if (!job || !project) return c.json(null);
 	const mappedJob = mapJob(job);
 	const targets =
@@ -263,6 +288,25 @@ export async function collectorClaimRoute(c: Context<AppEnv>) {
 		project: mapProject(project),
 		leaseToken,
 		targets,
+		knownOpenPulls:
+			mappedJob.pullIds?.length === 0
+				? (
+						await c.env.DB.prepare(`SELECT id, CAST(external_id AS INTEGER) AS number, repository_id,
+				json_extract(snapshot, '$.repository.name') AS repository_name FROM pull_requests
+				WHERE project_id = ? AND state = 'open' ORDER BY id`)
+							.bind(project.id)
+							.all<{
+								id: string;
+								number: number;
+								repository_id: string;
+								repository_name: string;
+							}>()
+					).results.map((row) => ({
+						id: row.id,
+						number: row.number,
+						repository: { id: row.repository_id, name: row.repository_name },
+					}))
+				: undefined,
 	});
 }
 
@@ -512,18 +556,29 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 	const results = await c.env.DB.batch([
 		c.env.DB.prepare(
 			`DELETE FROM pull_requests WHERE project_id = ? AND ? = 1 AND id NOT IN (SELECT pull_id FROM collection_staging WHERE job_id = ?) AND ${finishGuard}`,
-		).bind(project.id, Number(!targeted), id, ...finishBinds),
+		).bind(project.id, Number(selectedIds === undefined), id, ...finishBinds),
 		c.env.DB.prepare(
 			`INSERT INTO pull_requests (id, project_id, repository_id, external_id, state, updated_at, snapshot)
 			 SELECT s.pull_id, s.project_id, s.repository_id, s.external_id, s.state,
 			   MAX(s.updated_at, COALESCE(p.updated_at, 0)),
-			   json_set(CASE WHEN ? = 1 AND json_extract(s.snapshot, '$.headSha') IS NOT NULL
+			   json_set(CASE WHEN ? = 1 AND length(json_extract(s.snapshot, '$.headSha')) > 0
 			     AND json_extract(s.snapshot, '$.headSha') = json_extract(p.snapshot, '$.headSha')
+             AND length(json_extract(s.snapshot, '$.targetSha')) > 0
+             AND json_extract(s.snapshot, '$.targetSha') = json_extract(p.snapshot, '$.targetSha')
+             AND json_extract(s.snapshot, '$.targetBranch') = json_extract(p.snapshot, '$.targetBranch')
 			   THEN json_set(s.snapshot,
 			     '$.policies', json_extract(p.snapshot, '$.policies'),
 			     '$.builds', json_extract(p.snapshot, '$.builds'),
-			     '$.reviewers', json_extract(p.snapshot, '$.reviewers'),
+			     '$.reviewers', json((SELECT json_group_array(json_set(fresh.value, '$.countsTowardApproval',
+                  json(CASE WHEN (CASE WHEN json_extract(fresh.value, '$.id') = json_extract(s.snapshot, '$.author.id')
+                    THEN COALESCE(json_extract(p.snapshot, '$.authorCountsTowardApproval'), json_extract(cached.value, '$.countsTowardApproval'), 0)
+                    ELSE COALESCE(json_extract(cached.value, '$.countsTowardApproval'), json_extract(fresh.value, '$.countsTowardApproval'), 1) END) = 0 THEN 'false' ELSE 'true' END)))
+                FROM json_each(s.snapshot, '$.reviewers') fresh LEFT JOIN json_each(p.snapshot, '$.reviewers') cached
+                ON json_extract(cached.value, '$.id') = json_extract(fresh.value, '$.id'))),
+			     '$.authorCountsTowardApproval', json(CASE WHEN COALESCE(json_extract(p.snapshot, '$.authorCountsTowardApproval'),
+                (SELECT json_extract(value, '$.countsTowardApproval') FROM json_each(p.snapshot, '$.reviewers') WHERE json_extract(value, '$.id') = json_extract(p.snapshot, '$.author.id') LIMIT 1), 0) = 0 THEN 'false' ELSE 'true' END),
 			     '$.requiredApprovals', json_extract(p.snapshot, '$.requiredApprovals'),
+			     '$.allowDownvotes', json(CASE WHEN json_extract(p.snapshot, '$.allowDownvotes') = 1 THEN 'true' ELSE 'false' END),
 			     '$.coverage', json_extract(p.snapshot, '$.coverage'),
 			     '$.collectionIssues', json(COALESCE(json_extract(p.snapshot, '$.collectionIssues'), '[]')),
 			     '$.filesChanged', json_extract(p.snapshot, '$.filesChanged'),
@@ -551,8 +606,7 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 		),
 		c.env.DB.prepare(
 			`UPDATE projects
-			 SET revision = revision + 1,
-			 merge_requirements_json = COALESCE(?, merge_requirements_json),
+			 SET merge_requirements_json = COALESCE(?, merge_requirements_json),
 			 last_scanned_at = CASE WHEN ? = 1 THEN last_scanned_at ELSE ? END,
 			 scan_state = CASE WHEN ? = 1 THEN scan_state ELSE ? END,
 			 scan_message = CASE WHEN ? = 1 THEN scan_message ELSE ? END, updated_at = ?
@@ -573,11 +627,11 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 			...finishBinds,
 		),
 		c.env.DB.prepare(
-			// Publishing above has advanced the project's revision. The lease is
-			// still owned until the last statement; bind both to clean only this run.
+			// Collection preserves the configuration revision. The lease and scan row
+			// fence every dependent write until this job is marked complete.
 			`DELETE FROM collection_staging WHERE job_id = ? AND EXISTS (
 				SELECT 1 FROM collection_jobs j
-				INNER JOIN projects p ON p.id = j.project_id AND p.revision = j.revision + 1 AND p.enabled = 1 AND p.source = 'cli'
+				INNER JOIN projects p ON p.id = j.project_id AND p.revision = j.revision AND p.enabled = 1 AND p.source = 'cli'
 				INNER JOIN scan_runs s ON s.id = j.id AND s.project_id = p.id
 				WHERE j.id = ? AND j.lease_token = ? AND j.state = 'running' AND j.lease_expires_at > ?
 			)`,
@@ -589,7 +643,7 @@ export async function collectorCompleteRoute(c: Context<AppEnv>) {
 			 AND EXISTS (SELECT 1 FROM scan_runs WHERE id = collection_jobs.id)
 			 AND EXISTS (
 				SELECT 1 FROM projects p
-				WHERE p.id = collection_jobs.project_id AND p.revision = collection_jobs.revision + 1 AND p.enabled = 1 AND p.source = 'cli'
+				WHERE p.id = collection_jobs.project_id AND p.revision = collection_jobs.revision AND p.enabled = 1 AND p.source = 'cli'
 			 )`,
 		).bind(
 			parsed.data.state,

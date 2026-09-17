@@ -180,7 +180,7 @@ export const projectPatchSchema = projectWriteSchema
 export const revisionSchema = z
 	.object({ revision: z.number().int().positive() })
 	.strict();
-const scopedPullIdsSchema = z
+export const scopedPullIdsSchema = z
 	.array(name)
 	.max(20)
 	.refine((ids) => new Set(ids).size === ids.length, "PR IDs must be unique");
@@ -302,8 +302,44 @@ export const collectionJobSchema = z.object({
 	message: z.string(),
 	/** Omitted: full scan. Empty: list only. Otherwise: selected PR checks. */
 	pullIds: scopedPullIdsSchema.optional(),
+	kind: z.enum(["list", "details", "full"]).optional(),
+	roundId: name.nullable().optional(),
 });
 export type CollectionJob = z.infer<typeof collectionJobSchema>;
+export const refreshQueueKindSchema = z.enum(["list", "details"]);
+export type RefreshQueueKind = z.infer<typeof refreshQueueKindSchema>;
+export const refreshCooldownSchema = z.union([
+	z.literal(0),
+	z.literal(60),
+	z.literal(120),
+	z.literal(300),
+	z.literal(600),
+]);
+export const refreshQueueSchema = z.object({
+	kind: refreshQueueKindSchema,
+	cooldownSeconds: refreshCooldownSchema,
+	lastCompletedAt: instant.nullable(),
+	roundId: name.nullable(),
+	requested: z.boolean(),
+	foregroundUntil: instant,
+	totalJobs: instant,
+	completedJobs: instant,
+});
+export type RefreshQueue = z.infer<typeof refreshQueueSchema>;
+export function refreshQueuePhase(
+	queue: RefreshQueue,
+	timestamp: number,
+): "off" | "paused" | "running" | "cooldown" | "due" {
+	if (!queue.cooldownSeconds) return "off";
+	if (queue.kind === "details" && queue.foregroundUntil <= timestamp)
+		return "paused";
+	if (queue.roundId) return "running";
+	return queue.requested ||
+		queue.lastCompletedAt === null ||
+		timestamp >= queue.lastCompletedAt + queue.cooldownSeconds
+		? "due"
+		: "cooldown";
+}
 export const collectorStatusSchema = z.object({
 	lastSeenAt: instant,
 	state: z.enum(["ready", "auth_required", "error"]),
@@ -319,6 +355,7 @@ export const workbenchSchema = z.object({
 	pullRequests: z.array(pullRequestSchema),
 	scans: z.array(scanRunSchema),
 	collectionJobs: z.array(collectionJobSchema).optional(),
+	refreshQueues: z.array(refreshQueueSchema).optional(),
 	collector: collectorStatusSchema.nullable().optional(),
 	demoMode: z.boolean(),
 	fetchedAt: instant,

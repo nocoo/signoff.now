@@ -29,6 +29,12 @@ import {
 	pipelineRecomputeCompleteRoute,
 } from "./routes/pipeline.js";
 import {
+	collectionViewRoute,
+	collectorScheduleRoute,
+	refreshQueuesRoute,
+	refreshSettingsRoute,
+} from "./routes/refresh.js";
+import {
 	reposArchiveRoute,
 	reposCreateRoute,
 	reposListRoute,
@@ -72,6 +78,10 @@ app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
 
 app.get("/api/workbench", workbenchRoute);
+app.get("/api/collection/refresh", refreshQueuesRoute);
+app.patch("/api/collection/settings", refreshSettingsRoute);
+app.post("/api/collection/view", collectionViewRoute);
+app.post("/api/collector/schedule", collectorScheduleRoute);
 app.post("/api/projects", projectsCreateRoute);
 app.patch("/api/projects/:id", projectsPatchRoute);
 app.patch("/api/projects/:id/readiness", projectsReadinessRoute);
