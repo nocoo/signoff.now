@@ -1,6 +1,7 @@
 import {
 	type ProjectWrite,
 	projectSchema,
+	type ReadinessRule,
 	scanRequestResultSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
@@ -36,6 +37,22 @@ export async function deleteProject(id: string, revision: number) {
 		method: "DELETE",
 		body: JSON.stringify({ revision }),
 	});
+}
+
+export async function patchReadiness(
+	id: string,
+	revision: number,
+	rules: ReadinessRule[],
+) {
+	return projectSchema.parse(
+		await apiFetch<unknown>(
+			`/api/projects/${encodeURIComponent(id)}/readiness`,
+			{
+				method: "PATCH",
+				body: JSON.stringify({ revision, rules }),
+			},
+		),
+	);
 }
 
 export async function scanProject(

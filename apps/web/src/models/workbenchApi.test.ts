@@ -7,6 +7,7 @@ import {
 	deleteProject,
 	loadWorkbench,
 	patchProject,
+	patchReadiness,
 	scanProject,
 } from "./workbenchApi";
 
@@ -33,6 +34,21 @@ beforeEach(() => {
 });
 
 describe("workbench HTTP contract", () => {
+	it("saves readiness with its own revision and validates the returned settings", async () => {
+		const saved = {
+			...demo.projects[0],
+			readinessRules: [],
+			readinessRevision: 3,
+		};
+		vi.mocked(apiFetch).mockResolvedValue(saved);
+		expect(await patchReadiness("p /?#", 2, [])).toEqual(saved);
+		expect(apiFetch).toHaveBeenCalledWith(
+			"/api/projects/p%20%2F%3F%23/readiness",
+			{ method: "PATCH", body: '{"revision":2,"rules":[]}' },
+		);
+		vi.mocked(apiFetch).mockResolvedValue({ ...saved, readinessRevision: 0 });
+		await expect(patchReadiness("p", 2, [])).rejects.toThrow();
+	});
 	it("accepts a queued live job as a pending scan result", async () => {
 		const job = {
 			id: "job",

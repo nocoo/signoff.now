@@ -2,6 +2,7 @@ import {
 	type Project,
 	type ProjectWrite,
 	projectWriteSchema,
+	type ReadinessRule,
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +32,7 @@ import {
 	deleteProject,
 	loadWorkbench,
 	patchProject,
+	patchReadiness,
 	scanProject,
 } from "@/models/workbenchApi";
 
@@ -424,6 +426,11 @@ export function useWorkbenchViewModel() {
 		missingSelection:
 			data !== null && !loading && Boolean(params.get("pr")) && !selected,
 		clearMutationError: () => setMutationError(null),
+		saveReadiness: (project: Project, rules: ReadinessRule[]) =>
+			mutate("readiness", async () => {
+				await patchReadiness(project.id, project.readinessRevision ?? 1, rules);
+				return "Readiness order and colors saved.";
+			}),
 		save: (draft: ProjectWrite, project: Project | null) =>
 			mutate("save", async () => {
 				const saved = project

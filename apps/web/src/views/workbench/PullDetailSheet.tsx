@@ -22,7 +22,6 @@ import {
 	approvalCount,
 	type Build,
 	type PullRequest,
-	policyPresentation,
 	pullUrl,
 } from "@signoff/domain/workbench";
 import {
@@ -138,7 +137,7 @@ function PullDetail({
 						<span className="font-mono text-sm text-basalt-muted-foreground">
 							#{pull.number}
 						</span>
-						<ReadinessBadge readiness={readiness} />
+						<ReadinessBadge readiness={readiness} project={project} />
 						{project.source === "demo" ? (
 							<Badge variant="secondary">Sample PR</Badge>
 						) : null}
@@ -221,7 +220,7 @@ function PullDetail({
 								<h3 className="text-xs font-medium uppercase tracking-wider">
 									Next action
 								</h3>
-								<ReadinessBadge readiness={readiness} />
+								<ReadinessBadge readiness={readiness} project={project} />
 							</LayerCard.Header>
 							<LayerCard.Well>
 								<p className="text-base font-semibold leading-6">
@@ -253,7 +252,7 @@ function PullDetail({
 												{index + 1}
 											</span>
 											<div className="min-w-0 flex-1">
-												<p className="text-xs font-medium">{issue.label}</p>
+												<ReadinessBadge readiness={issue} project={project} />
 												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
 													{issue.action}
 												</p>
@@ -387,56 +386,38 @@ function PullDetail({
 							</h3>
 							<LayerCard padding="none">
 								<div className="divide-y divide-basalt-border">
-									{pull.policies.map((fact) => {
-										const policy = policyPresentation(fact, project.provider);
-										const awaitingPresence =
-											policy.isPoP && policy.state === "waiting";
-										return (
-											<div
-												key={policy.id}
-												className="flex items-start gap-3 p-3.5"
-											>
-												<CheckIcon state={policy.state} className="mt-0.5" />
-												<div className="min-w-0 flex-1">
-													<div className="flex flex-wrap items-center gap-2">
-														{awaitingPresence ? (
-															<ReadinessBadge
-																readiness={{ kind: "approval", label: "PoP" }}
-															/>
-														) : (
-															<span
-																className="text-xs font-medium"
-																title={fact.name}
-															>
-																{policy.name}
-															</span>
-														)}
-														<Badge
-															variant={
-																policy.required ? "outline" : "secondary"
-															}
-															className="text-[10px]"
-														>
-															{policy.required ? "Required" : "Advisory"}
-														</Badge>
-														<span className="text-[11px] text-basalt-muted-foreground">
-															{awaitingPresence
-																? "Awaiting human verification"
-																: CHECK_LABELS[policy.state]}
-														</span>
-													</div>
-													<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
-														{policy.detail}
-													</p>
-													<EntityLabel
-														name={policy.owner}
-														size="xs"
-														className="mt-1 text-[11px] text-basalt-muted-foreground"
-													/>
+									{pull.policies.map((policy) => (
+										<div
+											key={policy.id}
+											className="flex items-start gap-3 p-3.5"
+										>
+											<CheckIcon state={policy.state} className="mt-0.5" />
+											<div className="min-w-0 flex-1">
+												<div className="flex flex-wrap items-center gap-2">
+													<span className="text-xs font-medium">
+														{policy.name}
+													</span>
+													<Badge
+														variant={policy.required ? "outline" : "secondary"}
+														className="text-[10px]"
+													>
+														{policy.required ? "Required" : "Advisory"}
+													</Badge>
+													<span className="text-[11px] text-basalt-muted-foreground">
+														{CHECK_LABELS[policy.state]}
+													</span>
 												</div>
+												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
+													{policy.detail}
+												</p>
+												<EntityLabel
+													name={policy.owner}
+													size="xs"
+													className="mt-1 text-[11px] text-basalt-muted-foreground"
+												/>
 											</div>
-										);
-									})}
+										</div>
+									))}
 								</div>
 							</LayerCard>
 						</section>

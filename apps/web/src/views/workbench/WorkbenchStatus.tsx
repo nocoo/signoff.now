@@ -1,9 +1,12 @@
 import { Badge } from "@nocoo/basalt";
 import { SlotBarChart } from "@nocoo/basalt/charts/slot-bar";
-import type {
-	Build,
-	CheckState,
-	PullReadiness,
+import {
+	type Build,
+	type CheckState,
+	type Project,
+	type PullReadiness,
+	type ReadinessColor,
+	readinessColor,
 } from "@signoff/domain/workbench";
 import {
 	Ban,
@@ -20,41 +23,66 @@ import {
 	UserRoundCheck,
 	X,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { heatmapColor } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 
-const READINESS = {
-	blocked: { variant: "error", Icon: ShieldAlert },
-	approval: { variant: "warning", Icon: UserRoundCheck },
-	review: { variant: "warning", Icon: GitPullRequest },
-	running: { variant: "info", Icon: LoaderCircle },
-	unknown: { variant: "secondary", Icon: CircleHelp },
-	ready: { variant: "success", Icon: Check },
-	draft: { variant: "secondary", Icon: GitPullRequestDraft },
-	merged: { variant: "purple", Icon: GitMerge },
-	closed: { variant: "secondary", Icon: Ban },
+const READINESS_ICONS = {
+	blocked: ShieldAlert,
+	approval: UserRoundCheck,
+	review: GitPullRequest,
+	running: LoaderCircle,
+	unknown: CircleHelp,
+	ready: Check,
+	draft: GitPullRequestDraft,
+	merged: GitMerge,
+	closed: Ban,
 } as const;
 
 export function ReadinessBadge({
 	readiness,
+	project,
 }: {
-	readiness: Pick<PullReadiness, "kind" | "label">;
+	readiness: Pick<PullReadiness, "kind" | "label" | "policy">;
+	project: Project;
 }) {
-	const { variant, Icon } = READINESS[readiness.kind];
-	const isPoP = readiness.kind === "approval" && readiness.label === "PoP";
+	const Icon = READINESS_ICONS[readiness.kind];
+	return (
+		<ReadinessSwatch color={readinessColor(readiness, project)}>
+			<Icon className="h-3.5 w-3.5 shrink-0" aria-hidden strokeWidth={1.8} />
+			<span className="truncate" title={readiness.label}>
+				{readiness.label}
+			</span>
+		</ReadinessSwatch>
+	);
+}
+
+const COLOR_VARIANTS = {
+	green: "success",
+	yellow: "secondary",
+	orange: "warning",
+	blue: "info",
+	red: "error",
+	purple: "purple",
+	gray: "secondary",
+} as const;
+export function ReadinessSwatch({
+	color,
+	children,
+}: {
+	color: ReadinessColor;
+	children: ReactNode;
+}) {
 	return (
 		<Badge
-			variant={variant}
-			title={
-				isPoP ? "Proof of Presence · awaiting human verification" : undefined
-			}
+			variant={COLOR_VARIANTS[color]}
 			className={cn(
-				"gap-1.5 whitespace-nowrap font-medium",
-				isPoP && "bg-basalt-chart-7/30 text-basalt-foreground",
+				"max-w-full gap-1.5 whitespace-nowrap font-medium",
+				(color === "green" || color === "purple") && "text-black",
+				color === "yellow" && "bg-basalt-chart-7/30 text-basalt-foreground",
 			)}
 		>
-			<Icon className="h-3.5 w-3.5" aria-hidden strokeWidth={1.8} />
-			{readiness.label}
+			{children}
 		</Badge>
 	);
 }

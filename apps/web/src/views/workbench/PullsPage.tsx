@@ -16,19 +16,23 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { pullUrl } from "@signoff/domain/workbench";
+import { type Project, pullUrl } from "@signoff/domain/workbench";
 import {
+	ArrowDown,
 	ArrowRight,
+	ArrowUp,
+	ArrowUpDown,
 	CheckCheck,
 	ChevronLeft,
 	ChevronRight,
 	ExternalLink,
 	GitPullRequest,
+	ListOrdered,
 	LoaderCircle,
 	Search,
 	ShieldAlert,
 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
@@ -36,6 +40,7 @@ import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import {
 	DEFAULT_PULL_FILTER,
+	nextPullSort,
 	type PullFilter,
 	type PullRow,
 	relativeTime,
@@ -43,6 +48,7 @@ import {
 import { usePageCollection } from "@/viewmodels/usePageCollection";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
+import { ReadinessDialog } from "./ReadinessDialog";
 import { RepositoryFilters } from "./RepositoryFilters";
 import {
 	ScanControls,
@@ -54,6 +60,9 @@ import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 export function PullsPage() {
 	const vm = useWorkbench();
 	const opener = useRef<HTMLElement | null>(null);
+	const [readinessProject, setReadinessProject] = useState<Project | null>(
+		null,
+	);
 	usePageCollection(
 		vm.collectPage,
 		vm.autoRefresh && vm.filter.source === "cli" && !vm.loading,
@@ -291,18 +300,27 @@ export function PullsPage() {
 							<span aria-live="polite" className="tabular-nums">
 								{vm.visible.length} results
 							</span>
-							<SelectControl
-								aria-label="Sort pull requests"
-								value={vm.filter.sort}
-								onChange={(sort) =>
-									vm.setFilter({ sort: sort as PullFilter["sort"] })
-								}
-								className="w-40"
-							>
-								<option value="attention">Attention first</option>
-								<option value="updated">Recently updated</option>
-								<option value="oldest">Oldest first</option>
-							</SelectControl>
+							{scopedProject ? (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={(event) => {
+										opener.current = event.currentTarget;
+										vm.clearMutationError();
+										setReadinessProject(scopedProject);
+									}}
+								>
+									<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+									Readiness order
+								</Button>
+							) : (
+								<Button asChild variant="ghost" size="sm">
+									<Link to="/projects">
+										<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+										Readiness order
+									</Link>
+								</Button>
+							)}
 						</div>
 					</div>
 				</LayerCard.Header>
@@ -364,11 +382,26 @@ export function PullsPage() {
 							>
 								<TableHeader>
 									<TableRow>
-										<TableHead className="w-[35%]">Pull request</TableHead>
-										<TableHead className="w-[15%]">Readiness</TableHead>
-										<TableHead className="w-[18%]">Checks & stages</TableHead>
-										<TableHead className="w-[25%]">Next action</TableHead>
-										<TableHead className="w-[7%] text-right">Updated</TableHead>
+										{(
+											[
+												["title", "Pull request", "w-[33%]"],
+												["readiness", "Readiness", "w-[15%]"],
+												["progress", "Checks & stages", "w-[18%]"],
+												["action", "Next action", "w-[24%]"],
+												["updated", "Updated", "w-[10%] text-right"],
+											] as const
+										).map(([sort, label, className]) => (
+											<SortableHead
+												key={sort}
+												sort={sort}
+												label={label}
+												className={className}
+												filter={vm.filter}
+												onSort={() =>
+													vm.setFilter(nextPullSort(vm.filter, sort))
+												}
+											/>
+										))}
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -423,7 +456,10 @@ export function PullsPage() {
 												</div>
 											</TableCell>
 											<TableCell className="py-3.5 align-top">
-												<ReadinessBadge readiness={readiness} />
+												<ReadinessBadge
+													readiness={readiness}
+													project={project}
+												/>
 												{readiness.issues.length > 1 ? (
 													<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
 														+{readiness.issues.length - 1} pending item
@@ -550,7 +586,65 @@ export function PullsPage() {
 				canScan={Boolean(vm.selected && vm.canScan(vm.selected.project))}
 				busy={Boolean(vm.busy)}
 			/>
+			{readinessProject ? (
+				<ReadinessDialog
+					project={readinessProject}
+					pulls={vm.data?.pullRequests ?? []}
+					busy={vm.busy}
+					error={vm.mutationError}
+					onSave={(rules) => vm.saveReadiness(readinessProject, rules)}
+					onClose={() => setReadinessProject(null)}
+					restoreFocus={() => opener.current?.focus()}
+				/>
+			) : null}
 		</div>
+	);
+}
+
+function SortableHead({
+	sort,
+	label,
+	className,
+	filter,
+	onSort,
+}: {
+	sort: PullFilter["sort"];
+	label: string;
+	className: string;
+	filter: PullFilter;
+	onSort: () => void;
+}) {
+	const active = filter.sort === sort;
+	const Icon = active
+		? filter.sortDirection === "asc"
+			? ArrowUp
+			: ArrowDown
+		: ArrowUpDown;
+	return (
+		<TableHead
+			className={className}
+			aria-sort={
+				active
+					? filter.sortDirection === "asc"
+						? "ascending"
+						: "descending"
+					: "none"
+			}
+		>
+			<Button
+				variant="ghost"
+				size="sm"
+				aria-label={`Sort by ${label}`}
+				onClick={onSort}
+				className={cn(
+					"h-8 gap-1 px-0 text-xs hover:bg-transparent",
+					active && "text-basalt-foreground",
+				)}
+			>
+				{label}
+				<Icon className="h-3 w-3 shrink-0" aria-hidden />
+			</Button>
+		</TableHead>
 	);
 }
 

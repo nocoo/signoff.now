@@ -55,6 +55,7 @@ import {
 	projectsCreateRoute,
 	projectsDeleteRoute,
 	projectsPatchRoute,
+	projectsReadinessRoute,
 	projectsScanRoute,
 	workbenchRoute,
 } from "./routes/workbench.js";
@@ -73,6 +74,7 @@ app.get("/api/me", meRoute);
 app.get("/api/workbench", workbenchRoute);
 app.post("/api/projects", projectsCreateRoute);
 app.patch("/api/projects/:id", projectsPatchRoute);
+app.patch("/api/projects/:id/readiness", projectsReadinessRoute);
 app.delete("/api/projects/:id", projectsDeleteRoute);
 app.post("/api/projects/:id/scan", projectsScanRoute);
 app.post("/api/collector/heartbeat", collectorHeartbeatRoute);

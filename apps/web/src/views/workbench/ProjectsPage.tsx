@@ -21,6 +21,7 @@ import {
 	CircleAlert,
 	FolderGit2,
 	GitBranch,
+	ListOrdered,
 	Pause,
 	Pencil,
 	Play,
@@ -37,12 +38,16 @@ import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ProjectDialog } from "./ProjectDialog";
+import { ReadinessDialog } from "./ReadinessDialog";
 import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
 
 export function ProjectsPage() {
 	const vm = useWorkbench();
 	const [editing, setEditing] = useState<Project | null | undefined>();
 	const [removing, setRemoving] = useState<Project | null>(null);
+	const [readinessProject, setReadinessProject] = useState<Project | null>(
+		null,
+	);
 	const opener = useRef<HTMLElement | null>(null);
 	const restoreFocus = () =>
 		(opener.current?.isConnected
@@ -281,15 +286,31 @@ export function ProjectsPage() {
 									</div>
 								</LayerCard.Body>
 								<ProjectScanStatus project={project} job={job} />
-								<LayerCard.Footer className="justify-between">
-									<Button variant="ghost" size="sm" asChild>
-										<Link
-											to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+								<LayerCard.Footer className="flex-wrap justify-between gap-2">
+									<div className="flex items-center gap-1">
+										<Button variant="ghost" size="sm" asChild>
+											<Link
+												to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+											>
+												View PRs
+												<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+											</Link>
+										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											disabled={Boolean(vm.busy)}
+											aria-label={`Readiness for ${project.name}`}
+											onClick={(event) => {
+												opener.current = event.currentTarget;
+												vm.clearMutationError();
+												setReadinessProject(project);
+											}}
 										>
-											View PRs
-											<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
-										</Link>
-									</Button>
+											<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+											Readiness
+										</Button>
+									</div>
 									<div className="flex items-center gap-1">
 										<Button
 											variant="ghost"
@@ -399,6 +420,17 @@ export function ProjectsPage() {
 					error={vm.mutationError}
 					onSave={(draft) => vm.save(draft, editing)}
 					onClose={() => setEditing(undefined)}
+					restoreFocus={restoreFocus}
+				/>
+			) : null}
+			{readinessProject ? (
+				<ReadinessDialog
+					project={readinessProject}
+					pulls={vm.data?.pullRequests ?? []}
+					busy={vm.busy}
+					error={vm.mutationError}
+					onSave={(rules) => vm.saveReadiness(readinessProject, rules)}
+					onClose={() => setReadinessProject(null)}
 					restoreFocus={restoreFocus}
 				/>
 			) : null}

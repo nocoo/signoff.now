@@ -1,5 +1,8 @@
 import { demoWorkspace } from "@signoff/domain/demo";
-import type { Workbench } from "@signoff/domain/workbench";
+import {
+	DEFAULT_READINESS_RULES,
+	type Workbench,
+} from "@signoff/domain/workbench";
 import { describe, expect, it, vi } from "vitest";
 import {
 	authorOptions,
@@ -7,6 +10,7 @@ import {
 	collectorConnection,
 	DEFAULT_PULL_FILTER,
 	duration,
+	nextPullSort,
 	projectSummaries,
 	pullMetrics,
 	pullRows,
@@ -313,6 +317,7 @@ describe("URL filters and review queue", () => {
 			state: "all",
 			status: "unknown",
 			sort: "oldest",
+			sortDirection: "asc",
 		});
 	});
 	it("scopes by project, repository, and meaningful search fields before counting", () => {
@@ -379,7 +384,7 @@ describe("URL filters and review queue", () => {
 			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "draft" }),
 		).toHaveLength(5);
 	});
-	it("prioritizes blockers and keeps timestamp ties deterministic without mutating input", () => {
+	it("prioritizes ready PRs and keeps timestamp ties deterministic without mutating input", () => {
 		const blocked = {
 			...rows[0],
 			pull: { ...rows[0].pull, id: "blocked", updatedAt: 20, createdAt: 20 },
@@ -393,11 +398,13 @@ describe("URL filters and review queue", () => {
 		const input = [z, a, blocked];
 		expect(
 			visiblePulls(input, DEFAULT_PULL_FILTER).map((row) => row.pull.id),
-		).toEqual(["blocked", "a", "z"]);
+		).toEqual(["a", "z", "blocked"]);
 		expect(
-			visiblePulls(input, { ...DEFAULT_PULL_FILTER, sort: "updated" }).map(
-				(row) => row.pull.id,
-			),
+			visiblePulls(input, {
+				...DEFAULT_PULL_FILTER,
+				sort: "updated",
+				sortDirection: "desc",
+			}).map((row) => row.pull.id),
 		).toEqual(["a", "z", "blocked"]);
 		expect(
 			visiblePulls(input, { ...DEFAULT_PULL_FILTER, sort: "oldest" }).map(
@@ -406,22 +413,108 @@ describe("URL filters and review queue", () => {
 		).toEqual(["a", "z", "blocked"]);
 		expect(input.map((row) => row.pull.id)).toEqual(["z", "a", "blocked"]);
 	});
-	it("places PoP-only PRs after all other pending readiness states, just before ready", () => {
-		const queue = visiblePulls(
-			scopePulls(rows, DEFAULT_PULL_FILTER),
-			DEFAULT_PULL_FILTER,
+	it("orders PRs with each owning project's readiness rules", () => {
+		const blocked = rows.find((row) => row.readiness.kind === "blocked")!;
+		const review = rows.find((row) => row.readiness.kind === "review")!;
+		const customized = {
+			...blocked,
+			project: {
+				...blocked.project,
+				readinessRules: [
+					DEFAULT_READINESS_RULES[0]!,
+					DEFAULT_READINESS_RULES[5]!,
+					...DEFAULT_READINESS_RULES.filter((_, i) => i !== 0 && i !== 5),
+				],
+			},
+		};
+		expect(visiblePulls([blocked, review], DEFAULT_PULL_FILTER)[0]).toBe(
+			review,
 		);
-		const popIndex = queue.findIndex((row) => row.readiness.label === "PoP");
-		expect(popIndex).toBeGreaterThan(0);
+		expect(visiblePulls([customized, review], DEFAULT_PULL_FILTER)[0]).toBe(
+			customized,
+		);
 		expect(
-			queue.slice(0, popIndex).every((row) => row.readiness.kind !== "ready"),
-		).toBe(true);
+			visiblePulls([customized, review], {
+				...DEFAULT_PULL_FILTER,
+				sortDirection: "desc",
+			})[0],
+		).toBe(review);
+	});
+	it("sorts the table columns in both directions and keeps missing checks behind complete progress", () => {
+		const a = {
+			...rows[0],
+			pull: {
+				...rows[0].pull,
+				id: "a",
+				title: "Alpha",
+				updatedAt: 10,
+				coverage: "complete" as const,
+			},
+			readiness: { ...rows[0].readiness, action: "Approve" },
+			progress: { ...rows[0].progress, checksPassed: 1, checksTotal: 2 },
+		};
+		const b = {
+			...a,
+			pull: { ...a.pull, id: "b", title: "Zulu", updatedAt: 20 },
+			readiness: { ...a.readiness, action: "Verify" },
+			progress: { ...a.progress, checksPassed: 2 },
+		};
+		for (const sort of ["title", "action", "progress", "updated"] as const) {
+			expect(
+				visiblePulls([b, a], {
+					...DEFAULT_PULL_FILTER,
+					sort,
+					sortDirection: "asc",
+				}).map((row) => row.pull.id),
+			).toEqual(["a", "b"]);
+			expect(
+				visiblePulls([a, b], {
+					...DEFAULT_PULL_FILTER,
+					sort,
+					sortDirection: "desc",
+				}).map((row) => row.pull.id),
+			).toEqual(["b", "a"]);
+		}
+		const missing = {
+			...b,
+			pull: { ...b.pull, id: "missing", checksObservedAt: null },
+		};
 		expect(
-			queue.slice(popIndex + 1).every((row) => row.readiness.kind === "ready"),
-		).toBe(true);
+			visiblePulls([missing, a, b], {
+				...DEFAULT_PULL_FILTER,
+				sort: "progress",
+				sortDirection: "desc",
+			}).map((row) => row.pull.id),
+		).toEqual(["b", "a", "missing"]);
+	});
+	it("toggles column sorting and round-trips its direction while migrating saved legacy sorts", () => {
+		expect(nextPullSort(DEFAULT_PULL_FILTER, "readiness")).toEqual({
+			sort: "readiness",
+			sortDirection: "desc",
+		});
+		expect(nextPullSort(DEFAULT_PULL_FILTER, "updated")).toEqual({
+			sort: "updated",
+			sortDirection: "desc",
+		});
+		expect(nextPullSort(DEFAULT_PULL_FILTER, "title")).toEqual({
+			sort: "title",
+			sortDirection: "asc",
+		});
+		const filter = {
+			...DEFAULT_PULL_FILTER,
+			...nextPullSort(DEFAULT_PULL_FILTER, "progress"),
+		};
+		expect(readPullFilter(writePullFilter(filter))).toEqual(filter);
+		expect(readPullFilter(new URLSearchParams("sort=attention"))).toMatchObject(
+			{ sort: "readiness", sortDirection: "asc" },
+		);
+		expect(readPullFilter(new URLSearchParams("sort=updated"))).toMatchObject({
+			sort: "updated",
+			sortDirection: "desc",
+		});
 		expect(
-			visiblePulls(rows, { ...DEFAULT_PULL_FILTER, status: "approval" }),
-		).toContain(queue[popIndex]);
+			readPullFilter(new URLSearchParams("sort=title&direction=invalid")),
+		).toMatchObject({ sort: "title", sortDirection: "asc" });
 	});
 });
 

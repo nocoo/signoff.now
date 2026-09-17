@@ -4,7 +4,7 @@ import {
 	type PullRequest,
 	pullProgress,
 	pullReadiness,
-	READINESS_PRIORITY,
+	readinessKindSchema,
 	readinessPriority,
 	type Workbench,
 } from "@signoff/domain/workbench";
@@ -25,7 +25,8 @@ export type PullFilter = {
 	authors: string[];
 	state: "open" | "merged" | "closed" | "all";
 	status: "all" | "attention" | PullReadiness["kind"];
-	sort: "attention" | "updated" | "oldest";
+	sort: "readiness" | "title" | "progress" | "action" | "updated" | "oldest";
+	sortDirection: "asc" | "desc";
 };
 export const DEFAULT_PULL_FILTER: PullFilter = {
 	source: "demo",
@@ -37,7 +38,8 @@ export const DEFAULT_PULL_FILTER: PullFilter = {
 	authors: [],
 	state: "open",
 	status: "all",
-	sort: "attention",
+	sort: "readiness",
+	sortDirection: "asc",
 };
 export const PULL_FILTER_PARAMS = {
 	source: "source",
@@ -49,6 +51,7 @@ export const PULL_FILTER_PARAMS = {
 	state: "state",
 	status: "status",
 	sort: "sort",
+	sortDirection: "direction",
 } as const;
 export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
 export const AUTO_REFRESH_STORAGE_KEY = "signoff-auto-refresh-seconds";
@@ -82,7 +85,18 @@ export function readPullFilter(
 	const state = params.get("state") ?? "open";
 	const legacyStatus = params.get("status") ?? "all";
 	const status = legacyStatus === "draft" ? "all" : legacyStatus;
-	const sort = params.get("sort") ?? "attention";
+	const requestedSort = params.get("sort");
+	const sort = [
+		"readiness",
+		"title",
+		"progress",
+		"action",
+		"updated",
+		"oldest",
+	].includes(requestedSort ?? "")
+		? (requestedSort as PullFilter["sort"])
+		: "readiness";
+	const direction = params.get("direction");
 	const draft =
 		params.get("draft") ?? (legacyStatus === "draft" ? "only" : "exclude");
 	return {
@@ -100,14 +114,16 @@ export function readPullFilter(
 		state: ["open", "merged", "closed", "all"].includes(state)
 			? (state as PullFilter["state"])
 			: "open",
-		status: ["all", "attention", ...Object.keys(READINESS_PRIORITY)].includes(
+		status: ["all", "attention", ...readinessKindSchema.options].includes(
 			status,
 		)
 			? (status as PullFilter["status"])
 			: "all",
-		sort: ["attention", "updated", "oldest"].includes(sort)
-			? (sort as PullFilter["sort"])
-			: "attention",
+		sort,
+		sortDirection:
+			direction === "asc" || direction === "desc"
+				? direction
+				: defaultSortDirection(sort),
 	};
 }
 
@@ -120,7 +136,11 @@ export function writePullFilter(
 		PULL_FILTER_PARAMS,
 	) as (keyof typeof PULL_FILTER_PARAMS)[]) {
 		const param = PULL_FILTER_PARAMS[key];
-		if (key !== "source" && filter[key] === DEFAULT_PULL_FILTER[key])
+		if (
+			key !== "source" &&
+			filter[key] === DEFAULT_PULL_FILTER[key] &&
+			!(key === "sortDirection" && filter.sort !== "readiness")
+		)
 			params.delete(param);
 		else params.set(param, filter[key]);
 	}
@@ -203,21 +223,61 @@ export function visiblePulls(scoped: PullRow[], filter: PullFilter): PullRow[] {
 						: row.readiness.kind === filter.status)),
 		)
 		.sort((a, b) => {
-			if (filter.sort === "oldest")
-				return (
-					a.pull.createdAt - b.pull.createdAt ||
-					a.pull.id.localeCompare(b.pull.id)
-				);
-			const priority =
-				filter.sort === "attention"
-					? readinessPriority(a.readiness) - readinessPriority(b.readiness)
-					: 0;
+			let comparison: number;
+			switch (filter.sort) {
+				case "title":
+					comparison = a.pull.title.localeCompare(b.pull.title);
+					break;
+				case "progress":
+					comparison = checkCompletion(a) - checkCompletion(b);
+					break;
+				case "action":
+					comparison = a.readiness.action.localeCompare(b.readiness.action);
+					break;
+				case "updated":
+					comparison = a.pull.updatedAt - b.pull.updatedAt;
+					break;
+				case "oldest":
+					comparison = a.pull.createdAt - b.pull.createdAt;
+					break;
+				default:
+					comparison =
+						readinessPriority(a.readiness, a.project) -
+						readinessPriority(b.readiness, b.project);
+			}
 			return (
-				priority ||
+				comparison * (filter.sortDirection === "desc" ? -1 : 1) ||
 				b.pull.updatedAt - a.pull.updatedAt ||
 				a.pull.id.localeCompare(b.pull.id)
 			);
 		});
+}
+
+function checkCompletion(row: PullRow): number {
+	if (row.pull.checksObservedAt === null || row.pull.coverage === "partial")
+		return -1;
+	return row.progress.checksTotal
+		? row.progress.checksPassed / row.progress.checksTotal
+		: 1;
+}
+function defaultSortDirection(
+	sort: PullFilter["sort"],
+): PullFilter["sortDirection"] {
+	return sort === "updated" || sort === "progress" ? "desc" : "asc";
+}
+export function nextPullSort(
+	filter: PullFilter,
+	sort: PullFilter["sort"],
+): Pick<PullFilter, "sort" | "sortDirection"> {
+	return {
+		sort,
+		sortDirection:
+			filter.sort === sort
+				? filter.sortDirection === "asc"
+					? "desc"
+					: "asc"
+				: defaultSortDirection(sort),
+	};
 }
 
 export function pullMetrics(rows: PullRow[]) {

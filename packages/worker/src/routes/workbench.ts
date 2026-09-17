@@ -9,6 +9,7 @@ import {
 	projectSchema,
 	projectWriteSchema,
 	pullRequestSchema,
+	readinessWriteSchema,
 	revisionSchema,
 	type ScanRun,
 	scanRequestSchema,
@@ -25,6 +26,8 @@ export type ProjectRow = {
 	organization: string;
 	project_key: string;
 	repositories_json?: string;
+	readiness_rules_json?: string;
+	readiness_revision?: number;
 	description: string;
 	owner: string;
 	enabled: number;
@@ -77,6 +80,8 @@ export function mapProject(row: ProjectRow): Project {
 		organization: row.organization,
 		projectKey: row.project_key,
 		repositories,
+		readinessRules: JSON.parse(row.readiness_rules_json || "[]"),
+		readinessRevision: row.readiness_revision ?? 1,
 		description: row.description,
 		owner: row.owner,
 		enabled: row.enabled === 1,
@@ -371,6 +376,44 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 			409,
 		);
 	return c.json({ ok: true });
+}
+
+export async function projectsReadinessRoute(c: Context<AppEnv>) {
+	const raw = await readJsonBodyWithSize(c, 65536);
+	if (!raw.ok)
+		return c.json(
+			{ error: "Invalid readiness settings body" },
+			raw.error === "payload_too_large" ? 413 : 400,
+		);
+	const parsed = readinessWriteSchema.safeParse(raw.value);
+	if (!parsed.success)
+		return c.json(
+			{
+				error: parsed.error.issues[0]?.message ?? "Invalid readiness settings",
+			},
+			400,
+		);
+	// One statement changes only presentation fields. No collection revision,
+	// snapshot, lease, or source metadata participates in this update.
+	const row = await c.env.DB.prepare(
+		`UPDATE projects SET readiness_rules_json = ?, readiness_revision = readiness_revision + 1
+		 WHERE id = ? AND readiness_revision = ? RETURNING *`,
+	)
+		.bind(
+			JSON.stringify(parsed.data.rules),
+			c.req.param("id") ?? "",
+			parsed.data.revision,
+		)
+		.first<ProjectRow>();
+	if (!row)
+		return c.json(
+			{
+				error:
+					"Readiness settings changed or the project was removed. Reopen settings and try again.",
+			},
+			409,
+		);
+	return c.json(mapProject(row));
 }
 
 async function enqueueCliScan(

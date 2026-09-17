@@ -17,6 +17,7 @@ import {
 	deleteProject,
 	loadWorkbench,
 	patchProject,
+	patchReadiness,
 	scanProject,
 } from "@/models/workbenchApi";
 import { usePageCollection } from "./usePageCollection";
@@ -30,6 +31,7 @@ vi.mock("@/models/workbenchApi", () => ({
 	deleteProject: vi.fn(),
 	loadWorkbench: vi.fn(),
 	patchProject: vi.fn(),
+	patchReadiness: vi.fn(),
 	scanProject: vi.fn(),
 }));
 const NOW = 1_800_000_000;
@@ -84,6 +86,7 @@ beforeEach(() => {
 	vi.mocked(loadWorkbench).mockReset().mockResolvedValue(snapshot());
 	vi.mocked(createProject).mockReset().mockResolvedValue(project);
 	vi.mocked(patchProject).mockReset().mockResolvedValue(project);
+	vi.mocked(patchReadiness).mockReset().mockResolvedValue(project);
 	vi.mocked(deleteProject).mockReset().mockResolvedValue(undefined);
 	vi.mocked(scanProject)
 		.mockReset()
@@ -721,6 +724,28 @@ describe("workbench loading and URL state", () => {
 });
 
 describe("project mutations", () => {
+	it("saves readiness with the settings revision, reloads rows, and retains errors on conflict", async () => {
+		const { result } = await loaded();
+		await act(async () => {
+			expect(await result.current.saveReadiness(project, [])).toBe(true);
+		});
+		expect(patchReadiness).toHaveBeenLastCalledWith(project.id, 1, []);
+		expect(result.current.notice).toContain("Readiness");
+		expect(loadWorkbench).toHaveBeenCalledTimes(2);
+		vi.mocked(patchReadiness).mockRejectedValueOnce(
+			new Error("Readiness settings changed"),
+		);
+		await act(async () => {
+			expect(
+				await result.current.saveReadiness(
+					{ ...project, readinessRevision: 4 },
+					[],
+				),
+			).toBe(false);
+		});
+		expect(patchReadiness).toHaveBeenLastCalledWith(project.id, 4, []);
+		expect(result.current.mutationError).toBe("Readiness settings changed");
+	});
 	it("creates and edits projects with explicit revisions, then refreshes the saved data", async () => {
 		const { result } = await loaded();
 		await act(async () =>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	collectionJobSchema,
+	DEFAULT_READINESS_RULES,
 	type Project,
 	projectSchema,
 	scanRunSchema,
@@ -44,6 +45,152 @@ const request = (
 		},
 		{ ...env, ...overrides },
 	);
+
+describe("project readiness settings", () => {
+	test("persists settings separately from collection revision and retains snapshots and active jobs", async () => {
+		const project = await create();
+		const other = await create({ projectKey: "Other" });
+		sqlite.raw
+			.query("UPDATE projects SET source = 'demo' WHERE id = ?")
+			.run(project.id);
+		await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: project.revision,
+		});
+		sqlite.raw
+			.query("UPDATE projects SET source = 'cli' WHERE id = ?")
+			.run(project.id);
+		const before = await snapshot();
+		const current = before.projects.find((p) => p.id === project.id)!;
+		await request(`/api/projects/${project.id}/scan`, "POST", {
+			revision: current.revision,
+		});
+		const rules = DEFAULT_READINESS_RULES.map((rule) => ({
+			...rule,
+			color: "purple" as const,
+		}));
+		const response = await request(
+			`/api/projects/${project.id}/readiness`,
+			"PATCH",
+			{ revision: 1, rules },
+		);
+		expect(response.status).toBe(200);
+		const saved = projectSchema.parse(await response.json());
+		expect(saved).toMatchObject({
+			readinessRules: rules,
+			readinessRevision: 2,
+			revision: current.revision,
+		});
+		const after = await snapshot();
+		expect(after.pullRequests).toEqual(before.pullRequests);
+		expect(after.scans).toEqual(before.scans);
+		expect(
+			after.collectionJobs?.find((job) => job.projectId === project.id)?.state,
+		).toBe("queued");
+		expect(
+			after.projects.find((p) => p.id === other.id)?.readinessRules,
+		).toEqual([]);
+		expect(
+			after.projects.find((p) => p.id === project.id)?.readinessRules,
+		).toEqual(rules);
+		// An ordinary project PATCH must not overwrite presentation settings.
+		await request(`/api/projects/${project.id}`, "PATCH", {
+			revision: current.revision,
+			owner: "Ada Lovelace",
+		});
+		expect(
+			(await snapshot()).projects.find((p) => p.id === project.id)
+				?.readinessRules,
+		).toEqual(rules);
+	});
+
+	test("rejects stale concurrent edits without changing the saved rule list", async () => {
+		const project = await create();
+		const responses = await Promise.all([
+			request(`/api/projects/${project.id}/readiness`, "PATCH", {
+				revision: 1,
+				rules: DEFAULT_READINESS_RULES,
+			}),
+			request(`/api/projects/${project.id}/readiness`, "PATCH", {
+				revision: 1,
+				rules: [...DEFAULT_READINESS_RULES].reverse(),
+			}),
+		]);
+		expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+		const winner = projectSchema.parse(
+			await responses.find((r) => r.status === 200)!.json(),
+		);
+		expect((await snapshot()).projects[0]?.readinessRules).toEqual(
+			winner.readinessRules,
+		);
+		expect(winner.readinessRevision).toBe(2);
+		const reset = await request(
+			`/api/projects/${project.id}/readiness`,
+			"PATCH",
+			{ revision: 2, rules: [] },
+		);
+		expect(reset.status).toBe(200);
+		expect((await snapshot()).projects[0]?.readinessRules).toEqual([]);
+	});
+
+	test("supports GitHub sample settings with the same contract", async () => {
+		const project = await create();
+		sqlite.raw
+			.query(
+				"UPDATE projects SET provider = 'github', source = 'demo' WHERE id = ?",
+			)
+			.run(project.id);
+		const response = await request(
+			`/api/projects/${project.id}/readiness`,
+			"PATCH",
+			{ revision: 1, rules: DEFAULT_READINESS_RULES },
+		);
+		expect(response.status).toBe(200);
+		expect(projectSchema.parse(await response.json()).provider).toBe("github");
+	});
+
+	test("rejects missing projects, malformed data, invalid colors, and oversized requests", async () => {
+		expect(
+			(
+				await request("/api/projects/missing/readiness", "PATCH", {
+					revision: 1,
+					rules: [],
+				})
+			).status,
+		).toBe(409);
+		const project = await create();
+		for (const payload of [
+			null,
+			{},
+			{ revision: 0, rules: [] },
+			{ revision: 1, rules: DEFAULT_READINESS_RULES.slice(1) },
+			{ revision: 1, rules: [], owner: "Unexpected write" },
+			{
+				revision: 1,
+				rules: DEFAULT_READINESS_RULES.map((r) => ({ ...r, color: "invalid" })),
+			},
+		]) {
+			expect(
+				(
+					await request(
+						`/api/projects/${project.id}/readiness`,
+						"PATCH",
+						payload,
+					)
+				).status,
+			).toBe(400);
+		}
+		expect(
+			(
+				await request(`/api/projects/${project.id}/readiness`, "PATCH", {
+					revision: 1,
+					rules: [],
+					huge: "x".repeat(65536),
+				})
+			).status,
+		).toBe(413);
+		expect((await snapshot()).projects[0]?.readinessRevision).toBe(1);
+	});
+});
 async function create(extra: Record<string, unknown> = {}): Promise<Project> {
 	const response = await request("/api/projects", "POST", {
 		...body,
@@ -565,6 +712,7 @@ describe("local-only demo scanning", () => {
 			["GET", "/api/workbench"],
 			["POST", "/api/projects"],
 			["PATCH", "/api/projects/p1"],
+			["PATCH", "/api/projects/p1/readiness"],
 			["DELETE", "/api/projects/p1"],
 			["POST", "/api/projects/p1/scan"],
 		]) {
