@@ -28,45 +28,35 @@ export function useActivityHeatmapViewModel() {
 	const timelineItems = timeline?.items ?? [];
 	const [roster, setRoster] = useState<Developer[]>([]);
 	const [rosterError, setRosterError] = useState<string | null>(null);
-	const sequence = useRef(0);
-	const latestSnapshot = useRef<
-		(PipelineSnapshot & { request: number }) | null
-	>(null);
-	const acceptSnapshot = useCallback(
-		(res: PipelineSnapshot, request: number) => {
-			const latest = latestSnapshot.current;
-			if (
-				latest &&
-				(res.pipelineConfigVersion < latest.pipelineConfigVersion ||
-					(res.pipelineConfigVersion === latest.pipelineConfigVersion &&
-						res.scoresStale !== latest.scoresStale &&
-						request < latest.request))
-			) {
-				return false;
-			}
-			if (
-				!latest ||
-				res.pipelineConfigVersion > latest.pipelineConfigVersion ||
-				request >= latest.request
-			) {
-				latestSnapshot.current = {
-					pipelineConfigVersion: res.pipelineConfigVersion,
-					scoresStale: res.scoresStale,
-					request,
-				};
-			}
-			// Invalidate immediately, including before a pagination restart can fail.
-			const compatible = (previous: PipelineSnapshot | null) =>
-				previous &&
-				!res.scoresStale &&
-				!previous.scoresStale &&
-				previous.pipelineConfigVersion === res.pipelineConfigVersion;
-			setData((previous) => (compatible(previous) ? previous : null));
-			setTimeline((previous) => (compatible(previous) ? previous : null));
-			return true;
-		},
-		[],
-	);
+	const latestSnapshot = useRef<PipelineSnapshot | null>(null);
+	const acceptSnapshot = useCallback((res: PipelineSnapshot) => {
+		const latest = latestSnapshot.current;
+		if (
+			latest &&
+			(res.pipelineConfigVersion < latest.pipelineConfigVersion ||
+				(res.pipelineConfigVersion === latest.pipelineConfigVersion &&
+					!latest.scoresStale &&
+					res.scoresStale))
+		) {
+			return false;
+		}
+		// staleBumpStatements increments the version whenever scores become
+		// stale. Recompute only clears it: complete cannot regress within a
+		// version, regardless of request start or response arrival order.
+		latestSnapshot.current = {
+			pipelineConfigVersion: res.pipelineConfigVersion,
+			scoresStale: res.scoresStale,
+		};
+		// Invalidate immediately, including before a pagination restart can fail.
+		const compatible = (previous: PipelineSnapshot | null) =>
+			previous &&
+			!res.scoresStale &&
+			!previous.scoresStale &&
+			previous.pipelineConfigVersion === res.pipelineConfigVersion;
+		setData((previous) => (compatible(previous) ? previous : null));
+		setTimeline((previous) => (compatible(previous) ? previous : null));
+		return true;
+	}, []);
 
 	// The heatmap keys on developer ids, but a manager reads names. Loading the
 	// roster here rather than in the view keeps the id → person mapping — and
@@ -99,10 +89,9 @@ export function useActivityHeatmapViewModel() {
 		}
 		setLoading(true);
 		setError(null);
-		const request = ++sequence.current;
 		try {
 			const res = await fetchHeatmap({ devs: ids, from, to });
-			if (!acceptSnapshot(res, request)) return;
+			if (!acceptSnapshot(res)) return;
 			setData(res);
 			// Prefill single-dev timeline when only one id is requested.
 			if (ids.length === 1 && !timelineDev) {
@@ -125,7 +114,6 @@ export function useActivityHeatmapViewModel() {
 			}
 			setTimelineLoading(true);
 			setTimelineError(null);
-			const request = ++sequence.current;
 			try {
 				const cursor =
 					opts?.more && timeline?.nextCursor ? timeline.nextCursor : null;
@@ -135,7 +123,7 @@ export function useActivityHeatmapViewModel() {
 					to,
 					cursor: opts?.more ? cursor : null,
 				});
-				if (!acceptSnapshot(res, request)) return;
+				if (!acceptSnapshot(res)) return;
 				// A cursor from another configuration cannot extend this snapshot.
 				const restart = Boolean(
 					opts?.more &&
@@ -144,7 +132,7 @@ export function useActivityHeatmapViewModel() {
 				);
 				if (restart && !res.scoresStale) {
 					res = await fetchTimeline({ dev, from, to, cursor: null });
-					if (!acceptSnapshot(res, request)) return;
+					if (!acceptSnapshot(res)) return;
 				}
 				setTimeline((previous) => ({
 					...res,

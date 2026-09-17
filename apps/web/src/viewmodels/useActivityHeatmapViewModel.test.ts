@@ -203,9 +203,18 @@ describe("useActivityHeatmapViewModel", () => {
 		});
 		expect(result.current.data).not.toBeNull();
 		expect(result.current.timelineItems).toHaveLength(1);
+		vi.mocked(fetchHeatmap).mockResolvedValue({
+			...sample,
+			pipelineConfigVersion: 2,
+		});
+		vi.mocked(fetchTimeline).mockResolvedValue({
+			...timelineSample,
+			pipelineConfigVersion: 2,
+		});
 		if (recover === "heatmap") {
 			vi.mocked(fetchTimeline).mockResolvedValueOnce({
 				...timelineSample,
+				pipelineConfigVersion: 2,
 				scoresStale: true,
 			});
 			await act(async () => {
@@ -221,6 +230,7 @@ describe("useActivityHeatmapViewModel", () => {
 		} else {
 			vi.mocked(fetchHeatmap).mockResolvedValueOnce({
 				...sample,
+				pipelineConfigVersion: 2,
 				scoresStale: true,
 			});
 			await act(async () => {
@@ -397,6 +407,50 @@ describe("useActivityHeatmapViewModel", () => {
 		expect(
 			delayed === "heatmap" ? result.current.timeline : result.current.data,
 		).not.toBeNull();
+	});
+
+	it("treats recompute completion as final within one configuration version", async () => {
+		const { result } = renderHook(() => useActivityHeatmapViewModel());
+		act(() => {
+			result.current.setDevs("d1");
+			result.current.setTimelineDev("d1");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-07");
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		vi.mocked(fetchTimeline).mockResolvedValueOnce({
+			...timelineSample,
+			scoresStale: true,
+		});
+		await act(async () => {
+			await result.current.loadTimeline();
+		});
+		expect(result.current.data?.scoresStale).toBe(false);
+		expect(result.current.timeline).toBeNull();
+		await act(async () => {
+			await result.current.loadTimeline();
+		});
+		vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+			...sample,
+			scoresStale: true,
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		expect(result.current.timeline?.scoresStale).toBe(false);
+		// A higher version still invalidates completed data.
+		vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+			...sample,
+			pipelineConfigVersion: 2,
+			scoresStale: true,
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		expect(result.current.timeline).toBeNull();
+		expect(result.current.data?.scoresStale).toBe(true);
 	});
 
 	it("withholds old snapshots when restarting pagination fails", async () => {
