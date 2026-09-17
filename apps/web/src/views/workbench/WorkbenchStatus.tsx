@@ -114,7 +114,7 @@ export function StageBar({ builds }: { builds: Build[] }) {
 			items={stages}
 			ariaLabel={stages.map((stage) => stage.label).join("; ")}
 			heightClass="h-1.5"
-			gapClass="gap-1"
+			gapClass={stages.length > 24 ? "gap-0" : "gap-1"}
 		/>
 	);
 }

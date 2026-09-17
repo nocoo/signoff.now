@@ -243,7 +243,7 @@ export function ProjectsPage() {
 										)}
 										ariaLabel={`${metrics.open} open PRs: ${metrics.attention} need attention, ${metrics.running} in progress, ${metrics.ready} ready, ${metrics.draft} drafts`}
 										heightClass="h-1.5"
-										gapClass="gap-1"
+										gapClass="gap-0"
 									/>
 									<div className="flex flex-wrap items-center gap-1.5 text-[11px] text-basalt-muted-foreground">
 										<GitBranch className="mr-1 h-3.5 w-3.5" aria-hidden />
