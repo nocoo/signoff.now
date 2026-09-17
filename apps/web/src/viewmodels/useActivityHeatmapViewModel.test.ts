@@ -236,6 +236,118 @@ describe("useActivityHeatmapViewModel", () => {
 		}
 	});
 
+	it.each([
+		"heatmap",
+		"timeline",
+	] as const)("rejects a delayed %s response from an older pipeline version", async (delayed) => {
+		const { result } = renderHook(() => useActivityHeatmapViewModel());
+		act(() => {
+			result.current.setDevs("d1");
+			result.current.setTimelineDev("d1");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-07");
+		});
+		let release = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let request: Promise<void>;
+		if (delayed === "heatmap") {
+			vi.mocked(fetchHeatmap).mockImplementationOnce(async () => {
+				await gate;
+				return sample;
+			});
+			act(() => {
+				request = result.current.load();
+			});
+			vi.mocked(fetchTimeline).mockResolvedValueOnce({
+				...timelineSample,
+				pipelineConfigVersion: 2,
+				scoresStale: true,
+			});
+			await act(async () => {
+				await result.current.loadTimeline();
+			});
+		} else {
+			vi.mocked(fetchTimeline).mockImplementationOnce(async () => {
+				await gate;
+				return timelineSample;
+			});
+			act(() => {
+				request = result.current.loadTimeline();
+			});
+			vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+				...sample,
+				pipelineConfigVersion: 2,
+				scoresStale: true,
+			});
+			await act(async () => {
+				await result.current.load();
+			});
+		}
+		await act(async () => {
+			release();
+			await request;
+		});
+		if (delayed === "heatmap") {
+			expect(result.current.data).toBeNull();
+			expect(result.current.timeline?.scoresStale).toBe(true);
+		} else {
+			expect(result.current.timeline).toBeNull();
+			expect(result.current.data?.scoresStale).toBe(true);
+		}
+	});
+
+	it("invalidates older caches and restarts pagination when the configuration changes", async () => {
+		const { result } = renderHook(() => useActivityHeatmapViewModel());
+		act(() => {
+			result.current.setDevs("d1");
+			result.current.setTimelineDev("d1");
+			result.current.setFrom("2026-01-01");
+			result.current.setTo("2026-01-07");
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		await act(async () => {
+			await result.current.loadTimeline();
+		});
+		vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+			...sample,
+			pipelineConfigVersion: 2,
+		});
+		await act(async () => {
+			await result.current.load();
+		});
+		expect(result.current.timeline).toBeNull();
+		vi.mocked(fetchTimeline).mockResolvedValueOnce({
+			...timelineSample,
+			pipelineConfigVersion: 2,
+		});
+		await act(async () => {
+			await result.current.loadTimeline();
+		});
+		vi.mocked(fetchTimeline)
+			.mockResolvedValueOnce({ ...timelineSample, pipelineConfigVersion: 3 })
+			.mockResolvedValueOnce({
+				...timelineSample,
+				pipelineConfigVersion: 3,
+				nextCursor: "v3-page-2",
+			});
+		await act(async () => {
+			await result.current.loadTimeline({ more: true });
+		});
+		expect(fetchTimeline).toHaveBeenLastCalledWith({
+			dev: "d1",
+			from: "2026-01-01",
+			to: "2026-01-07",
+			cursor: null,
+		});
+		expect(result.current.timelineItems).toHaveLength(1);
+		expect(result.current.timeline?.nextCursor).toBe("v3-page-2");
+		expect(result.current.data).toBeNull();
+	});
+
 	it("timeline validation error when missing fields", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
 		await act(async () => {

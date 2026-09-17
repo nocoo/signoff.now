@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type HeatmapResponse,
 	type HeatmapRow,
@@ -23,6 +23,9 @@ export function useActivityHeatmapViewModel() {
 	const timelineItems = timeline?.items ?? [];
 	const [roster, setRoster] = useState<Developer[]>([]);
 	const [rosterError, setRosterError] = useState<string | null>(null);
+	// Both endpoints describe the same monotonic pipeline configuration.
+	// A delayed response must not revive data invalidated by a newer version.
+	const latestConfigVersion = useRef(0);
 
 	// The heatmap keys on developer ids, but a manager reads names. Loading the
 	// roster here rather than in the view keeps the id → person mapping — and
@@ -57,11 +60,18 @@ export function useActivityHeatmapViewModel() {
 		setError(null);
 		try {
 			const res = await fetchHeatmap({ devs: ids, from, to });
+			if (res.pipelineConfigVersion < latestConfigVersion.current) return;
+			latestConfigVersion.current = res.pipelineConfigVersion;
 			setData(res);
 			// A stale response invalidates the peer cache. A clean refresh also
 			// discards a stale peer, so its old flag cannot hide recovered data.
 			setTimeline((previous) =>
-				res.scoresStale || previous?.scoresStale ? null : previous,
+				res.scoresStale ||
+				previous?.scoresStale ||
+				(previous &&
+					previous.pipelineConfigVersion !== res.pipelineConfigVersion)
+					? null
+					: previous,
 			);
 			// Prefill single-dev timeline when only one id is requested.
 			if (ids.length === 1 && !timelineDev) {
@@ -87,20 +97,37 @@ export function useActivityHeatmapViewModel() {
 			try {
 				const cursor =
 					opts?.more && timeline?.nextCursor ? timeline.nextCursor : null;
-				const res = await fetchTimeline({
+				let res = await fetchTimeline({
 					dev,
 					from,
 					to,
 					cursor: opts?.more ? cursor : null,
 				});
+				// A cursor from another configuration cannot extend this snapshot.
+				const restart = Boolean(
+					opts?.more &&
+						timeline &&
+						timeline.pipelineConfigVersion !== res.pipelineConfigVersion,
+				);
+				if (restart && !res.scoresStale) {
+					res = await fetchTimeline({ dev, from, to, cursor: null });
+				}
+				if (res.pipelineConfigVersion < latestConfigVersion.current) return;
+				latestConfigVersion.current = res.pipelineConfigVersion;
 				setTimeline((previous) => ({
 					...res,
-					items: opts?.more
-						? [...(previous?.items ?? []), ...res.items]
-						: res.items,
+					items:
+						opts?.more && !restart && !res.scoresStale
+							? [...(previous?.items ?? []), ...res.items]
+							: res.items,
 				}));
 				setData((previous) =>
-					res.scoresStale || previous?.scoresStale ? null : previous,
+					res.scoresStale ||
+					previous?.scoresStale ||
+					(previous &&
+						previous.pipelineConfigVersion !== res.pipelineConfigVersion)
+						? null
+						: previous,
 				);
 			} catch (e) {
 				setTimelineError(e instanceof Error ? e.message : String(e));
