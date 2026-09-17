@@ -79,7 +79,7 @@ describe("readiness dialog interactions", () => {
 			document
 				.querySelector("[data-readiness-rule]")
 				?.getAttribute("data-readiness-rule"),
-		).toBe("ci");
+		).toBe("build:ci");
 		expect(
 			screen.queryByRole("button", { name: "Move Ready to merge" }),
 		).toBeNull();

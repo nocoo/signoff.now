@@ -222,7 +222,7 @@ describe("merge readiness", () => {
 			"merged",
 		);
 	});
-	test("retains distinct review requirements even when their display names match", () => {
+	test("keeps all source evaluations while grouping same-named review requirements", () => {
 		const policies = ["review-policy-a", "review-policy-b"].map((id) => ({
 			id,
 			name: "Minimum number of reviewers",
@@ -235,7 +235,7 @@ describe("merge readiness", () => {
 		const result = pullReadiness(pull, project);
 		expect(pull.policies).toHaveLength(2);
 		expect(result.kind).toBe("review");
-		expect(result.issues).toHaveLength(2);
+		expect(result.issues).toHaveLength(1);
 		expect(
 			pullReadiness(
 				{

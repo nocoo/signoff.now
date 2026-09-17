@@ -65,8 +65,90 @@ const configured: Project = {
 	],
 };
 
+const REVIEW_ID = "review:minimum number of reviewers";
+const CI_ID = "build:pipeline-1";
+const POP_ID = "policy:proof of presence";
+
 describe("actual project merge requirements", () => {
-	test("discovers passed and pending required policies, preserving distinct configuration IDs", () => {
+	test("groups same-named source policies, preserves saved preferences, and requires every member to pass", () => {
+		const policies: Policy[] = [
+			{ ...review, state: "passed" },
+			{ ...review, id: "policy-4", state: "passed" },
+			{ ...review, id: "policy-5", state: "queued" },
+			{
+				...review,
+				id: "policy-6",
+				name: "Minimum  number of reviewers",
+				state: "passed",
+			},
+		];
+		const catalog = {
+			...project,
+			mergeRequirements: policies.map((policy) => ({
+				...policy,
+				kind: "review" as const,
+			})),
+		};
+		const pull = { ...ready, policies };
+		const gates = projectMergeRequirements(catalog, [
+			pull,
+			{ ...ready, id: "uncollected", requiredApprovals: 2 },
+		]);
+		const reviews = gates.filter((gate) => gate.kind === "review");
+		expect(reviews).toHaveLength(1);
+		expect(reviews[0]).toMatchObject({
+			id: "review:minimum number of reviewers",
+			sourceIds: ["policy-1", "policy-4", "policy-5", "policy-6"],
+		});
+		const saved: Project = {
+			...catalog,
+			readinessRules: [
+				{ gateId: "policy-5", label: "Review", color: "orange" },
+				{ gateId: "policy-1", label: "Duplicate", color: "red" },
+			],
+		};
+		expect(
+			projectReadinessRules(saved, [pull]).filter((rule) =>
+				rule.gateId.startsWith("review:"),
+			),
+		).toEqual([
+			{
+				gateId: "review:minimum number of reviewers",
+				label: "Review",
+				color: "orange",
+			},
+		]);
+		expect(pullReadiness(pull, saved)).toMatchObject({
+			kind: "review",
+			label: "Review",
+			gateId: reviews[0]!.id,
+		});
+		expect(pullReadiness(pull, saved).issues).toHaveLength(1);
+		expect(
+			pullReadiness(
+				{
+					...pull,
+					policies: policies.map((policy) => ({ ...policy, state: "passed" })),
+				},
+				saved,
+			).kind,
+		).toBe("ready");
+		expect(
+			pullReadiness({ ...ready, requiredApprovals: 2 }, saved).gateId,
+		).toBe(reviews[0]!.id);
+	});
+	test("keeps different pipeline definitions separate even when their names match", () => {
+		const gates = projectMergeRequirements(project, [
+			{
+				...ready,
+				policies: [ci, { ...ci, id: "other-ci", definitionId: "pipeline-2" }],
+			},
+		]);
+		expect(
+			gates.filter((gate) => gate.kind === "build").map((gate) => gate.id),
+		).toEqual(["build:pipeline-1", "build:pipeline-2"]);
+	});
+	test("discovers passed and pending required policies grouped across source configurations", () => {
 		const other = {
 			...ready,
 			projectId: "other",
@@ -87,7 +169,7 @@ describe("actual project merge requirements", () => {
 				.filter((gate) => gate.kind !== "conflict")
 				.map((gate) => gate.id)
 				.sort((a, b) => a.localeCompare(b)),
-		).toEqual(["policy-1", "policy-3", "policy-4"]);
+		).toEqual([POP_ID, REVIEW_ID]);
 		expect(
 			projectReadinessRules(project, [pull]).every(
 				(rule) => "gateId" in rule && !("kind" in rule),
@@ -112,7 +194,7 @@ describe("actual project merge requirements", () => {
 			projectMergeRequirements(project, pulls)
 				.filter((gate) => gate.kind === "build")
 				.map((gate) => gate.id),
-		).toEqual([ci.id]);
+		).toEqual([CI_ID]);
 		expect(
 			projectMergeRequirements(
 				project,
@@ -131,19 +213,20 @@ describe("actual project merge requirements", () => {
 			],
 		};
 		const rules = projectReadinessRules(configured, [pull]);
-		expect(rules.find((rule) => rule.gateId === presence.id)).toEqual(
-			configured.readinessRules![2],
-		);
-		expect(rules.findIndex((rule) => rule.gateId === "new")).toBeLessThan(
-			rules.findIndex((rule) => rule.gateId === presence.id),
-		);
+		expect(rules.find((rule) => rule.gateId === POP_ID)).toEqual({
+			...configured.readinessRules![2]!,
+			gateId: POP_ID,
+		});
+		expect(
+			rules.findIndex((rule) => rule.gateId === "policy:new requirement"),
+		).toBeLessThan(rules.findIndex((rule) => rule.gateId === POP_ID));
 	});
 	test("first unmet requirement determines the next action; later remaining requirements sort closer to ready", () => {
 		const pull = { ...ready, policies: [presence, review, ci] };
 		const before = structuredClone(pull);
 		const first = pullReadiness(pull, configured);
 		expect(first).toMatchObject({
-			gateId: ci.id,
+			gateId: CI_ID,
 			label: "CI",
 			kind: "running",
 		});
@@ -153,7 +236,7 @@ describe("actual project merge requirements", () => {
 			configured,
 		);
 		expect(afterCi).toMatchObject({
-			gateId: review.id,
+			gateId: REVIEW_ID,
 			label: "Review",
 			kind: "review",
 		});
@@ -168,7 +251,7 @@ describe("actual project merge requirements", () => {
 			},
 			configured,
 		);
-		expect(finalGate).toMatchObject({ gateId: presence.id, label: "PoP" });
+		expect(finalGate).toMatchObject({ gateId: POP_ID, label: "PoP" });
 		expect(readinessColor(finalGate, configured)).toBe("yellow");
 		expect(readinessPriority(finalGate, configured)).toBeLessThan(
 			readinessPriority(afterCi, configured),
@@ -185,7 +268,7 @@ describe("actual project merge requirements", () => {
 				...configured,
 				readinessRules: [...configured.readinessRules!].reverse(),
 			}).gateId,
-		).toBe(presence.id);
+		).toBe(POP_ID);
 	});
 	test("queued, rejected, or running reviewer policies require review, without duplicate count gates", () => {
 		for (const state of ["queued", "failed", "running", "waiting"] as const) {
@@ -219,7 +302,7 @@ describe("actual project merge requirements", () => {
 				},
 				project,
 			);
-			expect(result).toMatchObject({ kind: "review", gateId: review.id });
+			expect(result).toMatchObject({ kind: "review", gateId: REVIEW_ID });
 			expect(
 				result.issues.filter((issue) => issue.kind === "review"),
 			).toHaveLength(1);
@@ -255,11 +338,11 @@ describe("actual project merge requirements", () => {
 		);
 		expect(result).toMatchObject({
 			kind: "blocked",
-			gateId: ci.id,
+			gateId: CI_ID,
 			action: "Fix the failed tests",
 		});
 		expect(
-			result.issues.filter((issue) => issue.gateId === ci.id),
+			result.issues.filter((issue) => issue.gateId === CI_ID),
 		).toHaveLength(1);
 	});
 	test("does not create advisory blockers, hide missing data, or override lifecycle facts", () => {

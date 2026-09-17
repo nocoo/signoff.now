@@ -156,9 +156,11 @@ export function ReadinessDialog({
 											</ReadinessSwatch>
 											<p
 												className="mt-1 truncate text-[11px] text-basalt-muted-foreground"
-												title={requirement?.detail ?? rule.gateId}
+												title={requirement?.detail}
 											>
-												{requirement?.name} · {rule.gateId}
+												{(requirement?.sourceIds?.length ?? 0) > 1
+													? `${requirement?.sourceIds?.length} policies · all must pass`
+													: requirement?.detail || requirement?.name}
 											</p>
 										</div>
 										<SelectControl

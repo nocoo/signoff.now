@@ -55,8 +55,8 @@ it("automatically lists the actual requirements, including passed ones, without 
 	const { result } = mount();
 	expect(result.current.rules.map((rule) => rule.gateId)).toEqual([
 		"merge-conflicts",
-		"review",
-		"presence",
+		"review:reviewers",
+		"policy:presence",
 	]);
 	expect(result.current.requirements.map((gate) => gate.name)).toContain(
 		"Reviewers",
@@ -65,16 +65,16 @@ it("automatically lists the actual requirements, including passed ones, without 
 it("reorders immutably, honors boundaries, edits color and label, and saves only real requirement IDs", async () => {
 	const input = structuredClone(defaults);
 	const { result, onSave } = mount(input);
-	act(() => result.current.moveRule("presence", 0));
-	expect(result.current.rules[0].gateId).toBe("presence");
+	act(() => result.current.moveRule("policy:presence", 0));
+	expect(result.current.rules[0].gateId).toBe("policy:presence");
 	expect(input).toEqual(defaults);
 	act(() => result.current.moveRule("missing", 1));
-	act(() => result.current.moveRule("presence", -1));
-	act(() => result.current.moveRule("presence", 99));
-	expect(result.current.rules[0].gateId).toBe("presence");
+	act(() => result.current.moveRule("policy:presence", -1));
+	act(() => result.current.moveRule("policy:presence", 99));
+	expect(result.current.rules[0].gateId).toBe("policy:presence");
 	act(() =>
-		result.current.updateRule("presence", {
-			gateId: "presence",
+		result.current.updateRule("policy:presence", {
+			gateId: "policy:presence",
 			label: "PoP",
 			color: "yellow",
 		}),
@@ -84,7 +84,7 @@ it("reorders immutably, honors boundaries, edits color and label, and saves only
 	});
 	expect(onSave).toHaveBeenCalledWith(result.current.rules);
 	expect(result.current.rules[0]).toEqual({
-		gateId: "presence",
+		gateId: "policy:presence",
 		label: "PoP",
 		color: "yellow",
 	});
@@ -94,8 +94,8 @@ it("reorders immutably, honors boundaries, edits color and label, and saves only
 it("rejects invalid edits and retains the draft after a failed save", async () => {
 	const { result, onSave } = mount();
 	act(() =>
-		result.current.updateRule("presence", {
-			gateId: "presence",
+		result.current.updateRule("policy:presence", {
+			gateId: "policy:presence",
 			label: " ",
 			color: "yellow",
 		}),
@@ -106,8 +106,8 @@ it("rejects invalid edits and retains the draft after a failed save", async () =
 	expect(result.current.error).toBeTruthy();
 	expect(onSave).not.toHaveBeenCalled();
 	act(() =>
-		result.current.updateRule("presence", {
-			gateId: "presence",
+		result.current.updateRule("policy:presence", {
+			gateId: "policy:presence",
 			label: "PoP",
 			color: "yellow",
 		}),
@@ -118,6 +118,40 @@ it("rejects invalid edits and retains the draft after a failed save", async () =
 		expect(await result.current.submit()).toBe(false);
 	});
 	expect(
-		result.current.rules.find((rule) => rule.gateId === "presence")?.label,
+		result.current.rules.find((rule) => rule.gateId === "policy:presence")
+			?.label,
 	).toBe("PoP");
+});
+
+it("merges newly collected requirements into an open draft without duplicating policies or losing edits", () => {
+	const onSave = vi.fn();
+	const { result, rerender } = renderHook(
+		({ policies }) =>
+			useReadinessFormViewModel(project, [{ ...pull, policies }], onSave),
+		{ initialProps: { policies: pull.policies } },
+	);
+	act(() =>
+		result.current.updateRule("policy:presence", {
+			gateId: "policy:presence",
+			label: "PoP",
+			color: "yellow",
+		}),
+	);
+	const newPolicy = { ...pull.policies[1], id: "security", name: "Security" };
+	rerender({
+		policies: [
+			...pull.policies,
+			{ ...pull.policies[0], id: "review-2" },
+			newPolicy,
+		],
+	});
+	expect(
+		result.current.rules.filter((rule) => rule.gateId === "review:reviewers"),
+	).toHaveLength(1);
+	expect(
+		result.current.rules.find((rule) => rule.gateId === "policy:presence"),
+	).toMatchObject({ label: "PoP", color: "yellow" });
+	expect(
+		result.current.rules.some((rule) => rule.gateId === "policy:security"),
+	).toBe(true);
 });

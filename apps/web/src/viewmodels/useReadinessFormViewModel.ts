@@ -14,8 +14,10 @@ export function useReadinessFormViewModel(
 	onSave: (rules: ReadinessRule[]) => Promise<boolean>,
 ) {
 	const requirements = projectMergeRequirements(project, pulls);
-	const [rules, setRules] = useState(() =>
-		projectReadinessRules(project, pulls),
+	const [draft, setRules] = useState<ReadinessRule[] | null>(null);
+	const rules = projectReadinessRules(
+		draft ? { ...project, readinessRules: draft } : project,
+		pulls,
 	);
 	const [error, setError] = useState<string | null>(null);
 	function update(next: ReadinessRule[]) {

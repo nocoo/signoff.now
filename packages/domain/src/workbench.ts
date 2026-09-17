@@ -44,17 +44,19 @@ export const mergeRequirementKindSchema = z.enum([
 	"status",
 	"policy",
 ]);
+const gateIdSchema = z.string().trim().min(1).max(260);
 export const mergeRequirementSchema = z.object({
-	id: name,
+	id: gateIdSchema,
 	name,
 	kind: mergeRequirementKindSchema,
 	definitionId: name.optional(),
 	detail: z.string().max(1000).optional(),
+	sourceIds: z.array(gateIdSchema).max(1000).optional(),
 });
 export type MergeRequirement = z.infer<typeof mergeRequirementSchema>;
 const readinessRuleSchema = z
 	.object({
-		gateId: name,
+		gateId: gateIdSchema,
 		label: name,
 		color: readinessColorSchema,
 	})
@@ -358,7 +360,12 @@ const buildGateId = (build: Build) =>
 export const policyKind = (policy: Policy): MergeRequirement["kind"] =>
 	policy.kind ?? (/reviewer/i.test(policy.name) ? "review" : "policy");
 
-/** All applicable merge requirements, including passed ones; IDs distinguish similarly named policies. */
+const requirementKey = (gate: MergeRequirement) =>
+	gate.id === CONFLICT_GATE.id || gate.id === REVIEW_GATE.id
+		? gate.id
+		: `${gate.kind}:${gate.kind === "build" && gate.definitionId ? gate.definitionId : gate.name.trim().toLowerCase().replace(/\s+/g, " ")}`;
+
+/** One sortable step per logical requirement; each underlying source evaluation still has to pass. */
 export function projectMergeRequirements(
 	project: Project,
 	pulls: PullRequest[] = [],
@@ -370,27 +377,35 @@ export function projectMergeRequirements(
 	if (scoped.length) requirements.set(CONFLICT_GATE.id, CONFLICT_GATE);
 	for (const pull of scoped) {
 		for (const policy of pull.policies.filter((item) => item.required)) {
-			const previous = requirements.get(policy.id);
+			const previous =
+				requirements.get(policy.id) ??
+				[...requirements.values()].find((gate) =>
+					gate.sourceIds?.includes(policy.id),
+				);
 			requirements.set(policy.id, {
 				...previous,
 				id: policy.id,
-				name: policy.name,
-				kind: policyKind(policy),
+				name: previous?.name ?? policy.name,
+				kind: previous?.kind ?? policyKind(policy),
 				definitionId: policy.definitionId ?? previous?.definitionId,
 			});
 		}
-		if (
-			!pull.policies.some(
-				(policy) => policy.required && policyKind(policy) === "review",
-			) &&
-			(pull.requiredApprovals > 0 ||
+	}
+	const hasReviewPolicies = [...requirements.values()].some(
+		(gate) => gate.kind === "review" && gate.id !== REVIEW_GATE.id,
+	);
+	if (hasReviewPolicies) requirements.delete(REVIEW_GATE.id);
+	else if (
+		scoped.some(
+			(pull) =>
+				pull.requiredApprovals > 0 ||
 				pull.reviewers.some(
 					(reviewer) =>
 						reviewer.required || reviewer.vote === "changes_requested",
-				))
+				),
 		)
-			requirements.set(REVIEW_GATE.id, REVIEW_GATE);
-	}
+	)
+		requirements.set(REVIEW_GATE.id, REVIEW_GATE);
 	const definitions = new Set(
 		[...requirements.values()]
 			.filter((gate) => gate.kind === "build" && gate.definitionId)
@@ -407,12 +422,51 @@ export function projectMergeRequirements(
 				definitionId: build.definitionId,
 			});
 		}
-	return [...requirements.values()].sort(
-		(a, b) =>
-			gateKindOrder[a.kind] - gateKindOrder[b.kind] ||
-			a.name.localeCompare(b.name) ||
-			a.id.localeCompare(b.id),
-	);
+	const groups = new Map<
+		string,
+		{ gate: MergeRequirement; sources: Set<string>; details: Set<string> }
+	>();
+	for (const gate of requirements.values()) {
+		const id = requirementKey(gate);
+		const group = groups.get(id) ?? {
+			gate: { ...gate, id },
+			sources: new Set<string>(),
+			details: new Set<string>(),
+		};
+		for (const sourceId of gate.sourceIds ?? [gate.id])
+			group.sources.add(sourceId);
+		if (gate.detail) group.details.add(gate.detail);
+		groups.set(id, group);
+	}
+	return [...groups.values()]
+		.map(({ gate, sources, details }) => ({
+			...gate,
+			sourceIds: [...sources].sort(),
+			detail: [...details].join(" · ").slice(0, 1000) || undefined,
+		}))
+		.sort(
+			(a, b) =>
+				gateKindOrder[a.kind] - gateKindOrder[b.kind] ||
+				a.name.localeCompare(b.name) ||
+				a.id.localeCompare(b.id),
+		);
+}
+
+function configuredReadinessRules(
+	project: Project,
+	gates: MergeRequirement[],
+): ReadinessRule[] {
+	const configured = new Map<string, ReadinessRule>();
+	for (const rule of project.readinessRules ?? []) {
+		const gate = gates.find(
+			(candidate) =>
+				candidate.id === rule.gateId ||
+				candidate.sourceIds?.includes(rule.gateId),
+		);
+		if (gate && !configured.has(gate.id))
+			configured.set(gate.id, { ...rule, gateId: gate.id });
+	}
+	return [...configured.values()];
 }
 
 /** Workflow order: resolve the first unmet requirement, then work toward the final merge steps. */
@@ -421,10 +475,7 @@ export function projectReadinessRules(
 	pulls: PullRequest[] = [],
 ): ReadinessRule[] {
 	const gates = projectMergeRequirements(project, pulls);
-	const known = new Set(gates.map((gate) => gate.id));
-	const configured = (project.readinessRules ?? []).filter((rule) =>
-		known.has(rule.gateId),
-	);
+	const configured = configuredReadinessRules(project, gates);
 	const configuredIds = new Set(configured.map((rule) => rule.gateId));
 	return [
 		...gates
@@ -570,6 +621,37 @@ function buildRequirementIssues(pr: PullRequest, owner: string): PullIssue[] {
 	return issues;
 }
 
+const severity = {
+	blocked: 0,
+	unknown: 1,
+	review: 2,
+	approval: 3,
+	running: 4,
+};
+
+function groupRequirementIssues(
+	issues: PullIssue[],
+	requirements: MergeRequirement[],
+): PullIssue[] {
+	const byGate = new Map<string, PullIssue>();
+	for (const issue of issues) {
+		const gate = requirements.find(
+			(candidate) =>
+				candidate.id === issue.gateId ||
+				(issue.gateId && candidate.sourceIds?.includes(issue.gateId)),
+		);
+		if (gate) {
+			issue.gateId = gate.id;
+			issue.gateName = gate.name;
+		}
+		const key = issue.gateId ?? issue.label;
+		const previous = byGate.get(key);
+		if (!previous || severity[issue.kind] <= severity[previous.kind])
+			byGate.set(key, issue);
+	}
+	return [...byGate.values()];
+}
+
 /** A passed pipeline never overrides a conflict, missing review, or unknown gate. */
 export function pullReadiness(
 	pr: PullRequest,
@@ -601,7 +683,15 @@ export function pullReadiness(
 			issues: [],
 		};
 	const issues: PullIssue[] = [];
+	const requirements = projectMergeRequirements(project, [pr]);
+	const configured = configuredReadinessRules(project, requirements);
 	const rules = projectReadinessRules(project, [pr]);
+	const reviewGate =
+		requirements.find(
+			(gate) => gate.kind === "review" && /minimum/i.test(gate.name),
+		) ??
+		requirements.find((gate) => gate.kind === "review") ??
+		REVIEW_GATE;
 	const gateIndex = (issue: PullIssue) => {
 		const index = rules.findIndex((rule) => rule.gateId === issue.gateId);
 		return index < 0 ? rules.length : index;
@@ -638,7 +728,7 @@ export function pullReadiness(
 			"Changes requested",
 			`Address ${changes.map((r) => r.name).join(" and ")}'s review feedback`,
 			pr.author.name,
-			REVIEW_GATE,
+			reviewGate,
 		);
 	for (const policy of pr.policies.filter((p) => p.required)) {
 		if (
@@ -684,7 +774,7 @@ export function pullReadiness(
 				pr.policies.find(
 					(policy) => policy.required && policyKind(policy) === "review",
 				) ??
-				REVIEW_GATE,
+				reviewGate,
 		);
 	}
 	if (!project.enabled)
@@ -709,34 +799,20 @@ export function pullReadiness(
 			"Scan incomplete",
 			"Rescan to retrieve the missing PR checks",
 		);
-	const severity = {
-		blocked: 0,
-		unknown: 1,
-		review: 2,
-		approval: 3,
-		running: 4,
-	};
-	const byGate = new Map<string, PullIssue>();
-	for (const issue of issues) {
-		const key = issue.gateId ?? issue.label;
-		const previous = byGate.get(key);
-		if (!previous || severity[issue.kind] <= severity[previous.kind])
-			byGate.set(key, issue);
-	}
-	const uniqueIssues = [...byGate.values()]
+	const uniqueIssues = groupRequirementIssues(issues, requirements)
 		.sort(
 			(a, b) =>
-				(project.readinessRules?.length
+				(configured.length
 					? gateIndex(a) - gateIndex(b)
 					: severity[a.kind] - severity[b.kind]) ||
 				gateIndex(a) - gateIndex(b) ||
 				severity[a.kind] - severity[b.kind],
 		)
 		.map((issue) => {
-			const configured = project.readinessRules?.find(
-				(rule) => rule.gateId === issue.gateId,
+			const rule = configured.find(
+				(candidate) => candidate.gateId === issue.gateId,
 			);
-			return configured ? { ...issue, label: configured.label } : issue;
+			return rule ? { ...issue, label: rule.label } : issue;
 		});
 	const first = uniqueIssues[0];
 	return first
@@ -747,7 +823,9 @@ export function pullReadiness(
 					first.gateId && gateIndex(first) < rules.length
 						? (rules.length - gateIndex(first)) / rules.length
 						: 2,
-				color: readinessColor(first, project),
+				color:
+					configured.find((rule) => rule.gateId === first.gateId)?.color ??
+					readinessColor(first, project),
 			}
 		: {
 				kind: "ready",
