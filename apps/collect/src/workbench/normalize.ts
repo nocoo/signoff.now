@@ -391,6 +391,8 @@ export function normalizePullRequest(opts: {
 		author: {
 			id: rawPr.createdBy?.id || "unknown",
 			name: rawPr.createdBy?.displayName || "Unknown",
+			handle: rawPr.createdBy?.uniqueName?.trim() || undefined,
+			avatarUrl: rawPr.createdBy?.imageUrl,
 		},
 		sourceBranch: (rawPr.sourceRefName || "").replace(/^refs\/heads\//, ""),
 		targetBranch: (rawPr.targetRefName || "").replace(/^refs\/heads\//, ""),

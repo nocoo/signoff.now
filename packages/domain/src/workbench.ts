@@ -188,7 +188,12 @@ export const scanRequestSchema = revisionSchema.extend({
 	pullIds: scopedPullIdsSchema.optional(),
 });
 
-const actorSchema = z.object({ id: name, name });
+const actorSchema = z.object({
+	id: name,
+	name,
+	handle: z.string().trim().min(1).max(1024).optional(),
+	avatarUrl: z.string().url().max(2048).optional(),
+});
 export const policySchema = z.object({
 	id: name,
 	name,
@@ -901,14 +906,20 @@ export function pullProgress(pr: PullRequest) {
 	};
 }
 
-export function projectUrl(project: Project): string {
+export function organizationUrl(project: Project): string {
 	return project.provider === "ado"
-		? `https://dev.azure.com/${encodeURIComponent(project.organization)}/${encodeURIComponent(project.projectKey)}`
-		: `https://github.com/${encodeURIComponent(project.projectKey)}`;
+		? `https://dev.azure.com/${encodeURIComponent(project.organization)}`
+		: "https://github.com";
+}
+
+export function projectUrl(project: Project): string {
+	return `${organizationUrl(project)}/${encodeURIComponent(project.projectKey)}`;
+}
+
+export function repositoryUrl(project: Project, repository: string): string {
+	return `${projectUrl(project)}/${project.provider === "ado" ? "_git/" : ""}${encodeURIComponent(repository)}`;
 }
 
 export function pullUrl(project: Project, pr: PullRequest): string {
-	return project.provider === "ado"
-		? `${projectUrl(project)}/_git/${encodeURIComponent(pr.repository.name)}/pullrequest/${pr.number}`
-		: `${projectUrl(project)}/${encodeURIComponent(pr.repository.name)}/pull/${pr.number}`;
+	return `${repositoryUrl(project, pr.repository.name)}/${project.provider === "ado" ? "pullrequest" : "pull"}/${pr.number}`;
 }

@@ -412,6 +412,7 @@ describe("workbench normalizer", () => {
 				id: "user-1",
 				displayName: "Alice Dev",
 				uniqueName: "alice@example.com",
+				imageUrl: "https://example.com/alice.png",
 			},
 			repository: {
 				id: "repo-guid-1",
@@ -528,6 +529,8 @@ describe("workbench normalizer", () => {
 		expect(normalized.draft).toBe(false);
 		expect(normalized.mergeable).toBe("clear");
 		expect(normalized.author.name).toBe("Alice Dev");
+		expect(normalized.author.handle).toBe("alice@example.com");
+		expect(normalized.author.avatarUrl).toBe("https://example.com/alice.png");
 		expect(normalized.requiredApprovals).toBe(2);
 		expect(normalized.reviewers).toHaveLength(2);
 		expect(normalized.reviewers[0]?.vote).toBe("approved");

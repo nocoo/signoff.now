@@ -4,6 +4,7 @@ import {
 	adoBuildSchema,
 	adoBuildTimelineSchema,
 	adoEvaluationSchema,
+	adoIdentitySchema,
 	adoPullRequestDetailSchema,
 	adoPullRequestsSchema,
 	adoRepositoriesSchema,
@@ -13,6 +14,25 @@ import {
 } from "./raw.js";
 
 describe("workbench ADO raw schemas", () => {
+	test("keeps a valid optional author avatar and ignores unusable image metadata", () => {
+		const identity = {
+			id: "alice",
+			displayName: "Alice",
+			uniqueName: "alice@example.com",
+		};
+		expect(
+			adoIdentitySchema.parse({
+				...identity,
+				imageUrl: "https://example.com/alice.png",
+			}).imageUrl,
+		).toBe("https://example.com/alice.png");
+		for (const imageUrl of [undefined, null, "not-a-url", 42]) {
+			expect(adoIdentitySchema.parse({ ...identity, imageUrl })).toEqual({
+				...identity,
+				imageUrl: undefined,
+			});
+		}
+	});
 	test("parseRaw parses valid payload and throws AdoError on schema violation", () => {
 		const valid = parseRaw(
 			adoStatusSchema,
