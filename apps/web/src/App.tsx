@@ -9,15 +9,16 @@ import type { ComponentType, ReactNode } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
 import { WorkbenchProvider } from "@/viewmodels/WorkbenchProvider";
-import { ActivityPage } from "@/views/activity/ActivityPage";
-import { DashboardPage } from "@/views/DashboardPage";
-import { DevelopersPage } from "@/views/developers/DevelopersPage";
-import { ReposPage } from "@/views/repos/ReposPage";
+import {
+	DirectoryTagsPage,
+	DirectoryTeamsPage,
+	MembersPage,
+} from "@/views/directory/DirectoryPage";
+import { InsightsPage } from "@/views/insights/InsightsPage";
 import { SettingsPage } from "@/views/settings/SettingsPage";
-import { TagsPage } from "@/views/tags/TagsPage";
-import { TeamsPage } from "@/views/teams/TeamsPage";
 import { ProjectsPage } from "@/views/workbench/ProjectsPage";
 import { PullsPage } from "@/views/workbench/PullsPage";
+import { RepositoriesPage } from "@/views/workbench/RepositoriesPage";
 
 const BRAND_PALETTE = {
 	primary: { light: "199 100% 47%", dark: "199 100% 52%" },
@@ -64,13 +65,16 @@ export default function App() {
 								>
 									<Route path="/" element={<PullsPage />} />
 									<Route path="/projects" element={<ProjectsPage />} />
-									<Route path="/insights" element={<DashboardPage />} />
+									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
-									<Route path="/developers" element={<DevelopersPage />} />
-									<Route path="/teams" element={<TeamsPage />} />
-									<Route path="/tags" element={<TagsPage />} />
-									<Route path="/repos" element={<ReposPage />} />
-									<Route path="/activity" element={<ActivityPage />} />
+									<Route path="/developers" element={<MembersPage />} />
+									<Route path="/teams" element={<DirectoryTeamsPage />} />
+									<Route path="/tags" element={<DirectoryTagsPage />} />
+									<Route path="/repos" element={<RepositoriesPage />} />
+									<Route
+										path="/activity"
+										element={<Navigate to="/insights" replace />}
+									/>
 									<Route path="*" element={<Navigate to="/" replace />} />
 								</Route>
 							</Routes>

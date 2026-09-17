@@ -23,6 +23,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
 		defaultOpen: true,
 		items: [
 			{ href: "/", label: "Pull requests", icon: "GitPullRequest", end: true },
+			{ href: "/repos", label: "Repos", icon: "GitBranch" },
 			{ href: "/projects", label: "Projects", icon: "FolderGit2" },
 		],
 	},
@@ -30,18 +31,16 @@ export const NAV_GROUPS: NavGroupDef[] = [
 		label: "Directory",
 		defaultOpen: false,
 		items: [
-			{ href: "/developers", label: "Developers", icon: "Users" },
+			{ href: "/developers", label: "Members", icon: "Users" },
 			{ href: "/teams", label: "Teams", icon: "UsersRound" },
 			{ href: "/tags", label: "Tags", icon: "Tag" },
-			{ href: "/repos", label: "Repos", icon: "GitBranch" },
 		],
 	},
 	{
 		label: "Insights",
 		defaultOpen: false,
 		items: [
-			{ href: "/insights", label: "Dashboard", icon: "LayoutDashboard" },
-			{ href: "/activity", label: "Activity", icon: "Activity" },
+			{ href: "/insights", label: "Contributions", icon: "LayoutDashboard" },
 		],
 	},
 	{
