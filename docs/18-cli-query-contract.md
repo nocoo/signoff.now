@@ -27,6 +27,7 @@
 | `signoff watch add <pr-ref...>` | 幂等加入观察，返回首个刷新任务回执 | 命令本身否 |
 | `signoff watch remove <pr-ref...>` | 移除当前观察代次，保留 PR 快照 | 否 |
 | `signoff discover --repo <repo-url>` | 明确请求发现一个仓库的 PR，不自动观察 | 命令本身否 |
+| `signoff discover --repo <repo-url> --full` | 绕过成功边界，重新核对全部可访问 PR 历史 | 命令本身否 |
 | `signoff refresh --pr <pr-ref>` | 提前刷新一个 active 观察项 | 命令本身否 |
 | `signoff refresh --repo <repo-url>` / `--all` | 提前刷新该仓库 / 全部 active 观察项 | 命令本身否 |
 | `signoff job get <job-id>` | 查询一个已存任务的进度、结果与错误 | 否 |
@@ -160,7 +161,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 - ADO 的组织 / 项目 / 仓库为 `msdata / Vienna / online-meetings` 等三级结构；GitHub Sample 按 `github.com / nocoo / signoff.now` 表达，项目 key 对应 owner。
 - 列表还返回作者身份、分支 / SHA、检查完成摘要与内容完整性。`pr get` 的 `data` 为一个对象，补全描述、全部 merge requirements、reviewers、policies、builds / stages、下一步和缺失原因。
 - requirements 包含逻辑 ID、种类、名称、required、state、sourceIds、links、配置 label / color；只列此 PR 上有事实依据的阻塞要求，其他仓库的策略不混入，links 指向源 PR；PoP 只是其中一项，readiness 与网页共用领域规则和项目配置。
-- `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示取得了仓库全部历史。新的完整发现覆盖全部可访问历史与所有状态；迁移保留的旧缓存仍明确标记为旧的有限历史覆盖，不能冒充完整发现。
+- `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示每条历史 PR 都刚刷新。首次 / full 发现覆盖全部可访问历史与所有状态，后续增量发现只核对创建时间边界附近的数据；旧的未关注 PR 状态可能较旧。迁移保留的旧缓存仍明确标记为有限历史覆盖，不能冒充完整发现。
 - `watch list` 每项返回观察元数据、完整 `ref`、可空的 `pullId` 和可空的 `pull` 摘要，首次采集前不会伪造一个 PR 快照。
 - 每个规范 PR 只保留一条观察记录；inactive 首版不自动清理。`--include-stopped` 返回所有保留行的当前 generation，不按“最近 N 天 / N 条”截断，也不是每次增删的事件日志。重新加入覆盖该行启停字段并推进 generation；lookup 始终取当前一代，不查历史代次。`stopReason` 为 null、manual、completed、abandoned、project_deleted 或 scope_changed。项目删除后停止记录仍保留，`pull` 可为空。
 - 观察查询按内部 `projectId`（或 `project` 指定内部 ID）筛选时，仅返回该次注册下的记录；删除后重新注册相同外部项目，不会把旧注册的停止项混入新项目。未指定内部 ID 的外部范围查询仍可包含该范围的保留记录。
@@ -186,7 +187,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 | `POST /api/commands/v1/observations` | `{ source, refs: [{ pullId } 或 { url }] }`，每批最多 100 项，逐项返回 added / already_observed / rejected、observation ID / generation、job 回执或 error |
 | `DELETE /api/commands/v1/observations/:id?source=…` | `If-Match: "<generation>"`，仅移除该代次；同代次已停止为幂等成功，代次不匹配为 409 |
 | `POST /api/commands/v1/observations/remove` | `{ source, items: [{ id, generation }] }`，最多 100 项，逐项 removed / already_stopped / conflict / not_found |
-| `POST /api/commands/v1/discover` | `{ source, repositoryUrl }` 或 `{ source, projectId }`，二选一；前者仅该注册仓库，后者固定该项目当前已配置范围与 revision；返回 HTTP 202 |
+| `POST /api/commands/v1/discover` | `{ source, repositoryUrl, full? }` 或 `{ source, projectId, full? }`，二选一；full 默认 false，true 时重新枚举历史。前者仅该注册仓库，后者固定该项目当前已配置范围与 revision；返回 HTTP 202 |
 | `POST /api/commands/v1/refresh` | `{ source, target }`，target 为 `{ pullId }`、`{ url }`、`{ repositoryUrl }` 或 `{ all: true }` 之一；只覆盖 active 观察项，返回 HTTP 202 |
 
 `repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。先读取完整分页目录，再判断已注册范围，避免目录较大时重复修改项目 revision。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；旧 enabled 字段不控制关注清单或显式发现，详见 16。
@@ -205,7 +206,9 @@ discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefo
 
 `job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消后续任务为 observation_retired。任务摘要在项目删除后仍保留。
 
-discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；单仓库成功可原子发布，失败仓库保留旧数据，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
+discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；pullCount 是本次返回的窗口数量，不是仓库历史总量。单仓库完整结果与成功游标原子发布，失败仓库保留旧数据和边界，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
+
+首次发现没有游标，枚举全部历史。后续依据上次成功的创建时间、重叠一秒并固定查询上界，减少旧页请求，不假设 ADO 按 ID 排序；起始游标与仓库计划冻结，失败不推进。`--full` 与默认增量任务不合并，其他相同范围、模式的未结束请求仍去重。需要重新核对较旧未关注 PR 的合并 / 关闭状态时显式使用 `--full`，持续关注项则由独立 checks 周期更新。细节见 [16](16-scheduler-state-machine.md)。
 
 对未终结任务，取消事务立即令整体 state=canceled，优先于未结算的 partial / failed，不等待在途请求。已结束的 repositories 项保留 succeeded / failed，尚未结束的项变成 canceled；所以“一个仓库已成功，另一个被取消”返回 canceled 和逐仓库结果。先前发布不因取消而回滚，项目删除 / 来源替换仍可按配置操作的语义删除缓存；旧任务摘要保留。迟到响应不得再发布。若任务先已终结，则后来的配置操作不改写其历史结果。
 

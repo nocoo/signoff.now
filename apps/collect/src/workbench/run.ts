@@ -205,14 +205,8 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 				})),
 			);
 			for (const repo of repos) {
-				if (
-					planned.find((r) => r.repository_id === repo.id)?.state ===
-					"succeeded"
-				)
-					continue;
-				if (
-					planned.find((r) => r.repository_id === repo.id)?.state === "failed"
-				)
+				const repositoryPlan = planned.find((r) => r.repository_id === repo.id);
+				if (["succeeded", "failed"].includes(repositoryPlan?.state ?? ""))
 					continue;
 				let count = 0;
 				try {
@@ -221,6 +215,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 						claim.project,
 						repo,
 						Math.floor(Date.now() / 1000),
+						repositoryPlan?.discoveryCursor,
 					)) {
 						check();
 						await api.upload(claim, pulls);
@@ -236,7 +231,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 						repo.id,
 						"complete",
 						count,
-						`Discovered ${count} PRs, including Draft and terminal history`,
+						`Discovered ${count} PRs from ${repositoryPlan?.discoveryCursor ? "the incremental window" : "full history"}, including Draft and terminal PRs`,
 					);
 				} catch (error) {
 					if (

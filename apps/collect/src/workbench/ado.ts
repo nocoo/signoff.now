@@ -1,4 +1,7 @@
-import type { KnownOpenPull } from "@signoff/domain/collection";
+import type {
+	DiscoveryCursor,
+	KnownOpenPull,
+} from "@signoff/domain/collection";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import {
 	type MergeRequirement,
@@ -38,12 +41,13 @@ const DEFAULT_CONCURRENCY = 4;
 const BASE_URL = "https://dev.azure.com";
 const BUILD_POLICY_TYPE_ID = "0609b952-1397-4640-95ec-e00a01b2c241";
 
-/** Full candidate history, streamed to staging. Only publication makes it visible. */
+/** First history or an overlapping creation window; ADO does not guarantee ID sort order. */
 export async function* discoverRepositoryPulls(
 	client: Pick<AdoPagedClient, "getPage">,
 	project: Project,
 	repo: RepoMeta,
 	now: number,
+	cursor?: DiscoveryCursor | null,
 ): AsyncGenerator<PullRequest[]> {
 	let skip = 0;
 	let token: string | null = null;
@@ -57,6 +61,11 @@ export async function* discoverRepositoryPulls(
 				`_apis/git/repositories/${encodeURIComponent(repo.id)}/pullrequests`,
 				{
 					"searchCriteria.status": "all",
+					"searchCriteria.queryTimeRangeType": "created",
+					"searchCriteria.maxTime": new Date(started).toISOString(),
+					"searchCriteria.minTime": cursor
+						? new Date(Math.max(0, cursor.createdAt - 1) * 1000).toISOString()
+						: undefined,
 					$top: 100,
 					$skip: token ? undefined : skip,
 					continuationToken: token ?? undefined,
@@ -69,6 +78,11 @@ export async function* discoverRepositoryPulls(
 			"all PR history",
 		).value;
 		for (const raw of raws) {
+			if (parseSeconds(raw.creationDate) === null)
+				throw new AdoError(
+					"bad_response",
+					"PR creation date is missing or invalid; retry discovery",
+				);
 			if (
 				raw.repository.id.toLowerCase() !== repo.id.toLowerCase() ||
 				(raw.repository.project?.id &&

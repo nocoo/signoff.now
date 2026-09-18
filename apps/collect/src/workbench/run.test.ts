@@ -448,6 +448,26 @@ describe("explicit repository discovery", () => {
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
 		expect(calls).toBe(1);
 	});
+	test("uses each frozen repository cursor rather than cached PRs or the job clock", async () => {
+		const deps = discovery();
+		const cursor = { number: 123, createdAt: time - 1000 };
+		deps.api.repositories = async () => [
+			{ repository_id: "empty", state: "queued", discoveryCursor: cursor },
+			{ repository_id: "broken", state: "queued", discoveryCursor: null },
+		];
+		const original = deps.ado.getPage;
+		const calls: URL[] = [];
+		deps.ado.getPage = async (value) => {
+			if (!value.includes("/pullrequests")) return original(value);
+			calls.push(new URL(value));
+			return { data: { value: [] }, continuationToken: null };
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect(calls[0]?.searchParams.get("searchCriteria.minTime")).toBe(
+			new Date((cursor.createdAt - 1) * 1000).toISOString(),
+		);
+		expect(calls[1]?.searchParams.has("searchCriteria.minTime")).toBe(false);
+	});
 	function discovery() {
 		const deps = setup();
 		deps.api.claim = async () => ({

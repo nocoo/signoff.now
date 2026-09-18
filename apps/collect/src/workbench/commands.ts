@@ -405,9 +405,10 @@ export function registerWorkbenchCommands(program: Command) {
 	program
 		.command("discover")
 		.description(
-			"Queue explicit discovery of all PR history, including Draft and terminal PRs",
+			"Discover new PRs from the saved boundary; first discovery includes all history",
 		)
 		.requiredOption("--repo <url>", "Registered repository URL")
+		.option("--full", "Rescan all history, including older PR state changes")
 		.action(async (_opts, command) => {
 			parseRepositoryReference(command.opts().repo);
 			print(
@@ -415,6 +416,7 @@ export function registerWorkbenchCommands(program: Command) {
 					await request(command, "POST", "/api/commands/v1/discover", {
 						source: options(command).source,
 						repositoryUrl: command.opts().repo,
+						...(command.opts().full ? { full: true } : {}),
 					}),
 				),
 				command,

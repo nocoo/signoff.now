@@ -1,6 +1,7 @@
 import {
 	type CollectorClaim,
 	collectorClaimSchema,
+	discoveryCursorSchema,
 } from "@signoff/domain/collection";
 import type { RepositoryIdentity } from "@signoff/domain/monitoring";
 import {
@@ -134,6 +135,7 @@ export function createCollectionClient(
 				.array(
 					z.object({
 						repository_id: z.string(),
+						discoveryCursor: discoveryCursorSchema.nullish(),
 						state: z.enum([
 							"queued",
 							"running",

@@ -925,3 +925,151 @@ test("repository IDs remain scoped across cold discovery, mixed watch batches, C
 	).toEqual([]);
 	expect(requests).toBe(beforeQueries);
 });
+
+test("incremental discovery retries from its last success and full discovery reconciles older cached PRs", async ({
+	page,
+}) => {
+	const repository = { id: "incremental-repo", name: "incremental" };
+	const externalProject = { id: "incremental-project", name: "Incremental" };
+	const url =
+		"https://dev.azure.com/e2e-incremental/Incremental/_git/incremental";
+	let total = 250;
+	let failSecondPage = false;
+	let mergedFirst = false;
+	let calls: URL[] = [];
+	const provider: AdoPagedClient = {
+		...fakeAdo,
+		checkAuth: async () => {},
+		getPage: async (value) => {
+			const request = new URL(value);
+			if (request.pathname.endsWith("/repositories"))
+				return {
+					data: { value: [{ ...repository, project: externalProject }] },
+					continuationToken: null,
+				};
+			calls.push(request);
+			expect(request.searchParams.get("searchCriteria.status")).toBe("all");
+			expect(
+				request.searchParams.get("searchCriteria.queryTimeRangeType"),
+			).toBe("created");
+			const skip = Number(request.searchParams.get("$skip"));
+			if (failSecondPage && skip > 0)
+				throw new Error("Injected missing history page");
+			const since = request.searchParams.has("searchCriteria.minTime")
+				? Date.parse(request.searchParams.get("searchCriteria.minTime")!)
+				: 0;
+			const until = Date.parse(
+				request.searchParams.get("searchCriteria.maxTime")!,
+			);
+			const data = Array.from({ length: total }, (_, i) => {
+				const number = total - i;
+				return {
+					pullRequestId: number,
+					title: `Incremental PR ${number}`,
+					status:
+						number === 1 && mergedFirst
+							? "completed"
+							: number % 3 === 0
+								? "completed"
+								: number % 3 === 2
+									? "abandoned"
+									: "active",
+					isDraft: number === 379,
+					creationDate: new Date((now - 2000 + number) * 1000).toISOString(),
+					closedDate: new Date((now - 60) * 1000).toISOString(),
+					createdBy: { id: "incremental-author", displayName: "Author" },
+					sourceRefName: "refs/heads/feature",
+					targetRefName: "refs/heads/main",
+					repository: { ...repository, project: externalProject },
+				};
+			}).filter(
+				(pull) =>
+					Date.parse(pull.creationDate) > since &&
+					Date.parse(pull.creationDate) < until,
+			);
+			return {
+				data: { value: data.slice(skip, skip + 100) },
+				continuationToken: null,
+			};
+		},
+	};
+	const discover = async (full = false) => {
+		const receipt = commandReceiptSchema.parse(
+			await cli("discover", "--repo", url, ...(full ? ["--full"] : [])),
+		);
+		calls = [];
+		return runCollectionOnce({
+			api,
+			makeAdo: () => provider,
+			log: silent,
+			jobId: receipt.jobs[0]!.id,
+		});
+	};
+	const list = async () =>
+		pullListSchema.parse(
+			await cli(
+				"pr",
+				"list",
+				"--repo",
+				url,
+				"--state",
+				"all",
+				"--draft",
+				"include",
+				"--all",
+			),
+		);
+	await cli("repo", "add", url);
+	expect((await discover()).state).toBe("complete");
+	expect(calls).toHaveLength(3);
+	expect(
+		calls.every(
+			(request) => !request.searchParams.has("searchCriteria.minTime"),
+		),
+	).toBe(true);
+	expect((await list()).data).toHaveLength(250);
+	total = 380;
+	failSecondPage = true;
+	expect((await discover()).state).toBe("failed");
+	expect(calls).toHaveLength(2);
+	expect((await list()).data).toHaveLength(250);
+	const boundary = new Date((now - 2000 + 249) * 1000).toISOString();
+	expect(calls[0]!.searchParams.get("searchCriteria.minTime")).toBe(boundary);
+	failSecondPage = false;
+	expect((await discover()).state).toBe("complete");
+	expect(calls).toHaveLength(2);
+	expect(calls[0]!.searchParams.get("searchCriteria.minTime")).toBe(boundary);
+	const after = await list();
+	expect(after.data).toHaveLength(380);
+	expect(new Set(after.data.map((pull) => pull.id)).size).toBe(380);
+	expect(after.data.find((pull) => pull.number === 379)?.state).toBe("draft");
+	mergedFirst = true;
+	expect((await discover()).state).toBe("complete");
+	expect(calls).toHaveLength(1);
+	expect((await list()).data.find((pull) => pull.number === 1)?.state).toBe(
+		"open",
+	);
+	expect((await discover(true)).state).toBe("complete");
+	expect(calls).toHaveLength(4);
+	expect(
+		calls.every(
+			(request) => !request.searchParams.has("searchCriteria.minTime"),
+		),
+	).toBe(true);
+	expect((await list()).data.find((pull) => pull.number === 1)?.state).toBe(
+		"merged",
+	);
+	expect(
+		observationListSchema.parse(await cli("watch", "list", "--repo", url)).data,
+	).toEqual([]);
+	await page.goto(
+		`/?${new URLSearchParams({ source: "cli", org: "e2e-incremental", draft: "include", q: "Incremental PR 379" })}`,
+	);
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
+	await expect(
+		page.getByRole("button", { name: "Open PR #379: Incremental PR 379" }),
+	).toBeVisible();
+	await expect(
+		page.locator("tr[data-pull-id]").getByRole("button", { name: /^Watch PR/ }),
+	).toHaveAttribute("aria-pressed", "false");
+});

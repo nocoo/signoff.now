@@ -37,9 +37,19 @@ const removeSchema = z
 	.object({ source: sourceSchema, items: z.array(removeItem).min(1).max(100) })
 	.strict();
 const discoverSchema = z.union([
-	z.object({ source: sourceSchema, repositoryUrl: z.url().max(4096) }).strict(),
 	z
-		.object({ source: sourceSchema, projectId: z.string().min(1).max(240) })
+		.object({
+			source: sourceSchema,
+			repositoryUrl: z.url().max(4096),
+			full: z.boolean().default(false),
+		})
+		.strict(),
+	z
+		.object({
+			source: sourceSchema,
+			projectId: z.string().min(1).max(240),
+			full: z.boolean().default(false),
+		})
 		.strict(),
 ]);
 const refreshSchema = z
@@ -195,7 +205,11 @@ commandRoutes.post("/discover", async (c) => {
 		scope = project.repositories ?? [];
 	}
 	return c.json(
-		{ jobs: [await enqueueDiscovery(c.env.DB, project, scope, now())] },
+		{
+			jobs: [
+				await enqueueDiscovery(c.env.DB, project, scope, now(), input.full),
+			],
+		},
 		202,
 	);
 });

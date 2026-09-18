@@ -79,7 +79,7 @@ Sample 的观察记录单独隔离，只在现有本地 demo 模式允许写入�
 
 | 工作 | 谁决定范围和时机 | 执行器负责的内容 |
 | --- | --- | --- |
-| discover / 内部 list | 网页 / CLI 明确命令，提供项目或仓库范围 | 全部可访问 PR 分页（含 Draft、Completed、Abandoned）；不请求 policy / build / timeline |
+| discover / 内部 list | 网页 / CLI 明确命令，提供项目或仓库范围 | 首次 / full 枚举历史，之后按成功边界增量分页；始终包含 Draft、Completed、Abandoned，不请求 policy / build / timeline |
 | refresh / 内部 checks | Scheduler 从 active 观察项安排，或收到针对 active 项的提前刷新命令 | 定向读取 PR、review、policy、status、build、stage |
 
 发现结果与观察列表是两个集合。观察列表为空时仍可执行显式发现任务，但绝不自行产生 checks。缓存里有 1,000 个 PR、观察列表只有 3 个时，周期 checks 的目标就是这 3 个。
@@ -90,7 +90,17 @@ Sample 的观察记录单独隔离，只在现有本地 demo 模式允许写入�
 
 一次 discover 是“一个项目内明确的仓库范围”。CLI 的 `--repo` 只生成单仓库范围；网页可按项目生成任务，把当前仓库列表（或用户明确配置的 all 范围）和 revision 固定进任务。all 范围的仓库枚举也是这项明确发现任务的执行内容，不是刷新模块自主生成工作。
 
-同项目注册另一 URL 扩展已有配置，已配置 all 的项目保持 all。去重键包括项目 revision 和规范化仓库范围，仅相同范围的未结束任务复用；不同范围由同项目租约顺序执行。发现没有自动轮次；首次解析仓库后保存固定 provider ID 计划，重领不会重新扩大仓库列表。
+同项目注册另一 URL 扩展已有配置，已配置 all 的项目保持 all。去重键包括项目 revision、规范化仓库范围和 full 模式，仅相同范围与模式的未结束任务复用；不同范围由同项目租约顺序执行。发现没有自动轮次；首次解析仓库后保存固定 provider ID 计划及各仓库起始游标，重领不会扩大仓库列表或改变边界。
+
+### 增量发现边界
+
+`workbench_repositories.discovery_cursor_json` 保存成功发布仓库结果的最新 `{ number, createdAt }`，以创建时间、PR number 排序。没有游标时完整枚举；旧缓存中的最大 ID、单条观察刷新和失败暂存均不能建立或推进它。0021 迁移将游标留空，首次后续显式发现补齐历史。空结果保留原有游标。
+
+ADO [Pull Requests API](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-requests?view=azure-devops-rest-7.1) 提供创建时间范围筛选，但未保证全局 PR ID 排序。增量查询使用 `status=all`、`queryTimeRangeType=created`、`minTime=cursor.createdAt - 1 秒`；`maxTime` 固定为该仓库迭代开始时刻。只遍历这个重叠窗口，不能遇到第一个已知 ID 就停止；窗口内乱序、同秒创建或边界 PR 被删除均不漏掉其他新 PR。重复分页 / continuation token、无效创建时间按失败处理。
+
+仓库完整分页与新游标在同一 guarded D1 事务发布；中途失败、取消、失效租约、快照冲突或声明 partial 的列表都不能发布为成功。多仓库部分成功只推进成功仓库的游标。认证重试沿用首次登记的起始游标，重新执行失败仓库；观察状态刷新不改变发现边界。
+
+旧的未关注 PR 不会因增量发现而重新核对其状态；持续关注项由 checks 负责。需要手动核对旧历史时使用 CLI `discover --full` 或 HTTP `full: true`，它不使用起始游标、不删除缺席快照，也不自动增加关注项。
 
 上游仓库改名但 provider ID 未变时，用该 ID 已保存的名称别名验证项目配置范围，接受新名称并保留旧名称。旧 URL、新 URL、GUID URL 和缓存 PR ID 都解析到同一个观察身份；不能把不同 provider ID 当成原仓库接纳。
 

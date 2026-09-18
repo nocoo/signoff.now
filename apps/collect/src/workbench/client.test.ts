@@ -7,6 +7,35 @@ import {
 } from "./client.ts";
 
 describe("local collection API client", () => {
+	test("repository plans retain validated discovery cursors", async () => {
+		const cursor = { number: 42, createdAt: 1789646000 };
+		const api = createCollectionClient({
+			fetchImpl: async () =>
+				Response.json([
+					{ repository_id: "repo", state: "queued", discoveryCursor: cursor },
+				]),
+		});
+		expect(
+			(
+				await api.repositories({ job: { id: "job" }, leaseToken: "token" }, [
+					{ id: "repo", name: "app" },
+				])
+			)[0]?.discoveryCursor,
+		).toEqual(cursor);
+		const invalid = createCollectionClient({
+			fetchImpl: async () =>
+				Response.json([
+					{
+						repository_id: "repo",
+						state: "queued",
+						discoveryCursor: { number: -1, createdAt: 0 },
+					},
+				]),
+		});
+		await expect(
+			invalid.repositories({ job: { id: "job" }, leaseToken: "token" }, []),
+		).rejects.toThrow();
+	});
 	test("repository receipts, requirements and failure messages use the claimed lease and reject redirects", async () => {
 		const now = 1_789_632_000;
 		const lease = {

@@ -15,6 +15,12 @@ const count = z.number().int().nonnegative();
 const leaseToken = z.uuid();
 const message = z.string().max(1000);
 
+export const discoveryCursorSchema = z.object({
+	number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+	createdAt: z.number().int().nonnegative(),
+});
+export type DiscoveryCursor = z.infer<typeof discoveryCursorSchema>;
+
 export const refreshSettingsSchema = z
 	.object({
 		listCooldownSeconds: refreshCooldownSchema.optional(),

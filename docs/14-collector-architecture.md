@@ -20,7 +20,7 @@ flowchart LR
     Daemon -->|暂存、校验、原子发布| DB
 ```
 
-刷新模块不决定哪些 PR 值得关注，也不会定时发现项目。注册仓库、打开页面、分页、筛选、GET、空清单 daemon 均不调用 provider。`discover` 是显式入队的完整候选发现，包含 Draft、Completed 和 Abandoned；结果不会自动加入监控。
+刷新模块不决定哪些 PR 值得关注，也不会定时发现项目。注册仓库、打开页面、分页、筛选、GET、空清单 daemon 均不调用 provider。`discover` 显式入队，包含 Draft、Completed 和 Abandoned：首次覆盖全部可访问历史，后续按仓库成功边界增量发现；`--full` 可重新核对旧历史。结果不会自动加入监控。
 
 ADO 真实采集已接入。GitHub 使用同一规范身份与 Sample 数据，但本期没有真实 GitHub 工作台采集。原有 Activity / Score 和 `pulse` 保持独立用途。
 
@@ -41,12 +41,12 @@ ADO 真实采集已接入。GitHub 使用同一规范身份与 Sample 数据，�
 
 ## 数据存放
 
-本地产品库由 Wrangler 管理，默认位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`；线上存储模型仍是 D1。`0019_observed_pull_requests.sql` 引入本架构，后续 `0020_resolved_project_scope.sql` 修正 Unicode / 名称别名范围校验，保留已存观察项与缓存；不涉及远端部署。
+本地产品库由 Wrangler 管理，默认位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`；线上存储模型仍是 D1。`0019_observed_pull_requests.sql` 引入本架构，后续 `0020_resolved_project_scope.sql` 修正 Unicode / 名称别名范围校验，`0021_incremental_discovery.sql` 保存成功发现边界。后两次迁移保留已存观察项与缓存，不推断游标或创建任务；不涉及远端部署。
 
 | 数据 | 表 / 位置 |
 | --- | --- |
 | 项目、仓库范围、readiness 顺序 / 颜色 | `projects` |
-| 仓库 provider 身份、名称别名、完整历史覆盖 | `workbench_repositories`；也保存零 PR 仓库 |
+| 仓库 provider 身份、名称别名、历史覆盖、成功发现游标 | `workbench_repositories`；也保存零 PR 仓库 |
 | 已发布最新 PR 与检查事实 | `pull_requests`；带快照 version 与 published_at |
 | 共享监控清单 | `pr_observations`；完整 ref、active、generation、启停时间与原因 |
 | 任务与仓库回执 | `collection_jobs`、`collection_job_repositories` |
@@ -66,7 +66,7 @@ Live / Sample 在清单、查询、目录、统计中隔离。CLI 默认 Live，
 - Draft 可以监控。已缓存终态拒绝再次加入；成功发现它重新开放后可再次明确加入。
 - 仓库身份已解析时，尚无 PR 快照也能加入，查询显示等待首次结果。未解析仓库返回 `REFERENCE_UNRESOLVED`，需要显式发现。
 - 每项目同时最多一个任务，daemon 最多并行处理两个项目。检查轮次全部结束后再冷却 300 秒；关闭网页不暂停它。
-- 显式发现固定仓库计划，重领继续该计划；一个仓库失败不撤销其他仓库已发布结果。
+- 显式发现固定仓库计划与各仓库的起始游标，重领继续该计划；完整仓库结果与新游标同事务发布，失败或不完整分页不推进游标。一个仓库失败不撤销其他仓库已发布结果。
 - 发布以 lease、项目 revision、快照 version 和清单 generation 校验。移除后重加，旧结果不能覆盖或停止新一代。
 - 成功确认 completed / abandoned 时，同事务发布最终快照并淘汰监控；缺席、403、404、认证或网络失败都不会淘汰。
 

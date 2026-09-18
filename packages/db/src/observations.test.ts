@@ -2,6 +2,38 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 
+test("incremental discovery upgrade preserves cached rows and starts with no inferred boundaries or work", () => {
+	const db = new Database(":memory:");
+	try {
+		const dir = new URL("../migrations/", import.meta.url);
+		for (const file of readdirSync(dir)
+			.filter((name) => name.endsWith(".sql") && name < "0021")
+			.sort())
+			db.exec(readFileSync(new URL(file, dir), "utf8"));
+		db.exec(`INSERT INTO projects(id,provider,name,organization,project_key,owner,source,created_at,updated_at) VALUES('p','ado','Project','org','project','Owner','cli',1,1);
+		INSERT INTO pull_requests(id,project_id,repository_id,external_id,state,updated_at,snapshot) VALUES('pr','p','repo','999','open',2,'{"id":"pr","number":999,"repository":{"id":"repo","name":"web"},"observedAt":3}');
+		UPDATE workbench_repositories SET discovery_state='complete',last_discovered_at=3;`);
+		const before = db.query("SELECT * FROM pull_requests").all();
+		db.exec(
+			readFileSync(new URL("0021_incremental_discovery.sql", dir), "utf8"),
+		);
+		expect(db.query("SELECT * FROM pull_requests").all()).toEqual(before);
+		expect(
+			db
+				.query("SELECT discovery_cursor_json FROM workbench_repositories")
+				.get(),
+		).toEqual({ discovery_cursor_json: null });
+		expect(db.query("SELECT COUNT(*) n FROM pr_observations").get()).toEqual({
+			n: 0,
+		});
+		expect(db.query("SELECT COUNT(*) n FROM collection_jobs").get()).toEqual({
+			n: 0,
+		});
+	} finally {
+		db.close();
+	}
+});
+
 test("forward scope migration preserves watches and consumes only the matching revision's resolution", () => {
 	const db = new Database(":memory:");
 	try {
