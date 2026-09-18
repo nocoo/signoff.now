@@ -6,11 +6,55 @@ import {
 	nextPullSort,
 	readPullFilter,
 	relativeTime,
+	updatePullFilter,
 	writePullFilter,
 } from "./workbench";
 
 const NOW = 1_800_000_000;
 describe("persisted PR filters", () => {
+	it("normalizes saved combinations and keeps only compatible filters across transitions", () => {
+		for (const state of ["merged", "closed"] as const) {
+			expect(
+				readPullFilter(
+					new URLSearchParams(`state=${state}&status=ready&watching=watching`),
+				),
+			).toMatchObject({ state, status: "all", watching: "all" });
+			expect(
+				readPullFilter(new URLSearchParams(`status=${state}`)),
+			).toMatchObject({ state, status: "all" });
+			const history = { ...DEFAULT_PULL_FILTER, state };
+			expect(updatePullFilter(history, { watching: "watching" })).toMatchObject(
+				{ state: "open", watching: "watching" },
+			);
+			expect(
+				updatePullFilter(history, { watching: "unwatched" }),
+			).toMatchObject({ state, watching: "unwatched" });
+			expect(updatePullFilter(history, { status: "running" })).toMatchObject({
+				state: "open",
+				status: "running",
+			});
+		}
+		const ready = {
+			...DEFAULT_PULL_FILTER,
+			status: "ready" as const,
+			watching: "watching" as const,
+		};
+		expect(updatePullFilter(ready, { state: "all" })).toMatchObject({
+			state: "all",
+			status: "all",
+			watching: "watching",
+		});
+		expect(updatePullFilter(ready, { state: "merged" })).toMatchObject({
+			state: "merged",
+			status: "all",
+			watching: "all",
+		});
+		expect(updatePullFilter(ready, { status: "all" })).toMatchObject({
+			state: "open",
+			status: "all",
+			watching: "watching",
+		});
+	});
 	it("normalizes legacy draft links into the dedicated draft filter", () => {
 		expect(readPullFilter(new URLSearchParams("status=draft"))).toMatchObject({
 			status: "all",
@@ -64,7 +108,7 @@ describe("persisted PR filters", () => {
 			organization: "msdata",
 			projectId: "p",
 			repository: "r",
-			state: "all",
+			state: "open",
 			status: "unknown",
 			sort: "oldest",
 			sortDirection: "asc",

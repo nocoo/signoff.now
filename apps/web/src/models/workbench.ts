@@ -60,6 +60,31 @@ export const PULL_FILTER_PARAMS = {
 export const PULL_FILTER_STORAGE_KEY = "signoff-pull-filters";
 export const REFRESH_INTERVALS = [0, 60, 120, 300, 600] as const;
 
+export function updatePullFilter(
+	filter: PullFilter,
+	patch: Partial<PullFilter> = {},
+): PullFilter {
+	const next = { ...filter, ...patch };
+	if (patch.state !== undefined && patch.status === undefined)
+		next.status = "all";
+	if (
+		(patch.status !== undefined && patch.status !== "all") ||
+		(patch.watching === "watching" &&
+			(next.state === "merged" || next.state === "closed"))
+	)
+		next.state = "open";
+	// Old readiness links used terminal states as readiness values.
+	if (next.status === "merged" || next.status === "closed") {
+		next.state = next.status;
+		next.status = "all";
+	}
+	if (next.state === "merged" || next.state === "closed") {
+		next.status = "all";
+		if (next.watching === "watching") next.watching = "all";
+	} else if (next.status !== "all") next.state = "open";
+	return next;
+}
+
 export function readPullFilter(
 	params: URLSearchParams,
 	hasLiveProjects = false,
@@ -83,7 +108,7 @@ export function readPullFilter(
 	const direction = params.get("direction");
 	const draft =
 		params.get("draft") ?? (legacyStatus === "draft" ? "only" : "exclude");
-	return {
+	return updatePullFilter({
 		watching:
 			params.get("watching") === "watching" ||
 			params.get("watching") === "unwatched"
@@ -113,7 +138,7 @@ export function readPullFilter(
 			direction === "asc" || direction === "desc"
 				? direction
 				: defaultSortDirection(sort),
-	};
+	});
 }
 
 export function writePullFilter(

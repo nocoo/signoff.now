@@ -97,6 +97,65 @@ const loaded = async (result: ReturnType<typeof render>["result"]) =>
 		expect(result.current.vm.loading).toBe(false);
 		expect(result.current.vm.collector).not.toBeNull();
 	});
+it("combines independent quick filters and clears incompatible historical selections", async () => {
+	renderView(
+		<MemoryRouter initialEntries={["/?source=cli&q=review"]}>
+			<WorkbenchProvider>
+				<PullsPage />
+			</WorkbenchProvider>
+		</MemoryRouter>,
+	);
+	const bar = within(screen.getByRole("region", { name: "Quick PR filters" }));
+	const click = (name: string) =>
+		fireEvent.click(bar.getByRole("button", { name }));
+	const queryMatches = async (expected: Record<string, string | null>) => {
+		await waitFor(() => {
+			const query = new URLSearchParams(
+				vi.mocked(api.loadPulls).mock.lastCall?.[0],
+			);
+			for (const [key, value] of Object.entries(expected))
+				expect(query.get(key)).toBe(value);
+			expect(query.get("q")).toBe("review");
+		});
+	};
+	click("Watched");
+	click("Ready");
+	await queryMatches({ state: "open", watching: "true", status: "ready" });
+	for (const name of ["Open", "Watched", "Ready"])
+		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
+			"true",
+		);
+	click("Unwatched");
+	click("Attention");
+	await queryMatches({ state: "open", watching: "false", status: "attention" });
+	for (const name of ["Watched", "Ready"])
+		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
+			"false",
+		);
+	click("Attention");
+	click("Unwatched");
+	await queryMatches({ status: "all", watching: null });
+	click("Watched");
+	click("Running");
+	click("Merged");
+	await queryMatches({ state: "merged", status: "all", watching: null });
+	expect(bar.getByRole("button", { name: "Ready" })).toHaveProperty(
+		"disabled",
+		true,
+	);
+	expect(
+		bar.getByRole("combobox", { name: "Detailed readiness" }),
+	).toHaveProperty("disabled", true);
+	click("Watched");
+	await queryMatches({ state: "open", watching: "true", status: "all" });
+	click("All states");
+	await queryMatches({ state: "all", watching: "true", status: "all" });
+	fireEvent.click(bar.getByRole("combobox", { name: "Detailed readiness" }));
+	fireEvent.click(screen.getByRole("option", { name: "Awaiting approval" }));
+	await queryMatches({ state: "open", watching: "true", status: "approval" });
+	click("Closed");
+	await queryMatches({ state: "closed", status: "all", watching: null });
+});
 it("keeps PR columns mounted during loading and links the target branch after the snapshot arrives", async () => {
 	const pending = deferred<typeof fixture.pulls>();
 	vi.mocked(api.loadPulls).mockReturnValue(pending.promise);

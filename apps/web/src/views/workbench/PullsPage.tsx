@@ -5,7 +5,6 @@ import {
 	Field,
 	Input,
 	LayerCard,
-	SegmentControl,
 } from "@nocoo/basalt";
 import { MultiSelect } from "@nocoo/basalt/components/multi-select";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
@@ -28,7 +27,6 @@ import {
 	ArrowRight,
 	ArrowUp,
 	ArrowUpDown,
-	CheckCheck,
 	ChevronLeft,
 	ChevronRight,
 	ExternalLink,
@@ -37,10 +35,8 @@ import {
 	GitBranch,
 	GitPullRequest,
 	ListOrdered,
-	LoaderCircle,
 	ScanLine,
 	Search,
-	ShieldAlert,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "react-router";
@@ -60,6 +56,7 @@ import {
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
+import { PullQuickFilters } from "./PullQuickFilters";
 import { ReadinessDialog } from "./ReadinessDialog";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
@@ -81,45 +78,7 @@ export function PullsPage() {
 		repository?.project ??
 		scopedProject ??
 		(vm.filter.organization ? vm.projectOptions[0]?.project : undefined);
-	const metrics = [
-		{
-			key: "all",
-			label: "Open PRs",
-			value: vm.metrics.open,
-			detail:
-				vm.filter.draft === "exclude"
-					? "Drafts excluded"
-					: vm.filter.draft === "only"
-						? "Drafts only"
-						: `${vm.metrics.draft} drafts included`,
-			Icon: GitPullRequest,
-			color: "text-basalt-primary",
-		},
-		{
-			key: "attention",
-			label: "Need attention",
-			value: vm.metrics.attention,
-			detail: "Blockers, approvals & reviews",
-			Icon: ShieldAlert,
-			color: "text-basalt-warning",
-		},
-		{
-			key: "running",
-			label: "In progress",
-			value: vm.metrics.running,
-			detail: "Builds running or queued",
-			Icon: LoaderCircle,
-			color: "text-basalt-primary",
-		},
-		{
-			key: "ready",
-			label: "Ready to merge",
-			value: vm.metrics.ready,
-			detail: "Required gates are clear",
-			Icon: CheckCheck,
-			color: "text-basalt-heatmap-green-4",
-		},
-	] as const;
+
 	return (
 		<div className="space-y-2">
 			<PageHeader
@@ -131,29 +90,24 @@ export function PullsPage() {
 				title="Filters"
 				className="space-y-2"
 				actions={
-					<>
-						<span className="max-w-full truncate text-xs text-basalt-muted-foreground">
-							{scopeProject ? (
-								<RepositoryScopeLinks
-									project={scopeProject}
-									repository={
-										repository
-											? {
-													id: repository.identityResolved
-														? repository.id
-														: null,
-													name: repository.name,
-												}
-											: undefined
-									}
-									organizationOnly={!scopedProject && !repository}
-								/>
-							) : (
-								`${vm.repositories.length} repositories`
-							)}
-						</span>
-						<WatchFilter vm={vm} />
-					</>
+					<span className="max-w-full truncate text-xs text-basalt-muted-foreground">
+						{scopeProject ? (
+							<RepositoryScopeLinks
+								project={scopeProject}
+								repository={
+									repository
+										? {
+												id: repository.identityResolved ? repository.id : null,
+												name: repository.name,
+											}
+										: undefined
+								}
+								organizationOnly={!scopedProject && !repository}
+							/>
+						) : (
+							`${vm.repositories.length} repositories`
+						)}
+					</span>
 				}
 			>
 				<LayerCard
@@ -170,7 +124,7 @@ export function PullsPage() {
 					) : null}
 					<search
 						aria-label="Filter pull requests"
-						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_1fr_170px_1.2fr]"
+						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_170px_1.2fr]"
 					>
 						<Field label="Search PRs">
 							<div className="relative">
@@ -188,25 +142,6 @@ export function PullsPage() {
 									}
 								/>
 							</div>
-						</Field>
-						<Field label="Readiness">
-							<SelectControl
-								value={vm.filter.status}
-								onChange={(status) =>
-									vm.setFilter({ status: status as PullFilter["status"] })
-								}
-							>
-								<option value="all">All readiness</option>
-								<option value="attention">Need attention</option>
-								<option value="blocked">Blocked</option>
-								<option value="approval">Awaiting approval</option>
-								<option value="review">Review needed</option>
-								<option value="running">In progress</option>
-								<option value="unknown">Unknown / incomplete</option>
-								<option value="ready">Ready to merge</option>
-								<option value="merged">Merged</option>
-								<option value="closed">Closed</option>
-							</SelectControl>
 						</Field>
 						<Field label="Draft">
 							<SelectControl
@@ -259,66 +194,7 @@ export function PullsPage() {
 							) : null}
 						</div>
 					</search>
-					<div className="flex flex-wrap items-center justify-between gap-2">
-						<section
-							aria-label="Pull request overview"
-							className="flex min-w-0 flex-1 flex-wrap gap-1"
-						>
-							{metrics.map(({ key, label, value, detail, Icon, color }) => {
-								const selected =
-									vm.filter.state === "open" && vm.filter.status === key;
-								return (
-									<Button
-										key={key}
-										variant="ghost"
-										size="sm"
-										aria-pressed={selected}
-										title={detail}
-										className={cn(
-											"h-8 gap-1.5 border border-transparent px-2 text-[11px] text-basalt-muted-foreground hover:bg-basalt-primary/5 hover:text-basalt-foreground",
-											selected &&
-												"border-basalt-primary/30 bg-basalt-primary/5 text-basalt-foreground",
-										)}
-										onClick={() => vm.setFilter({ state: "open", status: key })}
-									>
-										<Icon
-											aria-hidden
-											strokeWidth={1.6}
-											className={cn("h-3.5 w-3.5 shrink-0", color)}
-										/>
-										{label}
-										<span className="font-mono text-xs font-semibold tabular-nums text-basalt-foreground">
-											{vm.pullsLoaded ? value.toLocaleString() : "—"}
-										</span>
-									</Button>
-								);
-							})}
-						</section>
-						<SegmentControl
-							legend="PR state"
-							className="[&>legend]:sr-only [&_[data-slot=segment-control-viewport]]:pb-0"
-							value={vm.filter.state}
-							onValueChange={(state) =>
-								vm.setFilter({
-									state: state as PullFilter["state"],
-									status: "all",
-								})
-							}
-							options={[
-								...(
-									[
-										["open", "Open"],
-										["merged", "Merged"],
-										["closed", "Closed"],
-									] as const
-								).map(([state, label]) => ({
-									value: state,
-									label: `${label} ${vm.pullsLoaded ? vm.metrics[state] : "—"}`,
-								})),
-								{ value: "all", label: "All" },
-							]}
-						/>
-					</div>
+					<PullQuickFilters vm={vm} />
 				</LayerCard>
 			</SectionRule>
 			<SectionRule
@@ -651,24 +527,6 @@ function PullSourceLink({ pull, project }: Pick<PullRow, "pull" | "project">) {
 				<ExternalLink className="h-3.5 w-3.5" aria-hidden />
 			</a>
 		</Button>
-	);
-}
-
-function WatchFilter({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
-	return (
-		<SelectControl
-			aria-label="Watch list filter"
-			value={vm.filter.watching}
-			onChange={(watching) =>
-				vm.setFilter({ watching: watching as PullFilter["watching"] })
-			}
-			className="h-8 w-40 text-xs"
-			contentClassName="[&_[role=option]]:text-xs"
-		>
-			<option value="all">All candidates</option>
-			<option value="watching">Watching ({vm.collector?.watching ?? 0})</option>
-			<option value="unwatched">Not watching</option>
-		</SelectControl>
 	);
 }
 

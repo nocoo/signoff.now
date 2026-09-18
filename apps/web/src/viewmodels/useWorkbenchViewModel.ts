@@ -41,6 +41,7 @@ import {
 	type PullFilter,
 	type PullRow,
 	readPullFilter,
+	updatePullFilter,
 	writePullFilter,
 } from "@/models/workbench";
 import {
@@ -471,7 +472,7 @@ export function useWorkbenchViewModel() {
 			);
 	}, [pulls.data, pulls.loading, page, pageCount, setParams]);
 	const setFilter = (patch: Partial<PullFilter>) => {
-		const next = { ...filter, ...patch };
+		const next = updatePullFilter(filter, patch);
 		if (patch.source !== undefined) {
 			next.organization = patch.organization ?? "";
 			next.projectId = patch.projectId ?? "";
