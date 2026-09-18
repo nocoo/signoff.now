@@ -202,6 +202,29 @@ test("catalog errors stop after two restarts and unrelated failures are not retr
 	expect(apiFetch).toHaveBeenCalledOnce();
 });
 
+test("repository reference resolution keeps its full scope through cache-only catalog pagination", async () => {
+	const fixture = queryFixture();
+	vi.mocked(apiFetch)
+		.mockResolvedValueOnce({
+			...fixture.catalog,
+			page: { ...fixture.page, nextCursor: "next" },
+		})
+		.mockResolvedValueOnce({ ...fixture.catalog, data: [] });
+	const scope = {
+		repository: "https://dev.azure.com/Acme/Platform%20Team/_git/old-name",
+		projectId: "registration / one",
+	};
+	await loadCatalog("demo", new AbortController().signal, scope);
+	for (const [path, init] of vi.mocked(apiFetch).mock.calls) {
+		const params = new URL(String(path), "http://localhost").searchParams;
+		expect(params.get("repo")).toBe(scope.repository);
+		expect(params.get("projectId")).toBe(scope.projectId);
+		expect(params.get("source")).toBe("sample");
+		expect(init?.method).toBeUndefined();
+	}
+	expect(vi.mocked(apiFetch).mock.calls[1]?.[0]).toContain("cursor=next");
+});
+
 test("watch commands send only complete internal refs or observation ID and captured generation", async () => {
 	vi.mocked(apiFetch).mockResolvedValue({ results: [] });
 	await addWatches("cli", ["scoped-pr-id"]);

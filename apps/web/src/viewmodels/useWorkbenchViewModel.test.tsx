@@ -405,8 +405,10 @@ describe("filters, server pages and temporary selection", () => {
 		const { result } = render();
 		await loaded(result);
 		act(() => result.current.vm.selectRepository("unresolved"));
-		expect(result.current.vm.selectedRepository?.name).toBe(
-			repo.repository.name,
+		await waitFor(() =>
+			expect(result.current.vm.selectedRepository?.name).toBe(
+				repo.repository.name,
+			),
 		);
 		expect(result.current.vm.filter.repository).toBe(repo.repository.url);
 		await act(() => result.current.vm.discoverRepo());
@@ -418,6 +420,90 @@ describe("filters, server pages and temporary selection", () => {
 				"repo",
 			),
 		).toBe(repo.repository.id);
+	});
+	it("keeps an ambiguous repository URL even when only its reused current name remains in the catalog", async () => {
+		const repo = fixture.catalog.data[0]!;
+		const url = `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/shared`;
+		const ambiguity = new ApiError(
+			"Repository alias matches multiple identities",
+			409,
+			{ error: { code: "REFERENCE_AMBIGUOUS" } },
+		);
+		vi.mocked(api.loadCatalog).mockImplementation(
+			async (_source, _signal, scope) => {
+				if (scope?.repository) throw ambiguity;
+				return {
+					...fixture.catalog,
+					data: [
+						{
+							...repo,
+							repository: { ...repo.repository, name: "shared", url },
+						},
+					],
+				};
+			},
+		);
+		vi.mocked(api.loadPulls).mockImplementation(async (query) => {
+			if (new URLSearchParams(query).get("repo")) throw ambiguity;
+			return fixture.pulls;
+		});
+		const { result } = render(`/?repo=${encodeURIComponent(url)}`);
+		await loaded(result);
+		expect(result.current.vm.filter.repository).toBe(url);
+		expect(result.current.vm.selectedRepository).toBeNull();
+		expect(result.current.vm.error).toContain("multiple identities");
+		expect(
+			new URLSearchParams(localStorage.getItem(PULL_FILTER_STORAGE_KEY)!).get(
+				"repo",
+			),
+		).toBe(url);
+		await act(async () =>
+			expect(await result.current.vm.discoverRepo()).toBe(false),
+		);
+		expect(api.discover).not.toHaveBeenCalled();
+	});
+	it("reconciles a unique retained name using the server result and preserves its project scope", async () => {
+		const repo = fixture.catalog.data[0]!;
+		const url = `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/retired-name`;
+		const catalog = {
+			...fixture.catalog,
+			data: [{ ...repo, repository: { ...repo.repository, name: "renamed" } }],
+		};
+		vi.mocked(api.loadCatalog).mockResolvedValue(catalog);
+		const { result } = render(`/?repo=${encodeURIComponent(url)}`);
+		await loaded(result);
+		await waitFor(() =>
+			expect(result.current.vm.filter.repository).toBe(repo.repository.id),
+		);
+		expect(api.loadCatalog).toHaveBeenCalledWith(
+			"cli",
+			expect.any(AbortSignal),
+			{ repository: url, projectId: "" },
+		);
+		expect(result.current.vm.filter).toMatchObject({
+			organization: project.organization.toLowerCase(),
+			projectId: project.id,
+		});
+		expect(result.current.vm.selectedRepository?.id).toBe(repo.repository.id);
+	});
+	it("does not rewrite a repository URL shared by duplicate project registrations", async () => {
+		const repo = fixture.catalog.data[0]!;
+		const otherProject = { ...project, id: "another-registration" };
+		vi.mocked(api.loadCatalog).mockResolvedValue({
+			...fixture.catalog,
+			projects: [...fixture.catalog.projects, publicProject(otherProject)],
+			data: [
+				repo,
+				{ ...repo, key: "duplicate", project: publicProject(otherProject) },
+			],
+			page: { ...fixture.page, total: 2 },
+		});
+		const { result } = render(
+			`/?repo=${encodeURIComponent(repo.repository.url)}`,
+		);
+		await loaded(result);
+		expect(result.current.vm.filter.repository).toBe(repo.repository.url);
+		expect(result.current.vm.selectedRepository).toBeNull();
 	});
 	it("uses server totals, clamps removed pages and validates malformed page numbers", async () => {
 		vi.mocked(api.loadPulls).mockResolvedValue({

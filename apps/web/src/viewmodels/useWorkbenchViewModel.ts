@@ -1,9 +1,7 @@
 import {
 	canonicalObservationKey,
 	makeWatchRef,
-	matchesRepositoryReference,
 	type Observation,
-	parseRepositoryReference,
 	publicSource,
 	type WatchRef,
 } from "@signoff/domain/monitoring";
@@ -74,6 +72,15 @@ function storedFilters() {
 	}
 }
 
+function uniqueRepository(
+	data: Awaited<ReturnType<typeof loadCatalog>> | null,
+	error: string | null,
+) {
+	return !error && data?.page.total === 1 && data.data.length === 1
+		? data.data[0]
+		: null;
+}
+
 type Selection = {
 	key: string;
 	pullId: string;
@@ -131,6 +138,20 @@ export function useWorkbenchViewModel() {
 	const catalog = useQueryBlock(
 		`repos:${filter.source}`,
 		(signal) => loadCatalog(filter.source, signal),
+		30000,
+	);
+	const repositoryReference = filter.repository.startsWith("https://")
+		? filter.repository
+		: null;
+	const repositoryResolution = useQueryBlock(
+		repositoryReference
+			? `repo-reference:${JSON.stringify([filter.source, filter.projectId, repositoryReference])}`
+			: null,
+		(signal) =>
+			loadCatalog(filter.source, signal, {
+				repository: filter.repository,
+				projectId: filter.projectId,
+			}),
 		30000,
 	);
 	const pulls = useQueryBlock(
@@ -292,56 +313,45 @@ export function useWorkbenchViewModel() {
 			({ project }) => !filter.projectId || project.id === filter.projectId,
 		)
 		.flatMap((p) => p.repositories);
-	const repositoryReference = useMemo(() => {
-		if (!filter.repository.startsWith("https://")) return null;
-		try {
-			return parseRepositoryReference(filter.repository);
-		} catch {
-			return null;
-		}
-	}, [filter.repository]);
-	const referenceRepositories = repositoryReference
-		? repositories.filter(
-				(r) =>
-					r.project.provider === repositoryReference.provider &&
-					r.project.organization.toLowerCase() ===
-						repositoryReference.organization.toLowerCase() &&
-					r.project.projectKey.toLowerCase() ===
-						repositoryReference.projectKey.toLowerCase(),
-			)
-		: repositories;
-	const repositoryIds = referenceRepositories
-		.filter((r) => r.identityResolved)
-		.map((r) => r.id);
+	// The cache service resolves retained aliases, including identities no
+	// longer present in the visible catalog. Never guess from current names.
+	const resolvedRepository = uniqueRepository(
+		repositoryResolution.data,
+		repositoryResolution.error,
+	);
 	const selectedRepository =
-		referenceRepositories.find((r) =>
+		repositories.find((r) =>
 			repositoryReference
-				? r.identityResolved
-					? matchesRepositoryReference(
-							r,
-							repositoryReference.repository,
-							r.project.provider,
-							repositoryIds,
-						)
-					: r.url === filter.repository
+				? r.key === resolvedRepository?.key
 				: matchesRepository(r, filter.repository),
 		) ?? null;
-	const resolvedRepositoryId = selectedRepository?.id;
 	useEffect(() => {
 		if (
-			filter.repository.startsWith("https://") &&
-			resolvedRepositoryId &&
-			!resolvedRepositoryId.startsWith("https://")
+			repositoryReference &&
+			resolvedRepository?.identityResolved &&
+			selectedRepository?.identityResolved
 		)
 			setParams(
 				(previous) =>
 					writePullFilter(
-						{ ...filter, repository: resolvedRepositoryId },
+						{
+							...filter,
+							organization:
+								selectedRepository.project.organization.toLowerCase(),
+							projectId: selectedRepository.project.id,
+							repository: selectedRepository.id,
+						},
 						previous,
 					),
 				{ replace: true },
 			);
-	}, [filter, resolvedRepositoryId, setParams]);
+	}, [
+		filter,
+		repositoryReference,
+		resolvedRepository,
+		selectedRepository,
+		setParams,
+	]);
 	const total = pulls.data?.page.total ?? 0;
 	const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 	const loading = location.pathname === "/" ? pulls.loading : catalog.loading;
@@ -424,6 +434,7 @@ export function useWorkbenchViewModel() {
 	const reload = useCallback(async () => {
 		await Promise.allSettled([
 			catalog.reload(),
+			repositoryResolution.reload(),
 			pulls.reload(),
 			collector.reload(),
 			detail.reload(),
@@ -431,6 +442,7 @@ export function useWorkbenchViewModel() {
 		]);
 	}, [
 		catalog.reload,
+		repositoryResolution.reload,
 		pulls.reload,
 		collector.reload,
 		detail.reload,
@@ -695,7 +707,7 @@ export function useWorkbenchViewModel() {
 			message: collector.error ?? "Start signoff daemon to collect watched PRs",
 		},
 		collector: collector.data,
-		catalogError: catalog.error,
+		catalogError: catalog.error ?? repositoryResolution.error,
 		coverage: pulls.data?.coverage ?? catalog.data?.coverage,
 		rows: pageRows,
 		visible: pageRows,
@@ -706,7 +718,9 @@ export function useWorkbenchViewModel() {
 		loading,
 		pullsLoaded: pulls.data !== null,
 		refreshing: pulls.refreshing || catalog.refreshing,
-		error: location.pathname === "/" ? pulls.error : catalog.error,
+		error:
+			(location.pathname === "/" ? pulls.error : catalog.error) ??
+			repositoryResolution.error,
 		mutationError,
 		notice,
 		feedbackKind: feedback.source === filter.source ? feedback.kind : "other",

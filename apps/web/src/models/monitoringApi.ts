@@ -148,14 +148,18 @@ export async function loadPending(
 export async function loadCatalog(
 	source: PullFilter["source"],
 	signal: AbortSignal,
+	scope?: Pick<PullFilter, "repository" | "projectId">,
 ) {
+	const params = new URLSearchParams({
+		source: publicSource(source),
+		limit: "200",
+	});
+	if (scope?.repository) params.set("repo", scope.repository);
+	if (scope?.projectId) params.set("projectId", scope.projectId);
 	for (let attempt = 0; ; attempt++) {
 		try {
 			const first = repoListSchema.parse(
-				await apiFetch(
-					`/api/query/v1/repos?source=${publicSource(source)}&limit=200`,
-					init(signal),
-				),
+				await apiFetch(`/api/query/v1/repos?${params}`, init(signal)),
 			);
 			let cursor = first.page.nextCursor;
 			const seen = new Set<string>();
@@ -165,7 +169,7 @@ export async function loadCatalog(
 				seen.add(cursor);
 				const page = repoListSchema.parse(
 					await apiFetch(
-						`/api/query/v1/repos?source=${publicSource(source)}&limit=200&cursor=${encodeURIComponent(cursor)}`,
+						`/api/query/v1/repos?${params}&cursor=${encodeURIComponent(cursor)}`,
 						init(signal),
 					),
 				);
