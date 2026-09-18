@@ -209,6 +209,8 @@ export async function stagePulls(
 				.prepare(`INSERT INTO collection_staging(job_id,pull_id,project_id,repository_id,external_id,state,updated_at,snapshot)
       SELECT ?,?,?,?,?,?,?,? WHERE ${RUNNING_JOB}
       AND COALESCE((SELECT version FROM pull_requests WHERE id=?),0)=COALESCE((SELECT snapshot_version FROM collection_claim_bindings WHERE job_id=? AND pull_id=?),0)
+      AND NOT EXISTS (SELECT 1 FROM collection_claim_bindings b WHERE b.job_id=? AND b.pull_id=? AND b.observation_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=1 AND o.generation=b.generation))
       ON CONFLICT(job_id,pull_id) DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,snapshot=excluded.snapshot`)
 				.bind(
 					id,
@@ -222,6 +224,8 @@ export async function stagePulls(
 					id,
 					token,
 					timestamp,
+					pull.id,
+					id,
 					pull.id,
 					id,
 					pull.id,
@@ -260,20 +264,27 @@ export async function publishRepository(
 			"Repository is not pending in this task",
 			409,
 		);
-	const staged = (
-		await db
-			.prepare(
-				"SELECT snapshot FROM collection_staging WHERE job_id=? AND repository_id=?",
-			)
-			.bind(id, repositoryId)
-			.all<{ snapshot: string }>()
-	).results.map((r) => pullRequestSchema.parse(JSON.parse(r.snapshot)));
+	const counts = await db
+		.prepare(
+			"SELECT COUNT(*) AS total,COALESCE(SUM(json_extract(snapshot,'$.coverage')='partial'),0) AS partial FROM collection_staging WHERE job_id=? AND repository_id=?",
+		)
+		.bind(id, repositoryId)
+		.first<{ total: number; partial: number }>();
+	const staged =
+		job.kind === "details"
+			? (
+					await db
+						.prepare(
+							"SELECT snapshot FROM collection_staging WHERE job_id=? AND repository_id=? LIMIT 1",
+						)
+						.bind(id, repositoryId)
+						.all<{ snapshot: string }>()
+				).results.map((r) => pullRequestSchema.parse(JSON.parse(r.snapshot)))
+			: [];
 	if (
-		staged.length !== pullCount ||
+		counts?.total !== pullCount ||
 		(job.kind === "details" && pullCount !== 1) ||
-		(job.kind === "details" &&
-			state === "complete" &&
-			staged.some((pr) => pr.coverage === "partial"))
+		(job.kind === "details" && state === "complete" && counts.partial > 0)
 	)
 		throw new MonitoringError(
 			"INCOMPLETE_UPLOAD",
@@ -291,7 +302,8 @@ export async function publishRepository(
       AND (SELECT COUNT(*) FROM collection_staging WHERE job_id=? AND repository_id=?)=?
       AND NOT EXISTS (SELECT 1 FROM collection_staging s LEFT JOIN pull_requests pr ON pr.id=s.pull_id
         LEFT JOIN collection_claim_bindings b ON b.job_id=s.job_id AND b.pull_id=s.pull_id
-        WHERE s.job_id=? AND s.repository_id=? AND COALESCE(pr.version,0)<>COALESCE(b.snapshot_version,0))`)
+        WHERE s.job_id=? AND s.repository_id=? AND (COALESCE(pr.version,0)<>COALESCE(b.snapshot_version,0)
+          OR (b.observation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=1 AND o.generation=b.generation))))`)
 			.bind(
 				pullCount,
 				message,

@@ -117,7 +117,9 @@ ADO `completed` 规范化为 merged，`abandoned` 规范化为 closed。只有�
 
 终态证据必须包含规范 PR 身份、源状态、成功观测时间、任务 / lease token、项目 revision、读取时的 PR 快照版本，以及 `(observationId, generation)`。refresh 从创建 / 领取时绑定的观察项获取它；discover 在**实际领取时**，从其明确仓库范围内的 active 观察项建立只读绑定清单，同时记录各 PR 的已有快照版本，未有快照记为 0。复用 running discover 不扩展这份清单；重新领取使用新 lease 并重新绑定。
 
-发布 / 淘汰要求任务 lease 与项目 revision 有效，源事实对应同一 PR 且是明确终态，待写 PR 版本仍等于读取版本，观察仍 active 且 generation 匹配。PR 版本已变化时拒绝旧事实，后续重新采集；观察代次已变化时不淘汰新一代。discover 对不在领取时清单内的 PR 可以发布基础数据，但无权移除后来加入的观察项，由它自己的后续 refresh 确认。Query 不负责惰性淘汰。
+发布 / 淘汰要求任务 lease 与项目 revision 有效，源事实对应同一 PR 且是明确终态，待写 PR 版本仍等于读取版本，观察仍 active 且 generation 匹配。PR 版本已变化时拒绝旧事实，后续重新采集；已绑定观察被移除或代次改变时，在 staging 和最终发布两处拒绝旧结果，既不覆盖快照也不淘汰新一代。discover 对不在领取时清单内的 PR 可以发布基础数据，但无权移除后来加入的观察项，由它自己的后续 refresh 确认。Query 不负责惰性淘汰。
+
+单 PR refresh 只绑定自己的目标和 generation，不复制仓库全部历史。发现发布在数据库内校验暂存数量和覆盖信息，不把整仓历史快照读入 Worker；仅详情任务读取单个暂存快照来更新 merge requirements。
 
 以下均不能当作 completed / abandoned：PR 没出现在本轮发现列表、403、404、网络错误、token 过期、返回空内容、policy 失败。它们保留观察项并记录错误，后续按恢复策略处理。
 

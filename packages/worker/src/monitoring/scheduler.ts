@@ -112,13 +112,15 @@ export async function claimJob(
 			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation)
       SELECT j.id,pr.id,pr.version,o.id,o.generation FROM collection_jobs j JOIN pull_requests pr ON pr.project_id=j.project_id
       LEFT JOIN pr_observations o ON o.project_id=j.project_id AND o.active=1 AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id) AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER)
-      WHERE j.lease_token=? AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(pr.repository_id),lower(json_extract(pr.snapshot,'$.repository.name')))))`)
+      WHERE j.lease_token=? AND (j.kind='list' OR pr.id IN (SELECT value FROM json_each(j.pull_ids_json)))
+      AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(pr.repository_id),lower(json_extract(pr.snapshot,'$.repository.name')))))`)
 			.bind(token),
 		db
 			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation)
       SELECT j.id,COALESCE(o.pull_id,json_extract(o.ref_json,'$.provider')||':'||o.project_id||':'||json_extract(o.ref_json,'$.repository.id')||':'||json_extract(o.ref_json,'$.number')),0,o.id,o.generation
       FROM collection_jobs j JOIN pr_observations o ON o.project_id=j.project_id AND o.active=1
-      WHERE j.lease_token=? AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(json_extract(o.ref_json,'$.repository.id')),lower(json_extract(o.ref_json,'$.repository.name')))))
+      WHERE j.lease_token=? AND (j.kind='list' OR (o.id=j.observation_id AND o.generation=j.observation_generation))
+      AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(json_extract(o.ref_json,'$.repository.id')),lower(json_extract(o.ref_json,'$.repository.name')))))
       ON CONFLICT(job_id,pull_id) DO NOTHING`)
 			.bind(token),
 		db.prepare("SELECT * FROM collection_jobs WHERE lease_token=?").bind(token),

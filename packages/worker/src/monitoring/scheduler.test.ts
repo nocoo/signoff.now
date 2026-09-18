@@ -108,6 +108,32 @@ describe("observation scheduler", () => {
 			c.observation.id,
 		);
 	});
+	test("refresh binds only its watched PR, regardless of repository history or other watches", async () => {
+		seedProject(sqlite, { repositories: [] });
+		const first = await watch(1);
+		await watch(2);
+		for (let number = 3; number <= 1200; number++)
+			seedPull(sqlite, {
+				id: `history-${number}`,
+				number,
+				externalId: String(number),
+				state: "merged",
+			});
+		const claim = (await claimJob(sqlite.db, 100))!;
+		expect(claim.observation?.id).toBe(first.observation.id);
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT pull_id,observation_id FROM collection_claim_bindings WHERE job_id=?",
+				)
+				.all(claim.job.id),
+		).toEqual([
+			{
+				pull_id: first.observation.pullId,
+				observation_id: first.observation.id,
+			},
+		]);
+	});
 	test("repository discovery requires an explicit task and serializes with checks within a project", async () => {
 		const project = seedProject(sqlite, { repositories: ["web-app"] });
 		const a = await watch(1);

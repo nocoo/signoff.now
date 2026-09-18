@@ -66,6 +66,66 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test.each([
+		false,
+		true,
+	])("discovery cannot publish over a replaced watch generation (staged before removal: %s)", async (stageBefore) => {
+		const { project, pull } = setup();
+		const added = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			now,
+		);
+		sqlite.raw
+			.query(
+				"UPDATE collection_jobs SET state='complete',completed_at=? WHERE id=?",
+			)
+			.run(now, added.job!.id);
+		await enqueueDiscovery(sqlite.db, project, [], now + 1);
+		const claim = (await claimJob(sqlite.db, now + 1))!;
+		await registerJobRepositories(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[pull.repository],
+			now + 1,
+		);
+		const stage = () =>
+			stagePulls(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				[{ ...pull, state: "merged", title: "Old terminal result" }],
+				now + 2,
+			);
+		if (stageBefore) await stage();
+		await removeObservation(sqlite.db, "cli", added.observation.id, 1, now + 3);
+		await addObservation(sqlite.db, "cli", { pullId: pull.id }, now + 4);
+		if (stageBefore)
+			await expect(
+				publishRepository(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					pull.repository.id,
+					1,
+					"complete",
+					"Old discovery",
+					now + 5,
+				),
+			).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
+		else
+			await expect(stage()).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
+		expect(cached(pull.id).state).toBe("open");
+		expect(
+			(await resolveObservation(sqlite.db, "cli", { pullId: pull.id }))
+				.generation,
+		).toBe(2);
+		expect(
+			(await resolveObservation(sqlite.db, "cli", { pullId: pull.id })).active,
+		).toBe(true);
+	});
 	test("reclaimed discovery retains its resolved repository plan and rejects scope expansion", async () => {
 		const { project, pull } = setup();
 		await enqueueDiscovery(sqlite.db, project, [], now);
@@ -345,6 +405,48 @@ describe("guarded snapshot publication and retirement", () => {
 });
 
 describe("repository discovery boundaries", () => {
+	test("publishes large discovery history with SQL counts instead of loading staged snapshots into the Worker", async () => {
+		const { project, pull } = setup();
+		const job = await enqueueDiscovery(sqlite.db, project, [], now);
+		const claim = (await claimJob(sqlite.db, now))!;
+		await registerJobRepositories(
+			sqlite.db,
+			job.id,
+			claim.leaseToken,
+			[pull.repository],
+			now,
+		);
+		for (let number = 1; number <= 100; number++) {
+			const pr = {
+				...pull,
+				id: adoPullId(project.id, pull.repository.id, String(number)),
+				number,
+				externalId: String(number),
+				description: "x".repeat(10000),
+			};
+			await stagePulls(sqlite.db, job.id, claim.leaseToken, [pr], now);
+		}
+		let snapshotReads = 0;
+		const prepare = sqlite.db.prepare.bind(sqlite.db);
+		sqlite.db.prepare = (sql: string) => {
+			if (/SELECT snapshot FROM collection_staging/i.test(sql)) snapshotReads++;
+			return prepare(sql);
+		};
+		await publishRepository(
+			sqlite.db,
+			job.id,
+			claim.leaseToken,
+			pull.repository.id,
+			100,
+			"complete",
+			"History discovered",
+			now,
+		);
+		expect(snapshotReads).toBe(0);
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) count FROM pull_requests").get(),
+		).toEqual({ count: 100 });
+	});
 	test("plans a thousand repositories using a fixed number of database statements", async () => {
 		const project = seedProject(sqlite, { repositories: [] });
 		await enqueueDiscovery(sqlite.db, project, [], now);
