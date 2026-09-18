@@ -41,7 +41,7 @@ ADO 真实采集已接入。GitHub 使用同一规范身份与 Sample 数据，�
 
 ## 数据存放
 
-本地产品库由 Wrangler 管理，默认位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`；线上存储模型仍是 D1。本次迁移为 `0019_observed_pull_requests.sql`，不涉及远端部署。
+本地产品库由 Wrangler 管理，默认位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`；线上存储模型仍是 D1。`0019_observed_pull_requests.sql` 引入本架构，后续 `0020_resolved_project_scope.sql` 修正 Unicode / 名称别名范围校验，保留已存观察项与缓存；不涉及远端部署。
 
 | 数据 | 表 / 位置 |
 | --- | --- |

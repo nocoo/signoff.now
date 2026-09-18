@@ -148,7 +148,7 @@ bun run dev
 
 打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。开发脚本已包含 `--local-upstream localhost` 和本地 Demo 开关。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
 
-数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 5 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 `packages/db/migrations/`；`0019_observed_pull_requests.sql` 引入共享关注清单、仓库目录、任务租约和快照版本，并取消旧页面采集任务。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
+数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 5 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 `packages/db/migrations/`；`0019_observed_pull_requests.sql` 引入共享关注清单、仓库目录、任务租约和快照版本，并取消旧页面采集任务。后续 `0020_resolved_project_scope.sql` 保留已存清单和缓存，让项目编辑按稳定仓库 ID 与 Unicode 名称别名校验范围。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
 
 本地回环地址与 `*.dev.hexly.ai` 使用开发认证分支，无须生产 Access 或 pipeline 凭据。`.env.example` 预填生产机器域名，只在需要连接已有部署时复制并填写。
 

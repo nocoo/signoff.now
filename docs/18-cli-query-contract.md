@@ -50,6 +50,8 @@ signoff pr get 59382 \
 
 仓库目录由迁移 0019 引入。对首次使用且身份未解析的仓库，必须先完成 `repo add`，再等待 discover 回执对应仓库成功、目录可解析后，才允许 URL / number 形式的 watch add；仅拿到 discover 的 202 不足以添加。已有可解析目录的仓库不必每次重复发现。
 
+仓库在源站改名后，显式 discover 按已解析的 provider ID 更新名称并保留旧别名。原配置名称、旧 / 新 URL 与缓存 PR ID 仍指向同一仓库和观察项，项目元数据编辑也不会丢弃这个范围。
+
 `watch remove` 接受相同引用语法，先调用只读 observation lookup 取得该 PR 唯一记录的 ID / generation，再发送带版本的删除。查到同代次已停止是幂等成功；从未观察返回 `NOT_FOUND`；两步之间发生重新加入则返回冲突，不自动重试删除新代次。查询可以利用本地仓库目录或停止记录内保留的自足 ref；项目删除后也可找到停止记录。别名有歧义时返回 `REFERENCE_AMBIGUOUS`，要求使用带仓库 GUID 的引用，不能猜测。
 
 真实 GitHub 观察在本期返回明确的 `PROVIDER_UNSUPPORTED`，不退回示例；GitHub Sample 可以显式查询并在本地 demo 模式演示观察操作。
@@ -157,6 +159,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 - `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示取得了仓库全部历史。新的完整发现覆盖全部可访问历史与所有状态；迁移保留的旧缓存仍明确标记为旧的有限历史覆盖，不能冒充完整发现。
 - `watch list` 每项返回观察元数据、完整 `ref`、可空的 `pullId` 和可空的 `pull` 摘要，首次采集前不会伪造一个 PR 快照。
 - 每个规范 PR 只保留一条观察记录；inactive 首版不自动清理。`--include-stopped` 返回所有保留行的当前 generation，不按“最近 N 天 / N 条”截断，也不是每次增删的事件日志。重新加入覆盖该行启停字段并推进 generation；lookup 始终取当前一代，不查历史代次。`stopReason` 为 null、manual、completed、abandoned、project_deleted 或 scope_changed。项目删除后停止记录仍保留，`pull` 可为空。
+- 观察查询按内部 `projectId`（或 `project` 指定内部 ID）筛选时，仅返回该次注册下的记录；删除后重新注册相同外部项目，不会把旧注册的停止项混入新项目。未指定内部 ID 的外部范围查询仍可包含该范围的保留记录。
 - 无匹配结果是 `data: []`；未采集范围另标 `not_collected`。缺失检查 / 计数 / 时间使用 null 或明确 unknown；不能填 0 / passed。
 - 已停止观察的 PR 仍能在普通 `pr list --state all` 或 `pr get` 中查询；默认 `watch list` 排除它，可通过 `--include-stopped` 查看原因。
 
