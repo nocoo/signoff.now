@@ -1043,6 +1043,7 @@ describe("v1 cache queries", () => {
 			before,
 		);
 	});
+	// Seven real-SQLite pages plus cursor checks exceed 5s under CI coverage load.
 	test("uses full server pagination beyond 1000 records and rejects revision/query-mismatched cursors", async () => {
 		seedProject(sqlite, { repositories: [] });
 		for (let n = 1; n <= 1205; n++)
@@ -1090,7 +1091,7 @@ describe("v1 cache queries", () => {
 		expect(await changed.json()).toMatchObject({
 			error: { code: "SNAPSHOT_CHANGED" },
 		});
-	});
+	}, 30_000);
 	test("Draft is excluded from normal PR queries but included in the shared watch list", async () => {
 		const { project, pull } = seed();
 		const draft = seedPull(sqlite, {
