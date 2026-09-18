@@ -52,6 +52,39 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test("internal project filters isolate retained watches after deleting and re-registering an external project", async () => {
+		const { project, pull } = seed();
+		await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);
+		expect(
+			(
+				await request(`/api/projects/${project.id}`, "DELETE", {
+					revision: project.revision,
+				})
+			).status,
+		).toBe(200);
+		const replacement = seedProject(sqlite, { ...project, id: "replacement" });
+		const current = seedPull(sqlite, {
+			...pull,
+			id: "replacement-pull",
+			projectId: replacement.id,
+			number: 2,
+			externalId: "2",
+		});
+		await addObservation(sqlite.db, "cli", { pullId: current.id }, PR_TEST_NOW);
+		for (const field of ["projectId", "project"]) {
+			for (const id of [project.id, replacement.id]) {
+				const filters = new URLSearchParams({
+					includeStopped: "true",
+					[field]: id,
+				});
+				const result = observationListSchema.parse(
+					await (await request(`/api/query/v1/observations?${filters}`)).json(),
+				);
+				expect(result.data.map((o) => o.ref.projectId)).toEqual([id]);
+				expect(result.page.total).toBe(1);
+			}
+		}
+	});
 	test("watch pages hydrate only selected snapshots even with substantial stopped history", async () => {
 		const { project, pull } = seed();
 		const insert = sqlite.raw.query(`INSERT INTO pr_observations

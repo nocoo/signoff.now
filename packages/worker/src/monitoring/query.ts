@@ -1000,7 +1000,7 @@ async function readObservationPage(
 	) {
 		// Resolve only distinct repository identities, including stopped watches whose projects were removed.
 		const identities = await db
-			.prepare(`SELECT DISTINCT json_remove(o.identity,'$[5]') scope_key,
+			.prepare(`SELECT DISTINCT json_array(o.project_id,json_remove(o.identity,'$[5]')) scope_key,
       json_remove(o.ref_json,'$.number','$.url') ref_json FROM pr_observations o WHERE ${where.join(" AND ")}`)
 			.bind(...values)
 			.all<{ scope_key: string; ref_json: string }>();
@@ -1035,7 +1035,7 @@ async function readObservationPage(
 			})
 			.map((row) => row.scope_key);
 		where.push(
-			"json_remove(o.identity,'$[5]') IN (SELECT value FROM json_each(?))",
+			"json_array(o.project_id,json_remove(o.identity,'$[5]')) IN (SELECT value FROM json_each(?))",
 		);
 		values.push(JSON.stringify([...new Set(matching)]));
 	}
