@@ -41,7 +41,7 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 
 | 情况 | 展示 | 恢复 |
 | --- | --- | --- |
-| 第一次读取，没有成功数据 | 块内部 skeleton，保留页面主标题和筛选容器 | 本块响应结束后进入数据、空态或错误态 |
+| 第一次读取，没有成功数据 | 保留主标题、筛选容器与 PR 表头，按实际列宽显示 Basalt 骨架行；详情使用对应结构的骨架，保留关闭操作 | 本块响应结束后进入数据、空态或错误态；占位不伪装成可操作 PR |
 | 已有数据，正在重新读取 | 保持内容和滚动位置，局部加载标记 | 成功后替换本 key 的数据 |
 | 已有数据，读取失败 | 保留上次数据与原始采集时间，块内短错误提示 | 本块 Retry；不重置其他块 |
 | 查询成功，筛选无结果 | 筛选空态，提供清除筛选 | 不提示服务故障，不生成示例 PR |
@@ -52,6 +52,8 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 | Sample / Live 或筛选切换 | 新 key 的缓存或 skeleton | 旧 key 的迟到响应不能写入新块 |
 
 空态、错误态遵循 Basalt 的公共 `EmptyState`、`LayerCard` 和页面模板。ContentIsland 负责页面 padding；无内边距卡片内由 EmptyState 提供留白；图表和小模块使用 compact 空态。页面错误区明确保留上次成功数据；详情错误放在详情面板内。
+
+加载时表格设置 `aria-busy`，只播报一次加载状态，禁用选择与排序；装饰性骨架不进入读屏内容，动画遵从减少动态效果设置。已有成功数据的后台重读不重新显示整块骨架；详情已有摘要时先展示摘要，只为尚未取得的完整描述保留占位。
 
 ## 4. 多选与观察操作
 
@@ -72,10 +74,12 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 ## 5. 请求与命令生命周期
 
 - 每个 key 同时最多一个自动读取请求；下一次轮询从本次响应结束后计时。组件卸载和 key 变化取消请求，同时以实例生命周期和取消信号拒绝迟到结果。
+- Collector 每 3 秒返回同 source 的 `dataRevision`。版本变化通过 `revalidate()` 合并通知已经挂载的列表、详情、待采集清单、目录与引用解析块；不以 Collector 心跳刷新全页。有效在途读取可以先落地，随后仅补一次重读，因此采集持续发布时慢查询也能前进。显式 `reload()` 与命令成功后的 `update()` 则使命令之前的读取失效，防止旧 GET 覆盖已确认操作。这三种动作不可混用。
 - 网络错误使用有上限的重试退避；手动 Retry 只重试读取。用户选择的筛选和未保存草稿独立于查询缓存。
 - `Refresh watched` 只提交观察项的状态刷新，`Discover PRs` 首次发现完整历史、后续增量发现候选，仍包含所有状态；收到回执就结束提交态。需要重查旧的未关注 PR 时，CLI / API 提供显式 full 发现，见 18。
-- Connector 连接状态、关注 / 运行 / 排队数量、当前任务与真实进度、刷新冷却配置统一位于 sidebar 底部、头像上方，与导航融为一体，不另套卡片。空闲时保留紧凑状态区；在线用绿色，离线 / 登录过期 / 错误用红色，同时保留文字标识。从完整来源目录中有关注项的项目计算下次到期时间，不受 PR 筛选和旧 enabled 字段影响。单项目登录失败保留红色警告，其他项目的运行进度仍显示；Collector 整体离线或不可用时保留缓存数量，停止播放运行进度。PR 和 Projects 页不重复放连接块或冷却控件，也不覆盖页面右下角。间隔菜单与触发器等宽、字号一致，选项不换行。折叠时保留状态图标与 tooltip，点击展开详情；动画尊重减少动态效果设置。
-- 采集成功只使相关 PR / 仓库块下次读取新版本，不触发 Directory 重载或 Insights 重算。
+- Connector 连接状态、关注 / 运行 / 排队数量、当前任务与真实进度、刷新冷却配置统一位于 sidebar 底部、头像上方，与导航融为一体，不另套卡片。`State 30s` 表示逐项基础状态冷却，`Checks` 菜单设置完整检查的轮次冷却；Manual 只关闭自动完整检查。在线用绿色，离线 / 登录过期 / 错误用红色并保留文字。从完整来源目录中有关注项的项目计算检查到期时间，不受 PR 筛选和旧 enabled 字段影响。单项目登录失败保留红色警告，其他项目仍可运行；Collector 离线时保留缓存数量，停止播放运行进度。PR 和 Projects 页不重复放连接块，也不覆盖页面右下角。间隔菜单与触发器等宽、字号一致，选项不换行；折叠状态和动画保留无障碍支持。
+- Collector 任务预览按项目、任务种类、通道、观察项 / 范围去重，优先显示活跃任务与仍未被同通道新结果取代的最近失败。频繁成功的状态探测不能挤掉检查失败；完整队列计数独立于最多 200 条的预览。
+- 采集成功使同来源相关查询块读取新版本，不触发 Directory 重载或 Insights 重算。
 - 冷却设置的保存中、失败和成功反馈紧邻 sidebar 控件，所有页面均可见；失败保留原间隔并允许重新选择。配置属于全局，来源切换不丢失保存结果；较早的 watch 回执不能覆盖设置反馈，普通 watch 错误也不显示在设置旁。
 - 初次打开、翻页和筛选都只读缓存，不再发送 `usePageCollection` 的页面范围 / 可见性心跳。移除这个隐式采集入口。
 - 添加使用本地可解析的规范引用，不等待 provider；不同页面和 CLI 添加同一 PR 是幂等操作。删除使用查询取得的 observation ID / generation，迟到的删除不能移除后来重新添加的一代，也不自动重试冲突。
@@ -87,16 +91,18 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 - 全局 Live / Sample、Organization → Project → Repository、默认不含 Draft、作者多选、localStorage 筛选，以及 URL 明确参数优先。
 - Sample 发现能力来自 Collector 查询的 `sampleCommandsEnabled`，由服务端本地 demo 配置判定，与网页是否为开发构建无关。
 - PR 页默认 20 条，表头排序；项目自定义全部 merge requirements 的次序与颜色，最就绪在前；无 PoP 内置特例。
+- PR 标题列随屏幕宽度调整、最多 400px；Checks 与 Next action 均分剩余空间，避免宽屏时内容挤在一侧。窄屏保留表格最小宽度并横向滚动，骨架与内容共用列宽。
+- Readiness badge 使用 Basalt 实心色与白字。ADO build policy 明确报告 `isExpired=true` 或 `buildIsNotCurrent=true` 时显示红色 `Build Expired`，下一步是重新排队构建；保留项目定义的 gate 顺序，不能由通用 Build 标签或已保存的蓝色掩盖失效。没有明确到期证据的 queued build 不标为过期。
 - PR 页用 Basalt 分区线划分筛选与结果：Org / Project / Repo、搜索、作者、Draft、Readiness 和状态收进独立筛选卡片，表格与批量操作使用独立结果卡片。分区线右侧放范围链接 / 关注筛选，以及 Readiness order / Refresh watched / Discover PRs，避免另外占一排；副标题简述页面用途，不重复当前范围。
 - 共享领域规则决定网页和 CLI 的 readiness。未知检查、SHA 变化与 partial 不得产生假的“可合并”。
-- PR 编号、源 PR、组织、项目、仓库和 build 外链；Markdown 描述；姓名头像。
-- `PR updated` 是源 PR 时间，`Synced` 和 `Checks synced` 是各自采集时间，按分钟更新显示。
+- PR 编号、源 PR、组织、项目、仓库和 build 外链；Markdown 描述；姓名头像。`Target branch` 独立一列，使用完整分支名生成新标签页外链：ADO 以稳定仓库 ID 加 `version=GB…`，GitHub 使用仓库名加 `/tree/…`，分支引用编码后使用。长分支名截断展示并保留完整 tooltip；checkbox 与 watch toggle 在各行中纵向居中。
+- `PR updated` 是源 PR 时间，右侧 `State` 和 `Checks` 分别显示摘要与检查的采集年龄，按分钟更新并提供绝对时间 tooltip，不重复放在 stages 单元格中。
 - Repos / Insights 的独立 Refresh、24 小时黄 / 72 小时红以及默认排除 Draft；后台采集不自动重算统计。
 
 ## 7. 验证入口
 
-- `useQueryBlock.test.tsx`：完成后轮询、可见性、取消、并发 Reload 合并、失败退避、来源切换，以及旧查询不能覆盖命令回执。
+- `useQueryBlock.test.tsx`：完成后轮询、可见性、取消、并发 Reload / revalidate 合并、持续发布不饿死慢读取、失败退避、来源切换，以及旧查询不能覆盖命令回执。
 - `useWorkbenchViewModel.test.tsx`：页面选择、乐观更新、不同 PR 并发、逐项成功 / 失败回滚、慢读取不阻塞、代次保护、来源隔离和零隐式采集。
 - `monitoringApi.test.ts`：公共 DTO、分页、命令载荷和 pending 范围。
 - `useContributionModule.test.tsx`：统计只在明确刷新时计算。
-- `tests/e2e/monitoring.spec.ts`：浏览器与真实 CLI 共用 Wrangler D1，覆盖批量选择、Draft、来源切换、旧页面删除冲突、21 个待采集项的翻页移除、局部错误重试、构建后 Sample 发现和慢速认证后的终态发布。另一个流程覆盖首次发现时的仓库 ID / 名称冲突、格式错误 URL 的逐项回执、跨客户端筛选与仓库范围缩小。
+- `tests/e2e/monitoring.spec.ts`：浏览器与真实 CLI 共用 Wrangler D1，覆盖批量选择、Draft、来源切换、旧页面删除冲突、待采集项翻页、局部错误与 Sample 发现。检查任务被阻塞时，独立状态任务仍发布终态、取消旧检查，已打开列表和详情自动收敛。另有首次发现的身份冲突、范围缩小、慢速认证、骨架到内容的表格保持、分支外链、控件居中及宽屏列宽分配验证。

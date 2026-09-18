@@ -80,11 +80,16 @@ Sample 的观察记录单独隔离，只在现有本地 demo 模式允许写入�
 | 工作 | 谁决定范围和时机 | 执行器负责的内容 |
 | --- | --- | --- |
 | discover / 内部 list | 网页 / CLI 明确命令，提供项目或仓库范围 | 首次 / full 枚举历史，之后按成功边界增量分页；始终包含 Draft、Completed、Abandoned，不请求 policy / build / timeline |
-| refresh / 内部 checks | Scheduler 从 active 观察项安排，或收到针对 active 项的提前刷新命令 | 定向读取 PR、review、policy、status、build、stage |
+| refresh / checks 通道 | Scheduler 从 active 观察项安排，或收到针对 active 项的提前刷新命令 | 定向读取 PR、review、policy、status、build、stage；已确认终态立即跳过检查补全 |
+| refresh / status 通道 | Scheduler 按每个 active 观察项本次完成后 30 秒安排 | 只 GET 单个 PR 摘要，确认 open / merged / closed、分支与提交；不请求 policy、build、timeline、统计或发现 |
 
-发现结果与观察列表是两个集合。观察列表为空时仍可执行显式发现任务，但绝不自行产生 checks。缓存里有 1,000 个 PR、观察列表只有 3 个时，周期 checks 的目标就是这 3 个。
+发现结果与观察列表是两个集合。观察列表为空时仍可执行显式发现任务，但绝不自行产生 checks / status。缓存里有 1,000 个 PR、观察列表只有 3 个时，两条周期通道的目标都只有这 3 个。provider 仅在领取真实采集任务后创建，空清单不检查登录。
 
 保留“整轮完成后才计冷却”：checks 默认 300 秒，按 `(source, 外部项目身份, checks)` 隔离轮次；发现没有自动冷却轮次，只执行显式请求。不同项目可以独立推进，某组织登录过期不冻结别的项目。
+
+status 不等待整个项目的 checks 轮次结束：每个 `(observationId, generation)` 的状态尝试结束后独立冷却 30 秒，再获得排队资格。同代次每通道最多一个 queued / running / auth_required 任务，每项目每通道最多一个 running 任务；数据库唯一约束与 claim 条件共同保证。daemon 为 checks 和 status 各保留两个执行循环，慢发现 / 检查不占用状态位置；认证退避由同项目两条通道共享，避免绕过退避重复登录。
+
+状态探测的终结任务回执保留 24 小时，清理不删除快照、停止观察记录或完整检查 / 发现回执。状态成功不生成 `scan_runs` 或更新项目完整扫描时间。Sample 状态探测只读取其保存状态，不推进模拟构建。
 
 ### 发现任务的单位
 
@@ -100,7 +105,7 @@ ADO [Pull Requests API](https://learn.microsoft.com/en-us/rest/api/azure/devops/
 
 仓库完整分页与新游标在同一 guarded D1 事务发布；中途失败、取消、失效租约、快照冲突或声明 partial 的列表都不能发布为成功。多仓库部分成功只推进成功仓库的游标。认证重试沿用首次登记的起始游标，重新执行失败仓库；观察状态刷新不改变发现边界。
 
-旧的未关注 PR 不会因增量发现而重新核对其状态；持续关注项由 checks 负责。需要手动核对旧历史时使用 CLI `discover --full` 或 HTTP `full: true`，它不使用起始游标、不删除缺席快照，也不自动增加关注项。
+旧的未关注 PR 不会因增量发现而重新核对其状态；持续关注项由 status 确认基础状态、checks 补齐检查。需要手动核对旧历史时使用 CLI `discover --full` 或 HTTP `full: true`，它不使用起始游标、不删除缺席快照，也不自动增加关注项。
 
 上游仓库改名但 provider ID 未变时，用该 ID 已保存的名称别名验证项目配置范围，接受新名称并保留旧名称。旧 URL、新 URL、GUID URL 和缓存 PR ID 都解析到同一个观察身份；不能把不同 provider ID 当成原仓库接纳。
 
@@ -109,6 +114,8 @@ ADO [Pull Requests API](https://learn.microsoft.com/en-us/rest/api/azure/devops/
 首次 ADO 枚举、Sample 任务过滤、计划登记、项目范围清理和缓存查询采用相同的 ID 优先规则。源返回仓库的顺序不会改变选中身份；请求的 ADO ID 缺失时返回失败，不能把同名仓库发布成该 ID 的成功发现结果。
 
 保存的观察 ref 用于定位刷新目标，计划登记不把其中的旧名称写回目录。目录名称由发现返回的仓库元数据，或通过 lease / revision / version / generation 校验后发布的 PR 快照更新；刷新暂存、失败或移除后的迟到结果不更新目录。名称更新保留已有别名，也不把单条 PR 刷新标记为完整历史发现。
+
+仓库名称在不同 PR 之间共享，按 `name_observed_at` 比较事实时间。发现以每次仓库页请求开始时间标记元数据；PR 发布使用被选中摘要的观测时间。较旧事实不能覆盖另一个 PR 已报告的新名称；真正较新的改名仍可更新，旧别名保留。重用冻结发现计划标记时间为 0，不冒充新读取；旧执行器省略时间时使用登记时间兼容。
 
 `job get` 返回每仓库的 state、PR 数量与错误。一个仓库失败时，成功仓库的完整结果可以按仓库边界原子发布，失败仓库保留旧数据；任务整体为 partial / failed，不能标成全成功。发现任务不会自行安排下一轮。配置改变使旧范围任务取消，新 revision 的发现轮次重新建立。
 
@@ -121,14 +128,14 @@ nextDueAt        = roundCompletedAt + cooldownSeconds
 
 每轮开始固定观察项及 generation。新加入项获得单独的首次刷新资格，不无限扩充正在运行的轮次；移除 / 淘汰会取消该代次未开始的工作并从待完成目标中结算。任务较慢时不会按固定 interval 叠加下一轮。
 
-后台观察项不受网页 20 条页大小限制，按单 PR 任务和已有上传字节限制分批执行。每个项目同时最多一个采集任务，到期的显式发现任务可在两个 PR 刷新之间执行；PR 按等待次序推进，不再使用网页可见性或 45 秒页面租约控制采集。
+后台观察项不受网页 20 条页大小限制，按单 PR 任务和已有上传字节限制分批执行。显式发现与完整检查共用 checks 通道，同项目顺序执行；status 有独立租约和执行位置。PR 按等待次序推进，不使用网页可见性或页面租约控制采集。30 秒是状态冷却而非延迟上限，排队、网络和认证仍可能延迟实际读取。
 
 | 情况 | 规则 |
 | --- | --- |
 | 首次 / 重启 | 读取持久观察项和任务；已到期开始一轮，不补跑每个错过的时间点 |
 | 重复 schedule | 不建立第二轮或重复的同代次 PR 工作 |
-| 重复 refresh 命令 | 复用 queued / running / auth_required 的同代次工作；回执说明是否复用 |
-| 自动冷却改为 0 | 停止新自动轮次；观察列表仍保留，明确的手动刷新仍可执行 |
+| 重复 refresh 命令 | 复用 queued / running / auth_required 的同代次 checks 工作；不以 status 回执冒充完整检查 |
+| 自动检查冷却改为 0 | 停止新自动 checks 轮次；status 仍检查 active 项的生命周期，明确的手动完整刷新仍可执行 |
 | 一项失败 / partial | 结束该次尝试，保留旧快照，其他目标继续；失败不等于退出观察 |
 | auth_required | 对应项目等待有界认证恢复；其他项目独立运行，观察项不删除 |
 | 提前刷新 | 可以越过自动冷却，仍受去重、租约和 provider 退避限制；不重置无关轮次的完成时间 |
@@ -137,13 +144,13 @@ nextDueAt        = roundCompletedAt + cooldownSeconds
 
 ADO `completed` 规范化为 merged，`abandoned` 规范化为 closed。只有成功解析的源站终态事实才能自动淘汰；未来 GitHub 使用同一规范终态，但本期不宣称真实 GitHub 采集已支持。
 
-执行器提交终态时，在同一事务中发布最终 PR 快照、停用任务绑定的观察代次并取消其后续未开始任务。最终快照仍可被网页、CLI 和手动统计读取。
+任一通道读到终态后不再等待 policy / build / stage；在同一事务中发布最终 PR 快照、停用任务绑定的观察代次，并取消该代次其他排队与运行任务。当前发布任务正常结束；已发出的请求即使返回，也无法凭旧租约发布。最终快照仍可被网页、CLI 和手动统计读取。
 
 终态证据必须包含规范 PR 身份、源状态、成功观测时间、任务 / lease token、项目 revision、读取时的 PR 快照版本，以及 `(observationId, generation)`。refresh 从创建 / 领取时绑定的观察项获取它；discover 在**实际领取时**，从其明确仓库范围内的 active 观察项建立只读绑定清单，同时记录各 PR 的已有快照版本，未有快照记为 0。复用 running discover 不扩展这份清单；重新领取使用新 lease 并重新绑定。
 
-发布 / 淘汰要求任务 lease 与项目 revision 有效，源事实对应同一 PR 且是明确终态，待写 PR 版本仍等于读取版本，观察仍 active 且 generation 匹配。PR 版本已变化时拒绝旧事实，后续重新采集；已绑定观察被移除或代次改变时，在 staging 和最终发布两处拒绝旧结果，既不覆盖快照也不淘汰新一代。discover 对不在领取时清单内的 PR 可以发布基础数据，但无权移除后来加入的观察项，由它自己的后续 refresh 确认。Query 不负责惰性淘汰。
+发布 / 淘汰要求任务 lease 与项目 revision 有效，源事实对应同一 PR，观察仍 active 且 generation 匹配。新执行器携带独立摘要事实时间：PR 版本并发变化时先按摘要 / 检查时钟合并，再以实际读取的基准版本 CAS 发布，不因一次检查发布就丢弃较新的终态。观察被移除或代次改变仍在 staging 和最终发布两处拒绝旧结果，不能合并到新一代。未携带新时钟的旧执行器继续使用严格的原快照版本校验。discover 对不在领取时清单内的 PR 可以发布基础数据，但无权移除后来加入的观察项，由它自己的后续 refresh 确认。Query 不负责惰性淘汰。
 
-单 PR refresh 只绑定自己的目标和 generation，不复制仓库全部历史。发现发布在数据库内校验暂存数量和覆盖信息，不把整仓历史快照读入 Worker；仅详情任务读取单个暂存快照来更新 merge requirements。
+单 PR refresh 只绑定自己的目标和 generation，不复制仓库全部历史。发现发布在数据库内校验暂存数量和覆盖信息，不把整仓历史快照读入 Worker；详情任务使用单个暂存快照更新 merge requirements。两条通道的事实合并和资源上限见下一节。
 
 以下均不能当作 completed / abandoned：PR 没出现在本轮发现列表、403、404、网络错误、token 过期、返回空内容、policy 失败。它们保留观察项并记录错误，后续按恢复策略处理。
 
@@ -155,8 +162,13 @@ ADO `completed` 规范化为 merged，`abandoned` 规范化为 closed。只有�
 
 沿用 [`collection.ts`](../packages/worker/src/routes/collection.ts) 的 staged publication：暂存、验证数量与大小，再以 D1 batch 原子发布。任务租约保持 120 秒，执行期间续租；观察代次校验加入既有租约与 revision 条件。
 
+摘要使用成功请求的开始时刻 `summaryObservedAt`，完整检查使用自己的 `checksObservedAt`。先选择较新的摘要；同刻 open 与终态冲突时终态优先。再选择与该摘要 head / target SHA / target branch 一致的最新有效检查。慢检查的完成时刻不能被用来伪装它较早读取的标题、分支或 PR 状态；旧 head 检查不能验证新 head。
+
+合并在有字节上限的上传批次中完成，暂存不可变 `raw_snapshot` 与实际读取的 `base_version`。最终发布只重读自暂存后发生变化的 PR，而不是重新解析整个发现历史。每次竞争核对最多 10 批、每批 20 条，CAS 最多 3 次；持续冲突明确失败，旧缓存保留。每次重试从原始事实重新合并，不能反复加工上次合并结果。最终事务同时保护所有基准版本、租约、项目 revision 和观察代次。
+
 - list 不完整枚举不能发布成空仓库；失败仓库与未返回记录的旧快照保留，不根据缺席推断终态。
 - head / target SHA 或目标分支变化使检查失效，未知检查不能变成 ready；复用检查时保留其原始观测时间。
+- ADO build policy 的明确 `isExpired` / `buildIsNotCurrent` 布尔真值标记为过期失败；普通 queued / pending 与没有到期证据的 policy 不被推断为过期。公共 readiness 显示红色 `Build Expired`，顺序仍由项目 gate 配置决定。
 - partial 保留已经取得的事实与缺失原因，不能补造 policy 成功、stage、计数或时间。
 - 停止进程先停止领取，再有限等待收尾；租约过期后重新领取，旧 token 不能发布。
 - 认证只在执行器处理，按组织 / 租户隔离；沿用有效期检查、接近过期续期、401 一次重试与 403 区分。
@@ -171,7 +183,9 @@ ADO `completed` 规范化为 merged，`abandoned` 规范化为 closed。只有�
 | 添加 / 删除 | URL / pullId 归一到同一唯一键，并发只激活一次；仓库身份已知的未缓存 PR 可加入；未知身份零写入；200 项不受 20 条限制 |
 | 淘汰 | completed、abandoned 原子发布终态并退出；最终快照保留；Draft / 403 / 404 / 空列表 / 认证失败不淘汰 |
 | 竞争 | 移除与 claim、移除与发布、移除后重加与旧终态、发现与新观察代次交错；旧工作不能删除或覆盖新一代 |
-| 时钟 | 最后一项完成后计时；移除目标能结束本轮；新加入不使旧轮无限延长；慢任务不重叠；重启不补跑 |
+| 时钟 | checks 最后一项完成后计冷却，status 每项完成后独立计时；关闭自动 checks 不关闭 status；移除目标能结束本轮；慢任务不叠加 |
+| 通道隔离 | 阻塞发现 / build 时状态位置仍可运行；状态探测不请求检查或改变完整扫描时间；共享认证退避；状态回执清理不动观察和快照 |
+| 事实竞争 | 慢检查不能覆盖较新终态 / 分支；checks 独立择新且须匹配提交；跨 PR 旧仓库名不能覆盖新元数据；大历史发布不全量重新解析；持续写竞争有资源上限 |
 | 外围发现 | 刷新模块单独运行没有发现调用；单仓库命令不扩大范围；多仓库部分失败明确报告；重领保留仓库计划 |
 | 只读边界 | Query 零任务、零观察写入、零 provider 调用；命令回执在 provider 被阻塞时仍返回 |
 | 恢复 | 租约抢占、认证过期、429、项目来源改变；旧数据保留，其他项目继续，查询可用 |

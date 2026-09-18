@@ -10,6 +10,7 @@
 - `watch add / remove` 修改持久观察列表；`discover` 与 `refresh` 返回排队回执，由执行器稍后完成。
 - 每个 PR 都提供 provider、组织、项目、repository、PR number、内部 ID、源 URL 与各自采集时间，供其他项目进一步调查。
 - PR 列表、观察列表与单条详情是不同查询。观察列表包含等待首次结果的引用，也能包含未显示在网页当前页的 PR。
+- daemon 按 active 观察项分别执行 30 秒完成后冷却的基础状态探测，以及默认 300 秒整轮完成后冷却的完整检查。两者不依赖网页前台；状态探测不被慢构建检查占用执行位置。命令语法不变，查询仍不触发任何采集。
 
 ## 2. 命令结构
 
@@ -165,6 +166,8 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 - ADO 的组织 / 项目 / 仓库为 `msdata / Vienna / online-meetings` 等三级结构；GitHub Sample 按 `github.com / nocoo / signoff.now` 表达，项目 key 对应 owner。
 - 列表还返回作者身份、分支 / SHA、检查完成摘要与内容完整性。`pr get` 的 `data` 为一个对象，补全描述、全部 merge requirements、reviewers、policies、builds / stages、下一步和缺失原因。
 - requirements 包含逻辑 ID、种类、名称、required、state、sourceIds、links、配置 label / color；只列此 PR 上有事实依据的阻塞要求，其他仓库的策略不混入，links 指向源 PR；PoP 只是其中一项，readiness 与网页共用领域规则和项目配置。
+- ADO build policy 有明确布尔到期证据时，`policies[].expired=true`，readiness issue 可带 `reason: "build_expired"`、`color: "red"`，对应 requirement / 主要标签为 `Build Expired`。这些是 v1 可选新增字段；保存的通用 Build 标签不掩盖到期，但项目 gate 顺序不变。未提供到期证据时不补造 expired，普通 queued build 仍是排队。
+- `freshness.listObservedAt` 使用成功摘要请求的开始时间，检查保留独立 `checksObservedAt`；慢检查不能把旧 open 覆盖较新 merged。`targetSha` 仍是 ADO PR 的 `lastMergeTargetCommit`，不是当前目标 ref 的独立读取。`checksValidity: valid` 只关联最后已知提交，不能单独作为当前目标 CI 或 stage retry 的操作证据；缓存没有完整 raw build / stage attempt / policy evaluation 操作上下文。
 - `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示每条历史 PR 都刚刷新。首次 / full 发现覆盖全部可访问历史与所有状态，后续增量发现只核对创建时间边界附近的数据；旧的未关注 PR 状态可能较旧。迁移保留的旧缓存仍明确标记为有限历史覆盖，不能冒充完整发现。
 - `watch list` 每项返回观察元数据、完整 `ref`、可空的 `pullId` 和可空的 `pull` 摘要，首次采集前不会伪造一个 PR 快照。
 - 每个规范 PR 只保留一条观察记录；inactive 首版不自动清理。`--include-stopped` 返回所有保留行的当前 generation，不按“最近 N 天 / N 条”截断，也不是每次增删的事件日志。重新加入覆盖该行启停字段并推进 generation；lookup 始终取当前一代，不查历史代次。`stopReason` 为 null、manual、completed、abandoned、project_deleted 或 scope_changed。项目删除后停止记录仍保留，`pull` 可为空。
@@ -186,8 +189,8 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 | `GET /api/query/v1/prs/lookup` | `source`、`repositoryUrl`、`number` 唯一定位缓存详情；客户端把完整 PR URL 拆成这些字段，不访问源站；缓存未找到为 404 |
 | `GET /api/query/v1/observations` | 默认 active；`includeStopped=true` 包含所有保留的 inactive 行，按规范身份稳定排序并使用同一 source 版本分页 |
 | `GET /api/query/v1/observations/lookup` | `source` 加 `pullId`，或 `repositoryUrl` + `number`；本地解析后返回唯一观察项 ID / generation 及 active / 停止状态，未观察为 404 |
-| `GET /api/query/v1/collector` | 执行器、两类任务、观察数量、最近错误，以及由本地 demo 授权条件计算的 `sampleCommandsEnabled` |
-| `GET /api/query/v1/jobs/:id` | 已存任务状态 |
+| `GET /api/query/v1/collector` | 执行器、按范围 / 通道去重的任务预览、完整队列计数、观察数量、最近错误、检查与状态冷却，以及 `sampleCommandsEnabled` |
+| `GET /api/query/v1/jobs/:id` | 已存任务状态；状态探测的终结回执保留 24 小时，超过保留期可返回 NOT_FOUND |
 | `POST /api/commands/v1/observations` | `{ source, refs: [{ pullId } 或 { url }] }`，每批最多 100 项，逐项返回 added / already_observed / rejected、observation ID / generation、job 回执或 error |
 | `DELETE /api/commands/v1/observations/:id?source=…` | `If-Match: "<generation>"`，仅移除该代次；同代次已停止为幂等成功，代次不匹配为 409 |
 | `POST /api/commands/v1/observations/remove` | `{ source, items: [{ id, generation }] }`，最多 100 项，逐项 removed / already_stopped / conflict / not_found |
@@ -200,7 +203,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 
 可通过顶层 URL 格式校验、但路径含非法百分号编码的引用（例如 `%ZZ`）也只是该项的 `INVALID_REFERENCE`；后续有效项继续执行，成功项保留 job 回执。CLI 在本地解析到此类参数时，以 exit 3 / `INVALID_ARGUMENT` 返回，不访问服务或 provider。
 
-added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false, notBefore }`，与观察激活同一事务创建；失败项没有观察 / 任务残留。already_observed 不产生新工作：若有同代次 queued / running / auth_required 任务则返回该 job 且 coalesced 为 true，否则 job 为 null，保留当前冷却。执行任务后来失败不撤销观察，按 16 的恢复规则重试；消费者可直接用回执中的 ID 调用 job get，不需要扫描任务列表。
+added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false, notBefore }`，与观察激活同一事务创建；失败项没有观察 / 任务残留。already_observed 不产生新工作：若有同代次 queued / running / auth_required 的完整检查任务则复用该 job，否则 job 为 null，保留当前冷却。`refresh` 也只复用 checks 工作，不把一次基础状态探测当成完整检查。执行任务后来失败不撤销观察，按 16 的恢复规则重试；消费者可直接查询回执 ID。
 
 discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefore }]` 和零目标时的说明。收到 202 仅表示任务已保存，不表示刷新成功。消费者稍后用 `job get` 查询；登录过期作为任务状态返回，不能触发查询 CLI 自己登录。
 
@@ -208,11 +211,13 @@ discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefo
 
 项目级发现与仓库 URL 发现采用相同的别名唯一性校验。名称复用导致多个稳定 ID 匹配时，返回 HTTP 409 / `REFERENCE_AMBIGUOUS`，不入队；可通过仓库 ID 消除歧义。固定范围内的 provider ID 不能由另一个仓库的名称替代。`repo add` 遇到 Unicode 大小写等价的多个项目注册时，也以 exit 3 / `REFERENCE_AMBIGUOUS` 拒绝，不任意编辑其中一个项目。
 
-`job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消后续任务为 observation_retired。任务摘要在项目删除后仍保留。
+`job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果；可选 `lane: "status"` 表示仅检查 PR 摘要，省略 lane 的旧 / 完整任务按 checks 理解。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消其他任务为 observation_retired。项目删除不主动清除摘要；状态探测仍受 24 小时回执保留期约束。
+
+Collector 返回 `detailCooldownSeconds` 与可选新增 `statusCooldownSeconds: 30`。前者设为 0 只停止自动完整检查，active PR 的基础状态仍持续检查。`jobs` 是最多 200 条的诊断预览：每个项目 / 种类 / 通道 / 观察项或范围取最新任务，活跃任务与尚未恢复的最近失败优先；不是任务历史全集。队列、运行数与认证状态从完整集合计算。状态成功不生成项目完整扫描记录；终态快照与停止观察记录不受任务回执清理影响。
 
 discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；pullCount 是本次返回的窗口数量，不是仓库历史总量。单仓库完整结果与成功游标原子发布，失败仓库保留旧数据和边界，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
 
-首次发现没有游标，枚举全部历史。后续依据上次成功的创建时间、重叠一秒并固定查询上界，减少旧页请求，不假设 ADO 按 ID 排序；起始游标与仓库计划冻结，失败不推进。`--full` 与默认增量任务不合并，其他相同范围、模式的未结束请求仍去重。需要重新核对较旧未关注 PR 的合并 / 关闭状态时显式使用 `--full`，持续关注项则由独立 checks 周期更新。细节见 [16](16-scheduler-state-machine.md)。
+首次发现没有游标，枚举全部历史。后续依据上次成功的创建时间、重叠一秒并固定查询上界，减少旧页请求，不假设 ADO 按 ID 排序；起始游标与仓库计划冻结，失败不推进。`--full` 与默认增量任务不合并，其他相同范围、模式的未结束请求仍去重。需要重新核对较旧未关注 PR 的合并 / 关闭状态时显式使用 `--full`，持续关注项则由 status / checks 分别更新。细节见 [16](16-scheduler-state-machine.md)。
 
 对未终结任务，取消事务立即令整体 state=canceled，优先于未结算的 partial / failed，不等待在途请求。已结束的 repositories 项保留 succeeded / failed，尚未结束的项变成 canceled；所以“一个仓库已成功，另一个被取消”返回 canceled 和逐仓库结果。先前发布不因取消而回滚，项目删除 / 来源替换仍可按配置操作的语义删除缓存；旧任务摘要保留。迟到响应不得再发布。若任务先已终结，则后来的配置操作不改写其历史结果。
 
