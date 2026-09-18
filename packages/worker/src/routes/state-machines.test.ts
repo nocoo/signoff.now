@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	machinePageSchema,
 	machinePreviewSchema,
+	machinePullPageSchema,
 	pullDetailSchema,
 } from "@signoff/domain/query";
 import { defaultStateMachine } from "@signoff/domain/state-machine";
 import app from "../index";
+import { addObservation } from "../monitoring/observations";
 import { seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 
@@ -43,6 +45,116 @@ function seed() {
 	return { project, pull, config: defaultStateMachine(project, [pull]) };
 }
 describe("state machine configuration and replay", () => {
+	test("PR choices default to watched and paginate by stable identity across collection updates", async () => {
+		seedProject(sqlite, { repositories: [] });
+		for (let number = 1; number <= 25; number++) {
+			seedPull(sqlite, {
+				id: `pr-${number}`,
+				number,
+				externalId: String(number),
+			});
+			await addObservation(sqlite.db, "cli", { pullId: `pr-${number}` }, 100);
+		}
+		seedPull(sqlite, {
+			id: "unwatched",
+			number: 100,
+			externalId: "100",
+			title: "100%_ done",
+		});
+		const route = "/state-machines/live-project/pulls?repositoryId=repo-1";
+		const first = machinePullPageSchema.parse(
+			await (await request(route)).json(),
+		);
+		expect(first.data.map((pr) => pr.number)).toEqual(
+			Array.from({ length: 20 }, (_, i) => 25 - i),
+		);
+		expect(first.data.every((pr) => pr.watched)).toBe(true);
+		expect(first.nextCursor).toBeTruthy();
+		// Removing an earlier row and changing collection clocks cannot skip the next PR.
+		sqlite.raw.query("DELETE FROM pull_requests WHERE id='pr-25'").run();
+		sqlite.raw.query("UPDATE pull_requests SET published_at=999").run();
+		const second = machinePullPageSchema.parse(
+			await (
+				await request(
+					`${route}&cursor=${encodeURIComponent(first.nextCursor!)}`,
+				)
+			).json(),
+		);
+		expect(second.data.map((pr) => pr.number)).toEqual([5, 4, 3, 2, 1]);
+		expect(second.nextCursor).toBeNull();
+		const searched = machinePullPageSchema.parse(
+			await (await request(`${route}&watched=false&q=%25_`)).json(),
+		);
+		expect(searched.data.map((pr) => pr.id)).toEqual(["unwatched"]);
+		expect(searched.data[0]?.watched).toBe(false);
+		expect(
+			machinePullPageSchema
+				.parse(await (await request(`${route}&q=%2312`)).json())
+				.data.map((pr) => pr.number),
+		).toEqual([12]);
+		expect(
+			(
+				await request(
+					`${route}&watched=false&cursor=${encodeURIComponent(first.nextCursor!)}`,
+				)
+			).status,
+		).toBe(400);
+	});
+	test("PR choices isolate repositories and sources, validate cursors and include same-number identities", async () => {
+		seedProject(sqlite);
+		seedProject(sqlite, {
+			id: "sample-project",
+			source: "demo",
+			organization: "sample-org",
+		});
+		seedPull(sqlite, { id: "sample-pr", projectId: "sample-project" });
+		for (let i = 0; i < 21; i++)
+			seedPull(sqlite, {
+				id: `same-${String(i).padStart(2, "0")}`,
+				repository: { id: `repo-${i}`, name: `Repository ${i}` },
+			});
+		const route = "/state-machines/live-project/pulls?watched=false";
+		const first = machinePullPageSchema.parse(
+			await (await request(route)).json(),
+		);
+		const second = machinePullPageSchema.parse(
+			await (
+				await request(
+					`${route}&cursor=${encodeURIComponent(first.nextCursor!)}`,
+				)
+			).json(),
+		);
+		expect([...first.data, ...second.data].map((pr) => pr.id)).toEqual(
+			Array.from(
+				{ length: 21 },
+				(_, i) => `same-${String(i).padStart(2, "0")}`,
+			),
+		);
+		expect(
+			machinePullPageSchema
+				.parse(await (await request(`${route}&repositoryId=repo-1`)).json())
+				.data.map((pr) => pr.id),
+		).toEqual(["same-01"]);
+		for (const query of [
+			"cursor=bad",
+			"cursor=%7B%7D",
+			"watched=maybe",
+			"source=other",
+			`q=${"a".repeat(1001)}`,
+		])
+			expect(
+				(await request(`/state-machines/live-project/pulls?${query}`)).status,
+			).toBe(400);
+		expect((await request(`${route}&source=sample`)).status).toBe(404);
+		expect((await request("/state-machines/missing/pulls")).status).toBe(404);
+		expect(
+			(await request(route, "GET", undefined, "signoff-ingest.example.com"))
+				.status,
+		).toBe(403);
+		expect(
+			sqlite.raw.query("SELECT count(*) n FROM collection_jobs").get(),
+		).toEqual({ n: 0 });
+	});
 	test("a selected historical PR stays inside the bounded replay and draft preview", async () => {
 		const { pull, config } = seed();
 		const old = seedPull(sqlite, {
@@ -69,6 +181,12 @@ describe("state machine configuration and replay", () => {
 		expect(page.truncated).toBe(true);
 		expect(page.selectedPull?.id).toBe(old.id);
 		expect(page.evaluations[0]?.id).toBe(old.id);
+		const choices = machinePullPageSchema.parse(
+			await (
+				await request("/state-machines/live-project/pulls?watched=false&q=3000")
+			).json(),
+		);
+		expect(choices.data.map((pr) => pr.id)).toEqual([old.id]);
 		const preview = machinePreviewSchema.parse(
 			await (
 				await request(

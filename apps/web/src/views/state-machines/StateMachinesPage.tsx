@@ -1,11 +1,10 @@
-import { Badge, Button, Checkbox, Input, LayerCard } from "@nocoo/basalt";
+import { Badge, Button, Checkbox, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import type { MachinePage, MachinePreview } from "@signoff/domain/query";
 import type { StateMachine } from "@signoff/domain/workbench";
 import {
 	ArrowRight,
 	CheckCheck,
-	Eye,
 	GitBranch,
 	History,
 	ListOrdered,
@@ -14,11 +13,10 @@ import {
 	Route,
 	Save,
 	ScanSearch,
-	Search,
 	ShieldCheck,
 	Undo2,
 } from "lucide-react";
-import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
+import { type Dispatch, type SetStateAction, useState } from "react";
 import { type SetURLSearchParams, useSearchParams } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
@@ -33,6 +31,7 @@ import {
 } from "@/viewmodels/useStateMachineViewModel";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ReadinessSwatch } from "@/views/workbench/WorkbenchStatus";
+import { MachinePullPicker } from "./MachinePullPicker";
 import {
 	GatesEditor,
 	MappingsEditor,
@@ -77,20 +76,6 @@ export default function StateMachinesPage() {
 		? (vm.preview?.evaluations ?? [])
 		: (page?.evaluations ?? []);
 	const selected = evaluations.find((pr) => pr.id === pullId);
-	const defaultPull =
-		page?.evaluations.find((pr) => pr.watched) ?? page?.evaluations[0];
-	useEffect(() => {
-		if (defaultPull && !pullId)
-			setParams(
-				(previous) => {
-					const next = new URLSearchParams(previous);
-					next.set("project", projectId);
-					next.set("trace", defaultPull.id);
-					return next;
-				},
-				{ replace: true },
-			);
-	}, [defaultPull, pullId, projectId, setParams]);
 	function scope(
 		nextSource: string,
 		nextProject: string,
@@ -380,15 +365,8 @@ function CanvasCard({
 	setParams: SetURLSearchParams;
 }) {
 	const [mode, setMode] = useState<"model" | "observed">("model");
-	const [search, setSearch] = useState("");
-	const [watchedOnly, setWatchedOnly] = useState(false);
 	const [allGates, setAllGates] = useState(true);
 	const now = useMinuteNow();
-	const choices = (page?.evaluations ?? []).filter(
-		(pr) =>
-			(!watchedOnly || pr.watched) &&
-			`${pr.number} ${pr.title}`.toLowerCase().includes(search.toLowerCase()),
-	);
 
 	return (
 		<LayerCard padding="none" className="min-w-0 overflow-hidden">
@@ -428,59 +406,26 @@ function CanvasCard({
 					All collected gates
 				</label>
 			</div>
-			<div className="flex flex-wrap items-center gap-2 border-b border-basalt-border bg-basalt-muted/15 p-3">
-				<div className="relative w-36 shrink-0">
-					<Search
-						size={13}
-						className="absolute left-2.5 top-3 text-basalt-muted-foreground"
-						aria-hidden
-					/>
-					<Input
-						aria-label="Search cached PRs"
-						placeholder="Find a PR…"
-						className="h-9 pl-8"
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-					/>
-				</div>
-				<SelectControl
-					aria-label="Trace pull request"
-					value={pullId ?? ""}
-					className="min-w-40 flex-1"
-					onChange={(value) =>
-						setParams(
-							(previous) => {
-								const next = new URLSearchParams(previous);
-								next.set("trace", value);
-								return next;
-							},
-							{ replace: true },
-						)
-					}
-				>
-					{!choices.some((pr) => pr.id === pullId) && pullId ? (
-						<option value={pullId}>
-							{page.selectedPull
-								? `#${page.selectedPull.number} ${page.selectedPull.title}`
-								: "Selected PR"}
-						</option>
-					) : null}
-					{choices.map((pr) => (
-						<option key={pr.id} value={pr.id}>
-							#{pr.number} {pr.title}
-						</option>
-					))}
-				</SelectControl>
-				<Button
-					size="sm"
-					variant={watchedOnly ? "secondary" : "ghost"}
-					aria-pressed={watchedOnly}
-					onClick={() => setWatchedOnly((value) => !value)}
-				>
-					<Eye size={14} aria-hidden />
-					Watched
-				</Button>
-			</div>
+			<MachinePullPicker
+				scope={{
+					source: page.project.source,
+					projectId: page.project.id,
+					repositoryId: page.repositoryId,
+				}}
+				pullId={pullId}
+				selectedPull={page.selectedPull}
+				onChange={(value) =>
+					setParams(
+						(previous) => {
+							const next = new URLSearchParams(previous);
+							next.set("project", page.project.id);
+							next.set("trace", value);
+							return next;
+						},
+						{ replace: true },
+					)
+				}
+			/>
 			{vm.dirty && !vm.preview ? (
 				<p className="border-b border-basalt-border bg-amber-500/5 px-4 py-2 text-xs text-amber-700 basalt-dark:text-amber-300">
 					Draft rules. Preview changes to compute PR states and highlight a

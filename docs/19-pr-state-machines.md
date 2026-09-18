@@ -20,6 +20,8 @@ Machine revisions are independent of collection revisions and leases. Configurat
 
 The API provides read-only preview against cached PRs, version history and version loading for a previewable rollback. Replay is bounded to 2,000 cached PRs in the selected scope: the selected PR is included first, then recent open PRs, then recent terminal PRs. Reads and previews use the same selected-PR scope. Responses expose total/evaluated counts and truncation. Configuration bodies and combined saved settings are bounded to 256 KiB. The latest 30 configuration versions are listed; earlier versions remain addressable by revision.
 
+The PR selector defaults to watched PRs and searches the full cache independently of the replay sample. Its scrollable menu loads 20 lightweight choices at a time, using PR number and identity as a scoped cursor so background status updates do not reset pagination. Search and scope changes cancel old requests; opening the menu refreshes watch membership. Choosing a PR outside the replay sample includes it in the next evaluation.
+
 Snapshot mutations atomically record observed evidence changes using D1 triggers. A rejected publication or rolled-back transaction creates no event. Polling clocks and content-only changes do not create state events. Each event retains the before/after facts and the rule context used at observation time. Rule saves are version events, separate from provider observations. The latest 30 observations per PR are retained. History starts when the migration is applied; polling may skip intermediate provider states.
 
 All `/api/state-machines/:projectId` routes require the same browser/Access boundary as other project management APIs. Pipeline credentials cannot manage machines. Live and Sample scopes are explicit.
@@ -27,6 +29,7 @@ All `/api/state-machines/:projectId` routes require the same browser/Access boun
 | Method / suffix | Behavior |
 |---|---|
 | GET | Effective machine, gate catalog, cached classifications and selected PR history |
+| GET `/pulls` | Watched-by-default PR choices with scoped search and stable keyset pagination |
 | POST `/preview` | Evaluate a draft without writes or provider calls |
 | PATCH | Save a validated configuration at the expected revision |
 | GET `/versions/:revision` | Load the selected scope from an earlier version into a draft |

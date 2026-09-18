@@ -27,6 +27,7 @@ import {
 } from "../monitoring/store.js";
 import type { AppEnv } from "../types.js";
 import { apiError } from "./query.js";
+import { readMachinePulls } from "./state-machine-pulls.js";
 
 // Bounded replay includes the selected PR, then the most recent cache with open
 // PRs first. The reported limit never implies complete project coverage.
@@ -210,6 +211,7 @@ stateMachineRoutes.use("*", async (c, next) => {
 	c.header("Cache-Control", "no-store");
 	await next();
 });
+stateMachineRoutes.get("/:id/pulls", readMachinePulls);
 stateMachineRoutes.get("/:id", async (c) => {
 	const context = await readContext(c, c.req.query("repositoryId") || null);
 	const { project, repositoryId, selectedPull } = context;

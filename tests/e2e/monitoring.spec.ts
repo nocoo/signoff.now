@@ -958,6 +958,49 @@ test("state machines preview, save and restore scoped rules without changing fac
 	await expect(
 		page.getByRole("tab", { name: "Priority", exact: true }),
 	).toHaveAttribute("aria-selected", "true");
+	const watchedFilter = page.getByRole("button", {
+		name: "Watched",
+		exact: true,
+	});
+	const picker = page.getByRole("combobox", {
+		name: "Trace pull request",
+		exact: true,
+	});
+	await expect(watchedFilter).toHaveAttribute("aria-pressed", "true");
+	await picker.click();
+	await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(1);
+	await page.keyboard.press("Escape");
+	await watchedFilter.click();
+	await picker.click();
+	const choices = page.getByRole("listbox");
+	await expect(choices.getByRole("option")).toHaveCount(20);
+	expect((await choices.boundingBox())!.height).toBeLessThanOrEqual(336);
+	await choices.locator("[data-radix-select-viewport]").evaluate((element) => {
+		element.scrollTop = element.scrollHeight;
+	});
+	await expect(choices.getByRole("option")).toHaveCount(26);
+	await choices
+		.getByRole("option", { name: /^#1\s+machines change 1$/ })
+		.click();
+	await page
+		.getByRole("textbox", { name: "Search cached PRs", exact: true })
+		.fill("#5");
+	await picker.click();
+	await expect(choices.getByRole("option")).toHaveCount(3);
+	await choices
+		.getByRole("option", { name: /^#5\s+machines change 5$/ })
+		.click();
+	await expect(page).toHaveURL(/trace=[^&]*%3A5(?:&|$)/);
+	await page
+		.getByRole("textbox", { name: "Search cached PRs", exact: true })
+		.fill("");
+	await watchedFilter.click();
+	await picker.click();
+	await expect(choices.getByRole("option")).toHaveCount(1);
+	await choices
+		.getByRole("option", { name: /^#1\s+machines change 1$/ })
+		.click();
+	await expect(page).toHaveURL(/trace=[^&]*%3A1(?:&|$)/);
 	await page.getByRole("tab", { name: "States", exact: true }).click();
 	const label = page.getByLabel(`${pull.readiness.stateId} display name`, {
 		exact: true,
@@ -1058,6 +1101,13 @@ test("state machines preview, save and restore scoped rules without changing fac
 	await page.reload();
 	await expect(page.locator(".machine-canvas .react-flow")).toHaveClass(/dark/);
 	await page.setViewportSize({ width: 390, height: 844 });
+	await picker.click();
+	await expect(choices.getByRole("option")).toHaveCount(1);
+	const mobileMenu = await choices.boundingBox();
+	expect(mobileMenu!.width).toBeGreaterThanOrEqual(340);
+	expect(mobileMenu!.height).toBeLessThanOrEqual(336);
+	expect(mobileMenu!.y).toBeGreaterThanOrEqual(0);
+	expect(mobileMenu!.y + mobileMenu!.height).toBeLessThanOrEqual(844);
 	expect(
 		await page.evaluate(() => document.documentElement.scrollWidth),
 	).toBeLessThanOrEqual(390);
@@ -1065,6 +1115,7 @@ test("state machines preview, save and restore scoped rules without changing fac
 		path: test.info().outputPath("state-machine-mobile.png"),
 		fullPage: true,
 	});
+	await page.keyboard.press("Escape");
 	expect(errors).toEqual([]);
 	await cli("watch", "remove", pull.id);
 });

@@ -165,6 +165,20 @@ export const machinePageSchema = z.object({
 	),
 });
 export type MachinePage = z.infer<typeof machinePageSchema>;
+export const machinePullPageSchema = z.object({
+	data: z.array(
+		machineEvaluationSchema.pick({
+			id: true,
+			number: true,
+			title: true,
+			watched: true,
+		}),
+	),
+	nextCursor: z.string().nullable(),
+});
+export type MachinePullOption = z.infer<
+	typeof machinePullPageSchema
+>["data"][number];
 export const machinePreviewSchema = z.object({
 	revision: z.number(),
 	dataRevision: z.string(),

@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { machineFixture } from "@/test/state-machine-fixture";
 import {
 	loadMachine,
+	loadMachinePulls,
 	loadMachineVersion,
 	previewMachine,
 	saveMachine,
@@ -10,6 +11,40 @@ import {
 
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
 beforeEach(() => vi.mocked(apiFetch).mockReset());
+it("loads lightweight PR pages with the current scope, watch filter and cursor", async () => {
+	const page = {
+		data: [{ id: "pr", number: 42, title: "Change", watched: true }],
+		nextCursor: "next",
+	};
+	vi.mocked(apiFetch).mockResolvedValue(page);
+	const controller = new AbortController();
+	const scope = {
+		source: "cli" as const,
+		projectId: "p /",
+		repositoryId: "r /",
+	};
+	expect(
+		await loadMachinePulls(
+			scope,
+			{ search: "#42", watchedOnly: true, cursor: null },
+			controller.signal,
+		),
+	).toEqual(page);
+	expect(apiFetch).toHaveBeenLastCalledWith(
+		"/api/state-machines/p%20%2F/pulls?source=live&repositoryId=r+%2F&q=%2342&watched=true",
+		{ signal: expect.any(AbortSignal) },
+	);
+	await loadMachinePulls(
+		scope,
+		{ search: "", watchedOnly: false, cursor: "next /" },
+		controller.signal,
+	);
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toContain(
+		"q=&watched=false&cursor=next+%2F",
+	);
+	controller.abort();
+	expect(vi.mocked(apiFetch).mock.lastCall?.[1]?.signal?.aborted).toBe(true);
+});
 it("keeps machine reads source/repository scoped and validates cached data", async () => {
 	const page = machineFixture();
 	vi.mocked(apiFetch).mockResolvedValue(page);

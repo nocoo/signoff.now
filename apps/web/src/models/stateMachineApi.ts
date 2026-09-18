@@ -2,6 +2,7 @@ import { type DataSource, publicSource } from "@signoff/domain/monitoring";
 import {
 	machinePageSchema,
 	machinePreviewSchema,
+	machinePullPageSchema,
 	machineVersionSchema,
 	machineWriteSchema,
 } from "@signoff/domain/query";
@@ -29,6 +30,22 @@ export async function loadMachine(
 	);
 }
 export type MachineWrite = ReturnType<typeof machineWriteSchema.parse>;
+export async function loadMachinePulls(
+	scope: MachineScope,
+	filter: { search: string; watchedOnly: boolean; cursor: string | null },
+	signal: AbortSignal,
+) {
+	const query = new URLSearchParams({
+		q: filter.search,
+		watched: String(filter.watchedOnly),
+	});
+	if (filter.cursor) query.set("cursor", filter.cursor);
+	return machinePullPageSchema.parse(
+		await apiFetch(`${path(scope, "/pulls")}&${query}`, {
+			signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+		}),
+	);
+}
 export async function previewMachine(
 	scope: MachineScope,
 	body: MachineWrite,

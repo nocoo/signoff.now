@@ -47,3 +47,11 @@
 		animation: none;
 	}
 }
+.machine-pull-menu [data-radix-select-viewport] {
+	max-height: min(
+		20rem,
+		calc(var(--radix-select-content-available-height) - 12px)
+	);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
