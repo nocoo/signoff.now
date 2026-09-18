@@ -194,6 +194,41 @@ const actorSchema = z.object({
 	handle: z.string().trim().min(1).max(1024).optional(),
 	avatarUrl: z.string().url().max(2048).optional(),
 });
+export const policyScopeSchema = z.object({
+	repositoryId: name.nullable().optional(),
+	refName: z.string().max(1024).nullable().optional(),
+	matchKind: z.string().max(80).optional(),
+});
+/** Bounded provider evidence, retained independently of its interpretation. */
+export const policyEvidenceSchema = z.object({
+	status: z.string().max(120).optional(),
+	evaluationId: name.optional(),
+	typeId: name.optional(),
+	configurationRevision: instant.optional(),
+	isBlocking: z.boolean().optional(),
+	isEnabled: z.boolean().optional(),
+	isExpired: z.boolean().optional(),
+	buildIsNotCurrent: z.boolean().optional(),
+	buildId: name.optional(),
+	validDurationMinutes: instant.optional(),
+	minimumApproverCount: instant.optional(),
+	creatorVoteCounts: z.boolean().optional(),
+	allowDownvotes: z.boolean().optional(),
+	scope: z.array(policyScopeSchema).max(1000).optional(),
+	startedAt: instant.nullable().optional(),
+	completedAt: instant.nullable().optional(),
+});
+export const buildEvidenceSchema = z.object({
+	status: z.string().max(120).optional(),
+	result: z.string().max(120).nullable().optional(),
+	sourceSha: z.string().max(240).optional(),
+	sourceBranch: z.string().max(1024).optional(),
+	identifier: z.string().max(1024).nullable().optional(),
+	attempt: instant.optional(),
+	queuedAt: instant.nullable().optional(),
+	startedAt: instant.nullable().optional(),
+	completedAt: instant.nullable().optional(),
+});
 export const policySchema = z.object({
 	id: name,
 	name,
@@ -201,6 +236,7 @@ export const policySchema = z.object({
 	definitionId: name.optional(),
 	/** Provider reports that the build no longer satisfies this policy. */
 	expired: z.boolean().optional(),
+	evidence: policyEvidenceSchema.optional(),
 	state: checkStateSchema,
 	required: z.boolean(),
 	detail: z.string(),
@@ -208,6 +244,7 @@ export const policySchema = z.object({
 });
 export type Policy = z.infer<typeof policySchema>;
 export const stageSchema = policySchema.extend({
+	evidence: buildEvidenceSchema.optional(),
 	durationSeconds: instant.nullable(),
 });
 export type BuildStage = z.infer<typeof stageSchema>;
@@ -215,6 +252,7 @@ export const buildSchema = z.object({
 	id: name,
 	name,
 	definitionId: name.optional(),
+	evidence: buildEvidenceSchema.optional(),
 	number: z.number().int().positive(),
 	state: checkStateSchema,
 	required: z.boolean(),
@@ -235,6 +273,13 @@ export const pullRequestSchema = z.object({
 	sourceBranch: name,
 	targetBranch: name,
 	state: z.enum(["open", "merged", "closed"]),
+	evidence: z
+		.object({
+			status: z.string().max(120),
+			mergeStatus: z.string().max(120).optional(),
+			mergeSha: z.string().max(240).nullable().optional(),
+		})
+		.optional(),
 	draft: z.boolean(),
 	mergeable: z.enum(["clear", "conflicts", "unknown"]),
 	coverage: z.enum(["complete", "partial"]),
@@ -256,6 +301,8 @@ export const pullRequestSchema = z.object({
 	reviewers: z.array(
 		actorSchema.extend({
 			vote: z.enum(["approved", "changes_requested", "pending", "commented"]),
+			providerVote: z.number().finite().optional(),
+			hasDeclined: z.boolean().optional(),
 			required: z.boolean(),
 			isGroup: z.boolean().optional(),
 			countsTowardApproval: z.boolean().optional(),

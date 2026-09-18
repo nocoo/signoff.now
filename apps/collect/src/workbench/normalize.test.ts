@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { demoWorkspace } from "@signoff/domain/demo";
-import { pullReadiness } from "@signoff/domain/workbench";
+import {
+	buildSchema,
+	policySchema,
+	pullReadiness,
+} from "@signoff/domain/workbench";
 import {
 	deduplicateLatestStatuses,
 	extractRequiredApprovals,
@@ -16,6 +20,135 @@ import {
 } from "./normalize.js";
 
 describe("workbench normalizer", () => {
+	test("evidence ignores malformed optional flags and retains the latest build attempt", () => {
+		const policy = policySchema.parse(
+			normalizePolicy({
+				configuration: {
+					id: 1,
+					revision: "not a revision",
+					settings: {
+						validDuration: -1,
+						minimumApproverCount: 2,
+						creatorVoteCounts: false,
+						allowDownvotes: true,
+						scope: [
+							{ repositoryId: 42 },
+							{
+								repositoryId: null,
+								refName: "refs/heads/main",
+								matchKind: "Exact",
+								private: "not retained",
+							},
+						],
+					},
+				},
+				context: {
+					isExpired: "true",
+					buildIsNotCurrent: false,
+					secret: "not retained",
+				},
+				startedDate: "2026-09-17T01:00:00Z",
+				completedDate: null,
+			}),
+		);
+		expect(policy.evidence).toMatchObject({
+			minimumApproverCount: 2,
+			creatorVoteCounts: false,
+			allowDownvotes: true,
+			buildIsNotCurrent: false,
+			completedAt: null,
+		});
+		expect(policy.evidence?.isExpired).toBeUndefined();
+		expect(policy.evidence?.validDurationMinutes).toBeUndefined();
+		expect(policy.evidence?.configurationRevision).toBeUndefined();
+		expect(policy.evidence?.scope).toEqual([
+			{ repositoryId: null, refName: "refs/heads/main", matchKind: "Exact" },
+		]);
+		expect(JSON.stringify(policy)).not.toContain("not retained");
+		const stages = normalizeBuildStages([
+			{
+				id: "old",
+				name: "CI",
+				type: "Stage",
+				identifier: "ci",
+				attempt: 1,
+				state: "completed",
+				result: "failed",
+			},
+			{
+				id: "new",
+				name: "CI",
+				type: "Stage",
+				identifier: "ci",
+				attempt: 2,
+				state: "completed",
+				result: "succeeded",
+			},
+		]);
+		const build = buildSchema.parse(
+			normalizeBuild({
+				build: {
+					id: 7,
+					status: "completed",
+					result: "succeeded",
+					sourceVersion: "merge-sha",
+					sourceBranch: "refs/pull/7/merge",
+				},
+				stages,
+			}),
+		);
+		expect(build.evidence).toMatchObject({
+			status: "completed",
+			result: "succeeded",
+			sourceSha: "merge-sha",
+		});
+		expect(build.stages).toHaveLength(1);
+		expect(build.stages[0]?.evidence).toMatchObject({
+			attempt: 2,
+			identifier: "ci",
+			result: "succeeded",
+		});
+	});
+	test("retains independent policy evidence so rules can be replayed without recollecting", () => {
+		const policy = normalizePolicy({
+			evaluationId: "evaluation-59380",
+			status: "approved",
+			configuration: {
+				id: 896,
+				revision: 4,
+				type: { id: "0609b952-1397-4640-95ec-e00a01b2c241" },
+				settings: {
+					buildDefinitionId: 653,
+					validDuration: 1440,
+					scope: [
+						{
+							repositoryId: "repo",
+							refName: "refs/heads/master",
+							matchKind: "Exact",
+						},
+					],
+				},
+			},
+			context: { buildId: 753506, isExpired: false, buildIsNotCurrent: true },
+		});
+		expect(policy.evidence).toEqual({
+			typeId: "0609b952-1397-4640-95ec-e00a01b2c241",
+			status: "approved",
+			evaluationId: "evaluation-59380",
+			configurationRevision: 4,
+			isExpired: false,
+			buildIsNotCurrent: true,
+			buildId: "753506",
+			validDurationMinutes: 1440,
+			scope: [
+				{
+					repositoryId: "repo",
+					refName: "refs/heads/master",
+					matchKind: "Exact",
+				},
+			],
+		});
+	});
 	test.each([
 		{ isExpired: true },
 		{ isExpired: true, buildIsNotCurrent: false },
@@ -611,6 +744,11 @@ describe("workbench normalizer", () => {
 		expect(normalized.requiredApprovals).toBe(2);
 		expect(normalized.reviewers).toHaveLength(2);
 		expect(normalized.reviewers[0]?.vote).toBe("approved");
+		expect(normalized.reviewers[0]?.providerVote).toBe(10);
+		expect(normalized.evidence).toMatchObject({
+			status: "active",
+			mergeStatus: "succeeded",
+		});
 		expect(normalized.reviewers[1]?.isGroup).toBe(true);
 		expect(normalized.policies.length).toBeGreaterThanOrEqual(2);
 		expect(normalized.builds).toHaveLength(1);

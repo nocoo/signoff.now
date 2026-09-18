@@ -6,6 +6,7 @@ import type {
 	Policy,
 	PullRequest,
 } from "@signoff/domain/workbench";
+import { policyScopeSchema } from "@signoff/domain/workbench";
 import type {
 	AdoBuild,
 	AdoEvaluation,
@@ -130,6 +131,39 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 			build && typeof cfg.settings?.buildDefinitionId === "number"
 				? String(cfg.settings.buildDefinitionId)
 				: undefined,
+		evidence: {
+			status: evaluation.status,
+			evaluationId: evaluation.evaluationId,
+			typeId: cfg.type?.id,
+			configurationRevision: evidenceNumber(cfg.revision),
+			isBlocking: cfg.isBlocking,
+			isEnabled: cfg.isEnabled,
+			isExpired: evidenceBoolean(evaluation.context?.isExpired),
+			buildIsNotCurrent: evidenceBoolean(evaluation.context?.buildIsNotCurrent),
+			buildId:
+				typeof evaluation.context?.buildId === "number" ||
+				typeof evaluation.context?.buildId === "string"
+					? String(evaluation.context.buildId)
+					: undefined,
+			validDurationMinutes: evidenceNumber(cfg.settings?.validDuration),
+			minimumApproverCount: evidenceNumber(cfg.settings?.minimumApproverCount),
+			creatorVoteCounts: evidenceBoolean(cfg.settings?.creatorVoteCounts),
+			allowDownvotes: evidenceBoolean(cfg.settings?.allowDownvotes),
+			scope: Array.isArray(cfg.settings?.scope)
+				? cfg.settings.scope.slice(0, 1000).flatMap((scope) => {
+						const parsed = policyScopeSchema.safeParse(scope);
+						return parsed.success ? [parsed.data] : [];
+					})
+				: undefined,
+			startedAt:
+				evaluation.startedDate === undefined
+					? undefined
+					: parseSeconds(evaluation.startedDate),
+			completedAt:
+				evaluation.completedDate === undefined
+					? undefined
+					: parseSeconds(evaluation.completedDate),
+		},
 		expired,
 		state,
 		required,
@@ -139,6 +173,13 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 		owner: review ? "Reviewers" : "Project maintainers",
 	};
 }
+
+const evidenceBoolean = (value: unknown) =>
+	typeof value === "boolean" ? value : undefined;
+const evidenceNumber = (value: unknown) =>
+	typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: undefined;
 
 export function normalizeStatusPolicy(
 	status: AdoStatus,
@@ -154,6 +195,7 @@ export function normalizeStatusPolicy(
 		id: `status-${status.id ?? fullName}`,
 		name: fullName,
 		kind: "status",
+		evidence: { status: status.state },
 		state,
 		required,
 		detail: status.description || rawState,
@@ -204,6 +246,14 @@ export function normalizeBuildStages(
 			return {
 				id: r.id,
 				name: r.name,
+				evidence: {
+					status: r.state,
+					result: r.result,
+					identifier: r.identifier,
+					attempt: r.attempt,
+					startedAt: start,
+					completedAt: finish,
+				},
 				state,
 				required: state !== "skipped",
 				detail: detail[state],
@@ -230,6 +280,15 @@ export function normalizeBuild(item: BuildWithStages): Build {
 		id: String(b.id),
 		name,
 		definitionId: b.definition ? String(b.definition.id) : undefined,
+		evidence: {
+			status: b.status,
+			result: b.result,
+			sourceSha: b.sourceVersion,
+			sourceBranch: b.sourceBranch,
+			queuedAt: parseSeconds(b.queueTime),
+			startedAt: parseSeconds(b.startTime),
+			completedAt: parseSeconds(b.finishTime),
+		},
 		number: b.id,
 		state,
 		required: item.required ?? true,
@@ -373,6 +432,8 @@ export function normalizePullRequest(opts: {
 		id: r.id,
 		name: r.displayName || "Unknown",
 		vote: mapReviewerVote(r.vote),
+		providerVote: r.vote,
+		hasDeclined: r.hasDeclined,
 		required: r.isRequired === true,
 		isGroup: r.isContainer === true,
 		countsTowardApproval:
@@ -406,6 +467,11 @@ export function normalizePullRequest(opts: {
 		sourceBranch: (rawPr.sourceRefName || "").replace(/^refs\/heads\//, ""),
 		targetBranch: (rawPr.targetRefName || "").replace(/^refs\/heads\//, ""),
 		state: resolvePullState(rawPr.status),
+		evidence: {
+			status: rawPr.status,
+			mergeStatus: rawPr.mergeStatus,
+			mergeSha: rawPr.lastMergeCommit?.commitId,
+		},
 		mergedAt:
 			rawPr.status === "completed" ? parseSeconds(rawPr.closedDate) : null,
 		draft: rawPr.isDraft === true,

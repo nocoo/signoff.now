@@ -18,6 +18,35 @@ const project = workspace.projects[0]!;
 const pull = workspace.pullRequests[0]!;
 
 describe("independent summary and checks publications", () => {
+	test("summary publications preserve check evidence and replace only summary evidence", () => {
+		const cached = {
+			...pull,
+			headSha: "head",
+			targetSha: "target",
+			checksObservedAt: 110,
+			summaryObservedAt: 100,
+			evidence: { status: "active", mergeStatus: "succeeded" },
+			policies: pull.policies.map((policy) => ({
+				...policy,
+				evidence: {
+					status: "approved",
+					isExpired: false,
+					buildIsNotCurrent: true,
+				},
+			})),
+		};
+		const fresh = {
+			...cached,
+			summaryObservedAt: 120,
+			checksObservedAt: null,
+			policies: [],
+			evidence: { status: "completed", mergeStatus: "succeeded" },
+		};
+		const merged = mergeCollectedPull(fresh, cached, true);
+		expect(merged.evidence?.status).toBe("completed");
+		expect(merged.policies).toEqual(cached.policies);
+		expect(merged.checksObservedAt).toBe(110);
+	});
 	const original = {
 		...pull,
 		headSha: "head",
