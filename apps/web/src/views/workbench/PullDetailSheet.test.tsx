@@ -1,0 +1,89 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { queryRow } from "@/models/monitoringApi";
+import type { PullRow } from "@/models/workbench";
+import {
+	fixtureObservation,
+	fixturePull,
+	publicPull,
+} from "@/test/monitoring-fixture";
+import { PullDetailSheet } from "./PullDetailSheet";
+
+afterEach(cleanup);
+function show(row: PullRow) {
+	const onToggleWatch = vi.fn();
+	render(
+		<PullDetailSheet
+			row={row}
+			missing={false}
+			onClose={vi.fn()}
+			returnFocus={{ current: null }}
+			onScan={vi.fn()}
+			canScan={false}
+			busy={false}
+			onToggleWatch={onToggleWatch}
+		/>,
+	);
+	return onToggleWatch;
+}
+
+it.each([
+	"open",
+	"merged",
+	"closed",
+] as const)("can remove an active watch from %s PR details", (state) => {
+	const onToggleWatch = show(
+		queryRow(
+			publicPull({ ...fixturePull, state }, undefined, fixtureObservation()),
+		),
+	);
+	const button = screen.getByRole("button", { name: "Stop watching" });
+	expect(button).toHaveProperty("disabled", false);
+	fireEvent.click(button);
+	expect(onToggleWatch).toHaveBeenCalledOnce();
+});
+
+it.each([
+	"merged",
+	"closed",
+] as const)("cannot add a new watch from %s PR details", (state) => {
+	show(queryRow(publicPull({ ...fixturePull, state })));
+	expect(
+		screen.queryByRole("button", { name: "Add to watch list" }),
+	).toBeNull();
+	expect(screen.queryByRole("button", { name: "Stop watching" })).toBeNull();
+});
+
+it("keeps a terminal watch removal visible and disabled while its optimistic request is pending", () => {
+	const onToggleWatch = show({
+		...queryRow(
+			publicPull(
+				{ ...fixturePull, state: "merged" },
+				undefined,
+				fixtureObservation(),
+			),
+		),
+		watching: false,
+		watchPending: true,
+	});
+	const button = screen.getByRole("button", { name: "Stopping…" });
+	expect(button).toHaveProperty("disabled", true);
+	expect(button.getAttribute("aria-busy")).toBe("true");
+	fireEvent.click(button);
+	expect(onToggleWatch).not.toHaveBeenCalled();
+	expect(
+		screen.queryByRole("button", { name: "Add to watch list" }),
+	).toBeNull();
+});
+
+it("keeps an optimistic watch visible when discovery publishes a terminal snapshot before its receipt", () => {
+	show({
+		...queryRow(publicPull({ ...fixturePull, state: "closed" })),
+		watching: true,
+		watchPending: true,
+	});
+	expect(screen.getByRole("button", { name: "Stop watching" })).toHaveProperty(
+		"disabled",
+		true,
+	);
+});

@@ -156,6 +156,43 @@ export function PullDetailSheet({
 	);
 }
 
+function WatchButton({
+	row,
+	busy,
+	onToggleWatch,
+}: {
+	row: PullRow;
+	busy: boolean;
+	onToggleWatch?: () => void;
+}) {
+	const watching = row.watching ?? Boolean(row.observation?.active);
+	if (
+		!onToggleWatch ||
+		(row.pull.state !== "open" && !watching && !row.observation?.active)
+	)
+		return null;
+	return (
+		<Button
+			variant={watching ? "outline" : "default"}
+			size="sm"
+			disabled={busy || row.watchPending}
+			aria-busy={Boolean(row.watchPending)}
+			onClick={onToggleWatch}
+		>
+			{watching ? (
+				<EyeOff className="h-3.5 w-3.5" aria-hidden />
+			) : (
+				<Eye className="h-3.5 w-3.5" aria-hidden />
+			)}
+			{watching
+				? "Stop watching"
+				: row.watchPending && row.observation?.active
+					? "Stopping…"
+					: "Add to watch list"}
+		</Button>
+	);
+}
+
 function PullDetail({
 	row,
 	onScan,
@@ -178,7 +215,6 @@ function PullDetail({
 	refreshing?: boolean;
 }) {
 	const { pull, project, readiness, progress } = row;
-	const watching = row.watching ?? Boolean(row.observation?.active);
 	const checksAt =
 		pull.checksObservedAt === null
 			? null
@@ -238,22 +274,7 @@ function PullDetail({
 						secondary={`Opened ${relativeTime(pull.createdAt)}`}
 					/>
 					<div className="flex items-center gap-2">
-						{pull.state === "open" && onToggleWatch ? (
-							<Button
-								variant={watching ? "outline" : "default"}
-								size="sm"
-								disabled={busy || row.watchPending}
-								aria-busy={Boolean(row.watchPending)}
-								onClick={onToggleWatch}
-							>
-								{watching ? (
-									<EyeOff className="h-3.5 w-3.5" aria-hidden />
-								) : (
-									<Eye className="h-3.5 w-3.5" aria-hidden />
-								)}
-								{watching ? "Stop watching" : "Add to watch list"}
-							</Button>
-						) : null}
+						<WatchButton row={row} busy={busy} onToggleWatch={onToggleWatch} />
 						{project.source !== "demo" ? (
 							<Button variant="outline" size="sm" asChild>
 								<a
