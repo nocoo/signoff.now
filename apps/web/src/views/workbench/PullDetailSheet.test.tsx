@@ -4,6 +4,7 @@ import { queryRow } from "@/models/monitoringApi";
 import type { PullRow } from "@/models/workbench";
 import {
 	fixtureObservation,
+	fixtureProject,
 	fixturePull,
 	publicPull,
 } from "@/test/monitoring-fixture";
@@ -26,6 +27,49 @@ function show(row: PullRow) {
 	);
 	return onToggleWatch;
 }
+
+it("shows expired build evidence and its next action despite a generic saved Build label", () => {
+	const pull = {
+		...fixturePull,
+		mergeable: "clear" as const,
+		builds: [],
+		reviewers: [],
+		requiredApprovals: 0,
+		policies: [
+			{
+				id: "build-policy",
+				name: "PR validation",
+				kind: "build" as const,
+				definitionId: "42",
+				expired: true,
+				state: "failed" as const,
+				required: true,
+				detail: "Queue a new build for the current PR and target branch.",
+				owner: "Maintainers",
+			},
+		],
+	};
+	const project = {
+		...fixtureProject,
+		readinessRules: [
+			{ gateId: "build:42", label: "Build", color: "blue" as const },
+		],
+	};
+	show(queryRow(publicPull(pull, project)));
+	expect(screen.getAllByText("Build Expired").length).toBeGreaterThan(0);
+	expect(
+		screen.getAllByText(
+			"Queue a new build for the current PR and target branch.",
+		).length,
+	).toBeGreaterThan(0);
+	fireEvent.mouseDown(screen.getByRole("tab", { name: /Checks & builds/ }), {
+		button: 0,
+		ctrlKey: false,
+	});
+	expect(
+		screen.getByRole("region", { name: "Policies" }).textContent,
+	).toContain("Build Expired");
+});
 
 it.each([
 	"open",

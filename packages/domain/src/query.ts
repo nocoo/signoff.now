@@ -83,6 +83,8 @@ export const pullQuerySchema = pullRequestSchema
 					owner: z.string(),
 					gateId: z.string().optional(),
 					gateName: z.string().optional(),
+					reason: z.literal("build_expired").optional(),
+					color: readinessColorSchema.optional(),
 				}),
 			),
 			rank: z.number().optional(),

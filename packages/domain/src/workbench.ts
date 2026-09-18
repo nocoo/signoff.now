@@ -199,6 +199,8 @@ export const policySchema = z.object({
 	name,
 	kind: mergeRequirementKindSchema.optional(),
 	definitionId: name.optional(),
+	/** Provider reports that the build no longer satisfies this policy. */
+	expired: z.boolean().optional(),
 	state: checkStateSchema,
 	required: z.boolean(),
 	detail: z.string(),
@@ -383,6 +385,8 @@ export type PullIssue = {
 	owner: string;
 	gateId?: string;
 	gateName?: string;
+	reason?: "build_expired";
+	color?: ReadinessColor;
 };
 export type PullReadiness = Omit<PullIssue, "kind"> & {
 	kind: ReadinessKind;
@@ -704,7 +708,13 @@ function groupRequirementIssues(
 		}
 		const key = issue.gateId ?? issue.label;
 		const previous = byGate.get(key);
-		if (!previous || severity[issue.kind] <= severity[previous.kind])
+		if (
+			!previous ||
+			severity[issue.kind] < severity[previous.kind] ||
+			(severity[issue.kind] === severity[previous.kind] &&
+				(issue.reason === "build_expired" ||
+					previous.reason !== "build_expired"))
+		)
 			byGate.set(key, issue);
 	}
 	return [...byGate.values()];
@@ -793,7 +803,18 @@ export function pullReadiness(
 			reviewGate,
 		);
 	for (const policy of pr.policies.filter((p) => p.required)) {
-		if (
+		if (policyKind(policy) === "build" && policy.expired)
+			issues.push({
+				kind: "blocked",
+				label: "Build Expired",
+				action: policy.detail,
+				owner: policy.owner,
+				gateId: policy.id,
+				gateName: policy.name,
+				reason: "build_expired",
+				color: "red",
+			});
+		else if (
 			policyKind(policy) === "review" &&
 			["failed", "queued", "running", "waiting"].includes(policy.state)
 		)
@@ -864,7 +885,9 @@ export function pullReadiness(
 			const rule = configured.find(
 				(candidate) => candidate.gateId === issue.gateId,
 			);
-			return rule ? { ...issue, label: rule.label } : issue;
+			return rule && issue.reason !== "build_expired"
+				? { ...issue, label: rule.label }
+				: issue;
 		});
 	const first = uniqueIssues[0];
 	return first
@@ -876,6 +899,7 @@ export function pullReadiness(
 						? (rules.length - gateIndex(first)) / rules.length
 						: 2,
 				color:
+					first.color ??
 					configured.find((rule) => rule.gateId === first.gateId)?.color ??
 					readinessColor(first, project),
 			}
@@ -927,8 +951,11 @@ export function pullRequirements(pr: PullRequest, project: Project) {
 				...gate,
 				required: true,
 				state,
-				label: rule?.label ?? gate.name,
-				color: rule?.color ?? "gray",
+				label:
+					issue?.reason === "build_expired"
+						? issue.label
+						: (rule?.label ?? gate.name),
+				color: issue?.color ?? rule?.color ?? "gray",
 				links: [pullUrl(project, pr)],
 			};
 		})

@@ -59,10 +59,10 @@ export function ReadinessBadge({
 
 const COLOR_VARIANTS = {
 	green: "success",
-	yellow: "secondary",
-	orange: "warning",
-	blue: "info",
-	red: "error",
+	yellow: "orange",
+	orange: "orange",
+	blue: "blue",
+	red: "red",
 	purple: "purple",
 	gray: "secondary",
 } as const;
@@ -78,8 +78,8 @@ export function ReadinessSwatch({
 			variant={COLOR_VARIANTS[color]}
 			className={cn(
 				"max-w-full gap-1.5 whitespace-nowrap font-medium",
-				(color === "green" || color === "purple") && "text-black",
-				color === "yellow" && "bg-basalt-chart-7/30 text-basalt-foreground",
+				color === "yellow" && "bg-basalt-heatmap-orange-4",
+				color === "gray" && "bg-basalt-muted-foreground text-white",
 			)}
 		>
 			{children}

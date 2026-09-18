@@ -7,6 +7,7 @@ import {
 	projectMergeRequirements,
 	projectReadinessRules,
 	pullReadiness,
+	pullRequestSchema,
 	pullRequirements,
 	readinessColor,
 	readinessPriority,
@@ -71,6 +72,69 @@ const CI_ID = "build:pipeline-1";
 const POP_ID = "policy:proof of presence";
 
 describe("queryable merge requirement facts", () => {
+	test("expired build policies keep a red, specific readiness reason through saved labels and duplicate gates", () => {
+		const pull = pullRequestSchema.parse({
+			...ready,
+			policies: [
+				{ ...ci, expired: true, state: "failed" },
+				{ ...ci, id: "same-build", state: "failed" },
+			],
+			builds: [
+				{
+					id: "old-build",
+					name: ci.name,
+					definitionId: ci.definitionId,
+					number: 42,
+					required: true,
+					state: "failed",
+					stages: [],
+				},
+			],
+		});
+		expect(pull.policies[0]?.expired).toBe(true);
+		const result = pullReadiness(pull, configured);
+		expect(result).toMatchObject({
+			kind: "blocked",
+			label: "Build Expired",
+			color: "red",
+			gateId: CI_ID,
+			reason: "build_expired",
+		});
+		expect(result.issues).toHaveLength(1);
+		expect(readinessColor(result.issues[0]!, configured)).toBe("red");
+		expect(
+			pullRequirements(pull, configured).find((gate) => gate.id === CI_ID),
+		).toMatchObject({ state: "failed", label: "Build Expired", color: "red" });
+	});
+	test("expired advisory builds do not block; fresh passing evidence clears expiry and terminal states win", () => {
+		const expired = {
+			...ready,
+			policies: [{ ...ci, expired: true, state: "failed" as const }],
+		};
+		expect(
+			pullReadiness(
+				{
+					...expired,
+					policies: [{ ...expired.policies[0]!, required: false }],
+				},
+				configured,
+			).kind,
+		).toBe("ready");
+		for (const state of ["merged", "closed"] as const)
+			expect(pullReadiness({ ...expired, state }, configured).kind).toBe(state);
+		expect(pullReadiness({ ...expired, draft: true }, configured).kind).toBe(
+			"draft",
+		);
+		expect(
+			pullReadiness(
+				{ ...ready, policies: [{ ...ci, expired: false, state: "passed" }] },
+				configured,
+			).kind,
+		).toBe("ready");
+		expect(
+			pullReadiness({ ...ready, policies: [ci] }, configured),
+		).toMatchObject({ kind: "running", label: "CI", color: "blue" });
+	});
 	test("exposes each applicable logical gate in user order, with source IDs and links", () => {
 		const pull = {
 			...ready,

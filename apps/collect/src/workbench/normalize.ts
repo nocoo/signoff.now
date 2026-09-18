@@ -89,13 +89,18 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 	const isNotApplicable = rawStatus === "notapplicable";
 	const required =
 		cfg.isBlocking !== false && cfg.isEnabled !== false && !isNotApplicable;
-	const state = mapCheckState(evaluation.status);
 	const typeId = cfg.type?.id?.toLowerCase();
 	const review =
 		typeId === "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" ||
 		typeId === "fd2167ab-b0be-447a-8ec8-39368250530e" ||
 		(!typeId && /reviewer/i.test(name));
 	const build = typeId === "0609b952-1397-4640-95ec-e00a01b2c241";
+	const expiration = [
+		evaluation.context?.isExpired,
+		evaluation.context?.buildIsNotCurrent,
+	];
+	const expired = build && expiration.includes(true);
+	const state = expired ? "failed" : mapCheckState(evaluation.status);
 	const reviewAction = `Request the required reviewer approvals for ${name}.`;
 	const details: Record<CheckState, string> = {
 		passed: `${name} passed.`,
@@ -125,9 +130,15 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 			build && typeof cfg.settings?.buildDefinitionId === "number"
 				? String(cfg.settings.buildDefinitionId)
 				: undefined,
+		expired:
+			build && expiration.some((flag) => typeof flag === "boolean")
+				? expired
+				: undefined,
 		state,
 		required,
-		detail: details[state],
+		detail: expired
+			? `${name} has expired. Queue a new build for the current PR and target branch.`
+			: details[state],
 		owner: review ? "Reviewers" : "Project maintainers",
 	};
 }

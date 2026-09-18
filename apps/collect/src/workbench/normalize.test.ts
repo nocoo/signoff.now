@@ -16,6 +16,66 @@ import {
 } from "./normalize.js";
 
 describe("workbench normalizer", () => {
+	test.each([
+		{ isExpired: true },
+		{ buildIsNotCurrent: true },
+		{ isExpired: true, buildIsNotCurrent: true },
+	])("expired build evaluations remain blocking even after a successful run: %j", (context) => {
+		const policy = normalizePolicy({
+			status: "approved",
+			configuration: {
+				id: 18,
+				type: {
+					id: "0609b952-1397-4640-95ec-e00a01b2c241",
+					displayName: "Build",
+				},
+				settings: { buildDefinitionId: 42 },
+			},
+			context: { buildId: 100, ...context },
+		});
+		expect(policy).toMatchObject({
+			kind: "build",
+			state: "failed",
+			expired: true,
+		});
+		expect(policy.detail).toMatch(/expired/i);
+		expect(policy.detail).toMatch(/queue|rerun/i);
+	});
+	test("expiry is explicit build evidence, not a guess from pending or arbitrary policy context", () => {
+		for (const context of [
+			{},
+			{ isExpired: false, buildIsNotCurrent: false },
+			{ isExpired: "true", buildIsNotCurrent: "false" },
+		]) {
+			const policy = normalizePolicy({
+				status: "queued",
+				configuration: {
+					id: 18,
+					type: {
+						id: "0609b952-1397-4640-95ec-e00a01b2c241",
+						displayName: "Build",
+					},
+				},
+				context,
+			});
+			expect(policy.state).toBe("queued");
+			expect(policy.expired).toBe(
+				"isExpired" in context && context.isExpired === false
+					? false
+					: undefined,
+			);
+		}
+		const review = normalizePolicy({
+			status: "approved",
+			configuration: {
+				id: 1,
+				type: { id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" },
+			},
+			context: { isExpired: true },
+		});
+		expect(review.state).toBe("passed");
+		expect(review.expired).toBeUndefined();
+	});
 	test("reapplies minimum-reviewer downvote rules to fresh optional rejections", () => {
 		const workspace = demoWorkspace(1_789_632_000);
 		for (const allowDownvotes of [false, true, undefined]) {

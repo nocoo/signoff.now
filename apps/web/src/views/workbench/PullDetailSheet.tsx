@@ -518,7 +518,9 @@ function PullDetail({
 														{policy.required ? "Required" : "Advisory"}
 													</Badge>
 													<span className="text-[11px] text-basalt-muted-foreground">
-														{CHECK_LABELS[policy.state]}
+														{policy.expired
+															? "Build Expired"
+															: CHECK_LABELS[policy.state]}
 													</span>
 												</div>
 												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">

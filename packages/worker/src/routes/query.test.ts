@@ -53,6 +53,49 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test("cached build expiry is preserved in the shared API's policies, readiness, and requirements", async () => {
+		seedProject(sqlite, {
+			repositories: [],
+			readinessRules: [{ gateId: "build:42", label: "Build", color: "blue" }],
+		});
+		const pull = seedPull(sqlite, {
+			draft: false,
+			mergeable: "clear",
+			requiredApprovals: 0,
+			reviewers: [],
+			builds: [],
+			policies: [
+				{
+					id: "build-policy",
+					name: "PR validation",
+					kind: "build",
+					definitionId: "42",
+					expired: true,
+					state: "failed",
+					required: true,
+					detail: "Queue a fresh build",
+					owner: "Maintainers",
+				},
+			],
+		});
+		const detail = pullDetailSchema.parse(
+			await (await request(`/api/query/v1/prs/${pull.id}`)).json(),
+		).data;
+		expect(detail.policies[0]?.expired).toBe(true);
+		expect(detail.readiness).toMatchObject({
+			kind: "blocked",
+			label: "Build Expired",
+			color: "red",
+			ready: false,
+		});
+		expect(detail.readiness.issues[0]).toMatchObject({
+			reason: "build_expired",
+			color: "red",
+		});
+		expect(
+			detail.requirements.find((gate) => gate.id === "build:42"),
+		).toMatchObject({ state: "failed", label: "Build Expired", color: "red" });
+	});
 	test("collector previews retain unresolved check failures through high-volume status success and clear them after recovery", async () => {
 		const { project, pull } = seed();
 		await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);
