@@ -486,6 +486,115 @@ describe("filters, server pages and temporary selection", () => {
 		});
 		expect(result.current.vm.selectedRepository?.id).toBe(repo.repository.id);
 	});
+	it.each([
+		{ projectKey: "ReplacementProject" },
+		{ organization: "replacement-org" },
+		{ provider: "github" as const },
+		{ source: "demo" as const },
+		{ id: "replacement-registration" },
+	])("does not retarget a delayed repository resolution after its project identity changes (%j)", async (changed) => {
+		const repo = fixture.catalog.data[0]!;
+		const response = deferred<typeof fixture.catalog>();
+		const replacement = publicProject({ ...project, ...changed });
+		vi.mocked(api.loadCatalog).mockImplementation(
+			async (_source, _signal, scope) =>
+				scope?.repository
+					? response.promise
+					: {
+							...fixture.catalog,
+							projects: [replacement],
+							data: [{ ...repo, project: replacement }],
+						},
+		);
+		const url = repo.repository.url;
+		const { result } = render(`/?repo=${encodeURIComponent(url)}`);
+		await loaded(result);
+		expect(result.current.vm.repositories[0]?.project).toMatchObject(changed);
+		await act(() => response.resolve(fixture.catalog));
+		expect(result.current.vm.selectedRepository).toBeNull();
+		expect(result.current.vm.filter.repository).toBe(url);
+		expect(
+			new URLSearchParams(localStorage.getItem(PULL_FILTER_STORAGE_KEY)!).get(
+				"repo",
+			),
+		).toBe(url);
+		await act(async () =>
+			expect(await result.current.vm.discoverRepo()).toBe(false),
+		);
+		expect(api.discover).not.toHaveBeenCalled();
+	});
+	it("reconciles equivalent identities across independent revisions and metadata renames", async () => {
+		const repo = fixture.catalog.data[0]!;
+		const updatedProject = publicProject({
+			...project,
+			organization: project.organization.toUpperCase(),
+			projectKey: project.projectKey.toUpperCase(),
+			name: "Renamed display label",
+			revision: project.revision + 1,
+		});
+		const updatedRepository = {
+			...repo,
+			project: updatedProject,
+			repository: {
+				...repo.repository,
+				id: repo.repository.id!.toUpperCase(),
+				name: "renamed",
+			},
+		};
+		vi.mocked(api.loadCatalog).mockImplementation(
+			async (_source, _signal, scope) =>
+				scope?.repository
+					? fixture.catalog
+					: {
+							...fixture.catalog,
+							dataRevision: "2",
+							projects: [updatedProject],
+							data: [updatedRepository],
+						},
+		);
+		const { result } = render(
+			`/?repo=${encodeURIComponent(repo.repository.url)}`,
+		);
+		await loaded(result);
+		await waitFor(() =>
+			expect(result.current.vm.filter.repository).toBe(
+				updatedRepository.repository.id,
+			),
+		);
+		expect(result.current.vm.selectedRepository?.name).toBe("renamed");
+	});
+	it("shows an unavailable selected repository without implying an unfiltered table", async () => {
+		vi.mocked(api.loadCatalog).mockImplementation(
+			async (_source, _signal, scope) =>
+				scope?.repository
+					? {
+							...fixture.catalog,
+							data: [],
+							page: { ...fixture.page, total: 0 },
+						}
+					: fixture.catalog,
+		);
+		renderView(
+			<MemoryRouter
+				initialEntries={[
+					`/?repo=${encodeURIComponent(fixture.catalog.data[0]!.repository.url)}`,
+				]}
+			>
+				<WorkbenchProvider>
+					<PullsPage />
+				</WorkbenchProvider>
+			</MemoryRouter>,
+		);
+		const unavailable = await screen.findByRole("combobox", {
+			name: /Repository/,
+		});
+		expect(unavailable.textContent).toBe("Selected repository unavailable");
+		fireEvent.click(unavailable);
+		fireEvent.click(screen.getByRole("option", { name: "All repositories" }));
+		await waitFor(() =>
+			expect(unavailable.textContent).toBe("All repositories"),
+		);
+	});
 	it("does not rewrite a repository URL shared by duplicate project registrations", async () => {
 		const repo = fixture.catalog.data[0]!;
 		const otherProject = { ...project, id: "another-registration" };

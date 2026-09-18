@@ -18,6 +18,8 @@ export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 		? vm.projectOptions[0]?.project
 		: undefined;
 	const selectedRepository = vm.selectedRepository;
+	const unavailableRepository =
+		!selectedRepository && Boolean(vm.filter.repository);
 	return (
 		<section aria-label="Repository scope" className="space-y-2">
 			<div className="grid grid-cols-2 gap-3 lg:grid-cols-[1fr_1fr_1.5fr]">
@@ -64,10 +66,18 @@ export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 						href={selectedRepository ? selectedRepository.url : undefined}
 					>
 						<SelectControl
-							value={vm.selectedRepository?.key ?? ""}
+							value={
+								selectedRepository?.key ??
+								(unavailableRepository ? "unavailable" : "")
+							}
 							onChange={vm.selectRepository}
 						>
 							<option value="">All repositories</option>
+							{unavailableRepository ? (
+								<option value="unavailable" disabled>
+									Selected repository unavailable
+								</option>
+							) : null}
 							{vm.repositories.map((repository) => (
 								<option key={repository.key} value={repository.key}>
 									{repository.name}

@@ -5,7 +5,7 @@ import {
 	publicSource,
 	type WatchRef,
 } from "@signoff/domain/monitoring";
-import type { PullQueryItem } from "@signoff/domain/query";
+import type { PullQueryItem, RepositoryQueryItem } from "@signoff/domain/query";
 import {
 	type CollectionJob,
 	type Project,
@@ -79,6 +79,26 @@ function uniqueRepository(
 	return !error && data?.page.total === 1 && data.data.length === 1
 		? data.data[0]
 		: null;
+}
+
+function matchesResolvedRepository(
+	repository: { id: string; identityResolved: boolean; project: Project },
+	resolved: RepositoryQueryItem | null | undefined,
+) {
+	if (!resolved) return false;
+	const project = repository.project;
+	return (
+		publicSource(project.source) === resolved.project.source &&
+		project.id === resolved.project.id &&
+		project.provider === resolved.project.provider &&
+		project.organization.toLowerCase() ===
+			resolved.project.organization.toLowerCase() &&
+		project.projectKey.toLowerCase() ===
+			resolved.project.projectKey.toLowerCase() &&
+		repository.identityResolved === resolved.identityResolved &&
+		repository.id.toLowerCase() ===
+			(resolved.repository.id ?? resolved.repository.url).toLowerCase()
+	);
 }
 
 type Selection = {
@@ -322,7 +342,7 @@ export function useWorkbenchViewModel() {
 	const selectedRepository =
 		repositories.find((r) =>
 			repositoryReference
-				? r.key === resolvedRepository?.key
+				? matchesResolvedRepository(r, resolvedRepository)
 				: matchesRepository(r, filter.repository),
 		) ?? null;
 	useEffect(() => {
