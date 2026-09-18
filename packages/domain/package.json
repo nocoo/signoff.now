@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./state-machine": "./src/state-machine.ts",
 		"./query": "./src/query.ts",
 		"./monitoring": "./src/monitoring.ts",
 		"./insights": "./src/insights.ts",

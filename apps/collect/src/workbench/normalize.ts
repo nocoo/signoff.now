@@ -1,3 +1,7 @@
+import { providerCheckState as mapCheckState } from "@signoff/domain/state-machine";
+
+export { providerCheckState as mapCheckState } from "@signoff/domain/state-machine";
+
 import { adoPullId } from "@signoff/domain/collection";
 import type {
 	Build,
@@ -14,43 +18,6 @@ import type {
 	AdoStatus,
 	AdoTimelineRecord,
 } from "./raw.js";
-
-export function mapCheckState(raw: string | null | undefined): CheckState {
-	if (!raw) return "unknown";
-	const lower = raw.toLowerCase();
-	switch (lower) {
-		case "approved":
-		case "succeeded":
-		case "success":
-			return "passed";
-		case "notapplicable":
-			return "skipped";
-		case "failed":
-		case "failure":
-		case "error":
-		case "rejected":
-		case "broken":
-		case "partiallysucceeded":
-			return "failed";
-		case "running":
-		case "inprogress":
-		case "cancelling":
-			return "running";
-		case "queued":
-		case "notstarted":
-			return "queued";
-		case "waiting":
-		case "pending":
-			return "waiting";
-		case "canceled":
-		case "cancelled":
-			return "canceled";
-		case "skipped":
-			return "skipped";
-		default:
-			return "unknown";
-	}
-}
 
 export function mapReviewerVote(
 	vote: number,

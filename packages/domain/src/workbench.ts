@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export {
+	evaluateReadiness as pullReadiness,
+	evaluateRequirements as pullRequirements,
+} from "./state-machine.js";
+
 const name = z.string().trim().min(1).max(240);
 const instant = z.number().int().nonnegative();
 export const providerSchema = z.enum(["ado", "github"]);
@@ -45,6 +50,11 @@ export const mergeRequirementKindSchema = z.enum([
 	"policy",
 ]);
 const gateIdSchema = z.string().trim().min(1).max(260);
+export const policyScopeSchema = z.object({
+	repositoryId: name.nullable().optional(),
+	refName: z.string().max(1024).nullable().optional(),
+	matchKind: z.string().max(80).optional(),
+});
 export const mergeRequirementSchema = z.object({
 	id: gateIdSchema,
 	name,
@@ -52,6 +62,7 @@ export const mergeRequirementSchema = z.object({
 	definitionId: name.optional(),
 	detail: z.string().max(1000).optional(),
 	sourceIds: z.array(gateIdSchema).max(1000).optional(),
+	scope: z.array(policyScopeSchema).max(1000).optional(),
 });
 export type MergeRequirement = z.infer<typeof mergeRequirementSchema>;
 const readinessRuleSchema = z
@@ -99,6 +110,149 @@ export const readinessWriteSchema = z
 	})
 	.strict();
 
+const machineId = z
+	.string()
+	.trim()
+	.min(1)
+	.max(120)
+	.regex(/^[a-zA-Z0-9][a-zA-Z0-9_:-]*$/);
+const values = <T extends z.ZodType>(schema: T) =>
+	z.array(schema).min(1).max(30);
+export const machineConditionSchema = z.discriminatedUnion("fact", [
+	z
+		.object({
+			fact: z.literal("lifecycle"),
+			oneOf: values(z.enum(["open", "merged", "closed"])),
+		})
+		.strict(),
+	z.object({ fact: z.literal("draft"), equals: z.boolean() }).strict(),
+	z
+		.object({
+			fact: z.literal("mergeable"),
+			oneOf: values(z.enum(["clear", "conflicts", "unknown"])),
+		})
+		.strict(),
+	z
+		.object({
+			fact: z.literal("coverage"),
+			oneOf: values(z.enum(["complete", "partial"])),
+		})
+		.strict(),
+	z
+		.object({
+			fact: z.literal("checksValidity"),
+			oneOf: values(z.enum(["valid", "missing", "invalidated"])),
+		})
+		.strict(),
+	z
+		.object({ fact: z.literal("baseline"), oneOf: values(readinessKindSchema) })
+		.strict(),
+	z
+		.object({
+			fact: z.literal("gate"),
+			gateId: gateIdSchema,
+			oneOf: values(checkStateSchema),
+		})
+		.strict(),
+	z
+		.object({
+			fact: z.literal("policyStatus"),
+			gateId: gateIdSchema,
+			oneOf: values(z.string().min(1).max(120)),
+		})
+		.strict(),
+	z
+		.object({
+			fact: z.literal("buildExpired"),
+			gateId: gateIdSchema,
+			equals: z.boolean(),
+		})
+		.strict(),
+	z
+		.object({
+			fact: z.literal("buildNotCurrent"),
+			gateId: gateIdSchema,
+			equals: z.boolean(),
+		})
+		.strict(),
+]);
+export type MachineCondition = z.infer<typeof machineConditionSchema>;
+export const stateMachineSchema = z
+	.object({
+		states: z
+			.array(
+				z
+					.object({
+						id: machineId,
+						label: name,
+						kind: readinessKindSchema,
+						color: readinessColorSchema,
+						group: name,
+					})
+					.strict(),
+			)
+			.min(9)
+			.max(60),
+		mappings: z
+			.array(
+				z
+					.object({
+						id: machineId,
+						name,
+						stateId: machineId,
+						enabled: z.boolean(),
+						match: z.enum(["all", "any"]),
+						conditions: z.array(machineConditionSchema).min(1).max(20),
+					})
+					.strict(),
+			)
+			.max(100),
+		gates: z
+			.array(readinessRuleSchema.extend({ group: name }).strict())
+			.max(1000),
+	})
+	.strict()
+	.superRefine((config, ctx) => {
+		for (const [key, ids] of [
+			["states", config.states.map((state) => state.id)],
+			["mappings", config.mappings.map((rule) => rule.id)],
+			["gates", config.gates.map((gate) => gate.gateId)],
+		] as const) {
+			if (new Set(ids).size !== ids.length)
+				ctx.addIssue({
+					code: "custom",
+					path: [key],
+					message: `${key} IDs must be unique`,
+				});
+		}
+		for (const kind of readinessKindSchema.options) {
+			if (
+				!config.states.some((state) => state.id === kind && state.kind === kind)
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["states"],
+					message: `Keep the protected ${kind} state and its kind`,
+				});
+		}
+		for (const [index, rule] of config.mappings.entries()) {
+			if (!config.states.some((state) => state.id === rule.stateId))
+				ctx.addIssue({
+					code: "custom",
+					path: ["mappings", index, "stateId"],
+					message: "Choose an existing state",
+				});
+		}
+	});
+export type StateMachine = z.infer<typeof stateMachineSchema>;
+export const stateMachineSettingsSchema = z
+	.object({
+		default: stateMachineSchema.nullable(),
+		repositories: z.record(z.string().min(1).max(240), stateMachineSchema),
+	})
+	.strict();
+export type StateMachineSettings = z.infer<typeof stateMachineSettingsSchema>;
+
 export const repositoryNameSchema = z
 	.string()
 	.trim()
@@ -124,6 +278,8 @@ export const projectSchema = z.object({
 	readinessRules: readinessRulesSchema.optional(),
 	mergeRequirements: z.array(mergeRequirementSchema).max(1000).optional(),
 	readinessRevision: z.number().int().positive().optional(),
+	stateMachine: stateMachineSettingsSchema.optional(),
+	stateMachineRevision: z.number().int().positive().optional(),
 	description: z.string(),
 	owner: name,
 	enabled: z.boolean(),
@@ -193,11 +349,6 @@ const actorSchema = z.object({
 	name,
 	handle: z.string().trim().min(1).max(1024).optional(),
 	avatarUrl: z.string().url().max(2048).optional(),
-});
-export const policyScopeSchema = z.object({
-	repositoryId: name.nullable().optional(),
-	refName: z.string().max(1024).nullable().optional(),
-	matchKind: z.string().max(80).optional(),
 });
 /** Bounded provider evidence, retained independently of its interpretation. */
 export const policyEvidenceSchema = z.object({
@@ -440,6 +591,9 @@ export type PullReadiness = Omit<PullIssue, "kind"> & {
 	issues: PullIssue[];
 	rank?: number;
 	color?: ReadinessColor;
+	stateId?: string;
+	machineRevision?: number;
+	matchedRuleId?: string;
 };
 const CONFLICT_GATE: MergeRequirement = {
 	id: "merge-conflicts",
@@ -492,6 +646,7 @@ export function projectMergeRequirements(
 				name: previous?.name ?? policy.name,
 				kind: previous?.kind ?? policyKind(policy),
 				definitionId: policy.definitionId ?? previous?.definitionId,
+				scope: policy.evidence?.scope ?? previous?.scope,
 			});
 		}
 	}
@@ -528,7 +683,12 @@ export function projectMergeRequirements(
 		}
 	const groups = new Map<
 		string,
-		{ gate: MergeRequirement; sources: Set<string>; details: Set<string> }
+		{
+			gate: MergeRequirement;
+			sources: Set<string>;
+			details: Set<string>;
+			scopes: Map<string, z.infer<typeof policyScopeSchema>>;
+		}
 	>();
 	for (const gate of requirements.values()) {
 		const id = requirementKey(gate);
@@ -536,17 +696,21 @@ export function projectMergeRequirements(
 			gate: { ...gate, id },
 			sources: new Set<string>(),
 			details: new Set<string>(),
+			scopes: new Map<string, z.infer<typeof policyScopeSchema>>(),
 		};
 		for (const sourceId of gate.sourceIds ?? [gate.id])
 			group.sources.add(sourceId);
 		if (gate.detail) group.details.add(gate.detail);
+		for (const scope of gate.scope ?? [])
+			group.scopes.set(JSON.stringify(scope), scope);
 		groups.set(id, group);
 	}
 	return [...groups.values()]
-		.map(({ gate, sources, details }) => ({
+		.map(({ gate, sources, details, scopes }) => ({
 			...gate,
 			sourceIds: [...sources].sort(),
 			detail: [...details].join(" · ").slice(0, 1000) || undefined,
+			scope: scopes.size ? [...scopes.values()] : undefined,
 		}))
 		.sort(
 			(a, b) =>
@@ -573,7 +737,7 @@ function configuredReadinessRules(
 	return [...configured.values()];
 }
 
-/** Workflow order: resolve the first unmet requirement, then work toward the final merge steps. */
+/** Display priority for concurrent requirements, independent of their execution. */
 export function projectReadinessRules(
 	project: Project,
 	pulls: PullRequest[] = [],
@@ -768,7 +932,7 @@ function groupRequirementIssues(
 }
 
 /** A passed pipeline never overrides a conflict, missing review, or unknown gate. */
-export function pullReadiness(
+export function basePullReadiness(
 	pr: PullRequest,
 	project: Project,
 ): PullReadiness {
@@ -960,13 +1124,13 @@ export function pullReadiness(
 }
 
 /** Only gates evidenced on this PR; project-only policies may belong to other repositories or branches. */
-export function pullRequirements(pr: PullRequest, project: Project) {
+export function basePullRequirements(pr: PullRequest, project: Project) {
 	const gates = projectMergeRequirements(
 		{ ...project, mergeRequirements: [] },
 		[pr],
 	);
 	const rules = projectReadinessRules(project, [pr]);
-	const issues = pullReadiness(
+	const issues = basePullReadiness(
 		{ ...pr, state: "open", draft: false },
 		{ ...project, mergeRequirements: gates },
 	).issues;

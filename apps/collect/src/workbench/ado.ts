@@ -387,6 +387,7 @@ export async function discoverMergeRequirements(
 				name: policy.name,
 				kind: policy.kind ?? "policy",
 				definitionId: policy.definitionId,
+				scope: policy.evidence?.scope,
 				detail,
 			});
 		}
