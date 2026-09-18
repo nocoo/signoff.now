@@ -245,6 +245,8 @@ export const pullRequestSchema = z.object({
 	headSha: z.string().max(240).nullable().optional(),
 	targetSha: z.string().max(240).nullable().optional(),
 	checksObservedAt: instant.nullable().optional(),
+	/** Summary request start, in epoch seconds with millisecond precision; independent of slow checks. */
+	summaryObservedAt: z.number().finite().nonnegative().optional(),
 	requiredApprovals: z.number().int().nonnegative(),
 	/** Applies even before the author appears in the reviewer list. */
 	authorCountsTowardApproval: z.boolean().optional(),
@@ -288,6 +290,8 @@ export const scanRunSchema = z.object({
 	message: z.string(),
 });
 export type ScanRun = z.infer<typeof scanRunSchema>;
+export const collectionLaneSchema = z.enum(["checks", "status"]);
+export type CollectionLane = z.infer<typeof collectionLaneSchema>;
 export const collectionJobSchema = z.object({
 	id: name,
 	projectId: name,
@@ -311,6 +315,7 @@ export const collectionJobSchema = z.object({
 	/** Omitted: full scan. Empty: list only. Otherwise: selected PR checks. */
 	pullIds: scopedPullIdsSchema.optional(),
 	kind: z.enum(["list", "details", "full"]).optional(),
+	lane: collectionLaneSchema.optional(),
 	roundId: name.nullable().optional(),
 });
 export type CollectionJob = z.infer<typeof collectionJobSchema>;

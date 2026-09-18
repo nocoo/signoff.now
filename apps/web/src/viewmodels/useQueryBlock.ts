@@ -126,7 +126,15 @@ export function useQueryBlock<T>(
 			document.removeEventListener("visibilitychange", visibility);
 		};
 	}, [key, intervalMs]);
-	const reload = useCallback(() => execute.current(), []);
+	const reload = useCallback(() => {
+		// Explicit changes fence reads already in flight. Keep the last displayed
+		// cache until the single coalesced replacement succeeds.
+		mutationVersion.current++;
+		return execute.current();
+	}, []);
+	// Publication notices carry no replacement data. Allow a coherent in-flight
+	// read to advance the view, then read again; continual notices must not starve it.
+	const revalidate = useCallback(() => execute.current(), []);
 	// A command receipt can update the visible cache immediately. Reads started
 	// before that receipt must not overwrite it with an older observation.
 	const update = useCallback((apply: (data: T) => T) => {
@@ -154,6 +162,7 @@ export function useQueryBlock<T>(
 		loading: key !== null && !current.loaded,
 		refreshing: current.refreshing,
 		reload,
+		revalidate,
 		update,
 	};
 }

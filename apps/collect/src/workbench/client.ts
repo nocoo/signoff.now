@@ -1,10 +1,11 @@
 import {
+	type CollectedRepository,
 	type CollectorClaim,
 	collectorClaimSchema,
 	discoveryCursorSchema,
 } from "@signoff/domain/collection";
-import type { RepositoryIdentity } from "@signoff/domain/monitoring";
 import {
+	type CollectionLane,
 	type CollectorStatus,
 	collectionJobSchema,
 	type MergeRequirement,
@@ -106,14 +107,22 @@ export function createCollectionClient(
 			),
 		heartbeat: (state: CollectorStatus["state"], message = "") =>
 			request("POST", "/api/collector/heartbeat", { state, message }),
-		schedule: async (kind: RefreshQueueKind) =>
+		schedule: async (kind: RefreshQueueKind, lane?: CollectionLane) =>
 			refreshQueueSchema.parse(
-				await request("POST", "/api/collector/schedule", { kind }),
+				await request("POST", "/api/collector/schedule", {
+					kind,
+					...(lane ? { lane } : {}),
+				}),
 			),
-		claim: async (kind?: RefreshQueueKind, jobId?: string) => {
+		claim: async (
+			kind?: RefreshQueueKind,
+			jobId?: string,
+			lane?: CollectionLane,
+		) => {
 			const query = new URLSearchParams();
 			if (kind) query.set("kind", kind);
 			if (jobId) query.set("jobId", jobId);
+			if (lane) query.set("lane", lane);
 			const raw = await request(
 				"POST",
 				`/api/collector/claim${query.size ? `?${query}` : ""}`,
@@ -130,7 +139,7 @@ export function createCollectionClient(
 			for (const chunk of collectionChunks(pulls))
 				await jobRequest(lease, "batch", { pulls: chunk });
 		},
-		repositories: async (lease: Lease, repositories: RepositoryIdentity[]) =>
+		repositories: async (lease: Lease, repositories: CollectedRepository[]) =>
 			z
 				.array(
 					z.object({

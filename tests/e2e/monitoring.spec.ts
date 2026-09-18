@@ -164,9 +164,10 @@ async function execute(merged = false) {
 						state: merged ? "merged" : "open",
 						createdAt: now - 86400,
 						updatedAt: now - 1,
-						observedAt: options.now,
-						checksObservedAt: options.now,
-						mergedAt: merged ? options.now - 1 : null,
+						observedAt: Math.floor(options.now),
+						summaryObservedAt: options.now,
+						checksObservedAt: Math.floor(options.now),
+						mergedAt: merged ? Math.floor(options.now) - 1 : null,
 						headSha: "head",
 						targetSha: "target",
 						coverage: "complete",
@@ -498,7 +499,60 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	).toBeVisible();
 	expect((await watchList()).data).toEqual([]);
 	await cli("watch", "add", draftUrl);
-	expect((await execute(true)).state).toBe("complete");
+	// A CLI mutation and a status-only publication must reconcile this mounted
+	// page and its detail sheet without reloads or a Web provider command.
+	await page.clock.fastForward(3100);
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
+	await page
+		.getByRole("button", { name: "Open PR #2: Éditeur change 2", exact: true })
+		.click();
+	await expect(page.getByRole("dialog")).toBeVisible();
+	const watchedDraft = (await watchList()).data[0]!;
+	// Keep its full checks lease running: lifecycle work must bypass it.
+	const blockedChecks = (await api.claim())!;
+	expect(blockedChecks.observation?.id).toBe(watchedDraft.id);
+	await api.schedule("details", "status");
+	const stateReads: string[] = [];
+	const terminalProvider: AdoPagedClient = {
+		...fakeAdo,
+		get: async (url) => {
+			stateReads.push(url);
+			expect(url).toContain("/pullrequests/2?");
+			return {
+				pullRequestId: 2,
+				title: "Éditeur change 2",
+				status: "completed",
+				isDraft: true,
+				creationDate: new Date((now - 86400) * 1000).toISOString(),
+				closedDate: new Date().toISOString(),
+				createdBy: { id: "author-one", displayName: "Ada Lovelace" },
+				sourceRefName: "refs/heads/feature",
+				repository: { id: repos[1]!.id, name: repos[1]!.name },
+				lastMergeSourceCommit: { commitId: "head" },
+				lastMergeTargetCommit: { commitId: "target" },
+				targetRefName: "refs/heads/main",
+			};
+		},
+		getPage: async () => {
+			throw new Error(
+				"A terminal status must not wait for checks or inventory",
+			);
+		},
+	};
+	const statusErrors: string[] = [];
+	const terminalResult = await runCollectionOnce({
+		api,
+		makeAdo: () => terminalProvider,
+		log: { ...silent, error: (message) => statusErrors.push(message) },
+		lane: "status",
+	});
+	expect(terminalResult.state, statusErrors.join("\n")).toBe("complete");
+	expect(stateReads).toHaveLength(1);
+	expect((await api.job(blockedChecks.job.id)).state).toBe("canceled");
+	await page.clock.fastForward(3100);
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
+	await expect(page.getByRole("dialog")).toContainText("Merged");
+	await page.keyboard.press("Escape");
 	expect((await watchList()).data).toEqual([]);
 	const final = pullListSchema.parse(
 		await cli(
@@ -620,7 +674,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	const slowResult = await cli("pr", "get", slowUrl);
 	expect(slowResult.data.state).toBe("merged");
 	expect(slowResult.data.freshness.listObservedAt).toBe(
-		new Date((startedAt + 80) * 1000).toISOString(),
+		new Date((startedAt + 70) * 1000).toISOString(),
 	);
 	expect(slowResult.data.observation).toMatchObject({
 		active: false,

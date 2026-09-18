@@ -249,7 +249,7 @@ export async function resolveObservation(
 const insertRefresh = `INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,message)
  SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,?, 'queued',?,?,?,'details',json_array(COALESCE(o.pull_id,?)),json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,'Waiting to refresh watched PR'
  FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source
- WHERE o.active=1 AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.state IN (${ACTIVE_JOBS}))`;
+ WHERE o.active=1 AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0 AND j.state IN (${ACTIVE_JOBS}))`;
 
 export async function addObservation(
 	db: D1Database,
@@ -310,7 +310,7 @@ export async function addObservation(
 		db.prepare("SELECT * FROM pr_observations WHERE identity=?").bind(key),
 		db
 			.prepare(
-				`SELECT j.* FROM collection_jobs j JOIN pr_observations o ON o.id=j.observation_id AND o.generation=j.observation_generation WHERE o.identity=? AND j.state IN (${ACTIVE_JOBS})`,
+				`SELECT j.* FROM collection_jobs j JOIN pr_observations o ON o.id=j.observation_id AND o.generation=j.observation_generation WHERE o.identity=? AND j.summary_only=0 AND j.state IN (${ACTIVE_JOBS})`,
 			)
 			.bind(key),
 	]);
@@ -502,7 +502,7 @@ export async function refreshObserved(
 				),
 			db
 				.prepare(
-					`SELECT * FROM collection_jobs WHERE observation_id=? AND observation_generation=? AND state IN (${ACTIVE_JOBS})`,
+					`SELECT * FROM collection_jobs WHERE observation_id=? AND observation_generation=? AND summary_only=0 AND state IN (${ACTIVE_JOBS})`,
 				)
 				.bind(observation.id, observation.generation),
 		]);

@@ -4,6 +4,7 @@ import {
 	canonicalObservationKey,
 	makeWatchRef,
 	matchesRepositoryReference,
+	mergeCollectedPull,
 	mergeDiscoveredPull,
 	parsePullReference,
 	parseRepositoryReference,
@@ -15,6 +16,96 @@ import {
 const workspace = demoWorkspace(1_800_000_000);
 const project = workspace.projects[0]!;
 const pull = workspace.pullRequests[0]!;
+
+describe("independent summary and checks publications", () => {
+	const original = {
+		...pull,
+		headSha: "head",
+		targetSha: "target",
+		summaryObservedAt: 100,
+		observedAt: 110,
+		checksObservedAt: 110,
+	};
+	const summary = {
+		...original,
+		title: "Current title",
+		summaryObservedAt: 120,
+		observedAt: 120,
+		checksObservedAt: null,
+		policies: [],
+		builds: [],
+	};
+	test("a newer summary keeps the original check time and fresh base facts", () => {
+		expect(mergeCollectedPull(summary, original, true)).toMatchObject({
+			title: "Current title",
+			summaryObservedAt: 120,
+			observedAt: 120,
+			checksObservedAt: 110,
+			policies: original.policies,
+			builds: original.builds,
+		});
+	});
+	test("slow checks cannot overwrite a newer summary or make its state look newly read", () => {
+		const latest = mergeCollectedPull(summary, original, true);
+		const slow = {
+			...original,
+			observedAt: 140,
+			checksObservedAt: 140,
+			comments: 42,
+		};
+		expect(mergeCollectedPull(slow, latest, false)).toMatchObject({
+			title: "Current title",
+			summaryObservedAt: 120,
+			observedAt: 140,
+			checksObservedAt: 140,
+			comments: 42,
+		});
+	});
+	test("checks for a replaced head never validate the new head", () => {
+		const latest = mergeCollectedPull(
+			{ ...summary, headSha: "new-head" },
+			original,
+			true,
+		);
+		expect(latest).toMatchObject({
+			headSha: "new-head",
+			checksObservedAt: null,
+			checksInvalidated: true,
+		});
+		expect(
+			mergeCollectedPull(
+				{ ...original, observedAt: 140, checksObservedAt: 140 },
+				latest,
+				false,
+			),
+		).toMatchObject({
+			headSha: "new-head",
+			title: "Current title",
+			checksObservedAt: null,
+			checksInvalidated: true,
+		});
+	});
+	test("late open snapshots cannot regress terminal state, including timestamp ties", () => {
+		for (const state of ["merged", "closed"] as const) {
+			const terminal = { ...summary, state };
+			for (const incoming of [
+				original,
+				{ ...original, summaryObservedAt: 120 },
+			])
+				expect(mergeCollectedPull(incoming, terminal, false).state).toBe(state);
+		}
+	});
+	test("subsecond ordering distinguishes summaries issued during one second", () => {
+		const latest = { ...summary, summaryObservedAt: 120.9 };
+		expect(
+			mergeCollectedPull(
+				{ ...original, summaryObservedAt: 120.1 },
+				latest,
+				true,
+			).title,
+		).toBe("Current title");
+	});
+});
 
 describe("provider-neutral observation identity", () => {
 	test.each([

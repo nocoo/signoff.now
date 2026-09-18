@@ -35,6 +35,7 @@ export function queryProject(project: RepositoryQueryItem["project"]) {
 	});
 }
 export function queryRow(value: PullQueryItem): PullRow {
+	const summary = seconds(value.freshness.listObservedAt);
 	return {
 		project: queryProject(value.project),
 		pull: pullRequestSchema.parse({
@@ -44,7 +45,8 @@ export function queryRow(value: PullQueryItem): PullRow {
 			createdAt: seconds(value.createdAt),
 			updatedAt: seconds(value.updatedAt),
 			mergedAt: seconds(value.mergedAt),
-			observedAt: seconds(value.freshness.listObservedAt),
+			observedAt: summary === null ? null : Math.floor(summary),
+			summaryObservedAt: summary ?? undefined,
 			checksObservedAt: seconds(value.freshness.checksObservedAt),
 			activity: value.activity.map((item) => ({
 				...item,

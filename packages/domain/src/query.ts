@@ -33,6 +33,7 @@ export const pullQuerySchema = pullRequestSchema
 		projectId: true,
 		observedAt: true,
 		checksObservedAt: true,
+		summaryObservedAt: true,
 		activity: true,
 	})
 	.extend({
@@ -190,6 +191,7 @@ export const jobQuerySchema = z.object({
 	id: z.string(),
 	source: querySourceSchema,
 	kind: z.enum(["discover", "refresh"]),
+	lane: z.enum(["checks", "status"]).optional(),
 	state: z.enum([
 		"queued",
 		"running",
@@ -225,6 +227,8 @@ export type JobQueryItem = z.infer<typeof jobQuerySchema>;
 export const collectorQuerySchema = z.object({
 	schemaVersion: z.literal(1),
 	source: querySourceSchema,
+	// Older local Workers may omit this; clients retain periodic cache reads.
+	dataRevision: z.string().min(1).optional(),
 	generatedAt: iso,
 	connection: z.object({
 		state: z.enum(["ready", "offline", "auth_required", "error"]),
@@ -240,6 +244,7 @@ export const collectorQuerySchema = z.object({
 	pendingFirstResult: z.number(),
 	sampleCommandsEnabled: z.boolean().default(false),
 	detailCooldownSeconds: z.number(),
+	statusCooldownSeconds: z.number().optional(),
 	discovery: z.literal("on_demand"),
 	jobs: z.array(jobQuerySchema),
 	rounds: z.array(

@@ -229,6 +229,37 @@ export function useWorkbenchViewModel() {
 		(signal) => loadPending(filter.source, signal, filter, pendingPage),
 		15000,
 	);
+	const publishedRevision = collector.data?.dataRevision;
+	const reloadPulls = pulls.revalidate;
+	const reloadDetail = detail.revalidate;
+	const reloadPending = pending.revalidate;
+	const reloadCatalog = catalog.revalidate;
+	const reloadRepositoryResolution = repositoryResolution.revalidate;
+	useEffect(() => {
+		// Scope the revision by source, even when Live and Sample have equal
+		// counters. Reloads coalesce behind in-flight reads and retain visible data.
+		if (
+			!publishedRevision ||
+			collector.data?.source !== publicSource(filter.source)
+		)
+			return;
+		void Promise.allSettled([
+			reloadPulls(),
+			reloadDetail(),
+			reloadPending(),
+			reloadCatalog(),
+			reloadRepositoryResolution(),
+		]);
+	}, [
+		publishedRevision,
+		collector.data?.source,
+		filter.source,
+		reloadPulls,
+		reloadDetail,
+		reloadPending,
+		reloadCatalog,
+		reloadRepositoryResolution,
+	]);
 	const pendingPageCount = Math.max(
 		1,
 		Math.ceil((pending.data?.page.total ?? 0) / PAGE_SIZE),

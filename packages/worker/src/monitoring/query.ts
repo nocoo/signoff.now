@@ -368,6 +368,7 @@ function pullOutput(
 	const observation = observationFor(data, project, ref);
 	const checks =
 		pr.checksObservedAt === undefined ? pr.observedAt : pr.checksObservedAt;
+	const summary = pr.summaryObservedAt ?? pr.observedAt;
 	return pullQuerySchema.parse({
 		...pr,
 		provider: project.provider,
@@ -383,7 +384,7 @@ function pullOutput(
 		activity: pr.activity.map((a) => ({ ...a, at: iso(a.at) })),
 		observation: observation ? publicObservation(observation) : null,
 		freshness: {
-			listObservedAt: iso(pr.observedAt),
+			listObservedAt: iso(summary),
 			checksObservedAt: iso(checks),
 			checksValidity:
 				checks !== null
@@ -392,11 +393,12 @@ function pullOutput(
 						? "invalidated"
 						: "missing",
 			ageSeconds: {
-				list: Math.max(0, timestamp - pr.observedAt),
+				list: Math.max(0, Math.floor(timestamp - summary)),
 				checks: checks === null ? null : Math.max(0, timestamp - checks),
 			},
 			clockSkew:
-				pr.observedAt > timestamp || (checks !== null && checks > timestamp),
+				Math.floor(summary) > timestamp ||
+				(checks !== null && checks > timestamp),
 		},
 		readiness: {
 			...readiness,
@@ -1153,6 +1155,7 @@ export function publicJob(row: JobRow, repositories: JobRepositoryRow[]) {
 		id: row.id,
 		source: publicSource(row.source),
 		kind: row.kind === "list" ? ("discover" as const) : ("refresh" as const),
+		...(row.summary_only ? { lane: "status" as const } : {}),
 		state: row.state === "complete" ? ("succeeded" as const) : row.state,
 		projectId: row.project_id,
 		projectRevision: row.revision,
@@ -1214,9 +1217,15 @@ export async function queryCollector(
 		db.prepare("SELECT * FROM collector_heartbeat WHERE id=1"),
 		db
 			.prepare(
-				"SELECT * FROM collection_jobs WHERE source=? ORDER BY CASE WHEN state IN ('queued','running','auth_required') THEN 0 ELSE 1 END,updated_at DESC LIMIT 200",
+				`WITH latest AS (
+        SELECT *,ROW_NUMBER() OVER (
+          PARTITION BY project_id,kind,summary_only,observation_id,scope_key ORDER BY requested_at DESC,rowid DESC
+        ) AS newest FROM collection_jobs WHERE source=?
+      ) SELECT * FROM latest WHERE newest=1
+      ORDER BY CASE WHEN state IN ('queued','running','auth_required') THEN 0
+        WHEN state IN ('failed','partial') AND updated_at>=? THEN 1 ELSE 2 END,updated_at DESC LIMIT 200`,
 			)
-			.bind(source),
+			.bind(source, timestamp - 300),
 		db
 			.prepare(
 				"SELECT SUM(active) AS active,SUM(CASE WHEN active=1 AND pull_id IS NULL THEN 1 ELSE 0 END) AS pending FROM pr_observations WHERE source=?",
@@ -1239,6 +1248,9 @@ export async function queryCollector(
 			.prepare(
 				"SELECT message FROM collection_jobs WHERE source=? AND state='auth_required' ORDER BY updated_at DESC LIMIT 1",
 			)
+			.bind(source),
+		db
+			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
 			.bind(source),
 	]);
 	const heartbeat = results[0]?.results[0] as
@@ -1265,6 +1277,9 @@ export async function queryCollector(
 		},
 		schemaVersion: 1 as const,
 		source: publicSource(source),
+		dataRevision: String(
+			(results[7]?.results[0] as { revision: number }).revision,
+		),
 		generatedAt: iso(timestamp),
 		connection: {
 			state: offline
@@ -1280,6 +1295,7 @@ export async function queryCollector(
 		watching: counts.active ?? 0,
 		pendingFirstResult: counts.pending ?? 0,
 		detailCooldownSeconds: cooldown,
+		statusCooldownSeconds: 30,
 		discovery: "on_demand" as const,
 		jobs: jobs.map((j) => publicJob(j, [])),
 		rounds: (

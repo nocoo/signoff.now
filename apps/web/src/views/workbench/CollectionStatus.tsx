@@ -36,11 +36,14 @@ function operationLabel(
 	const collector = vm.collector;
 	if (!collector) return "Reading status";
 	if (!available) return "Collection paused";
-	if (collector.queue.running > 0)
-		return collector.jobs.find((job) => job.state === "running")?.kind ===
-			"discover"
+	if (collector.queue.running > 0) {
+		const runningJob = collector.jobs.find((job) => job.state === "running");
+		return runningJob?.kind === "discover"
 			? "Discovering PRs"
-			: "Refreshing PR checks";
+			: runningJob?.lane === "status"
+				? "Checking PR state"
+				: "Refreshing PR checks";
+	}
 	if (problem) return "Needs attention";
 	if (collector.queue.queued > 0) return "Waiting to start";
 	if (!collector.watching) return "Ready to watch";
@@ -84,6 +87,7 @@ export function CollectionStatus({
 					other.id !== job.id &&
 					other.projectId === job.projectId &&
 					other.kind === job.kind &&
+					(other.lane ?? "checks") === (job.lane ?? "checks") &&
 					other.observation?.id === job.observation?.id &&
 					other.scope.join("\0") === job.scope.join("\0") &&
 					other.requestedAt > job.requestedAt,
@@ -181,6 +185,9 @@ export function CollectionStatus({
 			<div className="mt-1 flex items-center justify-between gap-2 font-mono text-[9px] text-basalt-muted-foreground">
 				<span className="uppercase tracking-wider">
 					{vm.filter.source === "cli" ? "Live" : "Sample"}
+					{collector?.statusCooldownSeconds
+						? ` · State ${collector.statusCooldownSeconds}s`
+						: ""}
 				</span>
 				{collector?.connection.lastSeenAt ? (
 					<span

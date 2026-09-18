@@ -1,7 +1,7 @@
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { advanceDemoPull, makeDemoPulls } from "@signoff/domain/demo";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
-import type { PullRequest } from "@signoff/domain/workbench";
+import type { CollectionLane, PullRequest } from "@signoff/domain/workbench";
 import { AdoError, type AdoPagedClient } from "../ado/client.ts";
 import type { Logger } from "../logger.ts";
 import { isPipelineClientError } from "../pipeline/client.ts";
@@ -52,6 +52,7 @@ type RunOptions = {
 	log: Logger;
 	keepAliveMs?: number;
 	jobId?: string;
+	lane?: CollectionLane;
 	collect?: typeof collectProjectPulls;
 	signal?: AbortSignal;
 };
@@ -64,12 +65,18 @@ async function sampleTask(
 	let pulls: PullRequest[];
 	if (claim.job.kind === "details") {
 		if (!claim.targets?.[0]) throw new Error("Sample PR is not in the cache");
-		const advanced = advanceDemoPull(
-			claim.targets[0],
-			timestamp,
-			claim.job.id,
-		).pull;
-		pulls = [{ ...advanced, checksObservedAt: timestamp }];
+		const advanced =
+			claim.job.lane === "status"
+				? claim.targets[0]
+				: advanceDemoPull(claim.targets[0], timestamp, claim.job.id).pull;
+		pulls = [
+			{
+				...advanced,
+				observedAt: timestamp,
+				summaryObservedAt: timestamp,
+				checksObservedAt: claim.job.lane === "status" ? null : timestamp,
+			},
+		];
 	} else {
 		const cached = (await api.load()).pullRequests.filter(
 			(p) => p.projectId === claim.project.id,
@@ -120,7 +127,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		| "canceled";
 }> {
 	const { api, log } = opts;
-	const claim = await api.claim(undefined, opts.jobId);
+	const claim = await api.claim(undefined, opts.jobId, opts.lane);
 	if (!claim) return { processed: false, state: "idle" };
 	let ado: AdoPagedClient | undefined;
 	let done = 0;
@@ -190,6 +197,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 					id: repo.id,
 					name: repo.name,
 					projectGuid: repo.projectExternalId ?? claim.project.projectKey,
+					observedAt: 0,
 				})) ??
 				(await discoverRepositories(ado, {
 					...claim.project,
@@ -202,6 +210,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 					id: r.id,
 					name: r.name,
 					projectExternalId: r.projectGuid,
+					observedAt: r.observedAt,
 				})),
 			);
 			for (const repo of repos) {
@@ -214,7 +223,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 						ado,
 						claim.project,
 						repo,
-						Math.floor(Date.now() / 1000),
+						Date.now() / 1000,
 						repositoryPlan?.discoveryCursor,
 					)) {
 						check();
@@ -264,7 +273,8 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		const result = await (opts.collect ?? collectProjectPulls)({
 			project: claim.project,
 			client: ado,
-			now: Math.floor(Date.now() / 1000),
+			summaryOnly: claim.job.lane === "status",
+			now: Date.now() / 1000,
 			targets: [
 				{
 					id:
@@ -319,19 +329,19 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 	}
 }
 
-/** Two workers can serve independent projects; the persistent queue serializes each project. */
+/** Reserve capacity for lifecycle checks even while every expensive worker is busy. */
 export async function watchCollections(
 	opts: RunOptions & { sleep?: (ms: number) => Promise<unknown> },
 ): Promise<void> {
 	const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
 	await Promise.all(
-		[0, 1].map(async () => {
+		(["checks", "checks", "status", "status"] as const).map(async (lane) => {
 			while (!opts.signal?.aborted) {
 				try {
 					await opts.api.heartbeat("ready", "Watching the shared PR list");
-					await opts.api.schedule("details");
+					await opts.api.schedule("details", lane);
 					if (opts.signal?.aborted) break;
-					const result = await runCollectionOnce(opts);
+					const result = await runCollectionOnce({ ...opts, lane });
 					if (
 						!opts.signal?.aborted &&
 						(!result.processed || result.state === "auth_required")

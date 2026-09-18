@@ -1,6 +1,11 @@
-import { adoPullId, discoveryCursorSchema } from "@signoff/domain/collection";
+import {
+	adoPullId,
+	type CollectedRepository,
+	discoveryCursorSchema,
+} from "@signoff/domain/collection";
 import {
 	matchesRepositoryReference,
+	mergeCollectedPull,
 	mergeDiscoveredPull,
 	type RepositoryIdentity,
 } from "@signoff/domain/monitoring";
@@ -49,7 +54,7 @@ export async function registerJobRepositories(
 	db: D1Database,
 	id: string,
 	token: string,
-	repositories: RepositoryIdentity[],
+	repositories: CollectedRepository[],
 	timestamp: number,
 ) {
 	const { job, project } = await activeJob(db, id, token, timestamp);
@@ -87,6 +92,7 @@ export async function registerJobRepositories(
 			repositories.length ||
 		repositories.some(
 			(repo) =>
+				(repo.observedAt !== undefined && repo.observedAt > timestamp + 300) ||
 				(scope.length &&
 					!scope.some((s) =>
 						matchesScope(repo, s, job.repositories_resolved === 1),
@@ -143,13 +149,15 @@ export async function registerJobRepositories(
 				),
 			),
 		db
-			.prepare(`INSERT INTO workbench_repositories(project_id,repository_id,name,project_external_id,aliases_json)
-      SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),json_array(json_extract(value,'$.id'),json_extract(value,'$.name'))
+			.prepare(`INSERT INTO workbench_repositories(project_id,repository_id,name,project_external_id,aliases_json,name_observed_at)
+      SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),json_array(json_extract(value,'$.id'),json_extract(value,'$.name')),COALESCE(json_extract(value,'$.observedAt'),?)
       FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=? AND ?='list'
-      ON CONFLICT(project_id,repository_id) DO UPDATE SET name=excluded.name,project_external_id=COALESCE(excluded.project_external_id,workbench_repositories.project_external_id),
+      ON CONFLICT(project_id,repository_id) DO UPDATE SET name=CASE WHEN excluded.name_observed_at>=workbench_repositories.name_observed_at THEN excluded.name ELSE workbench_repositories.name END,
+      name_observed_at=MAX(excluded.name_observed_at,workbench_repositories.name_observed_at),project_external_id=COALESCE(excluded.project_external_id,workbench_repositories.project_external_id),
       aliases_json=(SELECT json_group_array(value) FROM (SELECT value FROM json_each(workbench_repositories.aliases_json) UNION SELECT excluded.name UNION SELECT excluded.repository_id))`)
 			.bind(
 				project.id,
+				timestamp,
 				JSON.stringify(repositories),
 				id,
 				token,
@@ -214,7 +222,9 @@ export async function stagePulls(
 			pull.updatedAt > pull.observedAt ||
 			pull.observedAt > timestamp + 300 ||
 			(typeof pull.checksObservedAt === "number" &&
-				pull.checksObservedAt > pull.observedAt)
+				pull.checksObservedAt > pull.observedAt) ||
+			(pull.summaryObservedAt !== undefined &&
+				Math.floor(pull.summaryObservedAt) > pull.observedAt)
 		)
 			throw new MonitoringError(
 				"INVALID_PULL",
@@ -222,33 +232,43 @@ export async function stagePulls(
 			);
 		ids.add(pull.id);
 	}
-	const previous = (
+	const cachedRows = (
 		await db
 			.prepare(
-				"SELECT id,snapshot FROM pull_requests WHERE id IN (SELECT value FROM json_each(?))",
+				"SELECT id,snapshot,version FROM pull_requests WHERE id IN (SELECT value FROM json_each(?))",
 			)
 			.bind(JSON.stringify([...ids]))
-			.all<{ id: string; snapshot: string }>()
+			.all<{ id: string; snapshot: string; version: number }>()
 	).results;
 	const cached = new Map(
-		previous.map((row) => [
+		cachedRows.map((row) => [
 			row.id,
-			pullRequestSchema.parse(JSON.parse(row.snapshot)),
+			{
+				pull: pullRequestSchema.parse(JSON.parse(row.snapshot)),
+				version: row.version,
+			},
 		]),
 	);
 	const results = await db.batch(
 		pulls.map((raw) => {
-			const pull =
-				job.kind === "list"
-					? mergeDiscoveredPull(raw, cached.get(raw.id))
+			const versioned = raw.summaryObservedAt !== undefined;
+			const previous = cached.get(raw.id);
+			const pull = versioned
+				? mergeCollectedPull(
+						raw,
+						previous?.pull,
+						job.kind === "list" || job.summary_only === 1,
+					)
+				: job.kind === "list"
+					? mergeDiscoveredPull(raw, previous?.pull)
 					: raw;
 			return db
-				.prepare(`INSERT INTO collection_staging(job_id,pull_id,project_id,repository_id,external_id,state,updated_at,snapshot)
-      SELECT ?,?,?,?,?,?,?,? WHERE ${RUNNING_JOB}
-      AND COALESCE((SELECT version FROM pull_requests WHERE id=?),0)=COALESCE((SELECT snapshot_version FROM collection_claim_bindings WHERE job_id=? AND pull_id=?),0)
+				.prepare(`INSERT INTO collection_staging(job_id,pull_id,project_id,repository_id,external_id,state,updated_at,snapshot,raw_snapshot,base_version)
+      SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${RUNNING_JOB}
+      AND (?=1 OR COALESCE((SELECT version FROM pull_requests WHERE id=?),0)=COALESCE((SELECT snapshot_version FROM collection_claim_bindings WHERE job_id=? AND pull_id=?),0))
       AND NOT EXISTS (SELECT 1 FROM collection_claim_bindings b WHERE b.job_id=? AND b.pull_id=? AND b.observation_id IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=1 AND o.generation=b.generation))
-      ON CONFLICT(job_id,pull_id) DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,snapshot=excluded.snapshot`)
+      ON CONFLICT(job_id,pull_id) DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,snapshot=excluded.snapshot,raw_snapshot=excluded.raw_snapshot,base_version=excluded.base_version`)
 				.bind(
 					id,
 					pull.id,
@@ -258,9 +278,12 @@ export async function stagePulls(
 					pull.state,
 					pull.updatedAt,
 					JSON.stringify(pull),
+					versioned ? JSON.stringify(raw) : null,
+					versioned ? (previous?.version ?? 0) : null,
 					id,
 					token,
 					timestamp,
+					Number(versioned),
 					pull.id,
 					id,
 					pull.id,
@@ -277,6 +300,66 @@ export async function stagePulls(
 		);
 }
 
+/** Uploads merge their own bounded chunks; publication only rebases concurrent changes. */
+async function reconcileStaging(
+	db: D1Database,
+	job: JobRow,
+	token: string,
+	repositoryId: string,
+	timestamp: number,
+) {
+	// At most 200 rows per attempt, 600 over all three CAS attempts. A hot writer
+	// cannot trap a request in an unbounded rebase loop or exceed the D1 SQL budget.
+	for (let batch = 0; batch < 10; batch++) {
+		const rows = (
+			await db
+				.prepare(`SELECT s.pull_id,s.raw_snapshot,pr.snapshot,COALESCE(pr.version,0) AS version
+      FROM collection_staging s LEFT JOIN pull_requests pr ON pr.id=s.pull_id
+      WHERE s.job_id=? AND s.repository_id=? AND s.raw_snapshot IS NOT NULL
+      AND s.base_version<>COALESCE(pr.version,0) ORDER BY s.pull_id LIMIT 20`)
+				.bind(job.id, repositoryId)
+				.all<{
+					pull_id: string;
+					raw_snapshot: string;
+					snapshot: string | null;
+					version: number;
+				}>()
+		).results;
+		if (!rows.length) return;
+		const results = await db.batch(
+			rows.map((row) => {
+				const merged = mergeCollectedPull(
+					pullRequestSchema.parse(JSON.parse(row.raw_snapshot)),
+					row.snapshot
+						? pullRequestSchema.parse(JSON.parse(row.snapshot))
+						: undefined,
+					job.kind === "list" || job.summary_only === 1,
+				);
+				return db
+					.prepare(`UPDATE collection_staging SET snapshot=?,state=?,updated_at=?,base_version=?
+        WHERE job_id=? AND pull_id=? AND raw_snapshot=? AND ${RUNNING_JOB}
+        AND COALESCE((SELECT version FROM pull_requests WHERE id=?),0)=?`)
+					.bind(
+						JSON.stringify(merged),
+						merged.state,
+						merged.updatedAt,
+						row.version,
+						job.id,
+						row.pull_id,
+						row.raw_snapshot,
+						job.id,
+						token,
+						timestamp,
+						row.pull_id,
+						row.version,
+					);
+			}),
+		);
+		// A concurrent publication is retried by the outer, bounded publication CAS.
+		if (results.some((result) => result.meta.changes < 1)) return;
+	}
+}
+
 export async function publishRepository(
 	db: D1Database,
 	id: string,
@@ -287,7 +370,8 @@ export async function publishRepository(
 	message: string,
 	timestamp: number,
 	mergeRequirements?: MergeRequirement[],
-) {
+	retry = 0,
+): Promise<JobRow> {
 	const { job, project } = await activeJob(db, id, token, timestamp);
 	const repository = await db
 		.prepare(
@@ -301,12 +385,18 @@ export async function publishRepository(
 			"Repository is not pending in this task",
 			409,
 		);
+	await reconcileStaging(db, job, token, repositoryId, timestamp);
 	const counts = await db
 		.prepare(
-			"SELECT COUNT(*) AS total,COALESCE(SUM(json_extract(snapshot,'$.coverage')='partial'),0) AS partial FROM collection_staging WHERE job_id=? AND repository_id=?",
+			"SELECT COUNT(*) AS total,COALESCE(SUM(json_extract(snapshot,'$.coverage')='partial'),0) AS partial,COALESCE(SUM(json_extract(COALESCE(raw_snapshot,snapshot),'$.coverage')='partial'),0) AS raw_partial,COUNT(raw_snapshot) AS versioned FROM collection_staging WHERE job_id=? AND repository_id=?",
 		)
 		.bind(id, repositoryId)
-		.first<{ total: number; partial: number }>();
+		.first<{
+			total: number;
+			partial: number;
+			raw_partial: number;
+			versioned: number;
+		}>();
 	const staged =
 		job.kind === "details"
 			? (
@@ -322,7 +412,10 @@ export async function publishRepository(
 		counts?.total !== pullCount ||
 		(job.kind === "list" && state !== "complete") ||
 		(job.kind === "details" && pullCount !== 1) ||
-		(job.kind === "details" && state === "complete" && counts.partial > 0)
+		(job.kind === "details" &&
+			!job.summary_only &&
+			state === "complete" &&
+			counts.raw_partial > 0)
 	)
 		throw new MonitoringError(
 			"INCOMPLETE_UPLOAD",
@@ -340,7 +433,7 @@ export async function publishRepository(
       AND (SELECT COUNT(*) FROM collection_staging WHERE job_id=? AND repository_id=?)=?
       AND NOT EXISTS (SELECT 1 FROM collection_staging s LEFT JOIN pull_requests pr ON pr.id=s.pull_id
         LEFT JOIN collection_claim_bindings b ON b.job_id=s.job_id AND b.pull_id=s.pull_id
-        WHERE s.job_id=? AND s.repository_id=? AND (COALESCE(pr.version,0)<>COALESCE(b.snapshot_version,0)
+		WHERE s.job_id=? AND s.repository_id=? AND (COALESCE(pr.version,0)<>COALESCE(s.base_version,b.snapshot_version,0)
           OR (b.observation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=1 AND o.generation=b.generation))))`)
 			.bind(
 				pullCount,
@@ -385,11 +478,14 @@ export async function publishRepository(
 		// A saved watch ref is a target, not a new provider observation. Publish
 		// refreshed metadata only alongside the validated PR snapshot and receipt.
 		db
-			.prepare(`UPDATE workbench_repositories SET name=?,
+			.prepare(`UPDATE workbench_repositories SET name=CASE WHEN ?>=name_observed_at THEN ? ELSE name END,
+      name_observed_at=MAX(name_observed_at,?),
       aliases_json=(SELECT json_group_array(value) FROM (SELECT value FROM json_each(workbench_repositories.aliases_json) UNION SELECT workbench_repositories.name UNION SELECT ?))
       WHERE project_id=? AND repository_id=? AND ?='details' AND ${receipt}`)
 			.bind(
+				staged[0]?.summaryObservedAt ?? staged[0]?.observedAt ?? 0,
 				staged[0]?.repository.name ?? "",
+				staged[0]?.summaryObservedAt ?? staged[0]?.observedAt ?? 0,
 				staged[0]?.repository.name ?? "",
 				project.id,
 				repositoryId,
@@ -398,7 +494,7 @@ export async function publishRepository(
 			),
 		db
 			.prepare(
-				`UPDATE projects SET merge_requirements_json=? WHERE id=? AND ?='details' AND ${receipt}`,
+				`UPDATE projects SET merge_requirements_json=? WHERE id=? AND ?='details' AND ?=0 AND ${receipt}`,
 			)
 			.bind(
 				JSON.stringify(
@@ -415,6 +511,7 @@ export async function publishRepository(
 				),
 				project.id,
 				job.kind,
+				job.summary_only,
 				...receiptBinds,
 			),
 		// Finish the current refresh before retiring it: the observation trigger cancels only outstanding work.
@@ -422,7 +519,7 @@ export async function publishRepository(
 			.prepare(`UPDATE collection_jobs SET state=?,updated_at=?,completed_at=?,completed_pulls=?,total_pulls=?,message=?,lease_token=NULL,lease_expires_at=NULL
       WHERE id=? AND kind='details' AND ${receipt}`)
 			.bind(
-				state,
+				!job.summary_only && counts.partial > 0 ? "partial" : state,
 				timestamp,
 				timestamp,
 				pullCount,
@@ -463,12 +560,26 @@ export async function publishRepository(
 			)
 			.bind(id, repositoryId, ...receiptBinds),
 	]);
-	if ((results[0]?.meta.changes ?? 0) < 1)
+	if ((results[0]?.meta.changes ?? 0) < 1) {
+		if (counts.versioned > 0 && retry < 2)
+			return publishRepository(
+				db,
+				id,
+				token,
+				repositoryId,
+				pullCount,
+				state,
+				message,
+				timestamp,
+				mergeRequirements,
+				retry + 1,
+			);
 		throw new MonitoringError(
 			"SNAPSHOT_CHANGED",
 			"Lease or PR snapshot changed before publication",
 			409,
 		);
+	}
 	return readJob(db, id);
 }
 

@@ -28,6 +28,20 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 }));
 afterEach(() => vi.clearAllMocks());
 
+test("subsecond summary clocks remain valid domain timestamps while checks keep their independent age", () => {
+	const value = publicPull();
+	value.freshness.listObservedAt = "2026-09-18T06:12:02.456Z";
+	value.freshness.checksObservedAt = "2026-09-18T06:01:30.000Z";
+	const row = queryRow(value);
+	expect(row.pull.observedAt).toBe(Date.parse("2026-09-18T06:12:02Z") / 1000);
+	expect(row.pull.summaryObservedAt).toBe(
+		Date.parse(value.freshness.listObservedAt) / 1000,
+	);
+	expect(row.pull.checksObservedAt).toBe(
+		Date.parse(value.freshness.checksObservedAt) / 1000,
+	);
+});
+
 test("wire conversion preserves scope, Draft, checks age, reviews and observation generations", () => {
 	const watch = fixtureObservation();
 	const result = queryRow(

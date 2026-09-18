@@ -272,3 +272,49 @@ export function mergeDiscoveredPull(
 		checksInvalidated: cached.checksInvalidated,
 	};
 }
+
+/** Reconcile independent collector lanes by fact time, never by response arrival. */
+export function mergeCollectedPull(
+	incoming: PullRequest,
+	cached: PullRequest | undefined,
+	summaryOnly: boolean,
+): PullRequest {
+	if (!cached) return incoming;
+	const summaryTime = (pull: PullRequest) =>
+		pull.summaryObservedAt ?? pull.observedAt;
+	const checkTime = (pull: PullRequest) =>
+		pull.checksObservedAt === undefined
+			? pull.observedAt
+			: pull.checksObservedAt;
+	const compatible = (a: PullRequest, b: PullRequest) =>
+		Boolean(
+			a.headSha &&
+				a.headSha === b.headSha &&
+				a.targetSha &&
+				a.targetSha === b.targetSha &&
+				a.targetBranch === b.targetBranch,
+		);
+	const newerSummary =
+		summaryTime(incoming) > summaryTime(cached) ||
+		(summaryTime(incoming) === summaryTime(cached) &&
+			cached.state === "open" &&
+			(incoming.state !== "open" || summaryOnly));
+	const summary = newerSummary ? incoming : cached;
+	const incomingChecks = checkTime(incoming);
+	const checks =
+		!summaryOnly &&
+		incomingChecks !== null &&
+		!incoming.checksInvalidated &&
+		(summary === incoming || compatible(incoming, summary)) &&
+		(!compatible(cached, summary) ||
+			incomingChecks >= (checkTime(cached) ?? -1))
+			? incoming
+			: cached;
+	const merged =
+		summary === checks ? summary : mergeDiscoveredPull(summary, checks);
+	return {
+		...merged,
+		summaryObservedAt: summaryTime(summary),
+		observedAt: Math.max(incoming.observedAt, cached.observedAt),
+	};
+}

@@ -140,10 +140,15 @@ export const collectionFailureSchema = z
 	})
 	.strict();
 
+export const collectionRepositorySchema = repositoryIdentitySchema.extend({
+	/** Request start for provider metadata; 0 identifies a reused task plan. */
+	observedAt: z.number().finite().nonnegative().optional(),
+});
+export type CollectedRepository = z.infer<typeof collectionRepositorySchema>;
 export const collectionRepositoriesSchema = z
 	.object({
 		leaseToken,
-		repositories: z.array(repositoryIdentitySchema).max(1000),
+		repositories: z.array(collectionRepositorySchema).max(1000),
 	})
 	.strict();
 export const collectionPublishSchema = z

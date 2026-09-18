@@ -1,6 +1,9 @@
 import type { CollectorClaim } from "@signoff/domain/collection";
 import type { DataSource, Observation } from "@signoff/domain/monitoring";
-import { pullRequestSchema } from "@signoff/domain/workbench";
+import {
+	type CollectionLane,
+	pullRequestSchema,
+} from "@signoff/domain/workbench";
 import {
 	ACTIVE_JOBS,
 	type JobRow,
@@ -14,6 +17,41 @@ import {
 	RUNNING_JOB,
 	readJob,
 } from "./store.js";
+
+export const STATUS_COOLDOWN_SECONDS = 30;
+
+/** A separately leased lane keeps slow policy/build work out of lifecycle polling. */
+export async function scheduleSummaries(
+	db: D1Database,
+	timestamp: number,
+	source?: DataSource,
+) {
+	await db.batch([
+		db
+			.prepare(
+				`DELETE FROM collection_jobs WHERE summary_only=1 AND completed_at<? AND state NOT IN (${ACTIVE_JOBS})`,
+			)
+			.bind(timestamp - 86400),
+		db
+			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,summary_only,message)
+      SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,json_object('id',p.id,'provider',p.provider,'organization',p.organization,'projectKey',p.project_key,'name',p.name),
+      'queued',?,?,?,'details',json_array(COALESCE(o.pull_id,p.provider||':'||p.id||':'||json_extract(o.ref_json,'$.repository.id')||':'||json_extract(o.ref_json,'$.number'))),
+      json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,1,'Waiting to check PR state'
+      FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source
+      WHERE o.active=1 AND (? IS NULL OR o.source=?)
+      AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=1
+        AND (j.state IN (${ACTIVE_JOBS}) OR j.completed_at>?))
+      ORDER BY o.added_at,o.id`)
+			.bind(
+				timestamp,
+				timestamp,
+				timestamp,
+				source ?? null,
+				source ?? null,
+				timestamp - STATUS_COOLDOWN_SECONDS,
+			),
+	]);
+}
 
 /** Only explicit observations create periodic work. Discovery never appears here. */
 export async function scheduleObservations(
@@ -43,7 +81,7 @@ export async function scheduleObservations(
 			.bind(round, timestamp, source ?? null, source ?? null),
 		db
 			.prepare(`UPDATE collection_jobs SET round_id=(SELECT q.round_id FROM collection_project_rounds q WHERE q.project_id=collection_jobs.project_id)
-      WHERE kind='details' AND round_id IS NULL AND state IN (${ACTIVE_JOBS}) AND EXISTS (SELECT 1 FROM collection_project_rounds q WHERE q.project_id=collection_jobs.project_id AND q.round_id=?||':'||q.project_id)`)
+      WHERE kind='details' AND summary_only=0 AND round_id IS NULL AND state IN (${ACTIVE_JOBS}) AND EXISTS (SELECT 1 FROM collection_project_rounds q WHERE q.project_id=collection_jobs.project_id AND q.round_id=?||':'||q.project_id)`)
 			.bind(round),
 		db
 			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,round_id,message)
@@ -52,7 +90,7 @@ export async function scheduleObservations(
       json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,q.round_id,'Waiting to refresh watched PR'
       FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source JOIN collection_project_rounds q ON q.project_id=p.id
       WHERE o.active=1 AND q.round_id=?||':'||q.project_id
-      AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.state IN (${ACTIVE_JOBS}))
+      AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0 AND j.state IN (${ACTIVE_JOBS}))
       ORDER BY o.added_at,o.id`)
 			.bind(timestamp, timestamp, timestamp, round),
 	]);
@@ -64,6 +102,7 @@ export async function claimJob(
 	options: {
 		jobId?: string;
 		kind?: "list" | "details";
+		lane?: CollectionLane;
 		source?: DataSource;
 	} = {},
 ): Promise<CollectorClaim | null> {
@@ -79,9 +118,9 @@ export async function claimJob(
       completed_pulls=0,total_pulls=NULL,message='Collecting PR data' WHERE id=(
       SELECT j.id FROM collection_jobs j JOIN projects p ON p.id=j.project_id AND p.revision=j.revision AND p.source=j.source
       WHERE j.state IN ('queued','auth_required') AND j.not_before<=? AND j.kind<>'full'
-        AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?)
+        AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?) AND j.summary_only=?
         AND (j.kind='list' OR EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=j.observation_id AND o.generation=j.observation_generation AND o.active=1))
-        AND NOT EXISTS (SELECT 1 FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.state='running')
+        AND NOT EXISTS (SELECT 1 FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.summary_only=j.summary_only AND busy.state='running')
         AND NOT EXISTS (SELECT 1 FROM collection_jobs auth WHERE auth.project_id=j.project_id AND auth.state='auth_required' AND auth.not_before>?)
       ORDER BY j.requested_at,j.rowid LIMIT 1)`)
 			.bind(
@@ -96,6 +135,7 @@ export async function claimJob(
 				options.kind ?? null,
 				options.source ?? null,
 				options.source ?? null,
+				Number(options.lane === "status"),
 				timestamp,
 			),
 		db

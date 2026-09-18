@@ -332,6 +332,7 @@ export function normalizePullRequest(opts: {
 	deletions?: number | null;
 	comments?: number | null;
 	checksObservedAt?: number | null;
+	summaryObservedAt?: number;
 }): PullRequest {
 	const { projectId, rawPr, now } = opts;
 	const repoId = rawPr.repository.id;
@@ -406,6 +407,7 @@ export function normalizePullRequest(opts: {
 		createdAt: createdSec,
 		updatedAt: updatedSec,
 		observedAt: nowSec,
+		summaryObservedAt: opts.summaryObservedAt ?? nowSec,
 		headSha: rawPr.lastMergeSourceCommit?.commitId ?? null,
 		targetSha: rawPr.lastMergeTargetCommit?.commitId ?? null,
 		checksObservedAt:

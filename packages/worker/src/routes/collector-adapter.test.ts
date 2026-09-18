@@ -31,6 +31,12 @@ test("idle heartbeat and scheduler neither discover nor revive authentication ba
 	).toBe(200);
 	await request("schedule");
 	expect(await (await request("claim")).json()).toBeNull();
+	await request("schedule", { kind: "details", lane: "status" });
+	expect(await (await request("claim?lane=status")).json()).toBeNull();
+	expect(
+		(await request("schedule", { kind: "details", lane: "unknown" })).status,
+	).toBe(400);
+	expect((await request("claim?lane=unknown")).status).toBe(400);
 	const receipt = await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW);
 	sqlite.raw
 		.query(

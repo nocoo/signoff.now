@@ -1,5 +1,6 @@
 import { refreshSettingsSchema } from "@signoff/domain/collection";
 import {
+	collectionLaneSchema,
 	type RefreshQueue,
 	refreshQueueKindSchema,
 	refreshQueueSchema,
@@ -8,14 +9,17 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
-import { scheduleObservations } from "../monitoring/scheduler.js";
+import {
+	scheduleObservations,
+	scheduleSummaries,
+} from "../monitoring/scheduler.js";
 import type { AppEnv } from "../types.js";
 
 export const REFRESH_QUEUES_SQL = `SELECT q.kind,q.cooldown_seconds,
  (SELECT MAX(last_completed_at) FROM collection_project_rounds) AS last_completed_at,
  CASE WHEN q.kind='details' THEN (SELECT MIN(round_id) FROM collection_project_rounds WHERE round_id IS NOT NULL) ELSE NULL END AS round_id,
  0 AS refresh_requested,9007199254740991 AS foreground_until,
- (SELECT COUNT(*) FROM collection_jobs j WHERE j.kind=q.kind AND (j.state IN ('queued','running','auth_required') OR j.round_id IN (SELECT round_id FROM collection_project_rounds WHERE round_id IS NOT NULL))) AS total_jobs,
+ (SELECT COUNT(*) FROM collection_jobs j WHERE j.kind=q.kind AND j.summary_only=0 AND (j.state IN ('queued','running','auth_required') OR j.round_id IN (SELECT round_id FROM collection_project_rounds WHERE round_id IS NOT NULL))) AS total_jobs,
  (SELECT COUNT(*) FROM collection_jobs j WHERE j.kind=q.kind AND j.round_id IN (SELECT round_id FROM collection_project_rounds WHERE round_id IS NOT NULL) AND j.state NOT IN ('queued','running','auth_required')) AS completed_jobs
  FROM collection_refresh q ORDER BY q.kind DESC`;
 type QueueRow = {
@@ -98,12 +102,17 @@ export async function collectorScheduleRoute(c: Context<AppEnv>) {
 	if (denied) return denied;
 	const raw = await readJsonBodyWithSize(c, 8192);
 	const input = z
-		.object({ kind: refreshQueueKindSchema.optional() })
+		.object({
+			kind: refreshQueueKindSchema.optional(),
+			lane: collectionLaneSchema.optional(),
+		})
 		.strict()
 		.safeParse(raw.ok ? raw.value : null);
 	if (!input.success) return c.json({ error: "Invalid schedule request" }, 400);
 	if (input.data.kind !== "list")
-		await scheduleObservations(
+		await (input.data.lane === "status"
+			? scheduleSummaries
+			: scheduleObservations)(
 			c.env.DB,
 			Math.floor(Date.now() / 1000),
 			c.env.SIGNOFF_DEMO_MODE === "1" ? undefined : "cli",

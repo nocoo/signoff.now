@@ -204,6 +204,152 @@ afterEach(() => {
 });
 
 describe("independent cached blocks", () => {
+	it("continuous publications never starve a slower initial PR query", async () => {
+		vi.useFakeTimers();
+		let revision = 0;
+		vi.mocked(api.loadCollector).mockImplementation(async () => ({
+			...fixture.collector,
+			dataRevision: String(++revision),
+		}));
+		vi.mocked(api.loadPulls).mockImplementation(async () => {
+			const snapshot = revision;
+			await new Promise((resolve) => setTimeout(resolve, 4000));
+			return {
+				...fixture.pulls,
+				dataRevision: String(snapshot),
+				data: [{ ...fixture.pulls.data[0]!, title: `Publication ${snapshot}` }],
+			};
+		});
+		const { result } = render("/");
+		for (let round = 0; round < 10; round++)
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
+			});
+		expect(result.current.vm.loading).toBe(false);
+		expect(result.current.vm.rows[0]?.pull.title).toMatch(/^Publication [5-9]/);
+		expect(vi.mocked(api.loadPulls).mock.calls.length).toBeLessThanOrEqual(9);
+	});
+	it("collector publications promptly reconcile mounted cache blocks without provider commands or heartbeat reloads", async () => {
+		vi.useFakeTimers();
+		let revision = "1";
+		vi.mocked(api.loadCollector).mockImplementation(async () => ({
+			...fixture.collector,
+			dataRevision: revision,
+		}));
+		const { result } = render(`/?watching=watching&pr=${pull.id}`);
+		await act(async () => {});
+		const reads = [
+			api.loadPulls,
+			api.loadPull,
+			api.loadCatalog,
+			api.loadPending,
+		];
+		for (const read of reads) vi.mocked(read).mockClear();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000);
+		});
+		for (const read of reads) expect(read).not.toHaveBeenCalled();
+		const final = publicPull(
+			{ ...pull, state: "merged" },
+			project,
+			fixtureObservation({ active: false, stopReason: "completed" }),
+		);
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			dataRevision: "2",
+			data: [],
+			page: { ...fixture.page, total: 0 },
+		});
+		vi.mocked(api.loadPull).mockResolvedValue({
+			...fixture.envelope,
+			dataRevision: "2",
+			data: final,
+		});
+		revision = "2";
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000);
+		});
+		for (const read of reads) expect(read).toHaveBeenCalledTimes(1);
+		expect(result.current.vm.rows).toEqual([]);
+		expect(result.current.vm.selected?.pull.state).toBe("merged");
+		expect(result.current.vm.selected?.observation?.active).toBe(false);
+		expect(result.current.vm.loading).toBe(false);
+		for (const command of [
+			api.discover,
+			api.refreshWatches,
+			api.addWatches,
+			api.removeWatches,
+		])
+			expect(command).not.toHaveBeenCalled();
+	});
+	it("publication signals coalesce behind a slow cache read and independently recover a failed detail", async () => {
+		vi.useFakeTimers();
+		let revision = "1";
+		vi.mocked(api.loadCollector).mockImplementation(async () => ({
+			...fixture.collector,
+			dataRevision: revision,
+		}));
+		const { result } = render(`/?pr=${pull.id}`);
+		await act(async () => {});
+		vi.mocked(api.loadPulls).mockClear();
+		const slow = deferred<typeof fixture.pulls>();
+		vi.mocked(api.loadPulls).mockImplementationOnce(() => slow.promise);
+		vi.mocked(api.loadPull).mockRejectedValueOnce(
+			new Error("Detail unavailable"),
+		);
+		revision = "2";
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3000);
+		});
+		expect(result.current.vm.detailError).toBe("Detail unavailable");
+		expect(result.current.vm.rows).toHaveLength(1);
+		expect(result.current.vm.loading).toBe(false);
+		for (revision of ["3", "4"])
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(3000);
+			});
+		expect(api.loadPulls).toHaveBeenCalledTimes(1);
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			dataRevision: "4",
+			data: [{ ...fixture.pulls.data[0]!, title: "Newest publication" }],
+		});
+		await act(async () => {
+			slow.resolve({ ...fixture.pulls, dataRevision: "2" });
+		});
+		expect(api.loadPulls).toHaveBeenCalledTimes(2);
+		expect(result.current.vm.rows[0]?.pull.title).toBe("Newest publication");
+		expect(result.current.vm.detailError).toBeNull();
+	});
+	it("foreground return catches publications without reading hidden pages or inactive PR blocks", async () => {
+		vi.useFakeTimers();
+		const visibility = vi
+			.spyOn(document, "visibilityState", "get")
+			.mockReturnValue("visible");
+		let revision = "1";
+		vi.mocked(api.loadCollector).mockImplementation(async () => ({
+			...fixture.collector,
+			dataRevision: revision,
+		}));
+		const { result } = render("/projects");
+		await act(async () => {});
+		vi.mocked(api.loadCatalog).mockClear();
+		visibility.mockReturnValue("hidden");
+		act(() => document.dispatchEvent(new Event("visibilitychange")));
+		revision = "2";
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(60000);
+		});
+		expect(api.loadCatalog).not.toHaveBeenCalled();
+		visibility.mockReturnValue("visible");
+		await act(async () => {
+			document.dispatchEvent(new Event("visibilitychange"));
+		});
+		expect(api.loadCatalog).toHaveBeenCalled();
+		expect(result.current.vm.projects).toHaveLength(1);
+		for (const read of [api.loadPulls, api.loadPull, api.loadPending])
+			expect(read).not.toHaveBeenCalled();
+	});
 	it("loads live cache only and never creates provider work when a page opens", async () => {
 		const { result } = render();
 		await loaded(result);

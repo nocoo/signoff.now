@@ -10,7 +10,13 @@ import {
 	enqueueDiscovery,
 	removeObservation,
 } from "./observations";
-import { claimJob, failJob, renewJob, scheduleObservations } from "./scheduler";
+import {
+	claimJob,
+	failJob,
+	renewJob,
+	scheduleObservations,
+	scheduleSummaries,
+} from "./scheduler";
 
 let sqlite: SqliteD1;
 beforeEach(() => {
@@ -43,6 +49,116 @@ const activeCount = () =>
 	).n;
 
 describe("observation scheduler", () => {
+	test("completed status receipts expire after a day without losing watches, checks jobs, or settings", async () => {
+		seedProject(sqlite, { repositories: [] });
+		const item = await watch();
+		sqlite.raw.exec(
+			"UPDATE collection_refresh SET cooldown_seconds=0 WHERE kind='details'",
+		);
+		await scheduleSummaries(sqlite.db, 100);
+		const status = (await claimJob(sqlite.db, 100, { lane: "status" }))!;
+		finish(status.job.id, 110);
+		expect(sqlite.raw.query("SELECT COUNT(*) n FROM scan_runs").get()).toEqual({
+			n: 0,
+		});
+		await scheduleSummaries(sqlite.db, 110 + 86400);
+		expect(
+			sqlite.raw
+				.query("SELECT id FROM collection_jobs WHERE id=?")
+				.get(status.job.id),
+		).not.toBeNull();
+		await scheduleSummaries(sqlite.db, 111 + 86400);
+		expect(
+			sqlite.raw
+				.query("SELECT id FROM collection_jobs WHERE id=?")
+				.get(status.job.id),
+		).toBeNull();
+		expect(
+			sqlite.raw
+				.query("SELECT id FROM collection_jobs WHERE id=?")
+				.get(item.job!.id),
+		).not.toBeNull();
+		expect(
+			sqlite.raw
+				.query("SELECT active FROM pr_observations WHERE id=?")
+				.get(item.observation.id),
+		).toEqual({ active: 1 });
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT cooldown_seconds FROM collection_refresh WHERE kind='details'",
+				)
+				.get(),
+		).toEqual({ cooldown_seconds: 0 });
+		expect(
+			(await claimJob(sqlite.db, 111 + 86400, { lane: "status" }))?.observation
+				?.id,
+		).toBe(item.observation.id);
+	});
+	test("a separate status lane bypasses blocked checks and cools down per watched PR after completion", async () => {
+		seedProject(sqlite, { repositories: [] });
+		await watch(1);
+		await watch(2);
+		const checks = (await claimJob(sqlite.db, 100))!;
+		await scheduleSummaries(sqlite.db, 100);
+		await scheduleSummaries(sqlite.db, 100);
+		const status = (await claimJob(sqlite.db, 100, { lane: "status" }))!;
+		expect(status.job.lane).toBe("status");
+		expect(status.observation?.active).toBe(true);
+		expect(await claimJob(sqlite.db, 101, { lane: "status" })).toBeNull();
+		expect(checks.job.id).not.toBe(status.job.id);
+		finish(status.job.id, 110);
+		const second = (await claimJob(sqlite.db, 111, { lane: "status" }))!;
+		finish(second.job.id, 112);
+		await scheduleSummaries(sqlite.db, 139);
+		expect(await claimJob(sqlite.db, 139, { lane: "status" })).toBeNull();
+		await scheduleSummaries(sqlite.db, 140);
+		expect(
+			(await claimJob(sqlite.db, 140, { lane: "status" }))?.observation?.id,
+		).toBe(status.observation?.id);
+		expect(await claimJob(sqlite.db, 140)).toBeNull();
+		expect(
+			sqlite.raw
+				.query("SELECT COUNT(*) n FROM collection_jobs WHERE kind='list'")
+				.get(),
+		).toEqual({ n: 0 });
+	});
+	test("status scheduling is empty by default, source scoped, and removal cancels both lanes", async () => {
+		seedProject(sqlite, { repositories: [] });
+		seedPull(sqlite);
+		await scheduleSummaries(sqlite.db, 100);
+		expect(activeCount()).toBe(0);
+		const item = await watch();
+		await scheduleSummaries(sqlite.db, 100, "demo");
+		expect(activeCount()).toBe(1);
+		await scheduleSummaries(sqlite.db, 100, "cli");
+		expect(activeCount()).toBe(2);
+		await claimJob(sqlite.db, 100);
+		await claimJob(sqlite.db, 100, { lane: "status" });
+		await removeObservation(sqlite.db, "cli", item.observation.id, 1, 101);
+		await scheduleSummaries(sqlite.db, 200);
+		expect(activeCount()).toBe(0);
+	});
+	test("ordinary status failure retains the watch and retries after its own cooldown", async () => {
+		seedProject(sqlite, { repositories: [] });
+		await watch();
+		await scheduleSummaries(sqlite.db, 100);
+		const status = (await claimJob(sqlite.db, 100, { lane: "status" }))!;
+		await failJob(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			"not_found",
+			"PR unavailable",
+			110,
+		);
+		await scheduleSummaries(sqlite.db, 139);
+		expect(await claimJob(sqlite.db, 139, { lane: "status" })).toBeNull();
+		await scheduleSummaries(sqlite.db, 140);
+		expect(
+			(await claimJob(sqlite.db, 140, { lane: "status" }))?.observation?.active,
+		).toBe(true);
+	});
 	test("empty startup stays idle despite configured projects and cached PRs", async () => {
 		seedProject(sqlite, { repositories: [] });
 		seedPull(sqlite);

@@ -8,6 +8,7 @@ import {
 	collectionRepositoryFailureSchema,
 	collectorHeartbeatSchema,
 } from "@signoff/domain/collection";
+import { collectionLaneSchema } from "@signoff/domain/workbench";
 import type { Context } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
@@ -74,6 +75,7 @@ export const collectorClaimRoute = local(async (c) => {
 	const options = z
 		.object({
 			kind: z.enum(["list", "details"]).optional(),
+			lane: collectionLaneSchema.optional(),
 			jobId: z.string().min(1).max(240).optional(),
 		})
 		.strict()

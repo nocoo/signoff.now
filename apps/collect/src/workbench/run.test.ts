@@ -535,6 +535,38 @@ describe("explicit repository discovery", () => {
 });
 
 describe("sample and daemon orchestration", () => {
+	test("reserved status workers publish while all check workers are blocked", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		const release = deferred<void>();
+		const claimed = new Set<string>();
+		deps.api.claim = async (_kind, _job, lane) => {
+			const key = lane ?? "checks";
+			if (claimed.has(key)) return null;
+			claimed.add(key);
+			return { ...claim, job: { ...claim.job, id: key, lane } };
+		};
+		const order: string[] = [];
+		deps.api.publish = async (lease) => {
+			order.push(lease.job.id);
+			if (lease.job.id === "status") {
+				controller.abort();
+				release.resolve();
+			}
+			return { ...claim.job, id: lease.job.id, state: "complete" };
+		};
+		await watchCollections({
+			...deps,
+			signal: controller.signal,
+			sleep: () => release.promise,
+			collect: async ({ summaryOnly }) => {
+				if (!summaryOnly) await release.promise;
+				return collected();
+			},
+		});
+		expect(order[0]).toBe("status");
+		expect(claimed.has("checks")).toBe(true);
+	});
 	test("Sample discovery keeps ID scope when another repository name equals that ID", async () => {
 		const deps = setup();
 		deps.api.claim = async () => ({

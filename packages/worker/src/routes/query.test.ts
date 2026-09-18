@@ -19,6 +19,7 @@ import {
 	queryPulls,
 	queryRepos,
 } from "../monitoring/query";
+import { claimJob, failJob } from "../monitoring/scheduler";
 import { PR_TEST_NOW, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 import type { AppEnv } from "../types";
@@ -52,6 +53,149 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test("collector previews retain unresolved check failures through high-volume status success and clear them after recovery", async () => {
+		const { project, pull } = seed();
+		await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);
+		const claim = (await claimJob(sqlite.db, PR_TEST_NOW))!;
+		await failJob(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			"unavailable",
+			"Policies unavailable",
+			PR_TEST_NOW + 1,
+		);
+		const insert = sqlite.raw.query(
+			`INSERT INTO collection_jobs(id,project_id,revision,source,state,kind,requested_at,updated_at,completed_at,summary_only,observation_id,observation_generation,message) VALUES(?,?,?,'cli',?,'details',?,?,?,?,?,?,?)`,
+		);
+		for (let i = 0; i < 225; i++) {
+			const timestamp = PR_TEST_NOW + 2 + Math.floor(i / 25) * 30;
+			insert.run(
+				`status-${i}`,
+				project.id,
+				project.revision,
+				"complete",
+				timestamp,
+				timestamp,
+				timestamp,
+				1,
+				claim.observation!.id,
+				claim.observation!.generation,
+				"State checked",
+			);
+		}
+		const status = await queryCollector(sqlite.db, "cli", PR_TEST_NOW + 250);
+		expect(
+			status.jobs.some(
+				(job) => job.id === claim.job.id && job.state === "failed",
+			),
+		).toBe(true);
+		// Same watch, different lane: only a successful checks retry supersedes this failure.
+		insert.run(
+			"check-recovery",
+			project.id,
+			project.revision,
+			"complete",
+			PR_TEST_NOW + 260,
+			PR_TEST_NOW + 261,
+			PR_TEST_NOW + 261,
+			0,
+			claim.observation!.id,
+			claim.observation!.generation,
+			"Checks recovered",
+		);
+		const recovered = await queryCollector(sqlite.db, "cli", PR_TEST_NOW + 261);
+		expect(recovered.jobs.some((job) => job.id === claim.job.id)).toBe(false);
+		expect(recovered.jobs.some((job) => job.id === "check-recovery")).toBe(
+			true,
+		);
+	});
+	test("summary and check freshness remain separate, with no false clock skew within a second", async () => {
+		seedProject(sqlite, { repositories: [] });
+		seedPull(sqlite, {
+			summaryObservedAt: PR_TEST_NOW - 100.125,
+			observedAt: PR_TEST_NOW,
+			checksObservedAt: PR_TEST_NOW,
+		});
+		const query = () =>
+			queryPulls(
+				sqlite.db,
+				"cli",
+				parseQuery(new URLSearchParams()),
+				PR_TEST_NOW,
+			);
+		const result = await query();
+		expect(result.data[0]?.freshness).toMatchObject({
+			listObservedAt: new Date((PR_TEST_NOW - 100.125) * 1000).toISOString(),
+			checksObservedAt: new Date(PR_TEST_NOW * 1000).toISOString(),
+			ageSeconds: { list: 100, checks: 0 },
+			clockSkew: false,
+		});
+		sqlite.raw
+			.query(
+				"UPDATE pull_requests SET snapshot=json_set(snapshot,'$.summaryObservedAt',?)",
+			)
+			.run(PR_TEST_NOW + 0.5);
+		expect((await query()).data[0]?.freshness.clockSkew).toBe(false);
+	});
+	test("collector exposes the published source revision, independent of heartbeat and queue progress", async () => {
+		const { pull } = seed();
+		const status = async (source = "live") => {
+			const response = await request(
+				`/api/query/v1/collector?source=${source}`,
+			);
+			expect(response.status).toBe(200);
+			return (await response.json()) as {
+				dataRevision: string;
+				watching: number;
+			};
+		};
+		const initial = await status();
+		expect(initial.dataRevision).toMatch(/^\d+$/);
+		const list = pullListSchema.parse(
+			await (await request("/api/query/v1/prs")).json(),
+		);
+		expect(initial.dataRevision).toBe(list.dataRevision);
+		const sample = await status("sample");
+		const added = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			PR_TEST_NOW,
+		);
+		const watched = await status();
+		expect(watched.dataRevision).not.toBe(initial.dataRevision);
+		expect(watched.watching).toBe(1);
+		sqlite.raw
+			.query(
+				"INSERT INTO collector_heartbeat(id,last_seen_at,state,message) VALUES(1,?,'ready','Collecting')",
+			)
+			.run(PR_TEST_NOW);
+		sqlite.raw
+			.query(
+				"UPDATE collection_jobs SET completed_pulls=1,updated_at=? WHERE id=?",
+			)
+			.run(PR_TEST_NOW + 1, added.job!.id);
+		expect((await status()).dataRevision).toBe(watched.dataRevision);
+		seedPull(sqlite, {
+			...pull,
+			title: "Newly published status",
+			checksObservedAt: PR_TEST_NOW + 1,
+		});
+		const published = await status();
+		expect(published.dataRevision).not.toBe(watched.dataRevision);
+		await removeObservation(
+			sqlite.db,
+			"cli",
+			added.observation.id,
+			1,
+			PR_TEST_NOW + 2,
+		);
+		const removed = await status();
+		expect(removed.dataRevision).not.toBe(published.dataRevision);
+		expect(removed.watching).toBe(0);
+		expect((await status("sample")).dataRevision).toBe(sample.dataRevision);
+	});
 	test.each([
 		{ projectKey: "Zulu" },
 		{ organization: "zulu-org" },

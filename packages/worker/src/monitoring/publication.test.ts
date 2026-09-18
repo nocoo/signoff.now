@@ -3,7 +3,11 @@ import { adoPullId } from "@signoff/domain/collection";
 import { makeWatchRef } from "@signoff/domain/monitoring";
 import type { PullRequest } from "@signoff/domain/workbench";
 import { PR_TEST_NOW, seedProject, seedPull } from "../test/pr-fixture";
-import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
+import {
+	createConcurrentSqliteD1,
+	createSqliteD1,
+	type SqliteD1,
+} from "../test/sqlite-d1";
 import {
 	addObservation,
 	enqueueDiscovery,
@@ -19,7 +23,12 @@ import {
 	rejectRepository,
 	stagePulls,
 } from "./publication";
-import { claimJob, failJob, scheduleObservations } from "./scheduler";
+import {
+	claimJob,
+	failJob,
+	scheduleObservations,
+	scheduleSummaries,
+} from "./scheduler";
 import { readJob, readProject } from "./store";
 
 let sqlite: SqliteD1;
@@ -68,6 +77,553 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test("repository names keep the newest fact across different PRs and delayed discovery metadata", async () => {
+		const { project, pull, claim: checks } = await watching();
+		const sibling = seedPull(sqlite, {
+			...pull,
+			id: adoPullId(project.id, pull.repository.id, "2"),
+			number: 2,
+			externalId: "2",
+		});
+		const added = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: sibling.id },
+			now,
+		);
+		await scheduleSummaries(sqlite.db, now);
+		const task = sqlite.raw
+			.query(
+				"SELECT id FROM collection_jobs WHERE observation_id=? AND summary_only=1",
+			)
+			.get(added.observation.id) as { id: string };
+		const status = (await claimJob(sqlite.db, now, {
+			lane: "status",
+			jobId: task.id,
+		}))!;
+		await registerJobRepositories(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			[sibling.repository],
+			now,
+		);
+		await stagePulls(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			[
+				{
+					...sibling,
+					repository: { ...sibling.repository, name: "New name" },
+					summaryObservedAt: now + 2,
+					observedAt: now + 2,
+					checksObservedAt: null,
+				},
+			],
+			now + 2,
+		);
+		await publishRepository(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			sibling.repository.id,
+			1,
+			"complete",
+			"New name",
+			now + 2,
+		);
+		await stagePulls(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			[
+				{
+					...pull,
+					summaryObservedAt: now,
+					observedAt: now + 40,
+					checksObservedAt: now + 40,
+				},
+			],
+			now + 40,
+		);
+		await publishRepository(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Slow checks",
+			now + 40,
+		);
+		const catalog = () =>
+			sqlite.raw
+				.query(
+					"SELECT name,name_observed_at FROM workbench_repositories WHERE project_id=? AND repository_id=?",
+				)
+				.get(project.id, pull.repository.id);
+		expect(catalog()).toEqual({ name: "New name", name_observed_at: now + 2 });
+		const discovery = await enqueueDiscovery(sqlite.db, project, [], now + 41);
+		const discoveryClaim = (await claimJob(sqlite.db, now + 41, {
+			jobId: discovery.id,
+		}))!;
+		await registerJobRepositories(
+			sqlite.db,
+			discovery.id,
+			discoveryClaim.leaseToken,
+			[{ ...pull.repository, observedAt: now + 1 }],
+			now + 42,
+		);
+		expect(catalog()).toEqual({ name: "New name", name_observed_at: now + 2 });
+		await registerJobRepositories(
+			sqlite.db,
+			discovery.id,
+			discoveryClaim.leaseToken,
+			[{ ...pull.repository, name: "Newest name", observedAt: now + 42 }],
+			now + 43,
+		);
+		expect(catalog()).toEqual({
+			name: "Newest name",
+			name_observed_at: now + 42,
+		});
+	});
+	test("continuous writes bound reconciliation work and preserve the last published snapshot", async () => {
+		const { pull, claim } = await watching();
+		await stagePulls(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[
+				{
+					...pull,
+					summaryObservedAt: now + 1,
+					observedAt: now + 1,
+					title: "Contended result",
+				},
+			],
+			now + 1,
+		);
+		const bump = () =>
+			sqlite.raw
+				.query("UPDATE pull_requests SET version=version+1 WHERE id=?")
+				.run(pull.id);
+		bump();
+		let rebases = 0;
+		const contended = {
+			...sqlite.db,
+			batch: async (statements: D1PreparedStatement[]) => {
+				const results = await sqlite.db.batch(statements);
+				if (
+					statements.some((statement) =>
+						(statement as unknown as { sql: string }).sql.startsWith(
+							"UPDATE collection_staging SET snapshot",
+						),
+					)
+				) {
+					if (++rebases > 30)
+						throw new Error("Reconciliation exceeded its request budget");
+					bump();
+				}
+				return results;
+			},
+		} as D1Database;
+		await expect(
+			publishRepository(
+				contended,
+				claim.job.id,
+				claim.leaseToken,
+				pull.repository.id,
+				1,
+				"complete",
+				"Contended",
+				now,
+			),
+		).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
+		expect(rebases).toBe(30);
+		expect(cached(pull.id).title).toBe(pull.title);
+		// The immutable raw result can still publish once concurrent writes stop.
+		await publishRepository(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Recovered",
+			now,
+		);
+		expect(cached(pull.id).title).toBe("Contended result");
+	});
+	test.each([
+		false,
+		true,
+	])("independent connections reconcile simultaneous status/check publications, terminal=%s", async (terminal) => {
+		const concurrent = createConcurrentSqliteD1();
+		try {
+			const [checksDb, statusDb] = concurrent.connections as [
+				D1Database,
+				D1Database,
+			];
+			const fixture = { ...sqlite, raw: concurrent.raw };
+			const project = seedProject(fixture, { repositories: [] });
+			const pull = seedPull(fixture, {
+				id: adoPullId(project.id, "repo-1", "1"),
+				headSha: "head",
+				targetSha: "target",
+				summaryObservedAt: now - 10,
+				checksObservedAt: now - 10,
+			});
+			const added = await addObservation(
+				checksDb,
+				"cli",
+				{ pullId: pull.id },
+				now,
+			);
+			const checks = (await claimJob(checksDb, now))!;
+			await scheduleSummaries(statusDb, now);
+			const status = (await claimJob(statusDb, now, { lane: "status" }))!;
+			for (const [db, task, snapshot] of [
+				[
+					checksDb,
+					checks,
+					{
+						...pull,
+						summaryObservedAt: now,
+						observedAt: now + 3,
+						checksObservedAt: now + 3,
+						comments: 42,
+					},
+				],
+				[
+					statusDb,
+					status,
+					{
+						...pull,
+						title: "Fresh state",
+						state: terminal ? ("merged" as const) : ("open" as const),
+						summaryObservedAt: now + 2,
+						observedAt: now + 2,
+						checksObservedAt: null,
+						policies: [],
+						builds: [],
+					},
+				],
+			] satisfies [D1Database, typeof checks, PullRequest][]) {
+				await registerJobRepositories(
+					db,
+					task.job.id,
+					task.leaseToken,
+					[pull.repository],
+					now,
+				);
+				await stagePulls(db, task.job.id, task.leaseToken, [snapshot], now + 3);
+			}
+			concurrent.barrierBeforeBatch("SET state='succeeded'", 2);
+			const outcomes = await Promise.allSettled([
+				publishRepository(
+					checksDb,
+					checks.job.id,
+					checks.leaseToken,
+					pull.repository.id,
+					1,
+					"complete",
+					"Checks",
+					now + 4,
+				),
+				publishRepository(
+					statusDb,
+					status.job.id,
+					status.leaseToken,
+					pull.repository.id,
+					1,
+					"complete",
+					"Status",
+					now + 4,
+				),
+			]);
+			expect(concurrent.barrierArrivals()).toBe(2);
+			expect(outcomes[1]?.status).toBe("fulfilled");
+			const saved = JSON.parse(
+				(
+					concurrent.raw
+						.query("SELECT snapshot FROM pull_requests WHERE id=?")
+						.get(pull.id) as { snapshot: string }
+				).snapshot,
+			);
+			expect(saved).toMatchObject({
+				title: "Fresh state",
+				summaryObservedAt: now + 2,
+				state: terminal ? "merged" : "open",
+			});
+			if (!terminal) {
+				expect(outcomes[0]?.status).toBe("fulfilled");
+				expect(saved).toMatchObject({
+					comments: 42,
+					checksObservedAt: now + 3,
+				});
+			}
+			expect(
+				await resolveObservation(statusDb, "cli", { pullId: pull.id }),
+			).toMatchObject({
+				id: added.observation.id,
+				active: !terminal,
+				generation: 1,
+			});
+		} finally {
+			concurrent.close();
+		}
+	});
+	test("a watch removed and re-added at the final publication boundary fences clock-aware status writes", async () => {
+		const { pull, added } = await watching();
+		const status = await statusClaim();
+		await stagePulls(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			[
+				{
+					...pull,
+					summaryObservedAt: now + 2,
+					observedAt: now + 2,
+					state: "merged",
+					checksObservedAt: null,
+				},
+			],
+			now + 2,
+		);
+		sqlite.beforeBatch("SET state='succeeded'", () => {
+			sqlite.raw
+				.query(
+					"UPDATE pr_observations SET active=0,stopped_at=?,stop_reason='manual' WHERE id=?",
+				)
+				.run(now + 3, added.observation.id);
+			sqlite.raw
+				.query(
+					"UPDATE pr_observations SET active=1,stopped_at=NULL,stop_reason=NULL,generation=generation+1 WHERE id=?",
+				)
+				.run(added.observation.id);
+		});
+		await expect(
+			publishRepository(
+				sqlite.db,
+				status.job.id,
+				status.leaseToken,
+				pull.repository.id,
+				1,
+				"complete",
+				"Late terminal",
+				now + 4,
+			),
+		).rejects.toMatchObject({ code: "LEASE_LOST" });
+		expect(cached(pull.id).state).toBe("open");
+		expect(
+			await resolveObservation(sqlite.db, "cli", { pullId: pull.id }),
+		).toMatchObject({ generation: 2, active: true });
+	});
+	async function statusClaim() {
+		await scheduleSummaries(sqlite.db, now);
+		const claim = (await claimJob(sqlite.db, now, { lane: "status" }))!;
+		await registerJobRepositories(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[claim.observation!.ref.repository],
+			now,
+		);
+		return claim;
+	}
+	test("independent status and slow checks merge without losing facts or falsely refreshing the summary clock", async () => {
+		const { pull, claim: checks } = await watching();
+		const status = await statusClaim();
+		const fresh = {
+			...pull,
+			title: "Latest provider title",
+			summaryObservedAt: now + 2,
+			observedAt: now + 2,
+			checksObservedAt: null,
+			policies: [],
+			builds: [],
+		};
+		await stagePulls(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			[fresh],
+			now + 2,
+		);
+		await publishRepository(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"State checked",
+			now + 2,
+		);
+		expect(cached(pull.id)).toMatchObject({
+			title: fresh.title,
+			checksObservedAt: now - 100,
+			policies: pull.policies,
+		});
+		const slow = {
+			...pull,
+			summaryObservedAt: now,
+			observedAt: now + 40,
+			checksObservedAt: now + 40,
+			comments: 42,
+		};
+		await stagePulls(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			[slow],
+			now + 40,
+		);
+		await publishRepository(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Checks updated",
+			now + 40,
+		);
+		expect(cached(pull.id)).toMatchObject({
+			title: fresh.title,
+			summaryObservedAt: now + 2,
+			checksObservedAt: now + 40,
+			comments: 42,
+		});
+	});
+	test.each([
+		"merged",
+		"closed",
+	] as const)("the status lane atomically publishes %s and cancels in-flight checks before their response returns", async (state) => {
+		const { pull, claim: checks, added } = await watching();
+		await stagePulls(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			[{ ...pull, summaryObservedAt: now, observedAt: now + 1 }],
+			now + 1,
+		);
+		const status = await statusClaim();
+		await stagePulls(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			[
+				{
+					...pull,
+					state,
+					summaryObservedAt: now + 2,
+					observedAt: now + 2,
+					checksObservedAt: null,
+				},
+			],
+			now + 2,
+		);
+		await publishRepository(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Terminal",
+			now + 2,
+		);
+		expect(cached(pull.id).state).toBe(state);
+		expect(
+			await resolveObservation(sqlite.db, "cli", { pullId: pull.id }),
+		).toMatchObject({
+			id: added.observation.id,
+			active: false,
+			stopReason: state === "merged" ? "completed" : "abandoned",
+		});
+		expect((await readJob(sqlite.db, checks.job.id)).state).toBe("canceled");
+		await expect(
+			publishRepository(
+				sqlite.db,
+				checks.job.id,
+				checks.leaseToken,
+				pull.repository.id,
+				1,
+				"complete",
+				"Old open result",
+				now + 3,
+			),
+		).rejects.toMatchObject({ code: "LEASE_LOST" });
+		await scheduleSummaries(sqlite.db, now + 1000);
+		expect(
+			await claimJob(sqlite.db, now + 1000, { lane: "status" }),
+		).toBeNull();
+	});
+	test("publication rebases against a status change after detail staging", async () => {
+		const { pull, claim: checks } = await watching();
+		await stagePulls(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			[
+				{
+					...pull,
+					summaryObservedAt: now,
+					observedAt: now + 5,
+					checksObservedAt: now + 5,
+				},
+			],
+			now + 5,
+		);
+		const status = await statusClaim();
+		await stagePulls(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			[
+				{
+					...pull,
+					headSha: "new-head",
+					title: "New commit",
+					summaryObservedAt: now + 6,
+					observedAt: now + 6,
+					checksObservedAt: null,
+					policies: [],
+					builds: [],
+				},
+			],
+			now + 6,
+		);
+		await publishRepository(
+			sqlite.db,
+			status.job.id,
+			status.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"New head",
+			now + 6,
+		);
+		await publishRepository(
+			sqlite.db,
+			checks.job.id,
+			checks.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Old head checks",
+			now + 7,
+		);
+		expect(cached(pull.id)).toMatchObject({
+			title: "New commit",
+			headSha: "new-head",
+			checksObservedAt: null,
+			checksInvalidated: true,
+		});
+	});
 	test.each([
 		"succeeded",
 		"outside",
@@ -813,7 +1369,10 @@ describe("guarded snapshot publication and retirement", () => {
 });
 
 describe("repository discovery boundaries", () => {
-	test("publishes large discovery history with SQL counts instead of loading staged snapshots into the Worker", async () => {
+	test.each([
+		false,
+		true,
+	])("publishes discovery history with bounded work and no repeated snapshot hydration; versioned=%s", async (versioned) => {
 		const { project, pull } = setup();
 		const job = await enqueueDiscovery(sqlite.db, project, [], now);
 		const claim = (await claimJob(sqlite.db, now))!;
@@ -827,6 +1386,7 @@ describe("repository discovery boundaries", () => {
 		for (let number = 1; number <= 100; number++) {
 			const pr = {
 				...pull,
+				summaryObservedAt: versioned ? now : undefined,
 				id: adoPullId(project.id, pull.repository.id, String(number)),
 				number,
 				externalId: String(number),
@@ -835,8 +1395,10 @@ describe("repository discovery boundaries", () => {
 			await stagePulls(sqlite.db, job.id, claim.leaseToken, [pr], now);
 		}
 		let snapshotReads = 0;
+		let statements = 0;
 		const prepare = sqlite.db.prepare.bind(sqlite.db);
 		sqlite.db.prepare = (sql: string) => {
+			statements++;
 			if (/SELECT snapshot FROM collection_staging/i.test(sql)) snapshotReads++;
 			return prepare(sql);
 		};
@@ -851,6 +1413,7 @@ describe("repository discovery boundaries", () => {
 			now,
 		);
 		expect(snapshotReads).toBe(0);
+		expect(statements).toBeLessThan(30);
 		expect(
 			sqlite.raw.query("SELECT COUNT(*) count FROM pull_requests").get(),
 		).toEqual({ count: 100 });

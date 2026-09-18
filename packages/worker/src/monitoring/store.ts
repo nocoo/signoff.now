@@ -153,6 +153,7 @@ export type JobRow = {
 	lease_expires_at: number | null;
 	pull_ids_json: string | null;
 	kind: "list" | "details" | "full";
+	summary_only: number;
 	round_id: string | null;
 	scope_json: string;
 	scope_key: string;
@@ -214,6 +215,7 @@ export function mapJob(row: JobRow): CollectionJob {
 		message: row.message,
 		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
 		kind: row.kind,
+		...(row.summary_only ? { lane: "status" } : {}),
 		roundId: row.round_id,
 	});
 }

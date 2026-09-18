@@ -8,6 +8,46 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+test("an explicit invalidation cannot display an older in-flight read while its replacement is pending", async () => {
+	let old!: (value: number) => void;
+	let latest!: (value: number) => void;
+	const load = vi
+		.fn()
+		.mockResolvedValueOnce(1)
+		.mockImplementationOnce(
+			() =>
+				new Promise<number>((resolve) => {
+					old = resolve;
+				}),
+		)
+		.mockImplementationOnce(
+			() =>
+				new Promise<number>((resolve) => {
+					latest = resolve;
+				}),
+		);
+	const { result } = renderHook(() => useQueryBlock("live", load));
+	await act(async () => {});
+	act(() => {
+		void result.current.reload();
+	});
+	await act(async () => {});
+	let refreshed!: Promise<unknown>;
+	act(() => {
+		refreshed = result.current.reload();
+	});
+	await act(async () => {
+		old(2);
+	});
+	expect(result.current.data).toBe(1);
+	expect(result.current.loading).toBe(false);
+	await act(async () => {
+		latest(3);
+		await refreshed;
+	});
+	expect(result.current.data).toBe(3);
+});
+
 test.each([
 	"response",
 	"error",
