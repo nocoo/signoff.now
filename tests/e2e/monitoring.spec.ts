@@ -7,7 +7,9 @@ import { createCollectionClient } from "../../apps/collect/src/workbench/client"
 import { runCollectionOnce } from "../../apps/collect/src/workbench/run";
 import { demoWorkspace } from "../../packages/domain/src/demo";
 import {
+	batchCommandSchema,
 	collectorQuerySchema,
+	commandReceiptSchema,
 	observationListSchema,
 	pullDetailSchema,
 	pullListSchema,
@@ -684,4 +686,190 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	).toEqual([]);
 	expect((await watchList()).data).toEqual([]);
 	expect(browserErrors).toEqual([]);
+});
+
+test("repository IDs remain scoped across cold discovery, mixed watch batches, CLI and browser filters", async ({
+	page,
+}) => {
+	const id = "11111111-1111-1111-1111-111111111111";
+	const otherId = "22222222-2222-2222-2222-222222222222";
+	const organization = "e2e-identity";
+	const repositoryUrl = `https://dev.azure.com/${organization}/Identity/_git/${id}`;
+	const repositories = [
+		{ id: otherId, name: id },
+		{ id, name: "main-repository" },
+	];
+	let requests = 0;
+	const provider: AdoPagedClient = {
+		...fakeAdo,
+		checkAuth: async () => {
+			requests++;
+		},
+		getPage: async (value) => {
+			requests++;
+			const url = new URL(value);
+			const externalProject = { id: "identity-project-guid", name: "Identity" };
+			if (url.pathname.endsWith("/repositories"))
+				return {
+					data: {
+						value: repositories.map((item) => ({
+							...item,
+							project: externalProject,
+						})),
+					},
+					continuationToken: null,
+				};
+			if (url.pathname.endsWith("/configurations"))
+				return { data: { value: [] }, continuationToken: null };
+			const repo = repositories.find((r) => url.pathname.includes(`/${r.id}/`));
+			expect(repo).toBeDefined();
+			expect(url.searchParams.get("searchCriteria.status")).toBe("all");
+			return {
+				data: {
+					value: [1, 2].map((number) => ({
+						pullRequestId: number,
+						title: `${repo!.name} change ${number}`,
+						status: "active",
+						isDraft: number === 2,
+						creationDate: new Date((now - 86400) * 1000).toISOString(),
+						createdBy: { id: "identity-author", displayName: "Grace Hopper" },
+						sourceRefName: "refs/heads/feature",
+						targetRefName: "refs/heads/main",
+						repository: { ...repo, project: externalProject },
+					})),
+				},
+				continuationToken: null,
+			};
+		},
+	};
+	const executeDiscovery = async (receipt: unknown) => {
+		const { jobs } = commandReceiptSchema.parse(receipt);
+		expect(
+			(
+				await runCollectionOnce({
+					api,
+					makeAdo: () => provider,
+					log: silent,
+					jobId: jobs[0]!.id,
+				})
+			).state,
+		).toBe("complete");
+	};
+	await cli("repo", "add", repositoryUrl);
+	await executeDiscovery(await cli("discover", "--repo", repositoryUrl));
+	const initial = repoListSchema.parse(await cli("repo", "list", "--all"));
+	const project = initial.projects.find(
+		(p) => p.organization === organization,
+	)!;
+	expect(
+		initial.data
+			.filter((r) => r.project.id === project.id)
+			.map((r) => r.repository.id),
+	).toEqual([id]);
+	const expand = await page.request.patch(
+		`${base}/api/projects/${project.id}`,
+		{
+			data: { revision: project.revision, repositories: [] },
+		},
+	);
+	expect(expand.status()).toBe(200);
+	const expanded = projectSchema.parse(await expand.json());
+	const discovered = await page.request.post(
+		`${base}/api/commands/v1/discover`,
+		{ data: { projectId: project.id } },
+	);
+	expect(discovered.status()).toBe(202);
+	await executeDiscovery(await discovered.json());
+	const selected = pullListSchema.parse(
+		await cli(
+			"pr",
+			"list",
+			"--repo",
+			repositoryUrl,
+			"--draft",
+			"include",
+			"--all",
+		),
+	);
+	expect(selected.data).toHaveLength(2);
+	expect(selected.data.every((pull) => pull.repository.id === id)).toBe(true);
+	const beforeQueries = requests;
+	const batch = await page.request.post(
+		`${base}/api/commands/v1/observations`,
+		{
+			data: {
+				refs: [
+					{ pullId: selected.data[0]!.id },
+					{
+						url: `https://dev.azure.com/${organization}/Identity/_git/%ZZ/pullrequest/3`,
+					},
+					{ pullId: selected.data[1]!.id },
+				],
+			},
+		},
+	);
+	expect(batch.status()).toBe(200);
+	const added = batchCommandSchema.parse(await batch.json());
+	expect(added.results.map((r) => r.status)).toEqual([
+		"added",
+		"rejected",
+		"added",
+	]);
+	expect(added.results[1]?.error?.code).toBe("INVALID_REFERENCE");
+	for (const item of [added.results[0]!, added.results[2]!])
+		expect((await cli("job", "get", item.job!.id)).state).toBe("queued");
+	await cli(
+		"watch",
+		"add",
+		`${repositoryUrl.replace(id, otherId)}/pullrequest/2`,
+	);
+	expect(
+		observationListSchema.parse(
+			await cli("watch", "list", "--repo", repositoryUrl),
+		).data,
+	).toHaveLength(2);
+	await page.goto(
+		`/?${new URLSearchParams({ source: "cli", org: organization, project: project.id, repo: id, watching: "watching", draft: "include" })}`,
+	);
+	const rows = page.locator("tr[data-pull-id]");
+	await expect(rows).toHaveCount(2);
+	await expect(
+		page.getByRole("combobox", { name: "Repository", exact: true }),
+	).toHaveText("main-repository");
+	expect(
+		(
+			await rows.evaluateAll((elements) =>
+				elements.map((element) => element.getAttribute("data-pull-id")),
+			)
+		).sort(),
+	).toEqual(selected.data.map((pull) => pull.id).sort());
+	await cli("watch", "remove", `${repositoryUrl}/pullrequest/1`);
+	await page.reload();
+	await expect(rows).toHaveCount(1);
+	const narrow = await page.request.patch(
+		`${base}/api/projects/${project.id}`,
+		{
+			data: { revision: expanded.revision, repositories: [id] },
+		},
+	);
+	expect(narrow.status()).toBe(200);
+	const remaining = observationListSchema.parse(
+		await cli("watch", "list", "--org", organization),
+	);
+	expect(remaining.data.map((watch) => watch.ref.repository.id)).toEqual([id]);
+	await page.reload();
+	await expect(rows).toHaveCount(1);
+	await rows.getByRole("checkbox").check();
+	await page
+		.getByRole("button", { name: "Remove from watch list", exact: true })
+		.click();
+	await expect(
+		page.getByText("1 PR removed from the shared watch list.", { exact: true }),
+	).toBeVisible();
+	expect(
+		observationListSchema.parse(
+			await cli("watch", "list", "--org", organization),
+		).data,
+	).toEqual([]);
+	expect(requests).toBe(beforeQueries);
 });
