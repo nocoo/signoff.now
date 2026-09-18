@@ -28,8 +28,8 @@ import {
 import type { AppEnv } from "../types.js";
 import { apiError } from "./query.js";
 
-// Bounded replay against the most recent cache, with open PRs first. A limit is
-// always reported, never mistaken for complete project coverage.
+// Bounded replay includes the selected PR, then the most recent cache with open
+// PRs first. The reported limit never implies complete project coverage.
 const REPLAY_LIMIT = 2000;
 const BODY_LIMIT = 256 * 1024;
 type EventRow = {
@@ -66,12 +66,13 @@ async function readContext(c: Context<AppEnv>, repositoryId: string | null) {
 		),
 		c.env.DB.prepare(`SELECT pr.snapshot,EXISTS(SELECT 1 FROM pr_observations o WHERE o.pull_id=pr.id AND o.active=1 AND o.source=?) watched
       FROM pull_requests pr JOIN projects p ON p.id=pr.project_id WHERE p.id=? AND p.source=? AND (? IS NULL OR pr.repository_id=?)
-      ORDER BY (pr.state='open') DESC,pr.updated_at DESC,pr.id LIMIT ?`).bind(
+      ORDER BY (pr.id=?) DESC,(pr.state='open') DESC,pr.updated_at DESC,pr.id LIMIT ?`).bind(
 			source,
 			id,
 			source,
 			repositoryId,
 			repositoryId,
+			pullId,
 			REPLAY_LIMIT,
 		),
 		c.env.DB.prepare(`SELECT r.repository_id id,r.name FROM workbench_repositories r JOIN projects p ON p.id=r.project_id WHERE p.id=? AND p.source=?

@@ -43,6 +43,44 @@ function seed() {
 	return { project, pull, config: defaultStateMachine(project, [pull]) };
 }
 describe("state machine configuration and replay", () => {
+	test("a selected historical PR stays inside the bounded replay and draft preview", async () => {
+		const { pull, config } = seed();
+		const old = seedPull(sqlite, {
+			...pull,
+			id: "old-pr",
+			externalId: "3000",
+			number: 3000,
+			state: "closed",
+			updatedAt: 1,
+		});
+		sqlite.raw.transaction(() => {
+			for (let i = 2; i <= 2001; i++)
+				seedPull(sqlite, {
+					...pull,
+					id: `pr-${i}`,
+					externalId: String(i),
+					number: i,
+				});
+		})();
+		const route = `/state-machines/live-project?repositoryId=repo-1&pullId=${old.id}`;
+		const page = machinePageSchema.parse(await (await request(route)).json());
+		expect(page.total).toBe(2002);
+		expect(page.evaluatedCount).toBe(2000);
+		expect(page.truncated).toBe(true);
+		expect(page.selectedPull?.id).toBe(old.id);
+		expect(page.evaluations[0]?.id).toBe(old.id);
+		const preview = machinePreviewSchema.parse(
+			await (
+				await request(
+					`/state-machines/live-project/preview?pullId=${old.id}`,
+					"POST",
+					{ revision: 1, repositoryId: "repo-1", config },
+				)
+			).json(),
+		);
+		expect(preview.evaluations[0]?.id).toBe(old.id);
+		expect(preview.evaluations).toHaveLength(2000);
+	});
 	test("empty scopes, invalid bodies and missing versions remain bounded read-only errors", async () => {
 		seedProject(sqlite);
 		const empty = machinePageSchema.parse(
