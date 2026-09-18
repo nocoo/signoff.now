@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { demoWorkspace } from "@signoff/domain/demo";
 import { makeWatchRef } from "@signoff/domain/monitoring";
@@ -150,6 +150,26 @@ function deferred<T>() {
 }
 
 describe("saved-task executor", () => {
+	test("a slow auth check does not backdate the watched PR collection clock", async () => {
+		const deps = setup();
+		let clock = time * 1000;
+		const timer = spyOn(Date, "now").mockImplementation(() => clock);
+		try {
+			deps.ado.checkAuth = async () => {
+				clock += 60000;
+			};
+			const result = await runCollectionOnce({
+				...deps,
+				collect: async ({ now }) => {
+					expect(now).toBe(time + 60);
+					return collected();
+				},
+			});
+			expect(result.state).toBe("complete");
+		} finally {
+			timer.mockRestore();
+		}
+	});
 	test("publishes collected merge requirement definitions with the watched snapshot", async () => {
 		const deps = setup();
 		const requirements = [
@@ -357,6 +377,56 @@ describe("saved-task executor", () => {
 });
 
 describe("explicit repository discovery", () => {
+	test("each repository uses its own current observation time after a slow earlier repository", async () => {
+		const deps = discovery();
+		let clock = time * 1000;
+		const timer = spyOn(Date, "now").mockImplementation(() => clock);
+		try {
+			deps.api.claim = async () => ({
+				...claim,
+				targets: [],
+				observation: undefined,
+				scope: [],
+				repositories: [
+					{ id: "first", name: "first", projectExternalId: "project-guid" },
+					{ id: "late", name: "late", projectExternalId: "project-guid" },
+				],
+				job: { ...claim.job, kind: "list", pullIds: [] },
+			});
+			deps.ado.getPage = async (url) => {
+				if (url.includes("/first/")) {
+					clock += 600000;
+					return { data: { value: [] }, continuationToken: null };
+				}
+				return {
+					data: {
+						value: [
+							{
+								pullRequestId: 999,
+								status: "active",
+								title: "Created during discovery",
+								creationDate: new Date((time + 300) * 1000).toISOString(),
+								repository: {
+									id: "late",
+									name: "late",
+									project: { id: "project-guid", name: project.projectKey },
+								},
+							},
+						],
+					},
+					continuationToken: null,
+				};
+			};
+			let observedAt = 0;
+			deps.api.upload = async (_claim, pulls) => {
+				observedAt = pulls[0]?.observedAt ?? 0;
+			};
+			expect((await runCollectionOnce(deps)).state).toBe("complete");
+			expect(observedAt).toBe(time + 600);
+		} finally {
+			timer.mockRestore();
+		}
+	});
 	test("resumes a frozen repository plan without enumerating newly registered repositories", async () => {
 		const deps = discovery();
 		deps.api.claim = async () => ({

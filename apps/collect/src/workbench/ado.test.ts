@@ -1399,6 +1399,7 @@ describe("collectProjectPulls", () => {
 				post: async () => ({}),
 				getPage: async (url) => {
 					if (url.includes("/_apis/git/repositories?")) {
+						nowMs += 10000;
 						return {
 							data: {
 								value: [
@@ -1430,7 +1431,9 @@ describe("collectProjectPulls", () => {
 					}
 					return { data: { value: [] }, continuationToken: null };
 				},
-				checkAuth: async () => {},
+				checkAuth: async () => {
+					nowMs += 60000;
+				},
 				invalidateToken: () => {},
 			};
 			const result = await collectProjectPulls({
@@ -1442,7 +1445,7 @@ describe("collectProjectPulls", () => {
 				},
 			});
 			expect(progress[0]).toEqual([0, 1]);
-			expect(result.pulls[0]?.observedAt).toBe(1_789_632_000 + 5);
+			expect(result.pulls[0]?.observedAt).toBe(1_789_632_000 + 75);
 		} finally {
 			Date.now = realNow;
 		}

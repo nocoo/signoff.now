@@ -216,7 +216,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 						ado,
 						claim.project,
 						repo,
-						timestamp,
+						Math.floor(Date.now() / 1000),
 					)) {
 						check();
 						await api.upload(claim, pulls);
@@ -265,7 +265,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		const result = await (opts.collect ?? collectProjectPulls)({
 			project: claim.project,
 			client: ado,
-			now: timestamp,
+			now: Math.floor(Date.now() / 1000),
 			targets: [
 				{
 					id:

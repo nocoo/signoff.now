@@ -813,6 +813,7 @@ export async function collectProjectPulls(opts: {
 	mergeRequirements?: MergeRequirement[];
 }> {
 	const { project, client, now } = opts;
+	const startedMs = Date.now();
 	const org = project.organization;
 	const projectKey = project.projectKey;
 
@@ -890,7 +891,6 @@ export async function collectProjectPulls(opts: {
 	const totalPulls = allPrs.length;
 	let completedCount = 0;
 	let hasPartialDetails = globalIssues.length > 0;
-	const startedMs = Date.now();
 	await opts.onProgress?.(0, totalPulls);
 
 	const buildService = new BuildService(client, org);
@@ -1001,7 +1001,7 @@ export async function collectProjectPulls(opts: {
 				? normalizePullRequest({
 						projectId: project.id,
 						rawPr: item,
-						now,
+						now: now + Math.max(0, Math.floor((Date.now() - startedMs) / 1000)),
 						checksObservedAt: null,
 						collectionIssues: [
 							"Add this PR to the watch list to collect its checks.",
