@@ -17,6 +17,7 @@ import {
 	MonitoringError,
 	mapObservation,
 	mapProject,
+	matchesAlias,
 	type ObservationRow,
 	type ProjectRow,
 	type RepositoryRow,
@@ -35,12 +36,6 @@ function supported(project: Project) {
 			"Live GitHub collection is not available yet",
 		);
 }
-const matchesAlias = (row: RepositoryRow, alias: string) =>
-	[
-		row.name,
-		row.repository_id,
-		...(JSON.parse(row.aliases_json) as string[]),
-	].some((value) => value.toLowerCase() === alias.toLowerCase());
 const inScope = (project: Project, repository: { id: string; name: string }) =>
 	!project.repositories?.length ||
 	project.repositories.some((value) =>
@@ -56,17 +51,22 @@ export async function resolveRepository(
 ) {
 	const ref = parseRepositoryReference(url);
 	const projects = await db
-		.prepare(
-			"SELECT * FROM projects WHERE source=? AND provider=? AND lower(organization)=? AND lower(project_key)=?",
-		)
-		.bind(
-			source,
-			ref.provider,
-			ref.organization.toLowerCase(),
-			ref.projectKey.toLowerCase(),
-		)
+		.prepare("SELECT * FROM projects WHERE source=? AND provider=?")
+		.bind(source, ref.provider)
 		.all<ProjectRow>();
-	const projectRow = projects.results[0];
+	// SQLite lower() folds ASCII only; names share the canonical watch key's JS normalization.
+	const matchesProject = projects.results.filter(
+		(p) =>
+			p.organization.toLowerCase() === ref.organization.toLowerCase() &&
+			p.project_key.toLowerCase() === ref.projectKey.toLowerCase(),
+	);
+	if (matchesProject.length > 1)
+		throw new MonitoringError(
+			"REFERENCE_AMBIGUOUS",
+			"Project reference matches multiple registered projects",
+			409,
+		);
+	const projectRow = matchesProject[0];
 	if (!projectRow)
 		throw new MonitoringError(
 			"REPOSITORY_NOT_TRACKED",
@@ -115,10 +115,10 @@ export async function resolvePull(
 	if ("pullId" in input) {
 		const row = await db
 			.prepare(
-				"SELECT pr.snapshot FROM pull_requests pr JOIN projects p ON p.id=pr.project_id WHERE pr.id=? AND p.source=?",
+				"SELECT pr.snapshot,p.* FROM pull_requests pr JOIN projects p ON p.id=pr.project_id WHERE pr.id=? AND p.source=?",
 			)
 			.bind(input.pullId, source)
-			.first<{ snapshot: string }>();
+			.first<ProjectRow & { snapshot: string }>();
 		if (!row)
 			throw new MonitoringError(
 				"CACHE_MISS",
@@ -126,8 +126,9 @@ export async function resolvePull(
 				404,
 			);
 		const pull = pullRequestSchema.parse(JSON.parse(row.snapshot));
-		const project = await readProject(db, pull.projectId);
-		if (!project)
+		// The project revision must belong to the snapshot we resolved, before the guarded activation batch.
+		const project = mapProject(row);
+		if (project.id !== pull.projectId)
 			throw new MonitoringError(
 				"REPOSITORY_NOT_TRACKED",
 				"Project was removed",
@@ -194,23 +195,29 @@ export async function resolveObservation(
 		const ref = parsePullReference(input.url);
 		rows = (
 			await db
-				.prepare(`SELECT * FROM pr_observations WHERE source=? AND json_extract(ref_json,'$.provider')=?
-      AND lower(json_extract(ref_json,'$.organization'))=? AND lower(json_extract(ref_json,'$.projectKey'))=? AND json_extract(ref_json,'$.number')=?
-      AND (lower(json_extract(ref_json,'$.repository.id'))=? OR lower(json_extract(ref_json,'$.repository.name'))=?
-        OR EXISTS (SELECT 1 FROM workbench_repositories r,json_each(r.aliases_json) a WHERE r.project_id=pr_observations.project_id
-          AND lower(r.repository_id)=lower(json_extract(pr_observations.ref_json,'$.repository.id')) AND lower(a.value)=?))`)
+				.prepare(`SELECT o.*,r.aliases_json FROM pr_observations o
+      LEFT JOIN workbench_repositories r ON r.project_id=o.project_id AND r.repository_id=json_extract(o.ref_json,'$.repository.id')
+      WHERE o.source=? AND json_extract(o.identity,'$[1]')=? AND json_extract(o.identity,'$[2]')=?
+      AND json_extract(o.identity,'$[3]')=? AND json_extract(o.identity,'$[5]')=?`)
 				.bind(
 					source,
 					ref.provider,
 					ref.organization.toLowerCase(),
 					ref.projectKey.toLowerCase(),
 					ref.number,
-					ref.repository.toLowerCase(),
-					ref.repository.toLowerCase(),
-					ref.repository.toLowerCase(),
 				)
-				.all<ObservationRow>()
-		).results;
+				.all<ObservationRow & { aliases_json: string | null }>()
+		).results.filter((row) => {
+			const { repository } = mapObservation(row).ref;
+			return matchesAlias(
+				{
+					repository_id: repository.id,
+					name: repository.name,
+					aliases_json: row.aliases_json ?? "[]",
+				},
+				ref.repository,
+			);
+		});
 	}
 	if (rows.length > 1)
 		throw new MonitoringError(

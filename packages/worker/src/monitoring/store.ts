@@ -59,6 +59,15 @@ export type RepositoryRow = {
 	discovery_state: "not_collected" | "legacy" | "complete" | "failed";
 	discovery_message: string | null;
 };
+export const matchesAlias = (
+	row: Pick<RepositoryRow, "name" | "repository_id" | "aliases_json">,
+	alias: string,
+) =>
+	[
+		row.name,
+		row.repository_id,
+		...(JSON.parse(row.aliases_json) as string[]),
+	].some((value) => value.toLowerCase() === alias.toLowerCase());
 export type JobRow = {
 	id: string;
 	project_id: string;
