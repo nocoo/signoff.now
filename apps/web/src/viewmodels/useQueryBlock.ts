@@ -9,6 +9,7 @@ export function useQueryBlock<T>(
 ) {
 	const loader = useRef(load);
 	loader.current = load;
+	const mutationVersion = useRef(0);
 	const [state, setState] = useState<{
 		key: string | null;
 		data: T | null;
@@ -38,6 +39,7 @@ export function useQueryBlock<T>(
 			clearTimeout(timer);
 			controller = new AbortController();
 			const signal = controller.signal;
+			const version = mutationVersion.current;
 			setState((previous) => ({
 				key,
 				data: previous.key === key ? previous.data : null,
@@ -53,7 +55,11 @@ export function useQueryBlock<T>(
 					return read(signal);
 				})
 				.then((data) => {
-					if (active && !signal.aborted) {
+					if (
+						active &&
+						!signal.aborted &&
+						version === mutationVersion.current
+					) {
 						failures = 0;
 						setState({
 							key,
@@ -66,7 +72,11 @@ export function useQueryBlock<T>(
 					}
 				})
 				.catch((error: unknown) => {
-					if (active && !signal.aborted) {
+					if (
+						active &&
+						!signal.aborted &&
+						version === mutationVersion.current
+					) {
 						failures++;
 						setState((previous) => ({
 							...previous,
@@ -86,6 +96,8 @@ export function useQueryBlock<T>(
 				})
 				.finally(() => {
 					pending = null;
+					if (active && version !== mutationVersion.current)
+						setState((previous) => ({ ...previous, refreshing: false }));
 					if (active && intervalMs > 0 && document.visibilityState !== "hidden")
 						timer = setTimeout(
 							() => {
@@ -115,6 +127,16 @@ export function useQueryBlock<T>(
 		};
 	}, [key, intervalMs]);
 	const reload = useCallback(() => execute.current(), []);
+	// A command receipt can update the visible cache immediately. Reads started
+	// before that receipt must not overwrite it with an older observation.
+	const update = useCallback((apply: (data: T) => T) => {
+		mutationVersion.current++;
+		setState((previous) =>
+			previous.data === null
+				? previous
+				: { ...previous, data: apply(previous.data) },
+		);
+	}, []);
 	const current =
 		state.key === key
 			? state
@@ -132,5 +154,6 @@ export function useQueryBlock<T>(
 		loading: key !== null && !current.loaded,
 		refreshing: current.refreshing,
 		reload,
+		update,
 	};
 }

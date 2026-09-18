@@ -8,6 +8,46 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+test.each([
+	"response",
+	"error",
+])("a confirmed mutation fences an older in-flight %s", async (outcome) => {
+	let release!: (value: { watching: boolean }) => void;
+	let reject!: (error: Error) => void;
+	const load = vi
+		.fn()
+		.mockResolvedValueOnce({ watching: false })
+		.mockImplementationOnce(
+			() =>
+				new Promise<{ watching: boolean }>((resolve, fail) => {
+					release = resolve;
+					reject = fail;
+				}),
+		)
+		.mockResolvedValue({ watching: false });
+	const { result } = renderHook(() => useQueryBlock("live", load));
+	await act(async () => {});
+	let read!: Promise<unknown>;
+	act(() => {
+		read = result.current.reload();
+	});
+	await act(async () => {});
+	act(() => result.current.update(() => ({ watching: true })));
+	expect(result.current.loading).toBe(false);
+	expect(result.current.data).toEqual({ watching: true });
+	await act(async () => {
+		if (outcome === "error") reject(new Error("Stale read failed"));
+		else release({ watching: false });
+		await read;
+	});
+	expect(result.current.data).toEqual({ watching: true });
+	expect(result.current.refreshing).toBe(false);
+	expect(result.current.error).toBeNull();
+	// A subsequent server change (for example, CLI removal) is authoritative.
+	await act(() => result.current.reload());
+	expect(result.current.data).toEqual({ watching: false });
+});
+
 test("hidden pages abort reads; returning foreground reads once and concurrent reloads coalesce", async () => {
 	vi.useFakeTimers();
 	let visibility: DocumentVisibilityState = "visible";
@@ -72,9 +112,11 @@ test("null keys and initially hidden blocks stay idle; manual blocks never set a
 		{ initialProps: { key: null as string | null } },
 	);
 	await act(async () => {
+		result.current.update(() => 7);
 		await result.current.reload();
 	});
 	expect(result.current.loading).toBe(false);
+	expect(result.current.data).toBeNull();
 	expect(load).not.toHaveBeenCalled();
 	rerender({ key: "live" });
 	await act(async () => {});

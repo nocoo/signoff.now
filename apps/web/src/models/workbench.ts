@@ -9,6 +9,8 @@ import {
 
 export type PullRow = {
 	observation?: Observation | null;
+	watching?: boolean;
+	watchPending?: boolean;
 	pull: PullRequest;
 	project: Project;
 	readiness: PullReadiness;

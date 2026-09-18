@@ -448,7 +448,10 @@ export function PullsPage() {
 				onScan={() => {
 					if (vm.selected) void vm.refreshPull(vm.selected.pull.id);
 				}}
-				canScan={Boolean(vm.selected?.observation?.active)}
+				canScan={
+					Boolean(vm.selected?.observation?.active) &&
+					!vm.selected?.watchPending
+				}
 				onToggleWatch={() => void vm.toggleWatch()}
 				loading={vm.detailLoading}
 				error={vm.detailError}
@@ -543,7 +546,7 @@ function PullSourceLink({ pull, project }: Pick<PullRow, "pull" | "project">) {
 function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 	return (
 		<div className="flex w-full flex-wrap items-center justify-between gap-2 border-t border-basalt-border/60 pt-2">
-			<div className="flex flex-wrap items-center gap-2">
+			<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
 				<SelectControl
 					aria-label="Watch list filter"
 					value={vm.filter.watching}
@@ -569,7 +572,10 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 							size="sm"
 							disabled={
 								Boolean(vm.busy) ||
-								!vm.selectionItems.some((item) => !item.observation?.active)
+								!vm.selectionItems.some(
+									(item) =>
+										!item.observation?.active && !vm.watchPending(item.pullId),
+								)
 							}
 							onClick={() => void vm.watchSelected(true)}
 						>
@@ -581,7 +587,10 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 							variant="outline"
 							disabled={
 								Boolean(vm.busy) ||
-								!vm.selectionItems.some((item) => item.observation?.active)
+								!vm.selectionItems.some(
+									(item) =>
+										item.observation?.active && !vm.watchPending(item.pullId),
+								)
 							}
 							onClick={() => void vm.watchSelected(false)}
 						>
@@ -590,6 +599,25 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 						</Button>
 					</>
 				) : null}
+				<span
+					role="status"
+					aria-label="Watch list updates"
+					className={cn(
+						"min-h-4 min-w-0 flex-1 truncate text-xs",
+						vm.mutationError
+							? "text-basalt-destructive"
+							: "text-basalt-muted-foreground",
+					)}
+					title={
+						vm.feedbackKind === "watch"
+							? [vm.mutationError, vm.notice].filter(Boolean).join(" ")
+							: undefined
+					}
+				>
+					{vm.feedbackKind === "watch"
+						? [vm.mutationError, vm.notice].filter(Boolean).join(" ")
+						: null}
+				</span>
 			</div>
 			<div className="flex items-center gap-1">
 				<Button
@@ -630,6 +658,7 @@ function PullTableRow({
 	onOpen: (element: HTMLButtonElement) => void;
 }) {
 	const { pull, project, readiness, progress, observation } = row;
+	const watching = row.watching ?? Boolean(observation?.active);
 	return (
 		<TableRow
 			data-pull-id={pull.id}
@@ -656,25 +685,30 @@ function PullTableRow({
 					size="icon"
 					className={cn(
 						"h-8 w-8",
-						observation?.active
+						watching
 							? "bg-basalt-primary/10 text-basalt-primary hover:bg-basalt-primary/15 hover:text-basalt-primary"
 							: "text-basalt-muted-foreground hover:bg-basalt-muted hover:text-basalt-foreground",
 					)}
 					aria-label={`Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
-					aria-pressed={Boolean(observation?.active)}
+					aria-pressed={watching}
+					aria-busy={Boolean(row.watchPending)}
 					title={
-						observation?.active
-							? "In watch list · Click to remove"
-							: pull.state === "open"
-								? "Not in watch list · Click to watch"
-								: "Completed PRs are no longer watched"
+						row.watchPending
+							? "Saving watch list change…"
+							: watching
+								? "In watch list · Click to remove"
+								: pull.state === "open"
+									? "Not in watch list · Click to watch"
+									: "Completed PRs are no longer watched"
 					}
 					disabled={
-						Boolean(vm.busy) || (pull.state !== "open" && !observation?.active)
+						Boolean(vm.busy) ||
+						row.watchPending ||
+						(pull.state !== "open" && !observation?.active)
 					}
 					onClick={() => void vm.toggleWatch(pull.id)}
 				>
-					{observation?.active ? (
+					{watching ? (
 						<Eye aria-hidden className="h-4 w-4" />
 					) : (
 						<EyeOff aria-hidden className="h-4 w-4" />

@@ -476,6 +476,228 @@ describe("filters, server pages and temporary selection", () => {
 });
 
 describe("shared watch mutations", () => {
+	it("optimistically toggles independent rows and rolls back only a failed command without replacing the table", async () => {
+		const other = { ...pull, id: "second", number: pull.number + 1 };
+		const observation = fixtureObservation({ generation: 4 });
+		let watching = false;
+		vi.mocked(api.loadPulls).mockImplementation(async () => ({
+			...fixture.pulls,
+			data: [
+				publicPull(pull, project, watching ? observation : null),
+				publicPull(other),
+			],
+		}));
+		const first = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+		const second = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+		vi.mocked(api.addWatches)
+			.mockReturnValueOnce(first.promise)
+			.mockReturnValueOnce(second.promise);
+		renderView(
+			<MemoryRouter>
+				<WorkbenchProvider>
+					<PullsPage />
+				</WorkbenchProvider>
+			</MemoryRouter>,
+		);
+		const table = await screen.findByRole("table", { name: "Pull requests" });
+		const button = (number: number) =>
+			screen.getByRole("button", {
+				name: `Watch PR #${number} in ${project.projectKey}/${pull.repository.name}`,
+			}) as HTMLButtonElement;
+		const firstButton = button(pull.number);
+		const secondButton = button(other.number);
+		fireEvent.click(firstButton);
+		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
+		expect(firstButton.getAttribute("aria-busy")).toBe("true");
+		expect(secondButton.disabled).toBe(false);
+		fireEvent.click(secondButton);
+		expect(secondButton.getAttribute("aria-pressed")).toBe("true");
+		expect(api.addWatches).toHaveBeenCalledTimes(2);
+		await act(async () => {
+			second.resolve({
+				results: [
+					{
+						status: "rejected",
+						error: {
+							code: "PR_TERMINAL",
+							message: "Already merged",
+							retryable: false,
+						},
+					},
+				],
+			});
+		});
+		expect(secondButton.getAttribute("aria-pressed")).toBe("false");
+		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
+		await act(async () => {
+			watching = true;
+			first.resolve({
+				results: [
+					{
+						status: "added",
+						observation: publicPull(pull, project, observation).observation,
+					},
+				],
+			});
+		});
+		expect(button(pull.number)).toBe(firstButton);
+		expect(screen.getByRole("table", { name: "Pull requests" })).toBe(table);
+		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
+		expect(firstButton.disabled).toBe(false);
+		expect(api.loadCatalog).toHaveBeenCalledOnce();
+		const feedback = screen.getByRole("status", { name: "Watch list updates" });
+		expect(feedback.textContent).toContain("Already merged");
+		expect(feedback.textContent).toContain("1 PR added");
+	});
+	it("accepted watch changes remain usable while cache revalidation is slow", async () => {
+		const observation = fixtureObservation({ generation: 4 });
+		const cacheRead = deferred<Awaited<ReturnType<typeof api.loadPulls>>>();
+		vi.mocked(api.loadPulls)
+			.mockResolvedValueOnce(fixture.pulls)
+			.mockReturnValue(cacheRead.promise);
+		vi.mocked(api.addWatches).mockResolvedValue({
+			results: [
+				{
+					status: "added",
+					observation: publicPull(pull, project, observation).observation,
+				},
+			],
+		});
+		const { result } = render();
+		await loaded(result);
+		await act(() => result.current.vm.toggleWatch(pull.id));
+		expect(result.current.vm.pageRows[0]?.observation?.generation).toBe(4);
+		expect(result.current.vm.pageRows[0]?.watching).toBe(true);
+		expect(result.current.vm.busy).toBeNull();
+		expect(result.current.vm.loading).toBe(false);
+		expect(result.current.vm.pageRows[0]?.watchPending).toBe(false);
+	});
+	it("a network failure restores the local watch state and does not lock other actions", async () => {
+		vi.mocked(api.addWatches).mockRejectedValue(
+			new Error("Network unavailable"),
+		);
+		const { result } = render();
+		await loaded(result);
+		await act(async () => {
+			expect(await result.current.vm.toggleWatch(pull.id)).toBe(false);
+		});
+		expect(result.current.vm.pageRows[0]?.watching).toBe(false);
+		expect(result.current.vm.pageRows[0]?.watchPending).toBe(false);
+		expect(result.current.vm.busy).toBeNull();
+		expect(result.current.vm.mutationError).toContain("Network unavailable");
+	});
+	it("optimistically removes a watch, preserves its generation and restores it on a transport failure", async () => {
+		const observation = fixtureObservation({ generation: 4 });
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [publicPull(pull, project, observation)],
+		});
+		let reject!: (error: Error) => void;
+		vi.mocked(api.removeWatches).mockReturnValue(
+			new Promise((_resolve, fail) => {
+				reject = fail;
+			}),
+		);
+		const { result } = render();
+		await loaded(result);
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.toggleWatch(pull.id);
+		});
+		expect(result.current.vm.pageRows[0]?.watching).toBe(false);
+		expect(result.current.vm.pageRows[0]?.watchPending).toBe(true);
+		expect(api.removeWatches).toHaveBeenCalledWith("cli", [observation]);
+		await act(async () => {
+			expect(await result.current.vm.toggleWatch(pull.id)).toBe(false);
+			reject(new Error("Connection interrupted"));
+			await write;
+		});
+		expect(api.removeWatches).toHaveBeenCalledOnce();
+		expect(result.current.vm.pageRows[0]?.watching).toBe(true);
+		expect(result.current.vm.pageRows[0]?.observation?.generation).toBe(4);
+		expect(result.current.vm.busy).toBeNull();
+	});
+	it("ignores watch errors after unmount or changing source", async () => {
+		for (const transition of ["unmount", "sample"] as const) {
+			let reject!: (error: Error) => void;
+			vi.mocked(api.addWatches).mockReturnValue(
+				new Promise((_resolve, fail) => {
+					reject = fail;
+				}),
+			);
+			const { result, unmount } = render("/?source=cli");
+			await loaded(result);
+			let write!: Promise<boolean>;
+			act(() => {
+				write = result.current.vm.toggleWatch(pull.id);
+			});
+			if (transition === "unmount") unmount();
+			else act(() => result.current.vm.setFilter({ source: "demo" }));
+			await act(async () => {
+				reject(new Error("Old Live command failed"));
+				expect(await write).toBe(false);
+			});
+			if (transition === "sample") {
+				expect(result.current.vm.mutationError).toBeNull();
+				expect(result.current.vm.pageRows[0]?.watching).toBe(false);
+				unmount();
+			}
+		}
+	});
+	it("does not start a watch against a project configuration being changed", async () => {
+		const saved = deferred<Awaited<ReturnType<typeof patchProject>>>();
+		vi.mocked(patchProject).mockReturnValue(saved.promise);
+		const { result } = render();
+		await loaded(result);
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.save(draft, project);
+		});
+		await act(async () => {
+			expect(await result.current.vm.toggleWatch(pull.id)).toBe(false);
+			saved.resolve(project);
+			await write;
+		});
+		expect(api.addWatches).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ generation: 4, active: false },
+		{ generation: 5, active: true },
+	])("a late add receipt cannot overwrite a newer CLI watch state: %j", async (latest) => {
+		const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+		const nextRead = deferred<Awaited<ReturnType<typeof api.loadPulls>>>();
+		vi.mocked(api.addWatches).mockReturnValue(response.promise);
+		const { result } = render();
+		await loaded(result);
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.toggleWatch(pull.id);
+		});
+		const newer = publicPull(pull, project, fixtureObservation(latest));
+		vi.mocked(api.loadPulls).mockResolvedValueOnce({
+			...fixture.pulls,
+			data: [newer],
+		});
+		await act(() => result.current.vm.reload());
+		vi.mocked(api.loadPulls).mockReturnValue(nextRead.promise);
+		await act(async () => {
+			response.resolve({
+				results: [
+					{
+						status: "added",
+						observation: publicPull(
+							pull,
+							project,
+							fixtureObservation({ generation: 4 }),
+						).observation,
+					},
+				],
+			});
+			await write;
+		});
+		expect(result.current.vm.pageRows[0]?.observation).toMatchObject(latest);
+		expect(result.current.vm.pageRows[0]?.watching).toBe(latest.active);
+	});
 	it("toggles a row's watch without opening details and preserves unrelated batch selections", async () => {
 		let watching = false;
 		const observation = fixtureObservation({ generation: 4 });
@@ -669,6 +891,39 @@ describe("shared watch mutations", () => {
 			expect(result.current.vm.mutationError).not.toBeNull();
 		}
 	});
+	it("pending-reference removal is optimistic and rolls back a rejected generation without locking the page", async () => {
+		const watch = fixtureObservation();
+		vi.mocked(api.loadPending).mockResolvedValue({
+			...fixture.envelope,
+			data: [
+				{
+					...publicPull(pull, project, watch).observation!,
+					pull: null,
+					pullId: null,
+				},
+			],
+			page: { ...fixture.page, total: 1 },
+		});
+		const response = deferred<Awaited<ReturnType<typeof api.removeWatches>>>();
+		vi.mocked(api.removeWatches).mockReturnValue(response.promise);
+		const { result } = render("/?watching=watching");
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.pendingTotal).toBe(1));
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.removePending(watch);
+		});
+		expect(result.current.vm.pendingObservations).toEqual([]);
+		expect(result.current.vm.pendingTotal).toBe(0);
+		expect(result.current.vm.busy).toBeNull();
+		await act(async () => {
+			response.resolve({ results: [{ status: "conflict" }] });
+			await write;
+		});
+		expect(result.current.vm.pendingTotal).toBe(1);
+		expect(result.current.vm.pendingObservations[0]?.id).toBe(watch.id);
+		expect(result.current.vm.mutationError).toContain("generation changed");
+	});
 	it("pending errors are visible and retried independently while retaining the last good page", async () => {
 		const response = {
 			...fixture.envelope,
@@ -700,6 +955,47 @@ describe("shared watch mutations", () => {
 		await act(() => result.current.vm.reloadPending());
 		expect(result.current.vm.pendingError).toBe("Network lost");
 		expect(result.current.vm.pendingObservations).toEqual(response.data);
+	});
+	it("a delayed pending removal never hides a newly re-added generation", async () => {
+		const watch = fixtureObservation();
+		const item = {
+			...publicPull(pull, project, watch).observation!,
+			pull: null,
+			pullId: null,
+		};
+		vi.mocked(api.loadPending).mockResolvedValue({
+			...fixture.envelope,
+			data: [item],
+			page: { ...fixture.page, total: 1 },
+		});
+		const response = deferred<Awaited<ReturnType<typeof api.removeWatches>>>();
+		const nextRead = deferred<Awaited<ReturnType<typeof api.loadPending>>>();
+		vi.mocked(api.removeWatches).mockReturnValue(response.promise);
+		const { result } = render("/?watching=watching");
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.pendingTotal).toBe(1));
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.removePending(watch);
+		});
+		vi.mocked(api.loadPending).mockResolvedValueOnce({
+			...fixture.envelope,
+			data: [{ ...item, generation: 2 }],
+			page: { ...fixture.page, total: 1 },
+		});
+		await act(() => result.current.vm.reloadPending());
+		expect(result.current.vm.pendingTotal).toBe(1);
+		vi.mocked(api.loadPending).mockReturnValue(nextRead.promise);
+		await act(async () => {
+			response.resolve({
+				results: [
+					{ status: "removed", observation: { ...item, active: false } },
+				],
+			});
+			await write;
+		});
+		expect(result.current.vm.pendingObservations[0]?.generation).toBe(2);
+		expect(result.current.vm.pendingTotal).toBe(1);
 	});
 	it("all 21 pending watches are reachable, and removing the last page or changing scope resets its page", async () => {
 		let items = Array.from({ length: 21 }, (_, i) => ({

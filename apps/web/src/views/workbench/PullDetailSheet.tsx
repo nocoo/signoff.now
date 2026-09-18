@@ -178,6 +178,7 @@ function PullDetail({
 	refreshing?: boolean;
 }) {
 	const { pull, project, readiness, progress } = row;
+	const watching = row.watching ?? Boolean(row.observation?.active);
 	const checksAt =
 		pull.checksObservedAt === null
 			? null
@@ -239,19 +240,18 @@ function PullDetail({
 					<div className="flex items-center gap-2">
 						{pull.state === "open" && onToggleWatch ? (
 							<Button
-								variant={row.observation?.active ? "outline" : "default"}
+								variant={watching ? "outline" : "default"}
 								size="sm"
-								disabled={busy}
+								disabled={busy || row.watchPending}
+								aria-busy={Boolean(row.watchPending)}
 								onClick={onToggleWatch}
 							>
-								{row.observation?.active ? (
+								{watching ? (
 									<EyeOff className="h-3.5 w-3.5" aria-hidden />
 								) : (
 									<Eye className="h-3.5 w-3.5" aria-hidden />
 								)}
-								{row.observation?.active
-									? "Stop watching"
-									: "Add to watch list"}
+								{watching ? "Stop watching" : "Add to watch list"}
 							</Button>
 						) : null}
 						{project.source !== "demo" ? (

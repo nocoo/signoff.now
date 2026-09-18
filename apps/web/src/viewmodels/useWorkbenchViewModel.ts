@@ -2,7 +2,9 @@ import {
 	matchesRepositoryReference,
 	type Observation,
 	parseRepositoryReference,
+	publicSource,
 } from "@signoff/domain/monitoring";
+import type { PullQueryItem } from "@signoff/domain/query";
 import {
 	type CollectionJob,
 	type Project,
@@ -35,6 +37,7 @@ import {
 	PULL_FILTER_PARAMS,
 	PULL_FILTER_STORAGE_KEY,
 	type PullFilter,
+	type PullRow,
 	readPullFilter,
 	writePullFilter,
 } from "@/models/workbench";
@@ -67,7 +70,12 @@ function storedFilters() {
 	}
 }
 
-type Selection = { pullId: string; observation: Observation | null };
+type Selection = {
+	pullId: string;
+	observation: Pick<Observation, "id" | "generation" | "active"> | null;
+};
+const watchKey = (source: PullFilter["source"], pullId: string) =>
+	`${source}:${pullId}`;
 export function useWorkbenchViewModel() {
 	const [params, setParams] = useSearchParams();
 	const location = useLocation();
@@ -161,13 +169,38 @@ export function useWorkbenchViewModel() {
 		pendingPageCount,
 		pendingScope,
 	]);
+	const watchRequests = useRef(new Map<string, boolean>());
+	const [optimisticWatches, setOptimisticWatches] = useState(
+		new Map<string, boolean>(),
+	);
+	const withWatchState = useCallback(
+		(row: PullRow): PullRow => {
+			const optimistic = optimisticWatches.get(
+				watchKey(filter.source, row.pull.id),
+			);
+			return {
+				...row,
+				watching: optimistic ?? Boolean(row.observation?.active),
+				watchPending: optimistic !== undefined,
+			};
+		},
+		[filter.source, optimisticWatches],
+	);
 	const pageRows = useMemo(
-		() => pulls.data?.data.map(queryRow) ?? [],
-		[pulls.data],
+		() => pulls.data?.data.map((pull) => withWatchState(queryRow(pull))) ?? [],
+		[pulls.data, withWatchState],
 	);
 	const selected = detail.data
-		? queryRow(detail.data.data)
+		? withWatchState(queryRow(detail.data.data))
 		: (pageRows.find((row) => row.pull.id === selectedId) ?? null);
+	const pendingObservations = (pending.data?.data ?? []).filter(
+		(item) =>
+			!optimisticWatches.has(
+				watchKey(filter.source, `observation:${item.id}:${item.generation}`),
+			),
+	);
+	const pendingRemoved =
+		(pending.data?.data.length ?? 0) - pendingObservations.length;
 	const jobs: CollectionJob[] = useMemo(
 		() =>
 			collector.data?.jobs.map((job) => ({
@@ -392,15 +425,17 @@ export function useWorkbenchViewModel() {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [feedback, setFeedback] = useState<{
 		source: PullFilter["source"];
+		kind: "watch" | "other";
 		error: string | null;
 		notice: string | null;
-	}>({ source: filter.source, error: null, notice: null });
+	}>({ source: filter.source, kind: "other", error: null, notice: null });
 	const mutationError =
 		feedback.source === filter.source ? feedback.error : null;
 	const notice = feedback.source === filter.source ? feedback.notice : null;
 	const setMutationError = (error: string | null) =>
 		setFeedback((previous) => ({
 			source: filter.source,
+			kind: previous.source === filter.source ? previous.kind : "other",
 			error,
 			notice: previous.source === filter.source ? previous.notice : null,
 		}));
@@ -419,7 +454,7 @@ export function useWorkbenchViewModel() {
 		const source = filter.source;
 		mutationLock.current = true;
 		setBusy(label);
-		setFeedback({ source, error: null, notice: null });
+		setFeedback({ source, kind: "other", error: null, notice: null });
 		try {
 			const result = await operation();
 			if (mounted.current && sourceRef.current === source) {
@@ -473,30 +508,44 @@ export function useWorkbenchViewModel() {
 			],
 		}));
 	};
-	const changeWatches = (adding: boolean, items: Selection[]) =>
-		mutate("watch", async () => {
-			const applicable = items.filter((item) =>
-				adding ? !item.observation?.active : item.observation?.active,
+	const changeWatches = async (adding: boolean, items: Selection[]) => {
+		if (mutationLock.current) return false;
+		const source = filter.source;
+		const applicable = items.filter(
+			(item) =>
+				!watchRequests.current.has(watchKey(source, item.pullId)) &&
+				(adding ? !item.observation?.active : item.observation?.active),
+		);
+		if (!applicable.length)
+			return !items.some((item) =>
+				watchRequests.current.has(watchKey(source, item.pullId)),
 			);
-			if (!applicable.length) return "No watch changes needed.";
+		for (const item of applicable)
+			watchRequests.current.set(watchKey(source, item.pullId), adding);
+		setOptimisticWatches(new Map(watchRequests.current));
+		setFeedback({ source, kind: "watch", error: null, notice: null });
+		try {
 			const result = adding
 				? await addWatches(
-						filter.source,
+						source,
 						applicable.map((item) => item.pullId),
 					)
 				: await removeWatches(
-						filter.source,
+						source,
 						applicable.flatMap((item) =>
 							item.observation ? [item.observation] : [],
 						),
 					);
 			const succeeded = new Set<string>();
+			const observations = new Map<string, PullQueryItem["observation"]>();
 			const failures: string[] = [];
 			const accepted = adding
 				? ["added", "already_observed"]
 				: ["removed", "already_stopped"];
 			for (const [index, item] of applicable.entries()) {
 				const receipt = result.results[index];
+				if (receipt?.observation)
+					observations.set(item.pullId, receipt.observation);
 				if (receipt && accepted.includes(receipt.status))
 					succeeded.add(item.pullId);
 				else
@@ -504,7 +553,56 @@ export function useWorkbenchViewModel() {
 						`${item.pullId}: ${receipt ? (receipt.error?.message ?? "Watch generation changed; reload before trying again.") : "Missing command result; reload before trying again."}`,
 					);
 			}
-			if (mounted.current && sourceRef.current === filter.source) {
+			if (mounted.current && sourceRef.current === source) {
+				const apply = (pull: PullQueryItem): PullQueryItem => {
+					const next = observations.get(pull.id);
+					const current = pull.observation;
+					// A cache read may already contain a later CLI edit or retirement.
+					if (
+						!next ||
+						(current?.id === next.id &&
+							(current.generation > next.generation ||
+								(current.generation === next.generation &&
+									!current.active &&
+									next.active)))
+					)
+						return pull;
+					return { ...pull, observation: next };
+				};
+				pulls.update((cache) =>
+					cache.source === publicSource(source)
+						? { ...cache, data: cache.data.map(apply) }
+						: cache,
+				);
+				detail.update((cache) =>
+					cache.source === publicSource(source)
+						? { ...cache, data: apply(cache.data) }
+						: cache,
+				);
+				if (!adding) {
+					const removed = new Set(
+						applicable.flatMap((item) =>
+							succeeded.has(item.pullId) && item.observation
+								? [`${item.observation.id}:${item.observation.generation}`]
+								: [],
+						),
+					);
+					pending.update((cache) => {
+						if (cache.source !== publicSource(source)) return cache;
+						const pendingItems = cache.data.filter(
+							(item) => !removed.has(`${item.id}:${item.generation}`),
+						);
+						return {
+							...cache,
+							data: pendingItems,
+							page: {
+								...cache.page,
+								total:
+									cache.page.total - (cache.data.length - pendingItems.length),
+							},
+						};
+					});
+				}
 				setSelection((previous) =>
 					previous.key === selectionKey
 						? {
@@ -515,10 +613,45 @@ export function useWorkbenchViewModel() {
 							}
 						: previous,
 				);
-				if (failures.length) setMutationError(failures.join(" "));
+				setFeedback((previous) => ({
+					source,
+					kind: "watch",
+					error:
+						[
+							...(previous.source === source &&
+							previous.kind === "watch" &&
+							previous.error
+								? [previous.error]
+								: []),
+							...failures,
+						].join(" ") || null,
+					notice: `${succeeded.size} PR${succeeded.size === 1 ? "" : "s"} ${adding ? "added to" : "removed from"} the shared watch list.`,
+				}));
+				// Reconcile only affected blocks in the background; never hold the
+				// row lock or replace the table while a cache read is in progress.
+				void Promise.allSettled([
+					pulls.reload(),
+					detail.reload(),
+					collector.reload(),
+					pending.reload(),
+				]);
 			}
-			return `${succeeded.size} PR${succeeded.size === 1 ? "" : "s"} ${adding ? "added to" : "removed from"} the shared watch list.`;
-		});
+			return true;
+		} catch (error) {
+			if (mounted.current && sourceRef.current === source)
+				setFeedback({
+					source,
+					kind: "watch",
+					error: message(error),
+					notice: null,
+				});
+			return false;
+		} finally {
+			for (const item of applicable)
+				watchRequests.current.delete(watchKey(source, item.pullId));
+			if (mounted.current) setOptimisticWatches(new Map(watchRequests.current));
+		}
+	};
 	const canScan = (project: Project) =>
 		(project.source === "demo"
 			? collector.data?.sampleCommandsEnabled === true
@@ -557,6 +690,7 @@ export function useWorkbenchViewModel() {
 		error: location.pathname === "/" ? pulls.error : catalog.error,
 		mutationError,
 		notice,
+		feedbackKind: feedback.source === filter.source ? feedback.kind : "other",
 		busy,
 		collectionError: collector.error,
 		detailLoading: Boolean(selectedId) && detail.loading,
@@ -602,6 +736,8 @@ export function useWorkbenchViewModel() {
 		selectedIds,
 		selectedCount: selectionItems.length,
 		selectionItems,
+		watchPending: (pullId: string) =>
+			optimisticWatches.has(watchKey(filter.source, pullId)),
 		selectableCount: selectableRows.length,
 		toggleSelection,
 		selectPage: (checked: boolean) =>
@@ -625,8 +761,8 @@ export function useWorkbenchViewModel() {
 					])
 				: Promise.resolve(false);
 		},
-		pendingObservations: pending.data?.data ?? [],
-		pendingTotal: pending.data?.page.total ?? 0,
+		pendingObservations,
+		pendingTotal: (pending.data?.page.total ?? 0) - pendingRemoved,
 		pendingError: pending.error,
 		pendingLoading: pending.loading,
 		pendingLoaded: pending.data !== null,
@@ -637,16 +773,12 @@ export function useWorkbenchViewModel() {
 		setPendingPage: (value: number) =>
 			setPendingPagination({ key: pendingScope, page: Math.max(1, value) }),
 		removePending: (observation: { id: string; generation: number }) =>
-			mutate("watch", async () => {
-				const result = await removeWatches(filter.source, [observation]);
-				const item = result.results[0];
-				if (!item || !["removed", "already_stopped"].includes(item.status))
-					throw new Error(
-						item?.error?.message ??
-							"Observation changed; reload before removing it.",
-					);
-				return "PR removed from the watch list.";
-			}),
+			changeWatches(false, [
+				{
+					pullId: `observation:${observation.id}:${observation.generation}`,
+					observation: { ...observation, active: true },
+				},
+			]),
 		refreshPull: (id?: string) =>
 			mutate("checks", async () => {
 				const result = await refreshWatches(filter.source, id);

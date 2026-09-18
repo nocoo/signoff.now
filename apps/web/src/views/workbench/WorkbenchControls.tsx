@@ -108,10 +108,12 @@ export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
 						: " Retry to read the cache."}
 				</AlertBanner>
 			) : null}
-			{vm.mutationError ? (
+			{vm.mutationError && vm.feedbackKind !== "watch" ? (
 				<AlertBanner variant="error">{vm.mutationError}</AlertBanner>
 			) : null}
-			{vm.notice ? <AlertBanner>{vm.notice}</AlertBanner> : null}
+			{vm.notice && vm.feedbackKind !== "watch" ? (
+				<AlertBanner>{vm.notice}</AlertBanner>
+			) : null}
 			{vm.coverage?.state !== "complete" && vm.coverage ? (
 				<p
 					className="px-1 text-xs text-basalt-muted-foreground"

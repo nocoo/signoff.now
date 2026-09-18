@@ -250,8 +250,32 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	const toggle = rows.nth(0).getByRole("button", { name: /^Watch PR/ });
 	await rows.nth(1).getByRole("checkbox").check();
 	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	const table = page.getByRole("table", { name: "Pull requests" });
+	const tableTop = (await table.boundingBox())!.y;
+	const originalTable = await table.elementHandle();
+	let releaseWatch!: () => void;
+	const watchGate = new Promise<void>((resolve) => {
+		releaseWatch = resolve;
+	});
+	await page.route("**/api/commands/v1/observations", async (route) => {
+		await watchGate;
+		await route.continue();
+	});
 	await toggle.click();
 	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await expect(toggle).toHaveAttribute("aria-busy", "true");
+	await expect(
+		rows.nth(1).getByRole("button", { name: /^Watch PR/ }),
+	).toBeEnabled();
+	expect((await watchList()).data).toEqual([]);
+	expect(await originalTable!.evaluate((element) => element.isConnected)).toBe(
+		true,
+	);
+	expect((await table.boundingBox())!.y).toBe(tableTop);
+	releaseWatch();
+	await expect(toggle).toHaveAttribute("aria-busy", "false");
+	await page.unroute("**/api/commands/v1/observations");
+	expect((await table.boundingBox())!.y).toBe(tableTop);
 	await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
 	expect((await watchList()).data.map((watch) => watch.pullId)).toEqual([
 		ids[0],
@@ -272,7 +296,40 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 	await toggle.press("Space");
 	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(toggle).toHaveAttribute("aria-busy", "false");
 	expect((await watchList()).data).toEqual([]);
+	let rejectWatch!: () => void;
+	const rejectionGate = new Promise<void>((resolve) => {
+		rejectWatch = resolve;
+	});
+	await page.route("**/api/commands/v1/observations", async (route) => {
+		await rejectionGate;
+		await route.fulfill({
+			contentType: "application/json",
+			body: JSON.stringify({
+				results: [
+					{
+						status: "rejected",
+						error: {
+							code: "PR_TERMINAL",
+							message: "This PR was just merged",
+							retryable: false,
+						},
+					},
+				],
+			}),
+		});
+	});
+	await toggle.click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	rejectWatch();
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(
+		page.getByRole("status", { name: "Watch list updates" }),
+	).toContainText("This PR was just merged");
+	expect((await table.boundingBox())!.y).toBe(tableTop);
+	expect((await watchList()).data).toEqual([]);
+	await page.unroute("**/api/commands/v1/observations");
 	await rows.nth(1).getByRole("checkbox").uncheck();
 	await rows.nth(0).getByRole("checkbox").check();
 	await rows.nth(1).getByRole("checkbox").check();
