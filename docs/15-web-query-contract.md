@@ -30,6 +30,8 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 
 网页仓库筛选保存 provider repository ID，`repositoryId` 查询参数只按 ID 匹配。需要按名称或旧别名查询时使用完整 `repo` URL；稳定 ID 的优先级高于其他仓库的同名字符串。筛选项显示、查询范围和 Discover 操作使用同一仓库身份。
 
+已解析的 ADO 仓库在 Discover 命令中使用包含仓库 ID 的 URL，不能把选中的 ID 重新降为显示名称；名称可能恰好是另一仓库的 GUID。未解析项保留完整原始 URL，GitHub 仍使用其 owner / repository URL。添加、移除和状态刷新分别使用本地 PR ID 或 observation ID / generation，不重新构造名称引用。
+
 身份尚未解析的配置项保存完整仓库 URL，并用 `repo` 查询。首次发现完成后，在相同 provider / org / project 下解析为稳定 ID，同时更新 URL 和 localStorage；不得把仓库名称当作 `repositoryId`，导致发现后仍为空列表。
 
 同一响应中的记录、计数和 `dataRevision` 必须对应同一个 source 版本。详情查询使用一个一致性 batch；PR 分页先读取 open PR 的 readiness 事实，再通过 SQL 读取当前页、计数和作者。按项目名或仓库名筛选时，先对紧凑目录统一进行 Unicode 大小写转换，再使用已解析的稳定 ID 查询。观察清单先在 SQL 内筛选、计数和分页，仅关联当前页的 PR 快照；待采集项不读取 PR 快照。跨阶段读取均校验 source 版本一致，不返回混合版本。版本改变时，无游标读取最多重试两次；带游标读取返回 `SNAPSHOT_CHANGED`，见 18。网页的 PR 表格与待采集清单各自按页独立读取当时版本，切换来源或范围重置相应分页，移除末页最后一项后回到有效页。多个数据块允许短暂处于不同版本，不能据此报错或循环重载全页。

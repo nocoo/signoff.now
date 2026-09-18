@@ -16,6 +16,7 @@ import {
 	type ReadinessRule,
 	type RefreshQueueKind,
 	refreshCooldownSchema,
+	repositoryUrl,
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -853,7 +854,14 @@ export function useWorkbenchViewModel() {
 			selectedRepository
 				? mutate("discover", async () => {
 						await discover(filter.source, {
-							repositoryUrl: selectedRepository.url,
+							repositoryUrl:
+								selectedRepository.identityResolved &&
+								selectedRepository.project.provider === "ado"
+									? repositoryUrl(
+											selectedRepository.project,
+											selectedRepository.id,
+										)
+									: selectedRepository.url,
 						});
 						return "Repository discovery queued. Existing watches are unchanged.";
 					})

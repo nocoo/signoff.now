@@ -1215,7 +1215,46 @@ describe("project settings and explicit discovery", () => {
 		);
 		await act(() => result.current.vm.discoverRepo());
 		expect(api.discover).toHaveBeenCalledWith("cli", {
-			repositoryUrl: correct.repository.url,
+			repositoryUrl: `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${correct.repository.id}`,
+		});
+	});
+	it("Discover retains the selected ADO ID when its name is another repository ID", async () => {
+		const firstId = "11111111-1111-1111-1111-111111111111";
+		const secondId = "22222222-2222-2222-2222-222222222222";
+		const repo = fixture.catalog.data[0]!;
+		const baseUrl = `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/`;
+		vi.mocked(api.loadCatalog).mockResolvedValue({
+			...fixture.catalog,
+			data: [
+				{
+					...repo,
+					key: "first",
+					repository: {
+						...repo.repository,
+						id: firstId,
+						name: "main",
+						url: `${baseUrl}main`,
+					},
+				},
+				{
+					...repo,
+					key: "second",
+					repository: {
+						...repo.repository,
+						id: secondId,
+						name: firstId,
+						url: `${baseUrl}${firstId}`,
+					},
+				},
+			],
+		});
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectRepository("second"));
+		expect(result.current.vm.selectedRepository?.id).toBe(secondId);
+		await act(() => result.current.vm.discoverRepo());
+		expect(api.discover).toHaveBeenCalledWith("cli", {
+			repositoryUrl: `${baseUrl}${secondId}`,
 		});
 	});
 	it("explicit discovery respects repository identity and reports scheduling failures", async () => {
@@ -1227,7 +1266,7 @@ describe("project settings and explicit discovery", () => {
 		act(() => result.current.vm.selectRepository("repo-key"));
 		await act(() => result.current.vm.discoverRepo());
 		expect(api.discover).toHaveBeenCalledWith("cli", {
-			repositoryUrl: fixture.catalog.data[0]!.repository.url,
+			repositoryUrl: `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.id}`,
 		});
 		await act(() => result.current.vm.scan(project.id));
 		expect(api.discover).toHaveBeenCalledWith("cli", { projectId: project.id });
