@@ -9,9 +9,11 @@ import { demoWorkspace } from "../../packages/domain/src/demo";
 import {
 	collectorQuerySchema,
 	observationListSchema,
+	pullDetailSchema,
 	pullListSchema,
 	repoListSchema,
 } from "../../packages/domain/src/query";
+import { projectSchema } from "../../packages/domain/src/workbench";
 
 const base = process.env.SIGNOFF_E2E_API_BASE!;
 const marker = JSON.parse(
@@ -323,6 +325,55 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await execute();
 	await execute();
 	await execute();
+	// Project edits resolve Unicode names to stable IDs without retiring valid watches.
+	const unicodeProject = repoListSchema
+		.parse(await cli("repo", "list"))
+		.projects.find((project) => project.organization === repos[1]!.org)!;
+	let projectRevision = unicodeProject.revision;
+	const patchUnicodeProject = async (changes: Record<string, unknown>) => {
+		const response = await page.request.patch(
+			`${base}/api/projects/${unicodeProject.id}`,
+			{ data: { revision: projectRevision, ...changes } },
+		);
+		expect(response.status(), await response.text()).toBe(200);
+		projectRevision = projectSchema.parse(await response.json()).revision;
+	};
+	const watchesBeforeEdit = (await watchList()).data;
+	for (const changes of [
+		{ repositories: ["éditeur"] },
+		{ description: "Updated without changing the monitored scope" },
+		{ projectKey: "équipe" },
+	]) {
+		await patchUnicodeProject(changes);
+		expect(
+			(await watchList()).data.map(({ id, generation, active, pullId }) => ({
+				id,
+				generation,
+				active,
+				pullId,
+			})),
+		).toEqual(
+			watchesBeforeEdit.map(({ id, generation, active, pullId }) => ({
+				id,
+				generation,
+				active,
+				pullId,
+			})),
+		);
+		expect(
+			pullListSchema.parse(
+				await cli(
+					"pr",
+					"list",
+					"--state",
+					"all",
+					"--draft",
+					"include",
+					"--all",
+				),
+			).data,
+		).toHaveLength(52);
+	}
 	await page.reload();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(3);
 	await page.screenshot({
@@ -361,6 +412,36 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	});
 	expect((await execute()).state).toBe("idle");
 	expect(repoListSchema.parse(await cli("repo", "list")).data).toHaveLength(2);
+	// Provider renames keep old URLs usable and cannot create a second watch identity.
+	const previousRepoUrl = repoUrl(repos[1]!);
+	repos[1]!.name = "Éditeur-renamed";
+	await cli("discover", "--repo", previousRepoUrl);
+	expect((await execute()).state).toBe("complete");
+	const renamedPull = pullDetailSchema.parse(await cli("pr", "get", draftUrl));
+	expect(renamedPull.data.repository).toMatchObject({
+		id: "repository-two",
+		name: "Éditeur-renamed",
+	});
+	const renamedUrl = `${repoUrl(repos[1]!)}/pullrequest/2`;
+	await cli("watch", "add", draftUrl, renamedUrl, renamedPull.data.id);
+	const renamedWatch = (await watchList()).data;
+	expect(renamedWatch).toHaveLength(1);
+	expect(renamedWatch[0]!.ref.repository).toEqual({
+		id: "repository-two",
+		name: "Éditeur-renamed",
+		projectExternalId: "project-guid-two",
+	});
+	await patchUnicodeProject({
+		description: "Metadata edit after provider rename",
+	});
+	expect((await watchList()).data[0]).toMatchObject({
+		id: renamedWatch[0]!.id,
+		generation: renamedWatch[0]!.generation,
+		active: true,
+		pullId: renamedPull.data.id,
+	});
+	await cli("watch", "remove", renamedUrl);
+	expect((await watchList()).data).toEqual([]);
 	// Real collector + HTTP staging validates observation time across slow authentication and summary reads.
 	const slowUrl = `${repoUrl(repos[0]!)}/pullrequest/26`;
 	await cli("watch", "add", slowUrl);
@@ -469,7 +550,9 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(pending).toHaveCount(0);
 
 	// A first-load detail error must not pretend the cached PR was removed.
-	const detailPull = all.data.find((pr) => pr.state === "open")!;
+	const detailPull = pullDetailSchema.parse(
+		await cli("pr", "get", all.data.find((pr) => pr.state === "open")!.id),
+	).data;
 	await page.route("**/api/query/v1/prs/*?**", (route) =>
 		route.fulfill({
 			status: 503,
