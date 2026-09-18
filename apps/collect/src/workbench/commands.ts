@@ -6,6 +6,7 @@ import {
 import {
 	batchCommandSchema,
 	collectorQuerySchema,
+	commandItemSchema,
 	commandReceiptSchema,
 	jobQuerySchema,
 	observationDetailSchema,
@@ -388,13 +389,24 @@ export function registerWorkbenchCommands(program: Command) {
 					);
 					results.push(...response.results);
 				} catch (error) {
-					if (!isPipelineClientError(error) || error.status !== 404)
+					if (
+						!isPipelineClientError(error) ||
+						![400, 404, 409, 422].includes(error.status)
+					) {
+						if (results.length) print({ results }, command);
 						throw error;
+					}
+					const detail = commandItemSchema.shape.error.safeParse(
+						(error.body as { error?: unknown } | null)?.error,
+					);
 					results.push({
-						status: "not_found",
-						error: {
-							code: "NOT_FOUND",
-							message: `Observation not found: ${ref}`,
+						status: error.status === 404 ? "not_found" : "rejected",
+						error: (detail.success && detail.data) || {
+							code: error.status === 404 ? "NOT_FOUND" : "COMMAND_REJECTED",
+							message:
+								error.status === 404
+									? `Observation not found: ${ref}`
+									: error.message,
 							retryable: false,
 						},
 					});

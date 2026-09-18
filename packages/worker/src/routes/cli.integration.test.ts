@@ -152,6 +152,55 @@ test("CLI registration rejects ambiguous project identities before any mutation"
 		before,
 	);
 });
+test("real CLI removal preserves ordered receipts around an ambiguous retained repository alias", async () => {
+	seedProject(sqlite, { repositories: [] });
+	const repository = { id: "repo-a", name: "renamed" };
+	const first = seedPull(sqlite, {
+		id: "first",
+		number: 1,
+		externalId: "1",
+		repository,
+	});
+	const third = seedPull(sqlite, {
+		id: "third",
+		number: 3,
+		externalId: "3",
+		repository,
+	});
+	seedPull(sqlite, {
+		id: "other",
+		number: 2,
+		externalId: "2",
+		repository: { id: "repo-b", name: "shared" },
+	});
+	sqlite.raw
+		.query(
+			"UPDATE workbench_repositories SET aliases_json=? WHERE repository_id=?",
+		)
+		.run(JSON.stringify(["renamed", "shared", "repo-a"]), repository.id);
+	expect((await cli("watch", "add", first.id, third.id)).code).toBe(0);
+	const result = await cli(
+		"watch",
+		"remove",
+		first.id,
+		"https://dev.azure.com/test-org/Platform/_git/shared/pullrequest/2",
+		third.id,
+	);
+	expect(result.code).toBe(3);
+	expect(
+		result.json.results.map((item: { status: string }) => item.status),
+	).toEqual(["removed", "rejected", "removed"]);
+	expect(result.json.results[1].error.code).toBe("REFERENCE_AMBIGUOUS");
+	expect(JSON.parse(result.stderr).error.code).toBe("PARTIAL_FAILURE");
+	expect(
+		sqlite.raw
+			.query("SELECT pull_id,active FROM pr_observations ORDER BY pull_id")
+			.all(),
+	).toEqual([
+		{ pull_id: "first", active: 0 },
+		{ pull_id: "third", active: 0 },
+	]);
+});
 test("CLI keeps stdout clean on errors and help needs no provider or service", async () => {
 	const invalid = await cli("pr", "get", "42");
 	expect(invalid.code).toBe(3);
