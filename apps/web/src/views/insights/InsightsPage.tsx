@@ -94,7 +94,7 @@ export function InsightsPage() {
 		<div className="space-y-4">
 			<PageHeader
 				title="Contributions"
-				description="PRs created in the selected UTC dates, grouped by their current state. Each module refreshes only when you request it."
+				description="PR contributions by merge date in the selected UTC period. Each module refreshes only when you request it."
 				actions={
 					<Button asChild variant="outline" size="sm">
 						<Link to="/developers">
@@ -110,10 +110,10 @@ export function InsightsPage() {
 					{source === "demo" ? "Sample history" : "Collected history"}
 				</Badge>
 				{source === "cli"
-					? "Includes collected open PRs and recent completed PRs; older merged or closed PRs may be missing. "
+					? "Uses cached PRs from explicitly discovered repositories; history not yet discovered may be missing. "
 					: "Sample members and PRs are separate from Live data. "}
-				Refresh recalculates stored records. Merged counts refer to PRs created
-				in this period that are now merged.
+				Refresh recalculates stored records. Date filters use the source merge
+				time; PRs without a confirmed merge date are excluded.
 			</p>
 			<div className="grid min-w-0 gap-4 xl:grid-cols-2">
 				<StatisticsModule
@@ -126,8 +126,8 @@ export function InsightsPage() {
 					{(snapshot) => <Overview snapshot={snapshot} now={now} />}
 				</StatisticsModule>
 				<StatisticsModule
-					title="Creation trend"
-					description="Daily PR creation, split by current state. UTC calendar days."
+					title="Merge trend"
+					description="PRs merged each day. UTC calendar days."
 					state={trend}
 					now={now}
 					disabled={!filters?.from || !filters.to}
@@ -148,7 +148,7 @@ export function InsightsPage() {
 			</StatisticsModule>
 			<StatisticsModule
 				title="Repository contributions"
-				description="Repositories represented in the selected creation dates and contributor scope."
+				description="Repositories represented in the selected merge dates and contributor scope."
 				state={repositories}
 				now={now}
 				disabled={!filters}
@@ -274,9 +274,9 @@ function Trend({ snapshot }: { snapshot: ContributionSnapshot }) {
 	return (
 		<div className="space-y-3">
 			<ChartFrame
-				ariaLabel="Daily PR creation by current state"
+				ariaLabel="Daily merged PR contributions"
 				size="h-72 w-full"
-				summary={`${snapshot.totals.total} PRs created between ${snapshot.filters.from} and ${snapshot.filters.to}. Days without matching PRs are shown as zero.`}
+				summary={`${snapshot.totals.total} PRs merged between ${snapshot.filters.from} and ${snapshot.filters.to}. Days without matching PRs are shown as zero.`}
 				dataAlternative={
 					<details className="text-xs">
 						<summary className="cursor-pointer text-basalt-muted-foreground">
@@ -286,7 +286,7 @@ function Trend({ snapshot }: { snapshot: ContributionSnapshot }) {
 							<Table aria-label="Daily contribution counts">
 								<TableHeader>
 									<TableRow>
-										<TableHead>Created (UTC)</TableHead>
+										<TableHead>Merged (UTC)</TableHead>
 										{SERIES.map((series) => (
 											<TableHead key={series.key} className="text-right">
 												{series.label}

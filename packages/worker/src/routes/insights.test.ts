@@ -19,8 +19,8 @@ afterEach(() => sqlite.close());
 const filters = (overrides: Record<string, unknown> = {}) =>
 	contributionFiltersSchema.parse({
 		source: "cli",
-		from: "2026-09-01",
-		to: "2026-09-17",
+		from: null,
+		to: null,
 		...overrides,
 	});
 const request = (
@@ -126,7 +126,17 @@ describe("independent, manually calculated PR statistics", () => {
 	});
 
 	test("statistics use the latest observed repository and author metadata, preserving member profile overrides", async () => {
+		async function requestPeriod(moduleId: string) {
+			const response = await request(moduleId, true, {
+				from: "2026-09-01",
+				to: "2026-09-17",
+			});
+			return ((await response.json()) as { snapshot: ContributionSnapshot })
+				.snapshot;
+		}
 		seedPull(sqlite, {
+			state: "merged",
+			mergedAt: PR_TEST_NOW,
 			repository: { id: "repo-1", name: "z-old-repository" },
 			author: {
 				id: "actor-1",
@@ -135,6 +145,8 @@ describe("independent, manually calculated PR statistics", () => {
 			},
 		});
 		seedPull(sqlite, {
+			state: "merged",
+			mergedAt: PR_TEST_NOW,
 			id: "pull-2",
 			externalId: "2",
 			number: 2,
@@ -146,12 +158,14 @@ describe("independent, manually calculated PR statistics", () => {
 				avatarUrl: "https://example.com/b-new.png",
 			},
 		});
-		expect((await snapshot("repositories"))?.repositories[0]).toMatchObject({
+		expect(
+			(await requestPeriod("repositories"))?.repositories[0],
+		).toMatchObject({
 			name: "b-new-repository",
 			total: 2,
 			lastCollectedAt: PR_TEST_NOW + 60,
 		});
-		expect((await snapshot("members"))?.members[0]).toMatchObject({
+		expect((await requestPeriod("members"))?.members[0]).toMatchObject({
 			name: "Bob new name",
 			avatarUrl: "https://example.com/b-new.png",
 			total: 2,
@@ -159,19 +173,23 @@ describe("independent, manually calculated PR statistics", () => {
 
 		// Current labels do not become historical labels when the date filter excludes the latest observed PR.
 		seedPull(sqlite, {
+			state: "merged",
 			id: "pull-3",
 			externalId: "3",
 			number: 3,
 			createdAt: PR_TEST_NOW - 90 * 86400,
+			mergedAt: PR_TEST_NOW - 90 * 86400,
 			observedAt: PR_TEST_NOW + 120,
 			repository: { id: "repo-1", name: "a-current-repository" },
 			author: { id: "actor-1", name: "Alice current name" },
 		});
-		expect((await snapshot("repositories"))?.repositories[0]).toMatchObject({
+		expect(
+			(await requestPeriod("repositories"))?.repositories[0],
+		).toMatchObject({
 			name: "a-current-repository",
 			total: 2,
 		});
-		expect((await snapshot("members"))?.members[0]).toMatchObject({
+		expect((await requestPeriod("members"))?.members[0]).toMatchObject({
 			name: "Alice current name",
 			avatarUrl: null,
 			total: 2,
@@ -181,7 +199,7 @@ describe("independent, manually calculated PR statistics", () => {
 			avatarUrl: "https://example.com/preferred.png",
 			identityKeys: [identityKey("ado", "test-org", "actor-1")],
 		});
-		expect((await snapshot("members"))?.members[0]).toMatchObject({
+		expect((await requestPeriod("members"))?.members[0]).toMatchObject({
 			name: "Preferred profile",
 			avatarUrl: "https://example.com/preferred.png",
 			total: 2,
@@ -318,7 +336,7 @@ describe("independent, manually calculated PR statistics", () => {
 			observedAt: PR_TEST_NOW + 60,
 		});
 		expect(await snapshot("overview", false)).toEqual(first);
-		expect((await snapshot("trend"))?.totals.total).toBe(2);
+		expect((await snapshot("members"))?.totals.total).toBe(2);
 		expect(await snapshot("overview", false)).toEqual(first);
 		expect((await snapshot("overview"))?.totals).toMatchObject({
 			total: 2,
@@ -331,50 +349,64 @@ describe("independent, manually calculated PR statistics", () => {
 		).toBeNull();
 	});
 
-	test("inclusive UTC creation dates are independent of PR update time and omit drafts by default", async () => {
+	test("inclusive UTC merge dates ignore creation and update time, exclude unmerged and missing dates", async () => {
+		const period = { from: "2026-09-01", to: "2026-09-17" };
 		const add = (
 			id: number,
-			created: string,
-			state: "open" | "merged" | "closed",
+			merged: string | null,
+			state: "open" | "merged" | "closed" = "merged",
 			draft = false,
 		) =>
 			seedPull(sqlite, {
 				id: `pr-${id}`,
 				number: id,
 				externalId: String(id),
-				createdAt: Date.parse(created) / 1000,
-				updatedAt: PR_TEST_NOW + 100_000,
+				createdAt: Date.parse("2026-08-01T00:00:00Z") / 1000,
+				updatedAt: PR_TEST_NOW + 100000,
+				mergedAt: merged === null ? null : Date.parse(merged) / 1000,
 				state,
 				draft,
 			});
-		add(1, "2026-09-01T00:00:00Z", "open");
-		add(2, "2026-09-17T23:59:59Z", "merged");
-		add(3, "2026-09-10T02:00:00Z", "closed");
-		add(4, "2026-09-16T02:00:00Z", "open", true);
-		add(5, "2026-08-31T23:59:59Z", "merged");
-		add(6, "2026-09-18T00:00:00Z", "open");
-		expect((await snapshot("overview"))?.totals).toMatchObject({
-			total: 3,
-			open: 1,
-			merged: 1,
-			closed: 1,
+		add(1, "2026-09-01T00:00:00Z");
+		add(2, "2026-09-17T23:59:59Z");
+		add(3, null, "closed");
+		add(4, null, "open", true);
+		add(5, "2026-08-31T23:59:59Z");
+		add(6, "2026-09-18T00:00:00Z");
+		add(7, null);
+		add(8, "2026-09-10T00:00:00Z", "merged", true);
+		add(9, "2026-09-12T00:00:00Z", "open");
+		expect((await snapshot("overview", true, period))?.totals).toMatchObject({
+			total: 2,
+			open: 0,
+			merged: 2,
+			closed: 0,
 			draft: 0,
 		});
 		expect(
-			(await snapshot("overview", true, { includeDraft: true }))?.totals,
-		).toMatchObject({ total: 4, open: 1, merged: 1, closed: 1, draft: 1 });
-		expect(
-			(await snapshot("overview", true, { states: ["merged"] }))?.totals.total,
-		).toBe(1);
-		const trend = await snapshot("trend");
+			(await snapshot("overview", true, { ...period, includeDraft: true }))
+				?.totals,
+		).toMatchObject({ total: 3, merged: 2, draft: 1 });
+		const trend = await snapshot("trend", true, period);
 		expect(trend?.trend).toHaveLength(17);
 		expect(trend?.trend[0]).toMatchObject({
 			day: "2026-09-01",
 			total: 1,
-			open: 1,
+			merged: 1,
 		});
-		expect(trend?.trend[1]).toMatchObject({ day: "2026-09-02", total: 0 });
+		expect(trend?.trend[1]?.total).toBe(0);
 		expect(trend?.trend.at(-1)).toMatchObject({ day: "2026-09-17", merged: 1 });
+	});
+	test("the old creation-date calculation is not reused for merge-date queries", async () => {
+		sqlite.raw
+			.query(
+				"INSERT INTO pr_stat_snapshots(source,module,filter_key,requested_at,snapshot) VALUES('cli','overview',?,1,?)",
+			)
+			.run(
+				JSON.stringify(filters()),
+				JSON.stringify({ totals: { total: 99 } }),
+			);
+		expect(await snapshot("overview", false)).toBeNull();
 	});
 
 	test("exact accounts combine across orgs, same names stay separate, and team/repo/tag filters intersect without multiplying PRs", async () => {

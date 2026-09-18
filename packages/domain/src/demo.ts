@@ -339,6 +339,10 @@ const ACTIVITY_TITLES: Record<Scenario, string> = {
 	unknown: "Incomplete build timeline",
 };
 
+function scenarioState(scenario: Scenario): PullRequest["state"] {
+	return scenario === "merged" || scenario === "closed" ? scenario : "open";
+}
+
 function descriptionFor(scenario: Scenario, title: string): string {
 	return scenario === "presence"
 		? `## Summary\n\n${title}.\n\nThe automated checks and required reviews are complete. **Proof of Presence (PoP)** needs human verification before merging.\n\n### Validation\n\n| Gate | Status |\n| --- | --- |\n| Build and tests | Passed |\n| Code review | Approved |\n| PoP | Awaiting human verification |\n\n- [x] Automated validation\n- [x] Required reviews\n- [ ] Complete PoP in Azure DevOps`
@@ -384,7 +388,7 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 				.replace(/[^a-z0-9]+/g, "-")
 				.slice(0, 52)}`,
 			targetBranch: "main",
-			state: scenario === "merged" || scenario === "closed" ? scenario : "open",
+			state: scenarioState(scenario),
 			draft: scenario === "draft",
 			mergeable:
 				scenario === "conflict"
@@ -395,6 +399,7 @@ export function makeDemoPulls(project: Project, now: number): PullRequest[] {
 			coverage: scenario === "unknown" ? "partial" : "complete",
 			createdAt,
 			updatedAt,
+			mergedAt: scenario === "merged" ? updatedAt : null,
 			observedAt: project.lastScannedAt ?? now,
 			requiredApprovals: 2,
 			reviewers: [

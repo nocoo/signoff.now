@@ -39,7 +39,7 @@ function filteredFacts(db: D1Database, filters: ContributionFilters) {
 		SELECT pr.id AS factId, pr.state, pr.project_id AS projectId, pr.repository_id AS repositoryId,
 		json_array(pr.project_id, pr.repository_id) AS repositoryKey,
 		json_extract(pr.snapshot, '$.repository.name') AS repositoryName,
-		json_extract(pr.snapshot, '$.createdAt') AS createdAt,
+		CASE WHEN pr.state = 'merged' THEN json_extract(pr.snapshot, '$.mergedAt') END AS mergedAt,
 		json_extract(pr.snapshot, '$.observedAt') AS observedAt,
 		CASE WHEN json_extract(pr.snapshot, '$.draft') = 1 THEN 'draft' ELSE pr.state END AS category,
 		d.id AS memberId, COALESCE(d.name, json_extract(pr.snapshot, '$.author.name')) AS name,
@@ -54,7 +54,7 @@ function filteredFacts(db: D1Database, filters: ContributionFilters) {
 		WHERE p.source = ?1
 	), filtered AS (
 		SELECT * FROM facts WHERE (?6 = '[]' OR contributorKey IN (SELECT value FROM json_each(?6)))
-		AND (?2 IS NULL OR createdAt >= ?2) AND (?3 IS NULL OR createdAt < ?3)
+		AND (?2 IS NULL OR mergedAt >= ?2) AND (?3 IS NULL OR mergedAt < ?3)
 		AND (?4 = '[]' OR projectId IN (SELECT value FROM json_each(?4)))
 		AND (?5 = '[]' OR repositoryKey IN (SELECT value FROM json_each(?5)))
 		AND (?9 = 'all' OR memberId IS NOT NULL)
@@ -108,7 +108,7 @@ async function calculate(
 	];
 	if (module === "trend")
 		statements.push(
-			query(`SELECT strftime('%Y-%m-%d', createdAt, 'unixepoch') AS day, ${COUNTS_SQL}
+			query(`SELECT strftime('%Y-%m-%d', mergedAt, 'unixepoch') AS day, ${COUNTS_SQL}
 		FROM filtered GROUP BY day ORDER BY day`),
 		);
 	if (module === "repositories")
@@ -250,7 +250,7 @@ export async function insightsRoute(c: Context<AppEnv>) {
 		);
 	if (module.data === "trend" && filters.from === null)
 		return c.json({ error: "Choose dates for the contribution trend" }, 400);
-	const key = JSON.stringify(filters);
+	const key = `merged-v1:${JSON.stringify(filters)}`;
 	const read = c.env.DB.prepare(
 		"SELECT snapshot FROM pr_stat_snapshots WHERE source = ? AND module = ? AND filter_key = ?",
 	).bind(filters.source, module.data, key);
