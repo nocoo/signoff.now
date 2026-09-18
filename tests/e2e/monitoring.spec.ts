@@ -34,14 +34,14 @@ const repos = [
 	},
 	{
 		org: "e2e-two",
-		project: "Beta",
+		project: "Équipe",
 		id: "repository-two",
-		name: "beta",
+		name: "Éditeur",
 		projectGuid: "project-guid-two",
 	},
 ];
 const repoUrl = (r: (typeof repos)[number]) =>
-	`https://dev.azure.com/${r.org}/${r.project}/_git/${r.name}`;
+	`https://dev.azure.com/${r.org}/${encodeURIComponent(r.project)}/_git/${encodeURIComponent(r.name)}`;
 const now = Math.floor(Date.now() / 1000);
 const api = createCollectionClient({ apiBase: base });
 let providerRequests = 0;
@@ -211,6 +211,29 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect((await watchList()).data).toEqual([]);
 	expect(providerRequests).toBe(before);
 	await selectAll.uncheck();
+	// A new page may fail before it has any cached data; returning to page 1 must still work.
+	await page.route("**/api/query/v1/prs?**", (route) =>
+		new URL(route.request().url()).searchParams.get("page") === "2"
+			? route.fulfill({
+					status: 503,
+					contentType: "application/json",
+					body: JSON.stringify({
+						error: {
+							code: "SERVICE_UNAVAILABLE",
+							message: "PR page unavailable",
+							retryable: true,
+						},
+					}),
+				})
+			: route.continue(),
+	);
+	await page.getByRole("button", { name: "Next page", exact: true }).click();
+	await expect(page.getByText("Unable to load pull requests")).toBeVisible();
+	await page
+		.getByRole("button", { name: "Previous page", exact: true })
+		.click();
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(20);
+	await page.unroute("**/api/query/v1/prs?**");
 	const rows = page.locator("tr[data-pull-id]");
 	const ids = [
 		await rows.nth(0).getAttribute("data-pull-id"),
@@ -234,8 +257,8 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect(watched.data.find((w) => w.ref.number === 2)?.ref).toMatchObject({
 		provider: "ado",
 		organization: "e2e-two",
-		projectKey: "Beta",
-		repository: { id: "repository-two", name: "beta" },
+		projectKey: "Équipe",
+		repository: { id: "repository-two", name: "Éditeur" },
 	});
 	await page.reload();
 	await page.getByRole("combobox", { name: "Watch list filter" }).click();
@@ -415,6 +438,26 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await page.unroute("**/api/query/v1/observations?**");
 	await pending.getByRole("button", { name: "Retry pending watches" }).click();
 	await expect(pending.getByRole("link")).toHaveCount(20);
+	await page.route("**/api/query/v1/observations?**", (route) =>
+		new URL(route.request().url()).searchParams.get("page") === "2"
+			? route.fulfill({
+					status: 503,
+					contentType: "application/json",
+					body: JSON.stringify({
+						error: {
+							code: "SERVICE_UNAVAILABLE",
+							message: "Pending page unavailable",
+							retryable: true,
+						},
+					}),
+				})
+			: route.continue(),
+	);
+	await pending.getByRole("button", { name: "Next pending page" }).click();
+	await expect(pending.getByText("Pending page unavailable")).toBeVisible();
+	await pending.getByRole("button", { name: "Previous pending page" }).click();
+	await expect(pending.getByRole("link")).toHaveCount(20);
+	await page.unroute("**/api/query/v1/observations?**");
 	await pending.getByRole("button", { name: "Next pending page" }).click();
 	await expect(pending.getByRole("link")).toHaveCount(1);
 	await expect(pending.getByRole("link")).toHaveText(/#1020/);
