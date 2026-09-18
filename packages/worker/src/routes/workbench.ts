@@ -18,6 +18,7 @@ import { enqueueDiscovery } from "../monitoring/observations.js";
 import {
 	mapJob,
 	mapProject,
+	matchesAlias,
 	type ProjectRow,
 	readJob,
 } from "../monitoring/store.js";
@@ -84,6 +85,10 @@ function scopeKey(items: string[] | undefined) {
 			.sort((left, right) => left.localeCompare(right)),
 	);
 }
+
+// Match the exact catalog used to resolve names; scan timestamps and unrelated PR publications may still advance.
+const PROJECT_CATALOG = `(SELECT json_group_array(json_array(repository_id,name,aliases_json))
+ FROM (SELECT repository_id,name,aliases_json FROM workbench_repositories WHERE project_id=? ORDER BY repository_id))`;
 
 async function getProject(c: Context<AppEnv>): Promise<Project | null> {
 	const row = await c.env.DB.prepare("SELECT * FROM projects WHERE id = ?")
@@ -267,23 +272,56 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 	const sourceChanged =
 		identityChanged ||
 		scopeKey(current.repositories) !== scopeKey(next.repositories);
+	const catalog =
+		(
+			await c.env.DB.prepare(`SELECT ${PROJECT_CATALOG} AS catalog`)
+				.bind(current.id)
+				.first<{ catalog: string }>()
+		)?.catalog ?? "[]";
+	const repositoryIds = (JSON.parse(catalog) as [string, string, string][])
+		.filter(
+			([repository_id, name, aliases_json]) =>
+				!next.repositories?.length ||
+				next.repositories.some((value) =>
+					matchesAlias({ repository_id, name, aliases_json }, value),
+				),
+		)
+		.map(([id]) => id);
+	const scopeResolution = JSON.stringify({
+		previousRevision: revision,
+		revision: next.revision,
+		identityChanged,
+		scopeChanged: sourceChanged,
+		restricted: Boolean(next.repositories?.length),
+		repositoryIds,
+	});
 	try {
 		// Guard dependent deletes with the OLD revision and run them before the
 		// CAS update, in the same transaction. Zero-row updates do not roll D1 back.
 		const result = await c.env.DB.batch([
 			c.env.DB.prepare(
-				`DELETE FROM pull_requests WHERE project_id = ? AND (? = 1 OR (json_array_length(?) > 0 AND NOT EXISTS (SELECT 1 FROM json_each(?) scope WHERE lower(scope.value) IN (lower(repository_id),lower(json_extract(snapshot, '$.repository.name')))))) AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?)`,
+				`DELETE FROM pull_requests WHERE project_id = ? AND (? = 1 OR (? = 1 AND repository_id NOT IN (SELECT value FROM json_each(?))))
+         AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?) AND ${PROJECT_CATALOG}=?`,
 			).bind(
 				current.id,
 				Number(identityChanged),
-				JSON.stringify(next.repositories ?? []),
-				JSON.stringify(next.repositories ?? []),
+				Number(Boolean(next.repositories?.length)),
+				JSON.stringify(repositoryIds),
 				current.id,
 				revision,
+				current.id,
+				catalog,
 			),
 			c.env.DB.prepare(
-				`DELETE FROM scan_runs WHERE project_id = ? AND ? = 1 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?)`,
-			).bind(current.id, Number(identityChanged), current.id, revision),
+				`DELETE FROM scan_runs WHERE project_id = ? AND ? = 1 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND revision = ?) AND ${PROJECT_CATALOG}=?`,
+			).bind(
+				current.id,
+				Number(identityChanged),
+				current.id,
+				revision,
+				current.id,
+				catalog,
+			),
 			c.env.DB.prepare(
 				`UPDATE projects SET provider = ?, name = ?, organization = ?, project_key = ?, repositories_json = ?, description = ?, owner = ?, enabled = ?, revision = revision + 1, updated_at = MAX(updated_at, ?),
 				 last_scanned_at = CASE WHEN ? = 1 THEN NULL ELSE last_scanned_at END,
@@ -291,8 +329,8 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				 scan_message = CASE WHEN ? = 1 THEN NULL ELSE scan_message END,
 				 merge_requirements_json = CASE WHEN ? = 1 THEN '[]' ELSE merge_requirements_json END,
 				 readiness_rules_json = CASE WHEN ? = 1 THEN '[]' ELSE readiness_rules_json END,
-				 readiness_revision = readiness_revision + ?
-				 WHERE id = ? AND revision = ?`,
+				 readiness_revision = readiness_revision + ?, scope_resolution_json = ?
+				 WHERE id = ? AND revision = ? AND ${PROJECT_CATALOG}=?`,
 			).bind(
 				next.provider,
 				next.name,
@@ -309,8 +347,11 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				Number(sourceChanged),
 				Number(identityChanged),
 				Number(sourceChanged),
+				scopeResolution,
 				current.id,
 				revision,
+				current.id,
+				catalog,
 			),
 			c.env.DB.prepare("SELECT * FROM projects WHERE id = ?").bind(current.id),
 		]);

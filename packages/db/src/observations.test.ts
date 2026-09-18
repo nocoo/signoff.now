@@ -2,6 +2,62 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 
+test("forward scope migration preserves watches and consumes only the matching revision's resolution", () => {
+	const db = new Database(":memory:");
+	try {
+		db.exec("PRAGMA foreign_keys = ON");
+		const dir = new URL("../migrations/", import.meta.url);
+		for (const file of readdirSync(dir)
+			.filter((name) => name.endsWith(".sql") && name < "0020")
+			.sort())
+			db.exec(readFileSync(new URL(file, dir), "utf8"));
+		db.exec(`INSERT INTO projects(id,provider,name,organization,project_key,repositories_json,owner,source,created_at,updated_at)
+      VALUES('p','ado','Project','org','Équipe','["équipe"]','Owner','cli',1,1);
+      INSERT INTO pull_requests(id,project_id,repository_id,external_id,state,updated_at,snapshot)
+      VALUES('pr','p','repo','42','open',2,'{"id":"pr","repository":{"id":"repo","name":"Équipe"},"observedAt":3}');
+      INSERT INTO pr_observations(id,identity,activation_token,source,project_id,ref_json,pull_id,generation,active,added_at)
+      VALUES('watch','["cli","ado","org","équipe","repo",42]','token','cli','p','{"repository":{"id":"repo","name":"Équipe"}}','pr',1,1,3)`);
+		const before = db.query("SELECT * FROM pr_observations").all();
+		db.exec(
+			readFileSync(new URL("0020_resolved_project_scope.sql", dir), "utf8"),
+		);
+		expect(db.query("SELECT * FROM pr_observations").all()).toEqual(before);
+		expect(db.query("SELECT COUNT(*) n FROM pull_requests").get()).toEqual({
+			n: 1,
+		});
+		db.query(
+			"UPDATE projects SET project_key='équipe',revision=2,scope_resolution_json=? WHERE id='p'",
+		).run(
+			JSON.stringify({
+				previousRevision: 1,
+				revision: 2,
+				identityChanged: false,
+				scopeChanged: false,
+				restricted: true,
+				repositoryIds: ["repo"],
+			}),
+		);
+		expect(
+			db
+				.query("SELECT active,generation,stop_reason FROM pr_observations")
+				.get(),
+		).toEqual({ active: 1, generation: 1, stop_reason: null });
+		expect(
+			db.query("SELECT COUNT(*) n FROM workbench_repositories").get(),
+		).toEqual({ n: 1 });
+		// A later raw update cannot reuse the prior command's membership decision.
+		db.exec(
+			"UPDATE projects SET revision=3,repositories_json='[\"outside\"]' WHERE id='p'",
+		);
+		expect(
+			db.query("SELECT active,stop_reason FROM pr_observations").get(),
+		).toEqual({ active: 0, stop_reason: "scope_changed" });
+		expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+	} finally {
+		db.close();
+	}
+});
+
 test("observation upgrade preserves caches and history, cancels old work and starts with an empty watch list", () => {
 	const db = new Database(":memory:");
 	try {
