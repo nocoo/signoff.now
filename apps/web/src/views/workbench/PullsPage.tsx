@@ -17,11 +17,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import {
-	type Project,
-	pullUrl,
-	repositoryBranchUrl,
-} from "@signoff/domain/workbench";
+import { pullUrl, repositoryBranchUrl } from "@signoff/domain/workbench";
 import {
 	ArrowDown,
 	ArrowRight,
@@ -38,7 +34,7 @@ import {
 	ScanLine,
 	Search,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
@@ -57,7 +53,6 @@ import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { PullQuickFilters } from "./PullQuickFilters";
-import { ReadinessDialog } from "./ReadinessDialog";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
@@ -66,9 +61,6 @@ export function PullsPage() {
 	const vm = useWorkbench();
 	const now = useMinuteNow();
 	const opener = useRef<HTMLElement | null>(null);
-	const [readinessProject, setReadinessProject] = useState<Project | null>(
-		null,
-	);
 
 	const scopedProject = vm.projectOptions.find(
 		({ project }) => project.id === vm.filter.projectId,
@@ -210,27 +202,14 @@ export function PullsPage() {
 				className="space-y-2"
 				actions={
 					<>
-						{scopedProject ? (
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={(event) => {
-									opener.current = event.currentTarget;
-									vm.clearMutationError();
-									setReadinessProject(scopedProject);
-								}}
+						<Button asChild variant="ghost" size="sm">
+							<Link
+								to={`/state-machines?${new URLSearchParams({ source: vm.filter.source, tab: "priority", ...(scopeProject ? { project: scopeProject.id } : {}), ...(repository?.identityResolved ? { repo: repository.id } : {}) })}`}
 							>
 								<ListOrdered className="h-3.5 w-3.5" aria-hidden />
 								Readiness order
-							</Button>
-						) : (
-							<Button asChild variant="ghost" size="sm">
-								<Link to="/projects">
-									<ListOrdered className="h-3.5 w-3.5" aria-hidden />
-									Readiness order
-								</Link>
-							</Button>
-						)}
+							</Link>
+						</Button>
 						<CollectionActions vm={vm} />
 					</>
 				}
@@ -392,17 +371,6 @@ export function PullsPage() {
 				refreshing={vm.detailRefreshing}
 				busy={Boolean(vm.busy)}
 			/>
-			{readinessProject ? (
-				<ReadinessDialog
-					project={readinessProject}
-					pulls={vm.data?.pullRequests ?? []}
-					busy={vm.busy}
-					error={vm.mutationError}
-					onSave={(rules) => vm.saveReadiness(readinessProject, rules)}
-					onClose={() => setReadinessProject(null)}
-					restoreFocus={() => opener.current?.focus()}
-				/>
-			) : null}
 		</div>
 	);
 }

@@ -184,6 +184,10 @@ export const machinePreviewSchema = z.object({
 	evaluations: z.array(machineEvaluationSchema),
 });
 export type MachinePreview = z.infer<typeof machinePreviewSchema>;
+export const machineVersionSchema = z.object({
+	revision: z.number().int().positive(),
+	config: stateMachineSchema.nullable(),
+});
 export const machineWriteSchema = z
 	.object({
 		revision: z.number().int().positive(),

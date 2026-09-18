@@ -5,7 +5,7 @@ import {
 	TooltipProvider,
 } from "@nocoo/basalt";
 import { AccentProvider } from "@nocoo/basalt/providers/accent";
-import type { ComponentType, ReactNode } from "react";
+import { type ComponentType, lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
 import { WorkbenchProvider } from "@/viewmodels/WorkbenchProvider";
@@ -19,6 +19,10 @@ import { SettingsPage } from "@/views/settings/SettingsPage";
 import { ProjectsPage } from "@/views/workbench/ProjectsPage";
 import { PullsPage } from "@/views/workbench/PullsPage";
 import { RepositoriesPage } from "@/views/workbench/RepositoriesPage";
+
+const StateMachinesPage = lazy(
+	() => import("@/views/state-machines/StateMachinesPage"),
+);
 
 const BRAND_PALETTE = {
 	primary: { light: "199 100% 47%", dark: "199 100% 52%" },
@@ -67,6 +71,16 @@ export default function App() {
 									<Route path="/projects" element={<ProjectsPage />} />
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
+									<Route
+										path="/state-machines"
+										element={
+											<Suspense
+												fallback={<p role="status">Loading state machines…</p>}
+											>
+												<StateMachinesPage />
+											</Suspense>
+										}
+									/>
 									<Route path="/developers" element={<MembersPage />} />
 									<Route path="/teams" element={<DirectoryTeamsPage />} />
 									<Route path="/tags" element={<DirectoryTagsPage />} />

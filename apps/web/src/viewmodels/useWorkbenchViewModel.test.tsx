@@ -20,7 +20,6 @@ import {
 	createProject,
 	deleteProject,
 	patchProject,
-	patchReadiness,
 	patchRefreshSettings,
 } from "@/models/workbenchApi";
 import {
@@ -32,18 +31,18 @@ import {
 	queryFixture,
 } from "@/test/monitoring-fixture";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
+import { PullQuickFilters } from "@/views/workbench/PullQuickFilters";
 import { PullsPage } from "@/views/workbench/PullsPage";
 import {
 	useProjectFormViewModel,
 	useWorkbenchViewModel,
 } from "./useWorkbenchViewModel";
-import { WorkbenchProvider } from "./WorkbenchProvider";
+import { useWorkbench, WorkbenchProvider } from "./WorkbenchProvider";
 
 vi.mock("@/models/workbenchApi", () => ({
 	createProject: vi.fn(),
 	deleteProject: vi.fn(),
 	patchProject: vi.fn(),
-	patchReadiness: vi.fn(),
 	patchRefreshSettings: vi.fn(),
 }));
 vi.mock("@/models/monitoringApi", async (original) => ({
@@ -97,11 +96,15 @@ const loaded = async (result: ReturnType<typeof render>["result"]) =>
 		expect(result.current.vm.loading).toBe(false);
 		expect(result.current.vm.collector).not.toBeNull();
 	});
+function QuickFiltersHarness() {
+	const vm = useWorkbench();
+	return <PullQuickFilters vm={vm} />;
+}
 it("combines independent quick filters and clears incompatible historical selections", async () => {
 	renderView(
 		<MemoryRouter initialEntries={["/?source=cli&q=review"]}>
 			<WorkbenchProvider>
-				<PullsPage />
+				<QuickFiltersHarness />
 			</WorkbenchProvider>
 		</MemoryRouter>,
 	);
@@ -548,6 +551,25 @@ describe("independent cached blocks", () => {
 });
 
 describe("filters, server pages and temporary selection", () => {
+	it("clears the traced PR when its source or repository scope changes, preserving it for display filters", async () => {
+		const { result } = render("/state-machines?source=cli&trace=old-pr");
+		await loaded(result);
+		act(() => result.current.vm.setFilter({ query: "find" }));
+		expect(
+			new URLSearchParams(result.current.location.search).get("trace"),
+		).toBe("old-pr");
+		act(() => result.current.vm.setFilter({ repository: "another" }));
+		expect(
+			new URLSearchParams(result.current.location.search).has("trace"),
+		).toBe(false);
+		act(() =>
+			result.current.navigate("/state-machines?source=cli&trace=old-pr"),
+		);
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		expect(
+			new URLSearchParams(result.current.location.search).has("trace"),
+		).toBe(false);
+	});
 	it("restores saved filters and gives explicit URL filters priority", async () => {
 		localStorage.setItem(
 			PULL_FILTER_STORAGE_KEY,
@@ -1585,7 +1607,7 @@ describe("project settings and explicit discovery", () => {
 			vi.unstubAllEnvs();
 		}
 	});
-	it("saves project CRUD and readiness without collecting, using captured revisions", async () => {
+	it("saves project CRUD without collecting, using captured revisions", async () => {
 		const { result } = render();
 		await loaded(result);
 		await act(() => result.current.vm.save(draft, null));
@@ -1595,12 +1617,6 @@ describe("project settings and explicit discovery", () => {
 			...draft,
 			revision: project.revision,
 		});
-		await act(() => result.current.vm.saveReadiness(project, []));
-		expect(patchReadiness).toHaveBeenCalledWith(
-			project.id,
-			project.readinessRevision ?? 1,
-			[],
-		);
 		await act(() => result.current.vm.remove(project));
 		expect(deleteProject).toHaveBeenCalledWith(project.id, project.revision);
 		expect(api.discover).not.toHaveBeenCalled();

@@ -46,7 +46,10 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	{
 		label: "System",
 		defaultOpen: true,
-		items: [{ href: "/settings", label: "Settings", icon: "Settings" }],
+		items: [
+			{ href: "/state-machines", label: "State machines", icon: "Network" },
+			{ href: "/settings", label: "Settings", icon: "Settings" },
+		],
 	},
 ];
 

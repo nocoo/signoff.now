@@ -36,16 +36,12 @@ import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ProjectDialog } from "./ProjectDialog";
-import { ReadinessDialog } from "./ReadinessDialog";
 import { WorkbenchFeedback } from "./WorkbenchControls";
 
 export function ProjectsPage() {
 	const vm = useWorkbench();
 	const [editing, setEditing] = useState<Project | null | undefined>();
 	const [removing, setRemoving] = useState<Project | null>(null);
-	const [readinessProject, setReadinessProject] = useState<Project | null>(
-		null,
-	);
 	const opener = useRef<HTMLElement | null>(null);
 	const restoreFocus = () =>
 		(opener.current?.isConnected
@@ -295,16 +291,15 @@ export function ProjectsPage() {
 										<Button
 											variant="ghost"
 											size="sm"
-											disabled={Boolean(vm.busy)}
+											asChild
 											aria-label={`Readiness for ${project.name}`}
-											onClick={(event) => {
-												opener.current = event.currentTarget;
-												vm.clearMutationError();
-												setReadinessProject(project);
-											}}
 										>
-											<ListOrdered className="h-3.5 w-3.5" aria-hidden />
-											Readiness
+											<Link
+												to={`/state-machines?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+											>
+												<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+												State machine
+											</Link>
 										</Button>
 									</div>
 									<div className="flex items-center gap-1">
@@ -402,17 +397,6 @@ export function ProjectsPage() {
 					error={vm.mutationError}
 					onSave={(draft) => vm.save(draft, editing)}
 					onClose={() => setEditing(undefined)}
-					restoreFocus={restoreFocus}
-				/>
-			) : null}
-			{readinessProject ? (
-				<ReadinessDialog
-					project={readinessProject}
-					pulls={vm.data?.pullRequests ?? []}
-					busy={vm.busy}
-					error={vm.mutationError}
-					onSave={(rules) => vm.saveReadiness(readinessProject, rules)}
-					onClose={() => setReadinessProject(null)}
 					restoreFocus={restoreFocus}
 				/>
 			) : null}

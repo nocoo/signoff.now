@@ -11,7 +11,6 @@ import {
 	type Project,
 	type ProjectWrite,
 	projectWriteSchema,
-	type ReadinessRule,
 	type RefreshQueueKind,
 	refreshCooldownSchema,
 	repositoryUrl,
@@ -48,7 +47,6 @@ import {
 	createProject,
 	deleteProject,
 	patchProject,
-	patchReadiness,
 	patchRefreshSettings,
 } from "@/models/workbenchApi";
 import { useQueryBlock } from "./useQueryBlock";
@@ -493,6 +491,13 @@ export function useWorkbenchViewModel() {
 				const result = writePullFilter(next, previous);
 				result.delete("page");
 				if (patch.source !== undefined) result.delete("pr");
+				if (
+					patch.source !== undefined ||
+					patch.organization !== undefined ||
+					patch.projectId !== undefined ||
+					patch.repository !== undefined
+				)
+					result.delete("trace");
 				return result;
 			},
 			{ replace: true },
@@ -901,11 +906,6 @@ export function useWorkbenchViewModel() {
 				return result.jobs.length
 					? `Queued ${result.jobs.length} watched PR checks.`
 					: "The watch list is empty.";
-			}),
-		saveReadiness: (project: Project, rules: ReadinessRule[]) =>
-			mutate("readiness", async () => {
-				await patchReadiness(project.id, project.readinessRevision ?? 1, rules);
-				return "Readiness order and colors saved.";
 			}),
 		save: (draft: ProjectWrite, project: Project | null) =>
 			mutate("save", async () => {

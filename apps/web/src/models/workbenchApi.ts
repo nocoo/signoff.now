@@ -2,7 +2,6 @@ import type { RefreshSettings } from "@signoff/domain/collection";
 import {
 	type ProjectWrite,
 	projectSchema,
-	type ReadinessRule,
 	refreshQueueSchema,
 } from "@signoff/domain/workbench";
 import { apiFetch } from "@/lib/api";
@@ -42,20 +41,4 @@ export async function deleteProject(id: string, revision: number) {
 		method: "DELETE",
 		body: JSON.stringify({ revision }),
 	});
-}
-
-export async function patchReadiness(
-	id: string,
-	revision: number,
-	rules: ReadinessRule[],
-) {
-	return projectSchema.parse(
-		await apiFetch<unknown>(
-			`/api/projects/${encodeURIComponent(id)}/readiness`,
-			{
-				method: "PATCH",
-				body: JSON.stringify({ revision, rules }),
-			},
-		),
-	);
 }

@@ -10,6 +10,8 @@ import {
 	batchCommandSchema,
 	collectorQuerySchema,
 	commandReceiptSchema,
+	machinePageSchema,
+	machinePreviewSchema,
 	observationListSchema,
 	pullDetailSchema,
 	pullListSchema,
@@ -138,9 +140,10 @@ async function cli(...args: string[]) {
 async function watchList() {
 	return observationListSchema.parse(await cli("watch", "list", "--all"));
 }
-async function execute(merged = false) {
+async function execute(merged = false, jobId?: string) {
 	return runCollectionOnce({
 		api,
+		jobId,
 		makeAdo: () => fakeAdo,
 		log: silent,
 		collect: async (options) => {
@@ -435,8 +438,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		repository: { id: "repository-two", name: "Éditeur" },
 	});
 	await page.reload();
-	await page.getByRole("combobox", { name: "Watch list filter" }).click();
-	await page.getByRole("option", { name: /^Watching/ }).click();
+	await page.getByRole("button", { name: "Watched", exact: true }).click();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(2);
 	await page.getByRole("combobox", { name: "Draft", exact: true }).click();
 	await page
@@ -908,6 +910,163 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	).toEqual([]);
 	expect((await watchList()).data).toEqual([]);
 	expect(browserErrors).toEqual([]);
+});
+
+test("state machines preview, save and restore scoped rules without changing facts or watches", async ({
+	page,
+}) => {
+	const repo = {
+		org: "e2e-machines",
+		project: "Machines",
+		id: "machine-repository",
+		name: "machines",
+		projectGuid: "machine-project",
+	};
+	repos.push(repo);
+	await cli("repo", "add", repoUrl(repo));
+	const discovery = commandReceiptSchema.parse(
+		await cli("discover", "--repo", repoUrl(repo)),
+	);
+	expect((await execute(false, discovery.jobs[0]!.id)).state).toBe("complete");
+	const watch = batchCommandSchema.parse(
+		await cli("watch", "add", `${repoUrl(repo)}/pullrequest/1`),
+	);
+	expect((await execute(false, watch.results[0]!.job!.id)).state).toBe(
+		"complete",
+	);
+	const before = pullDetailSchema.parse(
+		await cli("pr", "get", `${repoUrl(repo)}/pullrequest/1`),
+	);
+	const pull = before.data;
+	const projectId = pull.project.id;
+	const machineUrl = `${base}/api/state-machines/${projectId}?source=live&repositoryId=${repo.id}&pullId=${encodeURIComponent(pull.id)}`;
+	const initial = machinePageSchema.parse(
+		await (await page.request.get(machineUrl)).json(),
+	);
+	const readsBefore = providerRequests;
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	await page.goto(
+		`/state-machines?${new URLSearchParams({ source: "cli", project: projectId, repo: repo.id, trace: pull.id, tab: "priority" })}`,
+	);
+	await expect(
+		page.getByRole("heading", { name: "State machines", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.locator('.react-flow__node[data-id="state:blocked"]'),
+	).toBeVisible();
+	await expect(
+		page.getByRole("tab", { name: "Priority", exact: true }),
+	).toHaveAttribute("aria-selected", "true");
+	await page.getByRole("tab", { name: "States", exact: true }).click();
+	const label = page.getByLabel(`${pull.readiness.stateId} display name`, {
+		exact: true,
+	});
+	await label.locator("xpath=ancestor::details").locator("summary").click();
+	await label.fill("Needs action");
+	await expect(
+		page.getByRole("button", { name: "Save rules", exact: true }),
+	).toBeDisabled();
+	const previewResponse = page.waitForResponse(
+		(response) =>
+			response.url().includes("/preview?") &&
+			response.request().method() === "POST",
+	);
+	await page
+		.getByRole("button", { name: "Preview changes", exact: true })
+		.click();
+	const preview = machinePreviewSchema.parse(
+		await (await previewResponse).json(),
+	);
+	expect(
+		preview.changes.some(
+			(change) =>
+				change.id === pull.id && change.after.label === "Needs action",
+		),
+	).toBe(true);
+	await expect(
+		page.getByRole("button", { name: "Save rules", exact: true }),
+	).toBeEnabled();
+	await page.getByRole("button", { name: "Save rules", exact: true }).click();
+	await expect(page.getByText(/Saved revision 2\./)).toBeVisible();
+	const saved = pullDetailSchema.parse(await cli("pr", "get", pull.id));
+	expect(saved.data.readiness.label).toBe("Needs action");
+	expect(saved.data.policies).toEqual(pull.policies);
+	expect(saved.data.builds).toEqual(pull.builds);
+	expect(saved.data.checksObservedAt).toBe(pull.checksObservedAt);
+	await page.getByRole("tab", { name: "History", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Load revision 1 as draft", exact: true })
+		.click();
+	await expect(page.getByText(/Revision 1 loaded as a draft/)).toBeVisible();
+	await page
+		.getByRole("button", { name: "Preview changes", exact: true })
+		.click();
+	await expect(
+		page.getByRole("button", { name: "Save rules", exact: true }),
+	).toBeEnabled();
+	await page.getByRole("button", { name: "Save rules", exact: true }).click();
+	await expect(page.getByText(/Saved revision 3\./)).toBeVisible();
+	const restored = machinePageSchema.parse(
+		await (await page.request.get(machineUrl)).json(),
+	);
+	expect(restored.inherited).toBe(true);
+	expect(restored.config).toEqual(initial.config);
+	expect(
+		pullDetailSchema.parse(await cli("pr", "get", pull.id)).data.readiness
+			.label,
+	).toBe(pull.readiness.label);
+	// An otherwise matching mapping cannot turn missing checks into readiness.
+	const unsafe = structuredClone(restored.config);
+	unsafe.mappings.unshift({
+		id: "unsafe",
+		name: "Force ready",
+		stateId: "ready",
+		enabled: true,
+		match: "all",
+		conditions: [{ fact: "lifecycle", oneOf: ["open"] }],
+	});
+	const guarded = machinePreviewSchema.parse(
+		await (
+			await page.request.post(
+				`${base}/api/state-machines/${projectId}/preview?source=live`,
+				{ data: { revision: 3, repositoryId: repo.id, config: unsafe } },
+			)
+		).json(),
+	);
+	expect(
+		guarded.evaluations.find((pr) => pr.number === 5)?.readiness.ready,
+	).toBe(false);
+	expect(
+		guarded.evaluations.find((pr) => pr.number === 5)?.trace[0]?.guard,
+	).toBeTruthy();
+	expect(providerRequests).toBe(readsBefore);
+	expect(
+		(await watchList()).data.some((entry) => entry.pullId === pull.id),
+	).toBe(true);
+	await page
+		.getByRole("button", { name: "Observed transitions", exact: true })
+		.click();
+	await expect(
+		page.getByText("Edges = retained observations for the selected PR"),
+	).toBeVisible();
+	await page.screenshot({
+		path: test.info().outputPath("state-machine-history.png"),
+		fullPage: true,
+	});
+	await page.evaluate(() => localStorage.setItem("signoff-theme", "dark"));
+	await page.reload();
+	await expect(page.locator(".machine-canvas .react-flow")).toHaveClass(/dark/);
+	await page.setViewportSize({ width: 390, height: 844 });
+	expect(
+		await page.evaluate(() => document.documentElement.scrollWidth),
+	).toBeLessThanOrEqual(390);
+	await page.screenshot({
+		path: test.info().outputPath("state-machine-mobile.png"),
+		fullPage: true,
+	});
+	expect(errors).toEqual([]);
+	await cli("watch", "remove", pull.id);
 });
 
 test("repository IDs remain scoped across cold discovery, mixed watch batches, CLI and browser filters", async ({
