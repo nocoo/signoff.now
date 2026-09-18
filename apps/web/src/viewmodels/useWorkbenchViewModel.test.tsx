@@ -711,6 +711,33 @@ describe("project settings and explicit discovery", () => {
 			detailCooldownSeconds: 600,
 		});
 	});
+	it("repository filter selects the stable ID when an earlier repository has that name", async () => {
+		const correct = fixture.catalog.data[0]!;
+		vi.mocked(api.loadCatalog).mockResolvedValue({
+			...fixture.catalog,
+			data: [
+				{
+					...correct,
+					key: "collision",
+					repository: {
+						...correct.repository,
+						id: "other-id",
+						name: correct.repository.id!,
+					},
+				},
+				correct,
+			],
+		});
+		const { result } = render(`/?repo=${correct.repository.id}`);
+		await loaded(result);
+		expect(result.current.vm.selectedRepository?.id).toBe(
+			correct.repository.id,
+		);
+		await act(() => result.current.vm.discoverRepo());
+		expect(api.discover).toHaveBeenCalledWith("cli", {
+			repositoryUrl: correct.repository.url,
+		});
+	});
 	it("explicit discovery respects repository identity and reports scheduling failures", async () => {
 		const { result } = render();
 		await loaded(result);

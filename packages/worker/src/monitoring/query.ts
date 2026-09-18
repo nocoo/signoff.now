@@ -37,7 +37,11 @@ import {
 	matchesAlias,
 	type ObservationRow,
 	type ProjectRow,
+	REPOSITORY_IDENTITIES,
 	type RepositoryRow,
+	type RepositoryScopeRow,
+	repositoriesInScope,
+	resolveRepositoryAlias,
 } from "./store.js";
 
 export function iso(seconds: number): string;
@@ -147,6 +151,7 @@ type RepositoryCounts = {
 type ScopeSnapshot = {
 	projects: Project[];
 	repositories: RepositoryRow[];
+	identities: RepositoryScopeRow[];
 	revision: string;
 };
 async function readScope(
@@ -165,10 +170,12 @@ async function readScope(
 		db
 			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
 			.bind(source),
+		db.prepare(REPOSITORY_IDENTITIES).bind(source, source),
 	]);
 	return {
 		projects: ((results[0]?.results ?? []) as ProjectRow[]).map(mapProject),
 		repositories: (results[1]?.results ?? []) as RepositoryRow[],
+		identities: (results[3]?.results ?? []) as RepositoryScopeRow[],
 		revision: String((results[2]?.results[0] as { revision: number }).revision),
 	};
 }
@@ -200,9 +207,9 @@ function pullScopeSql(
 							{
 								id: r.repository_id,
 								name: r.name,
-								aliases: JSON.parse(r.aliases_json) as string[],
 							},
 							filters,
+							scope.identities,
 						)
 					);
 				})
@@ -269,6 +276,7 @@ async function readSnapshot(
 		db
 			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
 			.bind(source),
+		db.prepare(REPOSITORY_IDENTITIES).bind(source, source),
 		...(options.catalog
 			? [
 					db
@@ -324,12 +332,13 @@ async function readSnapshot(
 			mapObservation,
 		),
 		repositories: (results[3]?.results ?? []) as RepositoryRow[],
+		identities: (results[5]?.results ?? []) as RepositoryScopeRow[],
 		revision,
 		counts: (options.catalog
-			? (results[5]?.results ?? [])
+			? (results[6]?.results ?? [])
 			: []) as RepositoryCounts[],
 		searchRows: (searching
-			? (results[options.catalog ? 6 : 5]?.results ?? [])
+			? (results[options.catalog ? 7 : 6]?.results ?? [])
 			: []) as { id: string; text: string }[],
 	};
 }
@@ -406,10 +415,12 @@ function coverage(data: Snapshot) {
 	const missing: string[] = [];
 	for (const project of data.projects) {
 		const repos = data.repositories.filter((r) => r.project_id === project.id);
+		const ids = repos.map((repo) => repo.repository_id);
 		if (
 			!repos.length ||
 			project.repositories?.some(
-				(name) => !repos.some((r) => matchesAlias(r, name)),
+				(name) =>
+					!repos.some((r) => matchesAlias(r, name, project.provider, ids)),
 			)
 		)
 			missing.push(
@@ -511,12 +522,10 @@ function page<T>(
 
 function scopeMatches(
 	project: Pick<Project, "id" | "provider" | "organization" | "projectKey">,
-	repo: { id: string | null; name: string; aliases?: string[] },
+	repo: { id: string | null; name: string },
 	f: QueryFilters,
+	identities: readonly RepositoryScopeRow[],
 ) {
-	const names = [repo.id, repo.name, ...(repo.aliases ?? [])].map((s) =>
-		s?.toLowerCase(),
-	);
 	return (
 		(!f.provider || f.provider === project.provider) &&
 		(!f.org || f.org === project.organization.toLowerCase()) &&
@@ -525,16 +534,27 @@ function scopeMatches(
 				f.project.toLowerCase(),
 			)) &&
 		(!f.projectId || f.projectId === project.id) &&
-		(!f.repositoryId || names.includes(f.repositoryId.toLowerCase())) &&
+		(!f.repositoryId ||
+			repo.id?.toLowerCase() === f.repositoryId.toLowerCase()) &&
 		(!f.repo.length ||
 			f.repo.some((url) => {
 				const r = parseRepositoryReference(url);
-				return (
+				if (
 					r.provider === project.provider &&
 					r.organization.toLowerCase() === project.organization.toLowerCase() &&
-					r.projectKey.toLowerCase() === project.projectKey.toLowerCase() &&
-					names.includes(r.repository.toLowerCase())
-				);
+					r.projectKey.toLowerCase() === project.projectKey.toLowerCase()
+				) {
+					const resolved = resolveRepositoryAlias(
+						repositoriesInScope(identities, r),
+						r.repository,
+						r.provider,
+					);
+					return resolved
+						? resolved.repository_id.toLowerCase() === repo.id?.toLowerCase()
+						: repo.id === null &&
+								repo.name.toLowerCase() === r.repository.toLowerCase();
+				}
+				return false;
 			}))
 	);
 }
@@ -764,29 +784,35 @@ async function readPullLookup(
 	timestamp: number,
 ) {
 	const ref = parseRepositoryReference(url);
-	const row = await db
-		.prepare(`SELECT pr.id,p.organization,p.project_key,pr.repository_id,json_extract(pr.snapshot,'$.repository.name') name,r.aliases_json,
+	const results = await db.batch([
+		db
+			.prepare(`SELECT pr.id,p.organization,p.project_key,pr.repository_id,
     (SELECT revision FROM workbench_revisions WHERE source=p.source) data_revision
-    FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN workbench_repositories r ON r.project_id=p.id AND r.repository_id=pr.repository_id
+    FROM pull_requests pr JOIN projects p ON p.id=pr.project_id
     WHERE p.source=? AND p.provider=? AND pr.external_id=?`)
-		.bind(source, ref.provider, String(number))
-		.all<{
-			id: string;
-			organization: string;
-			project_key: string;
-			repository_id: string;
-			name: string;
-			aliases_json: string | null;
-			data_revision: number;
-		}>();
-	const matches = row.results.filter(
+			.bind(source, ref.provider, String(number)),
+		db.prepare(REPOSITORY_IDENTITIES).bind(source, source),
+	]);
+	const repository = resolveRepositoryAlias(
+		repositoriesInScope(
+			(results[1]?.results ?? []) as RepositoryScopeRow[],
+			ref,
+		),
+		ref.repository,
+		ref.provider,
+	);
+	const rows = (results[0]?.results ?? []) as {
+		id: string;
+		organization: string;
+		project_key: string;
+		repository_id: string;
+		data_revision: number;
+	}[];
+	const matches = rows.filter(
 		(r) =>
 			r.organization.toLowerCase() === ref.organization.toLowerCase() &&
 			r.project_key.toLowerCase() === ref.projectKey.toLowerCase() &&
-			matchesAlias(
-				{ ...r, aliases_json: r.aliases_json ?? "[]" },
-				ref.repository,
-			),
+			r.repository_id.toLowerCase() === repository?.repository_id.toLowerCase(),
 	);
 	if (matches.length > 1)
 		throw new MonitoringError(
@@ -830,21 +856,12 @@ async function readRepositoryPage(
 		);
 		const items: [string | null, string, RepositoryRow | undefined][] =
 			known.map((r) => [r.repository_id, r.name, r]);
+		const ids = known.map((repo) => repo.repository_id);
 		for (const name of project.repositories ?? [])
-			if (!known.some((r) => matchesAlias(r, name)))
+			if (!known.some((r) => matchesAlias(r, name, project.provider, ids)))
 				items.push([null, name, undefined]);
 		for (const [id, name, stored] of items) {
-			if (
-				!scopeMatches(
-					project,
-					{
-						id,
-						name,
-						aliases: JSON.parse(stored?.aliases_json ?? "[]") as string[],
-					},
-					filters,
-				)
-			)
+			if (!scopeMatches(project, { id, name }, filters, snapshot.identities))
 				continue;
 			const ref = makeWatchRef(project, { id: id ?? name, name }, 1);
 			const prs = snapshot.pulls
@@ -960,6 +977,13 @@ async function readObservationPage(
 		lookup && "repositoryUrl" in lookup
 			? parseRepositoryReference(lookup.repositoryUrl)
 			: null;
+	const resolvedRepository = ref
+		? resolveRepositoryAlias(
+				repositoriesInScope(scope.identities, ref),
+				ref.repository,
+				ref.provider,
+			)
+		: null;
 	if (lookup) {
 		if ("pullId" in lookup) {
 			where.push("o.pull_id=?");
@@ -1001,27 +1025,14 @@ async function readObservationPage(
 					Observation["ref"],
 					"number" | "url"
 				>;
-				const repository = scope.repositories.find(
-					(r) =>
-						r.project_id === identity.projectId &&
-						r.repository_id === identity.repository.id,
-				);
-				const aliases = JSON.parse(
-					repository?.aliases_json ?? "[]",
-				) as string[];
 				return ref
-					? matchesAlias(
-							{
-								repository_id: identity.repository.id,
-								name: identity.repository.name,
-								aliases_json: repository?.aliases_json ?? "[]",
-							},
-							ref.repository,
-						)
+					? identity.repository.id.toLowerCase() ===
+							resolvedRepository?.repository_id.toLowerCase()
 					: scopeMatches(
 							{ ...identity, id: identity.projectId },
-							{ ...identity.repository, aliases },
+							identity.repository,
 							filters,
+							scope.identities,
 						);
 			})
 			.map((row) => row.scope_key);

@@ -149,7 +149,9 @@ describe("v1 cache queries", () => {
 			});
 		const filtered = repoListSchema.parse(
 			await (
-				await request("/api/query/v1/repos?repositoryId=%C3%89DITEUR")
+				await request(
+					`/api/query/v1/repos?${new URLSearchParams({ repo: "https://dev.azure.com/test-org/Platform/_git/%C3%89DITEUR" })}`,
+				)
 			).json(),
 		);
 		expect(filtered.data.map((repo) => repo.repository.id)).toEqual(["repo-1"]);
@@ -324,7 +326,7 @@ describe("v1 cache queries", () => {
 				{ repo: repositoryUrl },
 				{ project: "équipe" },
 				{ project: "ÉQUIPE" },
-				{ repositoryId: name },
+				{ repositoryId: pull.repository.id.toUpperCase() },
 			];
 			for (const scope of scopes) {
 				const filters = new URLSearchParams({ draft: "include", ...scope });

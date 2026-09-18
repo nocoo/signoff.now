@@ -1,4 +1,5 @@
 import type { KnownOpenPull } from "@signoff/domain/collection";
+import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import {
 	type MergeRequirement,
 	type Project,
@@ -148,7 +149,7 @@ function issueMessage(error: unknown, fallback: string): string {
 }
 
 export async function discoverRepositories(
-	client: AdoPagedClient,
+	client: Pick<AdoPagedClient, "getPage">,
 	project: Project,
 ): Promise<RepoMeta[]> {
 	const org = project.organization;
@@ -201,12 +202,17 @@ export async function discoverRepositories(
 	}
 
 	const targetRepos: RepoMeta[] = [];
+	const ids = allRepos.map((repo) => repo.id);
 	for (const requested of project.repositories) {
-		const found = allRepos.find(
-			(r) =>
-				r.name.toLowerCase() === requested.toLowerCase() ||
-				r.id.toLowerCase() === requested.toLowerCase(),
+		const matches = allRepos.filter((repo) =>
+			matchesRepositoryReference(repo, requested, project.provider, ids),
 		);
+		if (new Set(matches.map((repo) => repo.id.toLowerCase())).size > 1)
+			throw new AdoError(
+				"bad_request",
+				`Repository "${requested}" is ambiguous; use its provider ID`,
+			);
+		const found = matches[0];
 		if (!found) {
 			throw new AdoError(
 				"not_found",

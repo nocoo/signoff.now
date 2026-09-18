@@ -18,11 +18,13 @@ import {
 	MonitoringError,
 	mapObservation,
 	mapProject,
-	matchesAlias,
 	type ObservationRow,
 	type ProjectRow,
+	REPOSITORY_IDENTITIES,
 	type RepositoryRow,
+	type RepositoryScopeRow,
 	readProject,
+	repositoriesInScope,
 	resolveRepositoryAlias,
 } from "./store.js";
 
@@ -73,7 +75,11 @@ export async function resolveRepository(
 		.prepare("SELECT * FROM workbench_repositories WHERE project_id=?")
 		.bind(project.id)
 		.all<RepositoryRow>();
-	const repository = resolveRepositoryAlias(rows.results, ref.repository);
+	const repository = resolveRepositoryAlias(
+		rows.results,
+		ref.repository,
+		project.provider,
+	);
 	if (
 		!inProjectScope(
 			project,
@@ -81,6 +87,7 @@ export async function resolveRepository(
 				id: repository?.repository_id ?? ref.repository,
 				name: repository?.name ?? ref.repository,
 			},
+			rows.results.map((row) => row.repository_id),
 			JSON.parse(repository?.aliases_json ?? "[]") as string[],
 		)
 	)
@@ -105,10 +112,16 @@ export async function resolvePull(
 	if ("pullId" in input) {
 		const row = await db
 			.prepare(
-				"SELECT pr.snapshot,p.*,r.aliases_json FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN workbench_repositories r ON r.project_id=p.id AND r.repository_id=pr.repository_id WHERE pr.id=? AND p.source=?",
+				"SELECT pr.snapshot,p.*,r.aliases_json,(SELECT json_group_array(repository_id) FROM workbench_repositories WHERE project_id=p.id) repository_ids_json FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN workbench_repositories r ON r.project_id=p.id AND r.repository_id=pr.repository_id WHERE pr.id=? AND p.source=?",
 			)
 			.bind(input.pullId, source)
-			.first<ProjectRow & { snapshot: string; aliases_json: string | null }>();
+			.first<
+				ProjectRow & {
+					snapshot: string;
+					aliases_json: string | null;
+					repository_ids_json: string;
+				}
+			>();
 		if (!row)
 			throw new MonitoringError(
 				"CACHE_MISS",
@@ -128,6 +141,7 @@ export async function resolvePull(
 			!inProjectScope(
 				project,
 				pull.repository,
+				JSON.parse(row.repository_ids_json) as string[],
 				JSON.parse(row.aliases_json ?? "[]") as string[],
 			)
 		)
@@ -189,10 +203,9 @@ export async function resolveObservation(
 		).results;
 	} else {
 		const ref = parsePullReference(input.url);
-		rows = (
-			await db
-				.prepare(`SELECT o.*,r.aliases_json FROM pr_observations o
-      LEFT JOIN workbench_repositories r ON r.project_id=o.project_id AND r.repository_id=json_extract(o.ref_json,'$.repository.id')
+		const results = await db.batch([
+			db
+				.prepare(`SELECT o.* FROM pr_observations o
       WHERE o.source=? AND json_extract(o.identity,'$[1]')=? AND json_extract(o.identity,'$[2]')=?
       AND json_extract(o.identity,'$[3]')=? AND json_extract(o.identity,'$[5]')=?`)
 				.bind(
@@ -201,19 +214,22 @@ export async function resolveObservation(
 					ref.organization.toLowerCase(),
 					ref.projectKey.toLowerCase(),
 					ref.number,
-				)
-				.all<ObservationRow & { aliases_json: string | null }>()
-		).results.filter((row) => {
-			const { repository } = mapObservation(row).ref;
-			return matchesAlias(
-				{
-					repository_id: repository.id,
-					name: repository.name,
-					aliases_json: row.aliases_json ?? "[]",
-				},
-				ref.repository,
-			);
-		});
+				),
+			db.prepare(REPOSITORY_IDENTITIES).bind(source, source),
+		]);
+		const repository = resolveRepositoryAlias(
+			repositoriesInScope(
+				(results[1]?.results ?? []) as RepositoryScopeRow[],
+				ref,
+			),
+			ref.repository,
+			ref.provider,
+		);
+		rows = ((results[0]?.results ?? []) as ObservationRow[]).filter(
+			(row) =>
+				mapObservation(row).ref.repository.id.toLowerCase() ===
+				repository?.repository_id.toLowerCase(),
+		);
 	}
 	if (rows.length > 1)
 		throw new MonitoringError(
@@ -362,6 +378,7 @@ export async function enqueueDiscovery(
 					resolveRepositoryAlias(
 						repositories,
 						name,
+						project.provider,
 					)?.repository_id.toLowerCase() ?? name.toLowerCase(),
 			),
 		),

@@ -1,5 +1,6 @@
 import { adoPullId } from "@signoff/domain/collection";
 import {
+	matchesRepositoryReference,
 	mergeDiscoveredPull,
 	type RepositoryIdentity,
 } from "@signoff/domain/monitoring";
@@ -59,26 +60,28 @@ export async function registerJobRepositories(
 			.bind(project.id)
 			.all<RepositoryRow>()
 	).results;
-	const names = (repo: RepositoryIdentity) => [
-		repo.id.toLowerCase(),
-		repo.name.toLowerCase(),
-		...(
-			JSON.parse(
-				known.find(
-					(r) => r.repository_id.toLowerCase() === repo.id.toLowerCase(),
-				)?.aliases_json ?? "[]",
-			) as string[]
-		).map((s) => s.toLowerCase()),
+	const aliases = (repo: RepositoryIdentity) =>
+		JSON.parse(
+			known.find((r) => r.repository_id.toLowerCase() === repo.id.toLowerCase())
+				?.aliases_json ?? "[]",
+		) as string[];
+	const knownIds = [
+		...known.map((r) => r.repository_id),
+		...repositories.map((r) => r.id),
 	];
-	const knownIds = new Set(known.map((r) => r.repository_id.toLowerCase()));
 	const matchesScope = (
 		repo: RepositoryIdentity,
 		value: string,
 		resolved = false,
 	) =>
-		resolved || knownIds.has(value.toLowerCase())
+		resolved
 			? repo.id.toLowerCase() === value.toLowerCase()
-			: names(repo).includes(value.toLowerCase());
+			: matchesRepositoryReference(
+					{ ...repo, aliases: aliases(repo) },
+					value,
+					project.provider,
+					knownIds,
+				);
 	if (
 		new Set(repositories.map((r) => r.id.toLowerCase())).size !==
 			repositories.length ||

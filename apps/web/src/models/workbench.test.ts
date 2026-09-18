@@ -102,9 +102,9 @@ describe("persisted PR filters", () => {
 });
 
 describe("live collection presentation", () => {
-	it("matches provider IDs and repository names case-insensitively", () => {
+	it("matches provider IDs case-insensitively without substituting repository names", () => {
 		expect(matchesRepository({ id: "GUID", name: "Api" }, "guid")).toBe(true);
-		expect(matchesRepository({ id: "GUID", name: "Api" }, "api")).toBe(true);
+		expect(matchesRepository({ id: "GUID", name: "Api" }, "api")).toBe(false);
 		expect(matchesRepository({ id: "GUID", name: "Api" }, "other")).toBe(false);
 	});
 });

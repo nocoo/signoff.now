@@ -278,12 +278,19 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				.bind(current.id)
 				.first<{ catalog: string }>()
 		)?.catalog ?? "[]";
-	const repositoryIds = (JSON.parse(catalog) as [string, string, string][])
+	const catalogRows = JSON.parse(catalog) as [string, string, string][];
+	const knownIds = catalogRows.map(([id]) => id);
+	const repositoryIds = catalogRows
 		.filter(
 			([repository_id, name, aliases_json]) =>
 				!next.repositories?.length ||
 				next.repositories.some((value) =>
-					matchesAlias({ repository_id, name, aliases_json }, value),
+					matchesAlias(
+						{ repository_id, name, aliases_json },
+						value,
+						next.provider,
+						knownIds,
+					),
 				),
 		)
 		.map(([id]) => id);

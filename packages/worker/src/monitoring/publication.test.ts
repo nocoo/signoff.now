@@ -68,6 +68,56 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test("cold ID scope rejects a differently identified repository whose name is that ID", async () => {
+		const id = "11111111-1111-1111-1111-111111111111";
+		const project = seedProject(sqlite, { repositories: [id] });
+		const queued = await enqueueDiscovery(sqlite.db, project, [id], now);
+		const claim = (await claimJob(sqlite.db, now, { jobId: queued.id }))!;
+		await expect(
+			registerJobRepositories(
+				sqlite.db,
+				queued.id,
+				claim.leaseToken,
+				[{ id: "22222222-2222-2222-2222-222222222222", name: id }],
+				now,
+			),
+		).rejects.toMatchObject({ code: "INVALID_SCOPE" });
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) n FROM workbench_repositories").get(),
+		).toEqual({ n: 0 });
+		expect(
+			sqlite.raw
+				.query("SELECT COUNT(*) n FROM collection_job_repositories")
+				.get(),
+		).toEqual({ n: 0 });
+		await registerJobRepositories(
+			sqlite.db,
+			queued.id,
+			claim.leaseToken,
+			[{ id, name: "main-repository" }],
+			now,
+		);
+		await publishRepository(
+			sqlite.db,
+			queued.id,
+			claim.leaseToken,
+			id,
+			0,
+			"complete",
+			"Empty history",
+			now,
+		);
+		expect(
+			(await completeJob(sqlite.db, queued.id, claim.leaseToken, now)).state,
+		).toBe("complete");
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT repository_id,discovery_state FROM workbench_repositories",
+				)
+				.all(),
+		).toEqual([{ repository_id: id, discovery_state: "complete" }]);
+	});
 	test.each([
 		"success",
 		"failed",

@@ -3,6 +3,7 @@ import { demoWorkspace } from "./demo";
 import {
 	canonicalObservationKey,
 	makeWatchRef,
+	matchesRepositoryReference,
 	mergeDiscoveredPull,
 	parsePullReference,
 	parseRepositoryReference,
@@ -16,6 +17,40 @@ const project = workspace.projects[0]!;
 const pull = workspace.pullRequests[0]!;
 
 describe("provider-neutral observation identity", () => {
+	test.each([
+		"ado",
+		"github",
+	] as const)("repository references prefer known stable IDs to names and retained aliases (%s)", (provider) => {
+		const first = { id: "stable-id", name: "Éditeur", aliases: ["Παλαιό"] };
+		const other = { id: "other-id", name: first.id, aliases: [first.id] };
+		const ids = [first.id, other.id];
+		expect(matchesRepositoryReference(first, "STABLE-ID", provider, ids)).toBe(
+			true,
+		);
+		expect(matchesRepositoryReference(other, "stable-id", provider, ids)).toBe(
+			false,
+		);
+		expect(matchesRepositoryReference(first, "éditeur", provider, ids)).toBe(
+			true,
+		);
+		expect(matchesRepositoryReference(first, "παλαιό", provider, ids)).toBe(
+			true,
+		);
+		expect(matchesRepositoryReference(first, "missing", provider, ids)).toBe(
+			false,
+		);
+	});
+	test("ADO GUID references remain IDs before discovery, while GitHub names keep their own grammar", () => {
+		const id = "abcdefab-1111-2222-3333-123456789abc";
+		const repo = { id: "another-id", name: id };
+		expect(matchesRepositoryReference(repo, id.toUpperCase(), "ado", [])).toBe(
+			false,
+		);
+		expect(
+			matchesRepositoryReference({ ...repo, id }, id.toUpperCase(), "ado", []),
+		).toBe(true);
+		expect(matchesRepositoryReference(repo, id, "github", [])).toBe(true);
+	});
 	test("source conversion and links preserve encoded parent identities", () => {
 		for (const source of ["live", "sample"] as const)
 			expect(publicSource(storageSource(source))).toBe(source);

@@ -24,6 +24,24 @@ export const repositoryIdentitySchema = z.object({
 	projectExternalId: identity.optional(),
 });
 export type RepositoryIdentity = z.infer<typeof repositoryIdentitySchema>;
+export function matchesRepositoryReference(
+	repository: { id: string | null; name: string; aliases?: readonly string[] },
+	reference: string,
+	provider: Project["provider"],
+	knownIds: readonly string[],
+) {
+	const key = reference.toLowerCase();
+	if (repository.id?.toLowerCase() === key) return true;
+	if (
+		knownIds.some((id) => id.toLowerCase() === key) ||
+		(provider === "ado" &&
+			/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/.test(key))
+	)
+		return false;
+	return [repository.name, ...(repository.aliases ?? [])].some(
+		(name) => name.toLowerCase() === key,
+	);
+}
 export const watchRefSchema = z.object({
 	provider: providerSchema,
 	organization: identity,

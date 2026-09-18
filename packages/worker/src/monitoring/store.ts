@@ -1,7 +1,9 @@
 import {
 	type DataSource,
+	matchesRepositoryReference,
 	type Observation,
 	observationSchema,
+	type RepositoryReference,
 } from "@signoff/domain/monitoring";
 import {
 	type CollectionJob,
@@ -62,15 +64,25 @@ export type RepositoryRow = {
 export const matchesAlias = (
 	row: Pick<RepositoryRow, "name" | "repository_id" | "aliases_json">,
 	alias: string,
+	provider: Project["provider"],
+	knownIds: readonly string[],
 ) =>
-	[
-		row.name,
-		row.repository_id,
-		...(JSON.parse(row.aliases_json) as string[]),
-	].some((value) => value.toLowerCase() === alias.toLowerCase());
-export function resolveRepositoryAlias(rows: RepositoryRow[], alias: string) {
-	const matches = rows.filter((row) => matchesAlias(row, alias));
-	if (matches.length > 1)
+	matchesRepositoryReference(
+		{
+			id: row.repository_id,
+			name: row.name,
+			aliases: JSON.parse(row.aliases_json) as string[],
+		},
+		alias,
+		provider,
+		knownIds,
+	);
+export function resolveRepositoryAlias<
+	T extends Pick<RepositoryRow, "name" | "repository_id" | "aliases_json">,
+>(rows: readonly T[], alias: string, provider: Project["provider"]) {
+	const ids = rows.map((row) => row.repository_id);
+	const matches = rows.filter((row) => matchesAlias(row, alias, provider, ids));
+	if (new Set(matches.map((row) => row.repository_id.toLowerCase())).size > 1)
 		throw new MonitoringError(
 			"REFERENCE_AMBIGUOUS",
 			"Repository alias matches multiple identities; use its provider ID",
@@ -79,15 +91,45 @@ export function resolveRepositoryAlias(rows: RepositoryRow[], alias: string) {
 	return matches[0];
 }
 export const inProjectScope = (
-	project: Pick<Project, "repositories">,
+	project: Pick<Project, "provider" | "repositories">,
 	repository: { id: string; name: string },
+	knownIds: readonly string[],
 	aliases: string[] = [],
 ) =>
 	!project.repositories?.length ||
 	project.repositories.some((value) =>
-		[repository.id, repository.name, ...aliases].some(
-			(key) => key.toLowerCase() === value.toLowerCase(),
+		matchesRepositoryReference(
+			{ ...repository, aliases },
+			value,
+			project.provider,
+			knownIds,
 		),
+	);
+
+// Resolve against all repository identities before filtering by PR number or active state.
+// Stopped watches preserve identity context after their project/catalog has been removed.
+export const REPOSITORY_IDENTITIES = `SELECT r.repository_id,r.name,r.aliases_json,p.provider,p.organization,p.project_key
+ FROM workbench_repositories r JOIN projects p ON p.id=r.project_id WHERE p.source=?
+ UNION SELECT json_extract(ref_json,'$.repository.id'),json_extract(ref_json,'$.repository.name'),'[]',
+ json_extract(ref_json,'$.provider'),json_extract(ref_json,'$.organization'),json_extract(ref_json,'$.projectKey')
+ FROM pr_observations WHERE source=?`;
+export type RepositoryScopeRow = Pick<
+	RepositoryRow,
+	"repository_id" | "name" | "aliases_json"
+> & {
+	provider: Project["provider"];
+	organization: string;
+	project_key: string;
+};
+export const repositoriesInScope = (
+	rows: readonly RepositoryScopeRow[],
+	scope: Pick<RepositoryReference, "provider" | "organization" | "projectKey">,
+) =>
+	rows.filter(
+		(row) =>
+			row.provider === scope.provider &&
+			row.organization.toLowerCase() === scope.organization.toLowerCase() &&
+			row.project_key.toLowerCase() === scope.projectKey.toLowerCase(),
 	);
 export type JobRow = {
 	id: string;

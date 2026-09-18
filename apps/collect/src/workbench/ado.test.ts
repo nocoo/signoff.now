@@ -5,6 +5,7 @@ import {
 	BuildService,
 	collectProjectPulls,
 	discoverMergeRequirements,
+	discoverRepositories,
 	policyArtifactId,
 	policyEvaluationsUrl,
 } from "./ado.js";
@@ -32,6 +33,61 @@ function makeMockProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("collectProjectPulls", () => {
+	test("ambiguous Unicode repository names cannot silently select the first provider row", async () => {
+		const client = {
+			getPage: async () => ({
+				data: {
+					value: [
+						{
+							id: "first",
+							name: "ÉDITEUR",
+							project: { id: "project-guid", name: "Platform" },
+						},
+						{
+							id: "second",
+							name: "éditeur",
+							project: { id: "project-guid", name: "Platform" },
+						},
+					],
+				},
+				continuationToken: null,
+			}),
+		};
+		await expect(
+			discoverRepositories(
+				client,
+				makeMockProject({ repositories: ["Éditeur"] }),
+			),
+		).rejects.toMatchObject({ kind: "bad_request" });
+	});
+	test.each([
+		false,
+		true,
+	])("repository enumeration prefers IDs regardless of response order: %s", async (reversed) => {
+		const id = "11111111-1111-1111-1111-111111111111";
+		const correct = {
+			id,
+			name: "main-repository",
+			project: { id: "project-guid", name: "Platform" },
+		};
+		const collision = {
+			...correct,
+			id: "22222222-2222-2222-2222-222222222222",
+			name: id,
+		};
+		let value = reversed ? [correct, collision] : [collision, correct];
+		const client = {
+			getPage: async () => ({ data: { value }, continuationToken: null }),
+		};
+		const project = makeMockProject({ repositories: [id] });
+		expect(
+			(await discoverRepositories(client, project)).map((r) => r.id),
+		).toEqual([id]);
+		value = [collision];
+		await expect(discoverRepositories(client, project)).rejects.toMatchObject({
+			kind: "not_found",
+		});
+	});
 	test("reconciles known open PRs beyond the recent history window using summaries only", async () => {
 		const project = makeMockProject();
 		const repository = {

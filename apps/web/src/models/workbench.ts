@@ -140,10 +140,7 @@ export function matchesRepository(
 	repository: PullRequest["repository"],
 	value: string,
 ) {
-	const key = value.toLowerCase();
-	return (
-		repository.id.toLowerCase() === key || repository.name.toLowerCase() === key
-	);
+	return repository.id.toLowerCase() === value.toLowerCase();
 }
 
 function defaultSortDirection(
