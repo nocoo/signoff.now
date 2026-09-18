@@ -5,6 +5,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@nocoo/basalt";
+import type { JobQueryItem } from "@signoff/domain/query";
 import { Activity, CircleAlert, Radio } from "lucide-react";
 import { useId } from "react";
 import { SelectControl } from "@/components/SelectControl";
@@ -28,13 +29,13 @@ const connectionStyles = {
 
 function operationLabel(
 	vm: WorkbenchViewModel,
-	state: keyof typeof connectionStyles,
+	available: boolean,
 	problem: boolean,
 	untilNext: number | null,
 ) {
 	const collector = vm.collector;
 	if (!collector) return "Reading status";
-	if (state !== "ready") return "Collection paused";
+	if (!available) return "Collection paused";
 	if (collector.queue.running > 0)
 		return collector.jobs.find((job) => job.state === "running")?.kind ===
 			"discover"
@@ -67,7 +68,10 @@ export function CollectionStatus({
 			: "connecting";
 	const connection = connectionStyles[state];
 	const jobs = collector?.jobs ?? [];
-	const running = state === "ready" && (collector?.queue.running ?? 0) > 0;
+	const available =
+		state === "ready" ||
+		(state === "auth_required" && (collector?.queue.authRequired ?? 0) > 0);
+	const running = available && (collector?.queue.running ?? 0) > 0;
 	const currentJob = running
 		? jobs.find((job) => job.state === "running")
 		: undefined;
@@ -93,8 +97,9 @@ export function CollectionStatus({
 				recentFailure?.message);
 	const watching = collector?.watching ?? 0;
 	const watchedProjects = new Set(
-		vm.repositories
-			.filter((repo) => repo.project.enabled && repo.metrics.watching > 0)
+		vm.projects
+			.flatMap((project) => project.repositories)
+			.filter((repo) => repo.metrics.watching > 0)
 			.map((repo) => repo.project.id),
 	);
 	const nextDue = collector?.rounds
@@ -105,7 +110,7 @@ export function CollectionStatus({
 		)
 		.sort((a, b) => a - b)[0];
 	const untilNext = nextDue === undefined ? null : nextDue - now;
-	const operation = operationLabel(vm, state, Boolean(problem), untilNext);
+	const operation = operationLabel(vm, available, Boolean(problem), untilNext);
 	let context: string | undefined;
 	if (currentJob)
 		context = vm.projects.find(
@@ -225,38 +230,7 @@ export function CollectionStatus({
 					</p>
 				) : null}
 				{progress ? (
-					<div className="mt-1.5 flex items-center gap-2">
-						<div
-							role="progressbar"
-							aria-label={operation}
-							aria-valuemin={0}
-							aria-valuemax={progress.total ?? undefined}
-							aria-valuenow={
-								progress.total === null
-									? undefined
-									: Math.min(progress.completed, progress.total)
-							}
-							className="h-1 flex-1 overflow-hidden rounded-full bg-basalt-muted"
-						>
-							<div
-								className={cn(
-									"h-full rounded-full bg-basalt-heatmap-green-3 transition-[width] motion-reduce:transition-none",
-									progress.total === null && "w-1/3 motion-safe:animate-pulse",
-								)}
-								style={
-									progress.total === null
-										? undefined
-										: {
-												width: `${Math.min(100, (100 * progress.completed) / Math.max(1, progress.total))}%`,
-											}
-								}
-							/>
-						</div>
-						<p className="shrink-0 whitespace-nowrap font-mono text-[9px] tabular-nums text-basalt-muted-foreground">
-							{progress.completed}
-							{progress.total === null ? " collected" : ` / ${progress.total}`}
-						</p>
-					</div>
+					<TaskProgress progress={progress} label={operation} />
 				) : null}
 				{problem ? (
 					<p className="mt-1 max-h-16 overflow-y-auto break-words text-[10px] leading-relaxed text-basalt-destructive">
@@ -266,6 +240,45 @@ export function CollectionStatus({
 			</div>
 			<RefreshCooldown vm={vm} />
 		</section>
+	);
+}
+
+function TaskProgress({
+	progress: { completed, total },
+	label,
+}: {
+	progress: JobQueryItem["progress"];
+	label: string;
+}) {
+	return (
+		<div className="mt-1.5 flex items-center gap-2">
+			<div
+				role="progressbar"
+				aria-label={label}
+				aria-valuemin={0}
+				aria-valuemax={total ?? undefined}
+				aria-valuenow={total === null ? undefined : Math.min(completed, total)}
+				className="h-1 flex-1 overflow-hidden rounded-full bg-basalt-muted"
+			>
+				<div
+					className={cn(
+						"h-full rounded-full bg-basalt-heatmap-green-3 transition-[width] motion-reduce:transition-none",
+						total === null && "w-1/3 motion-safe:animate-pulse",
+					)}
+					style={
+						total === null
+							? undefined
+							: {
+									width: `${Math.min(100, (100 * completed) / Math.max(1, total))}%`,
+								}
+					}
+				/>
+			</div>
+			<p className="shrink-0 whitespace-nowrap font-mono text-[9px] tabular-nums text-basalt-muted-foreground">
+				{completed}
+				{total === null ? " collected" : ` / ${total}`}
+			</p>
+		</div>
 	);
 }
 

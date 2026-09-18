@@ -326,7 +326,8 @@ export function useWorkbenchViewModel() {
 					job:
 						jobs
 							.filter((j) => j.projectId === project.id)
-							.sort((a, b) => b.requestedAt - a.requestedAt)[0] ?? null,
+							.sort((a, b) => b.requestedAt - a.requestedAt)
+							.shift() ?? null,
 					scans: [],
 				};
 			}),

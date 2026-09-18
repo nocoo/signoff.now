@@ -52,7 +52,7 @@ beforeEach(() => {
 	vm.notice = null;
 	vm.busy = null;
 	vm.detailCooldownSeconds = 300;
-	vm.filter.source = "cli";
+	vm.filter = { ...DEFAULT_PULL_FILTER, source: "cli" };
 	vm.projects = [];
 	vm.repositories = [];
 	vi.clearAllMocks();
@@ -199,6 +199,26 @@ it.each([
 	expect(within(panel()).queryByRole("progressbar")).toBeNull();
 	expect(panel().textContent).toContain("Connection needs attention");
 });
+it("shows running checks alongside a different project's authentication warning", () => {
+	vm.connection = {
+		state: "auth_required",
+		lastSeenAt: iso(Date.now() / 1000),
+		message: "Project A needs sign-in",
+	};
+	vm.collector!.queue = { running: 1, queued: 0, authRequired: 1 };
+	vm.collector!.jobs = [
+		job({ state: "auth_required", message: "Project A needs sign-in" }),
+		job({ id: "job-2", projectId: "another-project" }),
+	];
+	renderSidebar();
+	expect(within(panel()).getByText("Sign-in required")).toBeTruthy();
+	expect(within(panel()).getByText("Refreshing PR checks")).toBeTruthy();
+	expect(
+		within(panel()).getByRole("progressbar").getAttribute("aria-valuenow"),
+	).toBe("3");
+	expect(panel().textContent).toContain("Project A needs sign-in");
+	expect(panel().textContent).not.toContain("Collection paused");
+});
 it("distinguishes initial status loading and sample data from a connected live collector", () => {
 	vm.collector = null;
 	vm.filter.source = "demo";
@@ -213,18 +233,19 @@ it("does not claim a scheduled round when automatic checks are disabled", () => 
 	expect(within(panel()).getByText("Manual checks")).toBeTruthy();
 });
 it.each([
-	[180, "Next check in 3 min"],
-	[30, "Next check in <1 min"],
-	[-10, "Next check due"],
-])("uses the next watched project's round, excluding inactive projects (%s seconds)", (seconds, label) => {
+	[180, "Next check in 3 min", true],
+	[30, "Next check in <1 min", true],
+	[-10, "Next check due", true],
+	[180, "Next check in 3 min", false],
+] as const)("uses source-wide watched rounds despite PR filters and legacy enabled flags (%s seconds, %s, enabled %s)", (seconds, label, enabled) => {
 	const repo = queryFixture().catalog.data[0]!;
-	vm.repositories = [
+	const repositories = [
 		{
 			key: repo.key,
 			id: repo.repository.id!,
 			identityResolved: true,
 			name: repo.repository.name,
-			project: fixtureProject,
+			project: { ...fixtureProject, enabled: Boolean(enabled) },
 			metrics: { ...repo.counts, watching: 2 },
 			total: 2,
 			url: repo.repository.url,
@@ -232,6 +253,18 @@ it.each([
 			lastDiscoveredAt: repo.lastDiscoveredAt,
 		},
 	];
+	vm.repositories = [];
+	vm.projects = [
+		{
+			project: repositories[0]!.project,
+			repositories,
+			metrics: { ...repo.counts },
+			total: 2,
+			job: null,
+			scans: [],
+		},
+	];
+	vm.filter.organization = "another-organization";
 	vm.collector!.watching = 2;
 	vm.collector!.rounds = [
 		{

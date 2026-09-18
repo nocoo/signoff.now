@@ -1251,6 +1251,26 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 		collectorQuerySchema.parse(await cli("status")).detailCooldownSeconds,
 	).toBe(600);
 	status.connection = {
+		state: "auth_required",
+		lastSeenAt: updatedAt,
+		message: "Another project needs sign-in",
+	};
+	status.queue.authRequired = 1;
+	await page.clock.runFor(3100);
+	await expect(
+		panel.getByText("Sign-in required", { exact: true }),
+	).toBeVisible();
+	await expect(
+		panel.getByText("Another project needs sign-in", { exact: true }),
+	).toBeVisible();
+	await expect(panel.getByRole("progressbar")).toHaveAttribute(
+		"aria-valuenow",
+		"12",
+	);
+	await expect(
+		panel.getByText("Collection paused", { exact: true }),
+	).toHaveCount(0);
+	status.connection = {
 		state: "offline",
 		lastSeenAt: updatedAt,
 		message: "Start signoff daemon to collect watched PRs",
