@@ -84,7 +84,15 @@ function referenceParts(value: string) {
 		.replace(/\/$/, "")
 		.split("/")
 		.slice(1)
-		.map((part) => repositoryNameSchema.parse(decodeURIComponent(part)));
+		.map((part) => {
+			let decoded: string;
+			try {
+				decoded = decodeURIComponent(part);
+			} catch {
+				throw new TypeError("URL path contains invalid percent encoding");
+			}
+			return repositoryNameSchema.parse(decoded);
+		});
 	return { url, parts };
 }
 

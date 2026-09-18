@@ -1227,6 +1227,51 @@ describe("v1 commands", () => {
 			).data[0]?.stopReason,
 		).toBe("manual");
 	});
+	test("malformed encoding rejects only its batch item and preserves successful job receipts", async () => {
+		const { pull } = seed();
+		const other = seedPull(sqlite, {
+			id: "pull-2",
+			number: 2,
+			externalId: "2",
+		});
+		const response = await request("/api/commands/v1/observations", "POST", {
+			refs: [
+				{ pullId: pull.id },
+				{
+					url: "https://dev.azure.com/test-org/Platform/_git/%ZZ/pullrequest/3",
+				},
+				{ pullId: other.id },
+			],
+		});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			results: {
+				status: string;
+				job?: { id: string };
+				error?: { code: string };
+			}[];
+		};
+		expect(body.results.map((r) => r.status)).toEqual([
+			"added",
+			"rejected",
+			"added",
+		]);
+		expect(body.results[1]?.error?.code).toBe("INVALID_REFERENCE");
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT pull_id FROM pr_observations WHERE active=1 ORDER BY pull_id",
+				)
+				.all(),
+		).toEqual([{ pull_id: pull.id }, { pull_id: other.id }]);
+		expect(
+			sqlite.raw.query("SELECT id FROM collection_jobs ORDER BY id").all(),
+		).toEqual(
+			[body.results[0]?.job?.id, body.results[2]?.job?.id]
+				.sort()
+				.map((id) => ({ id })),
+		);
+	});
 	test("discovery queues immediately without observing results; page heartbeat is gone", async () => {
 		const { project } = seed();
 		expect(

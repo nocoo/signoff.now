@@ -6,15 +6,20 @@ import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 
 let sqlite: SqliteD1;
 let server: ReturnType<typeof Bun.serve>;
+let requests: number;
 const main = fileURLToPath(
 	new URL("../../../../apps/collect/src/main.ts", import.meta.url),
 );
 beforeEach(() => {
 	sqlite = createSqliteD1();
+	requests = 0;
 	server = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
-		fetch: (req) => app.fetch(req, { DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" }),
+		fetch: (req) => {
+			requests++;
+			return app.fetch(req, { DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" });
+		},
 	});
 });
 afterEach(() => {
@@ -103,4 +108,15 @@ test("CLI keeps stdout clean on errors and help needs no provider or service", a
 	expect((await cli("pr", "list", "--unknown")).code).toBe(3);
 	expect((await cli("--help")).code).toBe(0);
 	expect((await cli("--version")).code).toBe(0);
+});
+test("malformed URL encoding fails locally with an argument error", async () => {
+	const invalid = await cli(
+		"watch",
+		"add",
+		"https://dev.azure.com/test-org/Platform/_git/%ZZ/pullrequest/3",
+	);
+	expect(invalid.code).toBe(3);
+	expect(invalid.stdout).toBe("");
+	expect(JSON.parse(invalid.stderr).error.code).toBe("INVALID_ARGUMENT");
+	expect(requests).toBe(0);
 });

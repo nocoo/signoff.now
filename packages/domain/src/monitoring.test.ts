@@ -77,6 +77,23 @@ describe("provider-neutral observation identity", () => {
 		).toBe("My Project");
 	});
 	test.each([
+		"%ZZ",
+		"%E0%A4%A",
+		"%",
+	])("malformed URL encoding is a reference type error: %s", (segment) => {
+		for (const url of [
+			`https://dev.azure.com/o/p/_git/${segment}`,
+			`https://github.com/o/${segment}`,
+		]) {
+			expect(() => parseRepositoryReference(url)).toThrow(TypeError);
+			expect(() =>
+				parsePullReference(
+					`${url}/${url.includes("dev.azure.com") ? "pullrequest" : "pull"}/1`,
+				),
+			).toThrow(TypeError);
+		}
+	});
+	test.each([
 		"http://dev.azure.com/o/p/_git/r/pullrequest/1",
 		"https://evil.test/o/p/_git/r/pullrequest/1",
 		"https://user@dev.azure.com/o/p/_git/r/pullrequest/1",
