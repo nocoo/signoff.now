@@ -299,7 +299,11 @@ function guardMapping(kind: ReadinessKind, base: PullReadiness) {
 }
 
 /** Stateless evaluation: identical facts + configuration always produce identical results. */
-export function evaluatePull(snapshot: PullRequest, project: Project) {
+export function evaluatePull(
+	snapshot: PullRequest,
+	project: Project,
+	includeRequirements = true,
+) {
 	const pull = interpretPull(snapshot);
 	const machine = effectiveStateMachine(project, pull.repository.id, [pull]);
 	const effectiveProject = machine.configured
@@ -325,7 +329,18 @@ export function evaluatePull(snapshot: PullRequest, project: Project) {
 		if (base.kind === "ready")
 			Object.assign(base, base.issues[base.issues.length - 1]);
 	}
-	const requirements = basePullRequirements(pull, effectiveProject);
+	const needsGates =
+		includeRequirements ||
+		machine.config.mappings.some((rule) =>
+			rule.conditions.some((condition) => "gateId" in condition),
+		);
+	const requirements = needsGates
+		? basePullRequirements(
+				pull,
+				effectiveProject,
+				pull.state === "open" && !pull.draft ? base.issues : undefined,
+			)
+		: [];
 	let selected: StateMachine["mappings"][number] | undefined;
 	const trace: MachineTrace[] = machine.config.mappings.map((rule) => {
 		const results = rule.conditions.map((condition) =>
@@ -375,6 +390,6 @@ export function evaluatePull(snapshot: PullRequest, project: Project) {
 }
 
 export const evaluateReadiness = (pull: PullRequest, project: Project) =>
-	evaluatePull(pull, project).readiness;
+	evaluatePull(pull, project, false).readiness;
 export const evaluateRequirements = (pull: PullRequest, project: Project) =>
 	evaluatePull(pull, project).requirements;

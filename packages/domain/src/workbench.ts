@@ -1124,16 +1124,22 @@ export function basePullReadiness(
 }
 
 /** Only gates evidenced on this PR; project-only policies may belong to other repositories or branches. */
-export function basePullRequirements(pr: PullRequest, project: Project) {
+export function basePullRequirements(
+	pr: PullRequest,
+	project: Project,
+	knownIssues?: PullIssue[],
+) {
 	const gates = projectMergeRequirements(
 		{ ...project, mergeRequirements: [] },
 		[pr],
 	);
 	const rules = projectReadinessRules(project, [pr]);
-	const issues = basePullReadiness(
-		{ ...pr, state: "open", draft: false },
-		{ ...project, mergeRequirements: gates },
-	).issues;
+	const issues =
+		knownIssues ??
+		basePullReadiness(
+			{ ...pr, state: "open", draft: false },
+			{ ...project, mergeRequirements: gates },
+		).issues;
 	return gates
 		.map((gate) => {
 			const rule = rules.find((r) => r.gateId === gate.id);

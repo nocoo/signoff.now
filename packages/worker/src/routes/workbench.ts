@@ -336,6 +336,8 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				 scan_message = CASE WHEN ? = 1 THEN NULL ELSE scan_message END,
 				 merge_requirements_json = CASE WHEN ? = 1 THEN '[]' ELSE merge_requirements_json END,
 				 readiness_rules_json = CASE WHEN ? = 1 THEN '[]' ELSE readiness_rules_json END,
+				 state_machine_json = CASE WHEN ? = 1 THEN '{"default":null,"repositories":{}}' ELSE state_machine_json END,
+				 state_machine_revision = state_machine_revision + ?,
 				 readiness_revision = readiness_revision + ?, scope_resolution_json = ?
 				 WHERE id = ? AND revision = ? AND ${PROJECT_CATALOG}=?`,
 			).bind(
@@ -353,6 +355,8 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				Number(sourceChanged),
 				Number(sourceChanged),
 				Number(identityChanged),
+				Number(identityChanged),
+				Number(sourceChanged),
 				Number(sourceChanged),
 				scopeResolution,
 				current.id,
@@ -420,8 +424,9 @@ export async function projectsReadinessRoute(c: Context<AppEnv>) {
 	// One statement changes only presentation fields. No collection revision,
 	// snapshot, lease, or source metadata participates in this update.
 	const row = await c.env.DB.prepare(
-		`UPDATE projects SET readiness_rules_json = ?, readiness_revision = readiness_revision + 1
-		 WHERE id = ? AND readiness_revision = ? RETURNING *`,
+		`UPDATE projects SET readiness_rules_json = ?, readiness_revision = readiness_revision + 1, state_machine_revision=state_machine_revision+1
+		 WHERE id = ? AND readiness_revision = ? AND json_extract(state_machine_json,'$.default') IS NULL
+		 AND NOT EXISTS (SELECT 1 FROM json_each(state_machine_json,'$.repositories')) RETURNING *`,
 	)
 		.bind(
 			JSON.stringify(parsed.data.rules),
@@ -433,7 +438,7 @@ export async function projectsReadinessRoute(c: Context<AppEnv>) {
 		return c.json(
 			{
 				error:
-					"Readiness settings changed or the project was removed. Reopen settings and try again.",
+					"Readiness settings changed or moved to State machines. Open System → State machines to edit.",
 			},
 			409,
 		);

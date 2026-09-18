@@ -254,6 +254,8 @@ export type ProjectRow = {
 	readiness_rules_json?: string;
 	merge_requirements_json?: string;
 	readiness_revision?: number;
+	state_machine_json?: string;
+	state_machine_revision?: number;
 	description: string;
 	owner: string;
 	enabled: number;
@@ -281,6 +283,10 @@ export function mapProject(row: ProjectRow): Project {
 		readinessRules: JSON.parse(row.readiness_rules_json || "[]"),
 		mergeRequirements: JSON.parse(row.merge_requirements_json || "[]"),
 		readinessRevision: row.readiness_revision ?? 1,
+		stateMachine: JSON.parse(
+			row.state_machine_json || '{"default":null,"repositories":{}}',
+		),
+		stateMachineRevision: row.state_machine_revision ?? 1,
 		description: row.description,
 		owner: row.owner,
 		enabled: row.enabled === 1,

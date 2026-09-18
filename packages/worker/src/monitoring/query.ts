@@ -15,15 +15,14 @@ import {
 	pullQuerySchema,
 	type RepositoryQueryItem,
 } from "@signoff/domain/query";
+import { checksValidity, evaluatePull } from "@signoff/domain/state-machine";
 import {
 	type Project,
 	type PullRequest,
 	projectMergeRequirements,
 	projectUrl,
-	pullProgress,
 	pullReadiness,
 	pullRequestSchema,
-	pullRequirements,
 	pullUrl,
 	readinessPriority,
 	repositoryUrl,
@@ -364,13 +363,14 @@ function pullOutput(
 	if (!project) throw new Error("Cached PR has no project");
 	const ref = makeWatchRef(project, pr.repository, pr.number);
 	const links = referenceLinks(ref);
-	const readiness = pullReadiness(pr, project);
+	const evaluated = evaluatePull(pr, project);
+	const readiness = evaluated.readiness;
 	const observation = observationFor(data, project, ref);
 	const checks =
 		pr.checksObservedAt === undefined ? pr.observedAt : pr.checksObservedAt;
 	const summary = pr.summaryObservedAt ?? pr.observedAt;
 	return pullQuerySchema.parse({
-		...pr,
+		...evaluated.pull,
 		provider: project.provider,
 		...links,
 		project: publicProject(project),
@@ -386,12 +386,7 @@ function pullOutput(
 		freshness: {
 			listObservedAt: iso(summary),
 			checksObservedAt: iso(checks),
-			checksValidity:
-				checks !== null
-					? "valid"
-					: pr.checksInvalidated
-						? "invalidated"
-						: "missing",
+			checksValidity: checksValidity(pr),
 			ageSeconds: {
 				list: Math.max(0, Math.floor(timestamp - summary)),
 				checks: checks === null ? null : Math.max(0, timestamp - checks),
@@ -406,8 +401,8 @@ function pullOutput(
 			primaryRequirementId: readiness.gateId ?? null,
 			nextAction: readiness.action,
 		},
-		checks: pullProgress(pr),
-		requirements: pullRequirements(pr, project),
+		checks: evaluated.progress,
+		requirements: evaluated.requirements,
 		content: { state: pr.coverage, missing: pr.collectionIssues ?? [] },
 	});
 }
@@ -577,8 +572,7 @@ async function readPullPage(
 	const facts = snapshot.pulls.map(({ pull }) => {
 		const project = projects.get(pull.projectId);
 		if (!project) throw new Error("Cached PR has no project");
-		const readiness = pullReadiness(pull, project);
-		const progress = pullProgress(pull);
+		const { readiness, progress } = evaluatePull(pull, project);
 		return {
 			id: pull.id,
 			kind: readiness.kind,

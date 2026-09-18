@@ -54,6 +54,7 @@ import {
 	reposRestoreRoute,
 } from "./routes/repos.js";
 import { settingsGetRoute, settingsPutRoute } from "./routes/settings.js";
+import { stateMachineRoutes } from "./routes/state-machines.js";
 import { statsSummaryRoute } from "./routes/stats.js";
 import {
 	tagsArchiveRoute,
@@ -90,6 +91,7 @@ app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
 app.route("/api/query/v1", queryRoutes);
 app.route("/api/commands/v1", commandRoutes);
+app.route("/api/state-machines", stateMachineRoutes);
 
 app.get("/api/workbench", workbenchRoute);
 app.get("/api/directory", directoryRoute);
