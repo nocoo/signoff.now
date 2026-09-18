@@ -14,6 +14,7 @@
 	],
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
+		"@playwright/test": "1.63.0",
 		"@types/bun": "^1.4.2",
 		"@vitest/coverage-v8": "^5.0.0",
 		"husky": "^9.1.7",
@@ -46,7 +47,8 @@
 		"db:migrate:local": "wrangler d1 migrations apply signoff-db --local",
 		"db:seed:local": "bun run scripts/seed-demo.ts",
 		"db:migrate:remote": "wrangler d1 migrations apply signoff-db --remote",
-		"db:list:remote": "wrangler d1 migrations list signoff-db --remote"
+		"db:list:remote": "wrangler d1 migrations list signoff-db --remote",
+		"test:e2e": "bun run scripts/test-e2e.ts"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [
