@@ -1,6 +1,6 @@
 # PR state machines
 
-System → State machines owns classification, requirement priority, labels, colors and mappings. The daemon collects provider facts. The shared domain evaluator interprets those facts for both the cached CLI queries and the web. Filters only select rows; they never update facts, rules or watches.
+Workspace → State machines owns classification, requirement priority, labels, colors and mappings. The daemon collects provider facts. The shared domain evaluator interprets those facts for both the cached CLI queries and the web. Filters only select rows; they never update facts, rules or watches.
 
 ## Model
 

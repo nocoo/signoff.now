@@ -22,6 +22,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
 		label: "Workspace",
 		defaultOpen: true,
 		items: [
+			{ href: "/state-machines", label: "State machines", icon: "Network" },
 			{ href: "/", label: "Pull requests", icon: "GitPullRequest", end: true },
 			{ href: "/repos", label: "Repos", icon: "GitBranch" },
 			{ href: "/projects", label: "Projects", icon: "FolderGit2" },
@@ -46,10 +47,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	{
 		label: "System",
 		defaultOpen: true,
-		items: [
-			{ href: "/state-machines", label: "State machines", icon: "Network" },
-			{ href: "/settings", label: "Settings", icon: "Settings" },
-		],
+		items: [{ href: "/settings", label: "Settings", icon: "Settings" }],
 	},
 ];
 
