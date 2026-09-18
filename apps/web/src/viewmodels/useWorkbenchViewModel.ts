@@ -1,8 +1,11 @@
 import {
+	canonicalObservationKey,
+	makeWatchRef,
 	matchesRepositoryReference,
 	type Observation,
 	parseRepositoryReference,
 	publicSource,
+	type WatchRef,
 } from "@signoff/domain/monitoring";
 import type { PullQueryItem } from "@signoff/domain/query";
 import {
@@ -71,11 +74,26 @@ function storedFilters() {
 }
 
 type Selection = {
+	key: string;
 	pullId: string;
 	observation: Pick<Observation, "id" | "generation" | "active"> | null;
 };
-const watchKey = (source: PullFilter["source"], pullId: string) =>
-	`${source}:${pullId}`;
+const watchKey = (
+	source: PullFilter["source"],
+	pullId: string,
+	ref: WatchRef,
+) =>
+	JSON.stringify([pullId, ref.projectId, canonicalObservationKey(source, ref)]);
+const rowWatchKey = (source: PullFilter["source"], row: PullRow) =>
+	watchKey(
+		source,
+		row.pull.id,
+		makeWatchRef(row.project, row.pull.repository, row.pull.number),
+	);
+const pendingWatchKey = (
+	source: PullFilter["source"],
+	observation: { id: string; generation: number },
+) => `${source}:observation:${observation.id}:${observation.generation}`;
 export function useWorkbenchViewModel() {
 	const [params, setParams] = useSearchParams();
 	const location = useLocation();
@@ -175,9 +193,7 @@ export function useWorkbenchViewModel() {
 	);
 	const withWatchState = useCallback(
 		(row: PullRow): PullRow => {
-			const optimistic = optimisticWatches.get(
-				watchKey(filter.source, row.pull.id),
-			);
+			const optimistic = optimisticWatches.get(rowWatchKey(filter.source, row));
 			return {
 				...row,
 				watching: optimistic ?? Boolean(row.observation?.active),
@@ -194,10 +210,7 @@ export function useWorkbenchViewModel() {
 		? withWatchState(queryRow(detail.data.data))
 		: (pageRows.find((row) => row.pull.id === selectedId) ?? null);
 	const pendingObservations = (pending.data?.data ?? []).filter(
-		(item) =>
-			!optimisticWatches.has(
-				watchKey(filter.source, `observation:${item.id}:${item.generation}`),
-			),
+		(item) => !optimisticWatches.has(pendingWatchKey(filter.source, item)),
 	);
 	const pendingRemoved =
 		(pending.data?.data.length ?? 0) - pendingObservations.length;
@@ -486,7 +499,7 @@ export function useWorkbenchViewModel() {
 	const selectionItems =
 		selection.key === selectionKey
 			? selection.items.filter((item) =>
-					pageRows.some((row) => row.pull.id === item.pullId),
+					pageRows.some((row) => rowWatchKey(filter.source, row) === item.key),
 				)
 			: [];
 	const selectedIds = new Set(selectionItems.map((item) => item.pullId));
@@ -503,7 +516,13 @@ export function useWorkbenchViewModel() {
 					(item) => item.pullId !== id,
 				),
 				...(checked
-					? [{ pullId: id, observation: row.observation ?? null }]
+					? [
+							{
+								key: rowWatchKey(filter.source, row),
+								pullId: id,
+								observation: row.observation ?? null,
+							},
+						]
 					: []),
 			],
 		}));
@@ -513,15 +532,12 @@ export function useWorkbenchViewModel() {
 		const source = filter.source;
 		const applicable = items.filter(
 			(item) =>
-				!watchRequests.current.has(watchKey(source, item.pullId)) &&
+				!watchRequests.current.has(item.key) &&
 				(adding ? !item.observation?.active : item.observation?.active),
 		);
 		if (!applicable.length)
-			return !items.some((item) =>
-				watchRequests.current.has(watchKey(source, item.pullId)),
-			);
-		for (const item of applicable)
-			watchRequests.current.set(watchKey(source, item.pullId), adding);
+			return !items.some((item) => watchRequests.current.has(item.key));
+		for (const item of applicable) watchRequests.current.set(item.key, adding);
 		setOptimisticWatches(new Map(watchRequests.current));
 		setFeedback({ source, kind: "watch", error: null, notice: null });
 		try {
@@ -544,10 +560,13 @@ export function useWorkbenchViewModel() {
 				: ["removed", "already_stopped"];
 			for (const [index, item] of applicable.entries()) {
 				const receipt = result.results[index];
-				if (receipt?.observation)
-					observations.set(item.pullId, receipt.observation);
+				if (
+					receipt?.observation?.source === publicSource(source) &&
+					watchKey(source, item.pullId, receipt.observation.ref) === item.key
+				)
+					observations.set(item.key, receipt.observation);
 				if (receipt && accepted.includes(receipt.status))
-					succeeded.add(item.pullId);
+					succeeded.add(item.key);
 				else
 					failures.push(
 						`${item.pullId}: ${receipt ? (receipt.error?.message ?? "Watch generation changed; reload before trying again.") : "Missing command result; reload before trying again."}`,
@@ -555,7 +574,7 @@ export function useWorkbenchViewModel() {
 			}
 			if (mounted.current && sourceRef.current === source) {
 				const apply = (pull: PullQueryItem): PullQueryItem => {
-					const next = observations.get(pull.id);
+					const next = observations.get(rowWatchKey(source, queryRow(pull)));
 					const current = pull.observation;
 					// A cache read may already contain a later CLI edit or retirement.
 					if (
@@ -582,7 +601,7 @@ export function useWorkbenchViewModel() {
 				if (!adding) {
 					const removed = new Set(
 						applicable.flatMap((item) =>
-							succeeded.has(item.pullId) && item.observation
+							succeeded.has(item.key) && item.observation
 								? [`${item.observation.id}:${item.observation.generation}`]
 								: [],
 						),
@@ -608,7 +627,7 @@ export function useWorkbenchViewModel() {
 						? {
 								...previous,
 								items: previous.items.filter(
-									(item) => !succeeded.has(item.pullId),
+									(item) => !succeeded.has(item.key),
 								),
 							}
 						: previous,
@@ -647,8 +666,7 @@ export function useWorkbenchViewModel() {
 				});
 			return false;
 		} finally {
-			for (const item of applicable)
-				watchRequests.current.delete(watchKey(source, item.pullId));
+			for (const item of applicable) watchRequests.current.delete(item.key);
 			if (mounted.current) setOptimisticWatches(new Map(watchRequests.current));
 		}
 	};
@@ -737,7 +755,7 @@ export function useWorkbenchViewModel() {
 		selectedCount: selectionItems.length,
 		selectionItems,
 		watchPending: (pullId: string) =>
-			optimisticWatches.has(watchKey(filter.source, pullId)),
+			pageRows.some((row) => row.pull.id === pullId && row.watchPending),
 		selectableCount: selectableRows.length,
 		toggleSelection,
 		selectPage: (checked: boolean) =>
@@ -745,6 +763,7 @@ export function useWorkbenchViewModel() {
 				key: selectionKey,
 				items: checked
 					? selectableRows.map((row) => ({
+							key: rowWatchKey(filter.source, row),
 							pullId: row.pull.id,
 							observation: row.observation ?? null,
 						}))
@@ -757,7 +776,11 @@ export function useWorkbenchViewModel() {
 				: selected;
 			return row && (row.pull.state === "open" || row.observation?.active)
 				? changeWatches(!row.observation?.active, [
-						{ pullId: row.pull.id, observation: row.observation ?? null },
+						{
+							key: rowWatchKey(filter.source, row),
+							pullId: row.pull.id,
+							observation: row.observation ?? null,
+						},
 					])
 				: Promise.resolve(false);
 		},
@@ -775,6 +798,7 @@ export function useWorkbenchViewModel() {
 		removePending: (observation: { id: string; generation: number }) =>
 			changeWatches(false, [
 				{
+					key: pendingWatchKey(filter.source, observation),
 					pullId: `observation:${observation.id}:${observation.generation}`,
 					observation: { ...observation, active: true },
 				},

@@ -1,3 +1,4 @@
+import { makeWatchRef } from "@signoff/domain/monitoring";
 import type { ProjectWrite } from "@signoff/domain/workbench";
 import {
 	act,
@@ -697,6 +698,80 @@ describe("shared watch mutations", () => {
 		});
 		expect(result.current.vm.pageRows[0]?.observation).toMatchObject(latest);
 		expect(result.current.vm.pageRows[0]?.watching).toBe(latest.active);
+	});
+	it.each(
+		[
+			{ projectKey: "ReplacementProject" },
+			{ organization: "replacement-org" },
+			{ id: "new-registration" },
+		].flatMap((identity) =>
+			[false, true].map((watched) => ({ identity, watched })),
+		),
+	)("fences optimistic state, selection and delayed receipts across project identity changes: %j", async ({
+		identity,
+		watched,
+	}) => {
+		const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+		vi.mocked(api.addWatches).mockReturnValue(response.promise);
+		let current = publicPull();
+		vi.mocked(api.loadPulls).mockImplementation(async () => ({
+			...fixture.pulls,
+			data: [current],
+		}));
+		vi.mocked(api.loadPull).mockImplementation(async () => ({
+			...fixture.envelope,
+			data: current,
+		}));
+		const { result } = render(`/?pr=${encodeURIComponent(pull.id)}`);
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
+		act(() => result.current.vm.selectPage(true));
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.toggleWatch(pull.id);
+		});
+		expect(result.current.vm.pageRows[0]?.watchPending).toBe(true);
+		const nextProject = { ...project, ...identity };
+		const nextObservation = watched
+			? fixtureObservation({
+					id: "new-watch",
+					ref: makeWatchRef(nextProject, pull.repository, pull.number),
+				})
+			: null;
+		current = publicPull(pull, nextProject, nextObservation);
+		await act(() => result.current.vm.reload());
+		for (const row of [
+			result.current.vm.pageRows[0],
+			result.current.vm.selected,
+		]) {
+			expect(row?.watching).toBe(watched);
+			expect(row?.watchPending).toBe(false);
+		}
+		expect(result.current.vm.watchPending(pull.id)).toBe(false);
+		expect(result.current.vm.selectedCount).toBe(0);
+		act(() => result.current.vm.selectPage(true));
+		vi.mocked(api.loadPulls).mockReturnValue(new Promise(() => {}));
+		vi.mocked(api.loadPull).mockReturnValue(new Promise(() => {}));
+		await act(async () => {
+			response.resolve({
+				results: [
+					{
+						status: "added",
+						observation: publicPull(pull, project, fixtureObservation())
+							.observation,
+					},
+				],
+			});
+			await write;
+		});
+		for (const row of [
+			result.current.vm.pageRows[0],
+			result.current.vm.selected,
+		]) {
+			expect(row?.observation?.id ?? null).toBe(nextObservation?.id ?? null);
+			expect(row?.watching).toBe(watched);
+		}
+		expect(result.current.vm.selectedCount).toBe(1);
 	});
 	it("toggles a row's watch without opening details and preserves unrelated batch selections", async () => {
 		let watching = false;
