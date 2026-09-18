@@ -163,6 +163,24 @@ try {
 		node,
 	);
 	const output = createWriteStream(workerLog);
+	await command(
+		[
+			wrangler,
+			"d1",
+			"execute",
+			"signoff-e2e",
+			"--local",
+			"--config",
+			config,
+			"--persist-to",
+			path.join(directory, "state"),
+			"--file",
+			path.join(root, "tests/e2e/sample-project.sql"),
+		],
+		root,
+		{},
+		node,
+	);
 	worker = spawn(
 		node,
 		[

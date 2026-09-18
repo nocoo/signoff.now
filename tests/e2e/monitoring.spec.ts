@@ -337,6 +337,153 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		stopReason: "completed",
 	});
 	expect((await execute()).state).toBe("idle");
-	expect(browserErrors).toEqual([]);
 	expect(repoListSchema.parse(await cli("repo", "list")).data).toHaveLength(2);
+	// Real collector + HTTP staging validates observation time across slow authentication and summary reads.
+	const slowUrl = `${repoUrl(repos[0]!)}/pullrequest/26`;
+	await cli("watch", "add", slowUrl);
+	const realNow = Date.now;
+	const startedAt = Math.floor(realNow() / 1000);
+	let clock = startedAt * 1000;
+	let auths = 0;
+	Date.now = () => clock;
+	try {
+		const provider: AdoPagedClient = {
+			checkAuth: async () => {
+				clock += auths++ === 0 ? 60000 : 10000;
+			},
+			invalidateToken: () => {},
+			post: async () => ({ value: [] }),
+			getPage: async () => ({ data: { value: [] }, continuationToken: null }),
+			get: async (url) => {
+				if (!url.includes("/pullrequests/26?")) return { value: [] };
+				clock += 10000;
+				return {
+					pullRequestId: 26,
+					status: "completed",
+					title: "Merged during authentication",
+					sourceRefName: "refs/heads/feature",
+					targetRefName: "refs/heads/main",
+					creationDate: new Date((startedAt - 100) * 1000).toISOString(),
+					closedDate: new Date((startedAt + 75) * 1000).toISOString(),
+					repository: {
+						id: repos[0]!.id,
+						name: repos[0]!.name,
+						project: { id: repos[0]!.projectGuid, name: repos[0]!.project },
+					},
+				};
+			},
+		};
+		expect(
+			(await runCollectionOnce({ api, makeAdo: () => provider, log: silent }))
+				.state,
+		).toBe("complete");
+	} finally {
+		Date.now = realNow;
+	}
+	const slowResult = await cli("pr", "get", slowUrl);
+	expect(slowResult.data.state).toBe("merged");
+	expect(slowResult.data.freshness.listObservedAt).toBe(
+		new Date((startedAt + 80) * 1000).toISOString(),
+	);
+	expect(slowResult.data.observation).toMatchObject({
+		active: false,
+		stopReason: "completed",
+	});
+
+	// Uncached CLI watches have independent pagination and errors in the browser.
+	const pendingUrls = Array.from(
+		{ length: 21 },
+		(_, i) => `${repoUrl(repos[0]!)}/pullrequest/${1000 + i}`,
+	);
+	await cli("watch", "add", ...pendingUrls);
+	await page.route("**/api/query/v1/observations?**", (route) =>
+		route.fulfill({
+			status: 503,
+			contentType: "application/json",
+			body: JSON.stringify({
+				error: {
+					code: "SERVICE_UNAVAILABLE",
+					message: "Pending watches unavailable",
+					retryable: true,
+				},
+			}),
+		}),
+	);
+	await page.goto("/?watching=watching");
+	const pending = page.getByRole("region", { name: "Pending watches" });
+	await expect(pending.getByText(/Pending watches unavailable/)).toBeVisible();
+	await page.unroute("**/api/query/v1/observations?**");
+	await pending.getByRole("button", { name: "Retry pending watches" }).click();
+	await expect(pending.getByRole("link")).toHaveCount(20);
+	await pending.getByRole("button", { name: "Next pending page" }).click();
+	await expect(pending.getByRole("link")).toHaveCount(1);
+	await expect(pending.getByRole("link")).toHaveText(/#1020/);
+	await pending.getByRole("button", { name: "Remove", exact: true }).click();
+	await expect(pending.getByRole("link")).toHaveCount(20);
+	expect((await watchList()).data).toHaveLength(20);
+	await cli("watch", "remove", ...pendingUrls.slice(0, 20));
+	await page.reload();
+	await expect(pending).toHaveCount(0);
+
+	// A first-load detail error must not pretend the cached PR was removed.
+	const detailPull = all.data.find((pr) => pr.state === "open")!;
+	await page.route("**/api/query/v1/prs/*?**", (route) =>
+		route.fulfill({
+			status: 503,
+			contentType: "application/json",
+			body: JSON.stringify({
+				error: {
+					code: "SERVICE_UNAVAILABLE",
+					message: "Detail cache unavailable",
+					retryable: true,
+				},
+			}),
+		}),
+	);
+	await page.goto(`/?pr=${encodeURIComponent(detailPull.id)}`);
+	await expect(
+		page.getByRole("heading", { name: "Unable to load PR details" }),
+	).toBeVisible();
+	await expect(page.getByText("PR not found", { exact: true })).toHaveCount(0);
+	await page.unroute("**/api/query/v1/prs/*?**");
+	await page.getByRole("button", { name: "Retry PR details" }).click();
+	await expect(
+		page.getByRole("heading", { name: detailPull.title, exact: true }),
+	).toBeVisible();
+	await page
+		.getByRole("button", { name: "Close pull request details" })
+		.click();
+
+	// Built assets use the local server's Sample command capability, independent of Vite DEV.
+	await page.getByRole("radio", { name: "Sample", exact: true }).click();
+	const discoverSample = page.getByRole("button", {
+		name: "Discover PRs",
+		exact: true,
+	});
+	await expect(discoverSample).toBeEnabled();
+	await discoverSample.click();
+	await expect(page.getByText(/Queued discovery for 1 project/)).toBeVisible();
+	const providerBeforeSample = providerRequests;
+	expect((await execute()).state).toBe("complete");
+	expect(providerRequests).toBe(providerBeforeSample);
+	expect(
+		pullListSchema.parse(
+			await cli(
+				"--source",
+				"sample",
+				"pr",
+				"list",
+				"--draft",
+				"include",
+				"--all",
+			),
+		).data,
+	).toHaveLength(6);
+	expect(
+		observationListSchema.parse(
+			await cli("--source", "sample", "watch", "list"),
+		).data,
+	).toEqual([]);
+	expect((await watchList()).data).toEqual([]);
+	expect(browserErrors).toEqual([]);
 });
