@@ -476,6 +476,68 @@ describe("filters, server pages and temporary selection", () => {
 });
 
 describe("shared watch mutations", () => {
+	it("toggles a row's watch without opening details and preserves unrelated batch selections", async () => {
+		let watching = false;
+		const observation = fixtureObservation({ generation: 4 });
+		vi.mocked(api.loadPulls).mockImplementation(async () => ({
+			...fixture.pulls,
+			data: [
+				publicPull(pull, project, watching ? observation : null),
+				publicPull({ ...pull, id: "second" }),
+			],
+		}));
+		vi.mocked(api.addWatches).mockImplementation(async () => {
+			watching = true;
+			return { results: [{ status: "added" }] };
+		});
+		vi.mocked(api.removeWatches).mockImplementation(async () => {
+			watching = false;
+			return { results: [{ status: "removed" }] };
+		});
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.toggleSelection("second", true));
+		await act(() => result.current.vm.toggleWatch(pull.id));
+		expect(result.current.vm.selected).toBeNull();
+		expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id]);
+		expect(result.current.vm.pageRows[0]?.observation?.active).toBe(true);
+		await act(() => result.current.vm.toggleWatch(pull.id));
+		expect(api.removeWatches).toHaveBeenCalledWith("cli", [observation]);
+		expect(result.current.vm.pageRows[0]?.observation).toBeNull();
+		expect(result.current.vm.selectedIds).toEqual(new Set(["second"]));
+		await act(async () =>
+			expect(await result.current.vm.toggleWatch("missing")).toBe(false),
+		);
+	});
+	it("renders a watch toggle in its own column before the PR title", async () => {
+		renderView(
+			<MemoryRouter>
+				<WorkbenchProvider>
+					<PullsPage />
+				</WorkbenchProvider>
+			</MemoryRouter>,
+		);
+		const toggle = await screen.findByRole("button", {
+			name: `Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`,
+		});
+		expect(toggle.getAttribute("aria-pressed")).toBe("false");
+		const row = toggle.closest("tr")!;
+		expect(within(row).getAllByRole("cell")[1]).toBe(toggle.closest("td"));
+		expect(
+			within(row)
+				.getAllByRole("cell")[2]
+				?.contains(
+					within(row).getByRole("button", {
+						name: `Open PR #${pull.number}: ${pull.title}`,
+					}),
+				),
+		).toBe(true);
+		fireEvent.click(toggle);
+		await waitFor(() =>
+			expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id]),
+		);
+		expect(screen.queryByRole("dialog")).toBeNull();
+	});
 	it("keeps unconfirmed batch items selected when the server omits a result", async () => {
 		vi.mocked(api.loadPulls).mockResolvedValue({
 			...fixture.pulls,

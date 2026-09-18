@@ -1,10 +1,16 @@
-import { Button } from "@nocoo/basalt";
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@nocoo/basalt";
 import { CircleAlert, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 
-export function CollectionToast() {
+export function CollectionStatus({
+	collapsed = false,
+	onExpand,
+}: {
+	collapsed?: boolean;
+	onExpand?: () => void;
+}) {
 	const vm = useWorkbench();
 	const [dismissed, setDismissed] = useState("");
 	const jobs = vm.collector?.jobs ?? [];
@@ -33,26 +39,44 @@ export function CollectionToast() {
 		vm.collectionError ||
 		active.find((j) => j.state === "auth_required")?.message ||
 		errors[0]?.message;
+	const title = problem ? "Collection needs attention" : "Collecting PR data";
+	const icon = problem ? (
+		<CircleAlert aria-hidden className="h-4 w-4 shrink-0 text-basalt-warning" />
+	) : (
+		<LoaderCircle
+			aria-hidden
+			className="h-4 w-4 shrink-0 text-basalt-primary motion-safe:animate-spin"
+		/>
+	);
+	if (collapsed)
+		return (
+			<section
+				aria-label="Collection progress"
+				className="flex justify-center pb-2"
+			>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							onClick={onExpand}
+							aria-label={`${title}. Expand sidebar for details`}
+						>
+							{icon}
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="right">{title}</TooltipContent>
+				</Tooltip>
+			</section>
+		);
 	return (
-		<aside
+		<section
 			aria-label="Collection progress"
-			className="fixed right-4 bottom-4 z-40 w-80 max-w-[calc(100vw-2rem)] rounded-basalt-lg border border-basalt-border bg-basalt-card p-3 shadow-lg"
+			className="mb-2 min-w-0 rounded-basalt-lg border border-basalt-border bg-basalt-card/60 p-3"
 		>
 			<div className="flex items-center gap-2.5">
-				{problem ? (
-					<CircleAlert
-						aria-hidden
-						className="h-4 w-4 shrink-0 text-basalt-warning"
-					/>
-				) : (
-					<LoaderCircle
-						aria-hidden
-						className="h-4 w-4 shrink-0 text-basalt-primary motion-safe:animate-spin"
-					/>
-				)}
-				<span className="flex-1 text-xs font-semibold">
-					{problem ? "Collection needs attention" : "Collecting PR data"}
-				</span>
+				{icon}
+				<span className="flex-1 text-xs font-semibold">{title}</span>
 				<Button
 					variant="ghost"
 					size="icon"
@@ -66,7 +90,7 @@ export function CollectionToast() {
 			<div
 				role="status"
 				aria-live="polite"
-				className="mt-2 space-y-2 text-[11px] text-basalt-muted-foreground"
+				className="mt-2 max-h-36 space-y-2 overflow-y-auto text-[11px] text-basalt-muted-foreground"
 			>
 				{active.length ? (
 					<p>
@@ -110,6 +134,6 @@ export function CollectionToast() {
 					<p className="break-words text-basalt-warning">{problem}</p>
 				) : null}
 			</div>
-		</aside>
+		</section>
 	);
 }

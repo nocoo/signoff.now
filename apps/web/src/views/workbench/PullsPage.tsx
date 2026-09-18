@@ -391,6 +391,10 @@ export function PullsPage() {
 									<TableHead className="w-10">
 										<PageSelectionCheckbox vm={vm} />
 									</TableHead>
+									<TableHead className="w-12 px-1 text-center">
+										<span className="sr-only">Watch list</span>
+										<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
+									</TableHead>
 									{(
 										[
 											["title", "Pull request", "w-[32%]"],
@@ -646,6 +650,37 @@ function PullTableRow({
 					}
 				/>
 			</TableCell>
+			<TableCell className="w-12 px-1 py-3 align-top text-center">
+				<Button
+					variant="ghost"
+					size="icon"
+					className={cn(
+						"h-8 w-8",
+						observation?.active
+							? "bg-basalt-primary/10 text-basalt-primary hover:bg-basalt-primary/15 hover:text-basalt-primary"
+							: "text-basalt-muted-foreground hover:bg-basalt-muted hover:text-basalt-foreground",
+					)}
+					aria-label={`Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
+					aria-pressed={Boolean(observation?.active)}
+					title={
+						observation?.active
+							? "In watch list · Click to remove"
+							: pull.state === "open"
+								? "Not in watch list · Click to watch"
+								: "Completed PRs are no longer watched"
+					}
+					disabled={
+						Boolean(vm.busy) || (pull.state !== "open" && !observation?.active)
+					}
+					onClick={() => void vm.toggleWatch(pull.id)}
+				>
+					{observation?.active ? (
+						<Eye aria-hidden className="h-4 w-4" />
+					) : (
+						<EyeOff aria-hidden className="h-4 w-4" />
+					)}
+				</Button>
+			</TableCell>
 			<TableCell className="py-3.5 align-top">
 				<div className="flex items-start gap-1.5">
 					<Button
@@ -659,14 +694,6 @@ function PullTableRow({
 						{pull.title}
 					</Button>
 					<PullSourceLink pull={pull} project={project} />
-					{observation?.active ? (
-						<span
-							title="In the shared watch list"
-							className="shrink-0 rounded-full bg-basalt-primary/10 p-1 text-basalt-primary"
-						>
-							<Eye className="h-3 w-3" aria-label="Watching" />
-						</span>
-					) : null}
 				</div>
 				<div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
 					<a

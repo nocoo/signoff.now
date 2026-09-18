@@ -23,7 +23,6 @@ import { breadcrumbsFromPathname } from "@/lib/navigation";
 import { fetchMe } from "@/models/entitiesApi";
 import type { PullFilter } from "@/models/workbench";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import { CollectionToast } from "@/views/workbench/CollectionToast";
 import { HeaderTooltip, HexlyLink } from "./header-links";
 import { Sidebar } from "./sidebar";
 import { ThemeToggle } from "./theme-toggle";
@@ -183,7 +182,6 @@ export function AppShell() {
 					</ContentIsland>
 				</div>
 			</AppMain>
-			<CollectionToast />
 		</BasaltAppShell>
 	);
 }

@@ -615,15 +615,16 @@ export function useWorkbenchViewModel() {
 					: [],
 			}),
 		watchSelected: (adding: boolean) => changeWatches(adding, selectionItems),
-		toggleWatch: () =>
-			selected
-				? changeWatches(!selected.observation?.active, [
-						{
-							pullId: selected.pull.id,
-							observation: selected.observation ?? null,
-						},
+		toggleWatch: (pullId?: string) => {
+			const row = pullId
+				? pageRows.find((item) => item.pull.id === pullId)
+				: selected;
+			return row && (row.pull.state === "open" || row.observation?.active)
+				? changeWatches(!row.observation?.active, [
+						{ pullId: row.pull.id, observation: row.observation ?? null },
 					])
-				: Promise.resolve(false),
+				: Promise.resolve(false);
+		},
 		pendingObservations: pending.data?.data ?? [],
 		pendingTotal: pending.data?.page.total ?? 0,
 		pendingError: pending.error,

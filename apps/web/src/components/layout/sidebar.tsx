@@ -31,6 +31,7 @@ import type { ElementType } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { avatarInitial } from "@/lib/avatar";
 import { NAV_GROUPS, type NavGroupDef } from "@/lib/navigation";
+import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 
 const ICON_MAP: Record<string, ElementType> = {
 	GitPullRequest,
@@ -167,7 +168,8 @@ export function Sidebar({
 							);
 						})}
 					</SidebarNav>
-					<SidebarFooter className="flex w-full justify-center px-0">
+					<SidebarFooter className="flex w-full flex-col items-center px-0">
+						<CollectionStatus collapsed onExpand={onToggle} />
 						<Tooltip delayDuration={0}>
 							<TooltipTrigger asChild>
 								<span
@@ -218,6 +220,7 @@ export function Sidebar({
 						))}
 					</SidebarNav>
 					<SidebarFooter>
+						<CollectionStatus />
 						<SidebarUser
 							name={userLabel}
 							email={userEmail ?? "local session"}

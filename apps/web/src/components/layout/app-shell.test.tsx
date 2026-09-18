@@ -16,9 +16,6 @@ vi.mock("@/viewmodels/WorkbenchProvider", () => ({
 		projects: [],
 	}),
 }));
-vi.mock("@/views/workbench/CollectionToast", () => ({
-	CollectionToast: () => null,
-}));
 vi.mock("@/components/layout/sidebar", () => ({ Sidebar: () => null }));
 vi.mock("@/components/layout/theme-toggle", () => ({
 	ThemeToggle: () => null,

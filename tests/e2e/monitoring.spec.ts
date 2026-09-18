@@ -247,6 +247,33 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		await rows.nth(0).getAttribute("data-pull-id"),
 		await rows.nth(1).getAttribute("data-pull-id"),
 	];
+	const toggle = rows.nth(0).getByRole("button", { name: /^Watch PR/ });
+	await rows.nth(1).getByRole("checkbox").check();
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await toggle.click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
+	expect((await watchList()).data.map((watch) => watch.pullId)).toEqual([
+		ids[0],
+	]);
+	const collection = page.getByRole("region", { name: "Collection progress" });
+	await expect(collection).toBeVisible();
+	expect(
+		await collection.evaluate(
+			(element) =>
+				Boolean(element.closest("aside")) &&
+				getComputedStyle(element).position !== "fixed",
+		),
+	).toBe(true);
+	await page.screenshot({
+		path: test.info().outputPath("watch-controls.png"),
+		fullPage: true,
+	});
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	await toggle.press("Space");
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	expect((await watchList()).data).toEqual([]);
+	await rows.nth(1).getByRole("checkbox").uncheck();
 	await rows.nth(0).getByRole("checkbox").check();
 	await rows.nth(1).getByRole("checkbox").check();
 	await page
@@ -284,6 +311,9 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		.locator("tr[data-pull-id]")
 		.first()
 		.getAttribute("data-pull-id");
+	const staleGeneration = (await watchList()).data.find(
+		(watch) => watch.pullId === staleId,
+	)!.generation;
 	await page.locator("tr[data-pull-id]").first().getByRole("checkbox").check();
 	await cli("watch", "remove", staleId!);
 	await cli("watch", "add", staleId!);
@@ -293,7 +323,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(page.getByText(/Watch generation changed/)).toBeVisible();
 	expect(
 		(await watchList()).data.find((w) => w.pullId === staleId)?.generation,
-	).toBe(2);
+	).toBe(staleGeneration + 1);
 	await page.reload();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(3);
 	// Failure of the PR query preserves its last good rows; other cache blocks keep working.
