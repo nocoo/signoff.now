@@ -301,7 +301,11 @@ export function PullsPage() {
 						/>
 						<div className="flex items-center gap-3 text-xs">
 							<span aria-live="polite" className="tabular-nums">
-								{vm.total} results
+								{vm.pullsLoaded
+									? `${vm.total} results`
+									: vm.loading
+										? "Loading…"
+										: "Results unavailable"}
 							</span>
 							{scopedProject ? (
 								<Button
@@ -377,89 +381,54 @@ export function PullsPage() {
 						}
 					/>
 				) : (
-					<>
-						<div className="overflow-x-auto">
-							<Table
-								aria-label="Pull requests"
-								className="min-w-[960px] table-fixed"
-							>
-								<TableHeader>
-									<TableRow>
-										<TableHead className="w-10">
-											<PageSelectionCheckbox vm={vm} />
-										</TableHead>
-										{(
-											[
-												["title", "Pull request", "w-[32%]"],
-												["readiness", "Readiness", "w-[15%]"],
-												["progress", "Checks & stages", "w-[18%]"],
-												["action", "Next action", "w-[21%]"],
-												["updated", "PR updated", "w-[14%] text-right"],
-											] as const
-										).map(([sort, label, className]) => (
-											<SortableHead
-												key={sort}
-												sort={sort}
-												label={label}
-												className={className}
-												filter={vm.filter}
-												onSort={() =>
-													vm.setFilter(nextPullSort(vm.filter, sort))
-												}
-											/>
-										))}
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{vm.pageRows.map((row) => (
-										<PullTableRow
-											key={row.pull.id}
-											row={row}
-											vm={vm}
-											now={now}
-											onOpen={(element) => {
-												opener.current = element;
-												vm.selectPull(row.pull.id);
-											}}
+					<div className="overflow-x-auto">
+						<Table
+							aria-label="Pull requests"
+							className="min-w-[960px] table-fixed"
+						>
+							<TableHeader>
+								<TableRow>
+									<TableHead className="w-10">
+										<PageSelectionCheckbox vm={vm} />
+									</TableHead>
+									{(
+										[
+											["title", "Pull request", "w-[32%]"],
+											["readiness", "Readiness", "w-[15%]"],
+											["progress", "Checks & stages", "w-[18%]"],
+											["action", "Next action", "w-[21%]"],
+											["updated", "PR updated", "w-[14%] text-right"],
+										] as const
+									).map(([sort, label, className]) => (
+										<SortableHead
+											key={sort}
+											sort={sort}
+											label={label}
+											className={className}
+											filter={vm.filter}
+											onSort={() => vm.setFilter(nextPullSort(vm.filter, sort))}
 										/>
 									))}
-								</TableBody>
-							</Table>
-						</div>
-						<LayerCard.Footer className="justify-between">
-							<p className="text-xs text-basalt-muted-foreground">
-								{(vm.page - 1) * vm.pageSize + 1}–
-								{Math.min(vm.page * vm.pageSize, vm.total)} of {vm.total} pull
-								requests
-							</p>
-							<div className="flex items-center gap-2">
-								<Button
-									variant="outline"
-									size="icon"
-									className="h-7 w-7"
-									aria-label="Previous page"
-									disabled={vm.page <= 1}
-									onClick={() => vm.setPage(vm.page - 1)}
-								>
-									<ChevronLeft aria-hidden className="h-4 w-4" />
-								</Button>
-								<span className="text-xs tabular-nums">
-									{vm.page} / {vm.pageCount}
-								</span>
-								<Button
-									variant="outline"
-									size="icon"
-									className="h-7 w-7"
-									aria-label="Next page"
-									disabled={vm.page >= vm.pageCount}
-									onClick={() => vm.setPage(vm.page + 1)}
-								>
-									<ChevronRight aria-hidden className="h-4 w-4" />
-								</Button>
-							</div>
-						</LayerCard.Footer>
-					</>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{vm.pageRows.map((row) => (
+									<PullTableRow
+										key={row.pull.id}
+										row={row}
+										vm={vm}
+										now={now}
+										onOpen={(element) => {
+											opener.current = element;
+											vm.selectPull(row.pull.id);
+										}}
+									/>
+								))}
+							</TableBody>
+						</Table>
+					</div>
 				)}
+				<PullPagination vm={vm} />
 			</LayerCard>
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<StageLegend />
@@ -807,6 +776,46 @@ function PullTableRow({
 	);
 }
 
+function PullPagination({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
+	if (vm.total === 0 && vm.page <= 1) return null;
+	return (
+		<LayerCard.Footer className="justify-between">
+			<p className="text-xs text-basalt-muted-foreground">
+				{vm.pullsLoaded
+					? `${(vm.page - 1) * vm.pageSize + 1}–${Math.min(vm.page * vm.pageSize, vm.total)} of ${vm.total} pull requests`
+					: vm.loading
+						? "Loading pull requests…"
+						: "Result count unavailable"}
+			</p>
+			<div className="flex items-center gap-2">
+				<Button
+					variant="outline"
+					size="icon"
+					className="h-7 w-7"
+					aria-label="Previous page"
+					disabled={vm.page <= 1}
+					onClick={() => vm.setPage(vm.page - 1)}
+				>
+					<ChevronLeft aria-hidden className="h-4 w-4" />
+				</Button>
+				<span className="text-xs tabular-nums">
+					{vm.pullsLoaded ? `${vm.page} / ${vm.pageCount}` : `Page ${vm.page}`}
+				</span>
+				<Button
+					variant="outline"
+					size="icon"
+					className="h-7 w-7"
+					aria-label="Next page"
+					disabled={!vm.pullsLoaded || vm.page >= vm.pageCount}
+					onClick={() => vm.setPage(vm.page + 1)}
+				>
+					<ChevronRight aria-hidden className="h-4 w-4" />
+				</Button>
+			</div>
+		</LayerCard.Footer>
+	);
+}
+
 function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 	if (
 		vm.filter.watching !== "watching" ||
@@ -868,10 +877,14 @@ function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 					</div>
 				))}
 			</LayerCard.Body>
-			{vm.pendingPageCount > 1 ? (
+			{vm.pendingPageCount > 1 || vm.pendingPage > 1 ? (
 				<LayerCard.Footer className="justify-between gap-3">
 					<p className="text-xs text-basalt-muted-foreground">
-						{vm.pendingTotal} pending watches
+						{vm.pendingLoaded
+							? `${vm.pendingTotal} pending watches`
+							: vm.pendingLoading
+								? "Loading pending watches…"
+								: "Pending count unavailable"}
 					</p>
 					<div className="flex items-center gap-2">
 						<Button
@@ -879,13 +892,15 @@ function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 							variant="outline"
 							className="h-7 w-7"
 							aria-label="Previous pending page"
-							disabled={vm.pendingPage <= 1 || vm.pendingRefreshing}
+							disabled={vm.pendingPage <= 1}
 							onClick={() => vm.setPendingPage(vm.pendingPage - 1)}
 						>
 							<ChevronLeft className="h-4 w-4" aria-hidden />
 						</Button>
 						<span className="text-xs tabular-nums">
-							{vm.pendingPage} / {vm.pendingPageCount}
+							{vm.pendingLoaded
+								? `${vm.pendingPage} / ${vm.pendingPageCount}`
+								: `Page ${vm.pendingPage}`}
 						</span>
 						<Button
 							size="icon"
@@ -893,7 +908,9 @@ function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 							className="h-7 w-7"
 							aria-label="Next pending page"
 							disabled={
-								vm.pendingPage >= vm.pendingPageCount || vm.pendingRefreshing
+								!vm.pendingLoaded ||
+								vm.pendingPage >= vm.pendingPageCount ||
+								vm.pendingRefreshing
 							}
 							onClick={() => vm.setPendingPage(vm.pendingPage + 1)}
 						>

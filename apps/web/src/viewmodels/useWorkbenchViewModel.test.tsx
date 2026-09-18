@@ -1,5 +1,14 @@
 import type { ProjectWrite } from "@signoff/domain/workbench";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	renderHook,
+	render as renderView,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,10 +30,12 @@ import {
 	fixturePull as pull,
 	queryFixture,
 } from "@/test/monitoring-fixture";
+import { PullsPage } from "@/views/workbench/PullsPage";
 import {
 	useProjectFormViewModel,
 	useWorkbenchViewModel,
 } from "./useWorkbenchViewModel";
+import { WorkbenchProvider } from "./WorkbenchProvider";
 
 vi.mock("@/models/workbenchApi", () => ({
 	createProject: vi.fn(),
@@ -82,6 +93,69 @@ const loaded = async (result: ReturnType<typeof render>["result"]) =>
 		expect(result.current.vm.loading).toBe(false);
 		expect(result.current.vm.collector).not.toBeNull();
 	});
+it("a failed second pending page keeps Previous available and returns to the working first page", async () => {
+	const items = Array.from({ length: 21 }, (_, i) => ({
+		...publicPull(pull, project, fixtureObservation()).observation!,
+		id: `pending-${i}`,
+		pull: null,
+		pullId: null,
+	}));
+	vi.mocked(api.loadPending).mockImplementation(
+		async (_source, _signal, _scope, page = 1) => {
+			if (page === 2) throw new Error("Pending page 2 failed");
+			return {
+				...fixture.envelope,
+				data: items.slice(0, 20),
+				page: { ...fixture.page, total: 21 },
+			};
+		},
+	);
+	renderView(
+		<MemoryRouter initialEntries={["/?watching=watching"]}>
+			<WorkbenchProvider>
+				<PullsPage />
+			</WorkbenchProvider>
+		</MemoryRouter>,
+	);
+	const pending = within(
+		await screen.findByRole("region", { name: "Pending watches" }),
+	);
+	fireEvent.click(
+		await pending.findByRole("button", { name: "Next pending page" }),
+	);
+	await pending.findByText("Pending page 2 failed");
+	const previous = pending.getByRole("button", {
+		name: "Previous pending page",
+	});
+	expect((previous as HTMLButtonElement).disabled).toBe(false);
+	expect(pending.queryByText("0 pending watches")).toBeNull();
+	expect(pending.queryByText("2 / 1")).toBeNull();
+	fireEvent.click(previous);
+	await waitFor(() => expect(pending.getAllByRole("link")).toHaveLength(20));
+	expect(pending.queryByText("Pending page 2 failed")).toBeNull();
+});
+it("a failed second PR page keeps Previous available and returns to the working first page", async () => {
+	vi.mocked(api.loadPulls).mockImplementation(async (query) => {
+		if (new URLSearchParams(query).get("page") === "2")
+			throw new Error("PR page 2 failed");
+		return { ...fixture.pulls, page: { ...fixture.page, total: 21 } };
+	});
+	renderView(
+		<MemoryRouter>
+			<WorkbenchProvider>
+				<PullsPage />
+			</WorkbenchProvider>
+		</MemoryRouter>,
+	);
+	fireEvent.click(await screen.findByRole("button", { name: "Next page" }));
+	await screen.findByText("Unable to load pull requests");
+	const previous = screen.getByRole("button", { name: "Previous page" });
+	expect((previous as HTMLButtonElement).disabled).toBe(false);
+	expect(screen.queryByText("2 / 1")).toBeNull();
+	fireEvent.click(previous);
+	await screen.findByRole("table", { name: "Pull requests" });
+	expect(screen.queryByText("Unable to load pull requests")).toBeNull();
+});
 beforeEach(() => {
 	vi.resetAllMocks();
 	localStorage.clear();

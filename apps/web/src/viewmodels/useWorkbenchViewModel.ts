@@ -575,6 +575,7 @@ export function useWorkbenchViewModel() {
 		pendingTotal: pending.data?.page.total ?? 0,
 		pendingError: pending.error,
 		pendingLoading: pending.loading,
+		pendingLoaded: pending.data !== null,
 		pendingRefreshing: pending.refreshing,
 		reloadPending: pending.reload,
 		pendingPage,
