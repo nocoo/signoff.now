@@ -52,6 +52,8 @@ signoff pr get 59382 \
 
 仓库在源站改名后，显式 discover 按已解析的 provider ID 更新名称并保留旧别名。原配置名称、旧 / 新 URL 与缓存 PR ID 仍指向同一仓库和观察项，项目元数据编辑也不会丢弃这个范围。
 
+仓库目录和覆盖信息也按保留别名解析配置范围，改名后仍只有一条已解析仓库；只有真正未解析的配置才显示为缺少发现结果。旧关注项后续刷新时，其保存的 ref 不覆盖目录新名称；成功发布的当前 PR 事实可以更新目录名称，失败和迟到结果保留已有信息。
+
 `watch remove` 接受相同引用语法，先调用只读 observation lookup 取得该 PR 唯一记录的 ID / generation，再发送带版本的删除。查到同代次已停止是幂等成功；从未观察返回 `NOT_FOUND`；两步之间发生重新加入则返回冲突，不自动重试删除新代次。查询可以利用本地仓库目录或停止记录内保留的自足 ref；项目删除后也可找到停止记录。别名有歧义时返回 `REFERENCE_AMBIGUOUS`，要求使用带仓库 GUID 的引用，不能猜测。
 
 真实 GitHub 观察在本期返回明确的 `PROVIDER_UNSUPPORTED`，不退回示例；GitHub Sample 可以显式查询并在本地 demo 模式演示观察操作。
@@ -194,6 +196,8 @@ added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false
 discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefore }]` 和零目标时的说明。收到 202 仅表示任务已保存，不表示刷新成功。消费者稍后用 `job get` 查询；登录过期作为任务状态返回，不能触发查询 CLI 自己登录。
 
 一次 discover 对应一个项目内固定的仓库范围；只有相同 revision、相同规范范围的未结束任务才去重。网页通过 projectId 提交项目范围；仓库计划解析后固定，重领沿用同一计划。发现没有自动冷却或重复运行。
+
+项目级发现与仓库 URL 发现采用相同的别名唯一性校验。名称复用导致多个稳定 ID 匹配时，返回 HTTP 409 / `REFERENCE_AMBIGUOUS`，不入队；可通过仓库 ID 消除歧义。固定范围内的 provider ID 不能由另一个仓库的名称替代。
 
 `job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消后续任务为 observation_retired。任务摘要在项目删除后仍保留。
 
