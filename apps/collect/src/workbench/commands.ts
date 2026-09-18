@@ -16,7 +16,7 @@ import {
 	repoListSchema,
 } from "@signoff/domain/query";
 import { projectSchema } from "@signoff/domain/workbench";
-import { type Command, Option } from "commander";
+import { type Command, CommanderError, Option } from "commander";
 import { z } from "zod";
 import { isPipelineClientError } from "../pipeline/client";
 import { parsePrArgument, queryRequest, readAllPages } from "./query-client";
@@ -193,12 +193,19 @@ async function registerRepos(command: Command, urls: string[]) {
 				),
 			),
 		);
-		const project = catalog.projects.find(
+		const projects = catalog.projects.filter(
 			(p) =>
 				p.provider === ref.provider &&
 				p.organization.toLowerCase() === ref.organization.toLowerCase() &&
 				p.projectKey.toLowerCase() === ref.projectKey.toLowerCase(),
 		);
+		if (projects.length > 1)
+			throw new CommanderError(
+				3,
+				"REFERENCE_AMBIGUOUS",
+				"Repository URL matches multiple project registrations; resolve the duplicate projects before registering this repository.",
+			);
+		const project = projects[0];
 		const projectRepos = catalog.data.filter(
 			(repo) => repo.project.id === project?.id,
 		);

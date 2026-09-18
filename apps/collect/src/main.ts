@@ -244,7 +244,10 @@ main().catch((error: unknown) => {
 		error instanceof TypeError
 	) {
 		code = 3;
-		detail.code = "INVALID_ARGUMENT";
+		detail.code =
+			error instanceof CommanderError && error.code === "REFERENCE_AMBIGUOUS"
+				? error.code
+				: "INVALID_ARGUMENT";
 		if (
 			error instanceof TypeError &&
 			/fetch|connect|network|timed out/i.test(error.message)

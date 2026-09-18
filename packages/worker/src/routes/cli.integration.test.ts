@@ -124,6 +124,34 @@ test("real query CLI and web share watches, including Draft; every command works
 			.get(),
 	).toEqual({ n: 0 });
 });
+test("CLI registration rejects ambiguous project identities before any mutation", async () => {
+	seedProject(sqlite, {
+		id: "first",
+		projectKey: "Équipe",
+		repositories: ["original"],
+	});
+	seedProject(sqlite, {
+		id: "second",
+		projectKey: "équipe",
+		repositories: ["original"],
+	});
+	const before = sqlite.raw.query("SELECT * FROM projects ORDER BY id").all();
+	const result = await cli(
+		"repo",
+		"add",
+		"https://dev.azure.com/test-org/%C3%89QUIPE/_git/new-repository",
+	);
+	expect(result.code).toBe(3);
+	expect(result.stdout).toBe("");
+	expect(JSON.parse(result.stderr).error).toMatchObject({
+		code: "REFERENCE_AMBIGUOUS",
+		retryable: false,
+	});
+	expect(requests).toBe(1);
+	expect(sqlite.raw.query("SELECT * FROM projects ORDER BY id").all()).toEqual(
+		before,
+	);
+});
 test("CLI keeps stdout clean on errors and help needs no provider or service", async () => {
 	const invalid = await cli("pr", "get", "42");
 	expect(invalid.code).toBe(3);
