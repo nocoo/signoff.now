@@ -92,7 +92,7 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 - Sample 发现能力来自 Collector 查询的 `sampleCommandsEnabled`，由服务端本地 demo 配置判定，与网页是否为开发构建无关。
 - PR 页默认 20 条，表头排序；项目自定义全部 merge requirements 的次序与颜色，最就绪在前；无 PoP 内置特例。
 - PR 标题列随屏幕宽度调整、最多 400px；Checks 与 Next action 均分剩余空间，避免宽屏时内容挤在一侧。窄屏保留表格最小宽度并横向滚动，骨架与内容共用列宽。
-- Readiness badge 使用 Basalt 实心色与白字。ADO build policy 明确报告 `isExpired=true` 或 `buildIsNotCurrent=true` 时显示红色 `Build Expired`，下一步是重新排队构建；保留项目定义的 gate 顺序，不能由通用 Build 标签或已保存的蓝色掩盖失效。没有明确到期证据的 queued build 不标为过期。
+- Readiness badge 使用 Basalt 实心色与白字。ADO build policy 明确报告 `isExpired=true` 时显示红色 `Build Expired`，下一步是重新排队构建；保留项目定义的 gate 顺序，不能由通用 Build 标签或已保存的蓝色掩盖失效。`buildIsNotCurrent=true` 只表示未覆盖最新目标提交，在策略有效期内仍可 approved，不能据此推断过期。没有明确到期证据的 queued build 不标为过期。
 - PR 页用 Basalt 分区线划分筛选与结果：Org / Project / Repo、搜索、作者、Draft、Readiness 和状态收进独立筛选卡片，表格与批量操作使用独立结果卡片。分区线右侧放范围链接 / 关注筛选，以及 Readiness order / Refresh watched / Discover PRs，避免另外占一排；副标题简述页面用途，不重复当前范围。
 - 共享领域规则决定网页和 CLI 的 readiness。未知检查、SHA 变化与 partial 不得产生假的“可合并”。
 - PR 编号、源 PR、组织、项目、仓库和 build 外链；Markdown 描述；姓名头像。`Target branch` 独立一列，使用完整分支名生成新标签页外链：ADO 以稳定仓库 ID 加 `version=GB…`，GitHub 使用仓库名加 `/tree/…`，分支引用编码后使用。长分支名截断展示并保留完整 tooltip；checkbox 与 watch toggle 在各行中纵向居中。

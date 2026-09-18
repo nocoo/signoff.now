@@ -95,11 +95,11 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 		typeId === "fd2167ab-b0be-447a-8ec8-39368250530e" ||
 		(!typeId && /reviewer/i.test(name));
 	const build = typeId === "0609b952-1397-4640-95ec-e00a01b2c241";
-	const expiration = [
-		evaluation.context?.isExpired,
-		evaluation.context?.buildIsNotCurrent,
-	];
-	const expired = build && expiration.includes(true);
+	// A build behind the target can still satisfy the policy's validity period.
+	// Only ADO's expiry flag establishes expiry; buildIsNotCurrent does not.
+	const expiration = evaluation.context?.isExpired;
+	const expired =
+		build && typeof expiration === "boolean" ? expiration : undefined;
 	const state = expired ? "failed" : mapCheckState(evaluation.status);
 	const reviewAction = `Request the required reviewer approvals for ${name}.`;
 	const details: Record<CheckState, string> = {
@@ -130,10 +130,7 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 			build && typeof cfg.settings?.buildDefinitionId === "number"
 				? String(cfg.settings.buildDefinitionId)
 				: undefined,
-		expired:
-			build && expiration.some((flag) => typeof flag === "boolean")
-				? expired
-				: undefined,
+		expired,
 		state,
 		required,
 		detail: expired

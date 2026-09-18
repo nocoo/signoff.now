@@ -18,7 +18,7 @@ import {
 describe("workbench normalizer", () => {
 	test.each([
 		{ isExpired: true },
-		{ buildIsNotCurrent: true },
+		{ isExpired: true, buildIsNotCurrent: false },
 		{ isExpired: true, buildIsNotCurrent: true },
 	])("expired build evaluations remain blocking even after a successful run: %j", (context) => {
 		const policy = normalizePolicy({
@@ -40,6 +40,23 @@ describe("workbench normalizer", () => {
 		});
 		expect(policy.detail).toMatch(/expired/i);
 		expect(policy.detail).toMatch(/queue|rerun/i);
+	});
+	test.each([
+		false,
+		undefined,
+	])("an approved build behind the target remains valid until ADO expires it (%s)", (isExpired) => {
+		const policy = normalizePolicy({
+			status: "approved",
+			configuration: {
+				id: 896,
+				type: { id: "0609b952-1397-4640-95ec-e00a01b2c241" },
+				settings: { buildDefinitionId: 653, validDuration: 1440 },
+			},
+			context: { buildId: 753506, buildIsNotCurrent: true, isExpired },
+		});
+		expect(policy.state).toBe("passed");
+		expect(policy.expired).toBe(isExpired);
+		expect(policy.detail).not.toMatch(/expired|queue|rerun/i);
 	});
 	test("expiry is explicit build evidence, not a guess from pending or arbitrary policy context", () => {
 		for (const context of [

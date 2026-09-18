@@ -168,7 +168,7 @@ ADO `completed` 规范化为 merged，`abandoned` 规范化为 closed。只有�
 
 - list 不完整枚举不能发布成空仓库；失败仓库与未返回记录的旧快照保留，不根据缺席推断终态。
 - head / target SHA 或目标分支变化使检查失效，未知检查不能变成 ready；复用检查时保留其原始观测时间。
-- ADO build policy 的明确 `isExpired` / `buildIsNotCurrent` 布尔真值标记为过期失败；普通 queued / pending 与没有到期证据的 policy 不被推断为过期。公共 readiness 显示红色 `Build Expired`，顺序仍由项目 gate 配置决定。
+- ADO build policy 的明确 `isExpired=true` 标记为过期失败；`isExpired=false` 保留未过期，缺失则不补造到期证据。`buildIsNotCurrent` 不代表过期：目标提交变化后，策略可在有效期内继续 approved。普通 queued / pending 与没有到期证据的 policy 不被推断为过期。公共 readiness 显示红色 `Build Expired`，顺序仍由项目 gate 配置决定。
 - partial 保留已经取得的事实与缺失原因，不能补造 policy 成功、stage、计数或时间。
 - 停止进程先停止领取，再有限等待收尾；租约过期后重新领取，旧 token 不能发布。
 - 认证只在执行器处理，按组织 / 租户隔离；沿用有效期检查、接近过期续期、401 一次重试与 403 区分。
