@@ -80,8 +80,11 @@ export const matchesAlias = (
 export function resolveRepositoryAlias<
 	T extends Pick<RepositoryRow, "name" | "repository_id" | "aliases_json">,
 >(rows: readonly T[], alias: string, provider: Project["provider"]) {
-	const ids = rows.map((row) => row.repository_id);
-	const matches = rows.filter((row) => matchesAlias(row, alias, provider, ids));
+	const id = rows.find(
+		(row) => row.repository_id.toLowerCase() === alias.toLowerCase(),
+	);
+	if (id) return id;
+	const matches = rows.filter((row) => matchesAlias(row, alias, provider, []));
 	if (new Set(matches.map((row) => row.repository_id.toLowerCase())).size > 1)
 		throw new MonitoringError(
 			"REFERENCE_AMBIGUOUS",

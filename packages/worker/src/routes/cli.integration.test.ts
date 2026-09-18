@@ -54,6 +54,32 @@ async function cli(...args: string[]) {
 		json: stdout.startsWith("{") ? JSON.parse(stdout) : null,
 	};
 }
+test("a repository URL query remains within the normal CLI deadline at 600 repositories", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const insert = sqlite.raw.query(
+		"INSERT INTO workbench_repositories(project_id,repository_id,name,aliases_json) VALUES(?,?,?,?)",
+	);
+	sqlite.raw.transaction(() => {
+		for (let i = 0; i < 600; i++) {
+			const id = `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`;
+			insert.run(
+				project.id,
+				id,
+				`repository-${i}`,
+				JSON.stringify([id, `repository-${i}`]),
+			);
+		}
+	})();
+	const result = await cli(
+		"pr",
+		"list",
+		"--repo",
+		"https://dev.azure.com/test-org/Platform/_git/repository-599",
+	);
+	expect(result.code).toBe(0);
+	expect(result.stderr).toBe("");
+	expect(result.json.data).toEqual([]);
+}, 30_000);
 test("real query CLI and web share watches, including Draft; every command works without az", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
 	const pull = seedPull(sqlite, { draft: true });
