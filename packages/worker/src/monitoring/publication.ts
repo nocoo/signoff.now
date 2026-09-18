@@ -70,21 +70,32 @@ export async function registerJobRepositories(
 			) as string[]
 		).map((s) => s.toLowerCase()),
 	];
+	const knownIds = new Set(known.map((r) => r.repository_id.toLowerCase()));
+	const matchesScope = (
+		repo: RepositoryIdentity,
+		value: string,
+		resolved = false,
+	) =>
+		resolved || knownIds.has(value.toLowerCase())
+			? repo.id.toLowerCase() === value.toLowerCase()
+			: names(repo).includes(value.toLowerCase());
 	if (
 		new Set(repositories.map((r) => r.id.toLowerCase())).size !==
 			repositories.length ||
 		repositories.some(
 			(repo) =>
 				(scope.length &&
-					!scope.some((s) => names(repo).includes(s.toLowerCase()))) ||
+					!scope.some((s) =>
+						matchesScope(repo, s, job.repositories_resolved === 1),
+					)) ||
 				(project.repositories?.length &&
-					!project.repositories.some((s) =>
-						names(repo).includes(s.toLowerCase()),
-					)),
+					!project.repositories.some((s) => matchesScope(repo, s))),
 		) ||
 		scope.some(
 			(s) =>
-				!repositories.some((repo) => names(repo).includes(s.toLowerCase())),
+				!repositories.some((repo) =>
+					matchesScope(repo, s, job.repositories_resolved === 1),
+				),
 		)
 	)
 		throw new MonitoringError(

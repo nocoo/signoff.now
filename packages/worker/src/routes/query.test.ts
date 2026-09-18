@@ -1015,6 +1015,77 @@ describe("v1 cache queries", () => {
 });
 
 describe("v1 commands", () => {
+	test("project and URL discovery reject reused repository aliases before queueing work", async () => {
+		const project = seedProject(sqlite, { repositories: [] });
+		seedPull(sqlite, { repository: { id: "repo-a", name: "new-name" } });
+		seedPull(sqlite, {
+			id: "other-pull",
+			number: 2,
+			externalId: "2",
+			repository: { id: "repo-b", name: "old-name" },
+		});
+		sqlite.raw
+			.query(
+				"UPDATE workbench_repositories SET aliases_json=? WHERE repository_id='repo-a'",
+			)
+			.run(JSON.stringify(["repo-a", "old-name", "new-name"]));
+		expect(
+			(
+				await request(`/api/projects/${project.id}`, "PATCH", {
+					revision: project.revision,
+					repositories: ["old-name"],
+				})
+			).status,
+		).toBe(200);
+		const repoUrl = "https://dev.azure.com/test-org/Platform/_git/";
+		for (const target of [
+			{ repositoryUrl: `${repoUrl}old-name` },
+			{ projectId: project.id },
+		]) {
+			const result = await request("/api/commands/v1/discover", "POST", {
+				source: "live",
+				...target,
+			});
+			expect(result.status).toBe(409);
+			expect(await result.json()).toMatchObject({
+				error: { code: "REFERENCE_AMBIGUOUS" },
+			});
+		}
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) n FROM collection_jobs").get(),
+		).toEqual({ n: 0 });
+		const byId = await request("/api/commands/v1/discover", "POST", {
+			source: "live",
+			repositoryUrl: `${repoUrl}repo-a`,
+		});
+		expect(byId.status).toBe(202);
+		expect(
+			sqlite.raw.query("SELECT scope_json FROM collection_jobs").get(),
+		).toEqual({
+			scope_json: '["repo-a"]',
+		});
+		expect(
+			(
+				await request(`/api/projects/${project.id}`, "PATCH", {
+					revision: project.revision + 1,
+					repositories: ["repo-b"],
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await request("/api/commands/v1/discover", "POST", {
+					source: "live",
+					projectId: project.id,
+				})
+			).status,
+		).toBe(202);
+		expect(
+			sqlite.raw
+				.query("SELECT scope_json FROM collection_jobs WHERE state='queued'")
+				.all(),
+		).toEqual([{ scope_json: '["repo-b"]' }]);
+	});
 	test("DELETE uses a safe If-Match generation, never a stale or foreign source watch", async () => {
 		const { pull } = seed();
 		const added = await addObservation(

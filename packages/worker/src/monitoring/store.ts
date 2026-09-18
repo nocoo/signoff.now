@@ -68,6 +68,16 @@ export const matchesAlias = (
 		row.repository_id,
 		...(JSON.parse(row.aliases_json) as string[]),
 	].some((value) => value.toLowerCase() === alias.toLowerCase());
+export function resolveRepositoryAlias(rows: RepositoryRow[], alias: string) {
+	const matches = rows.filter((row) => matchesAlias(row, alias));
+	if (matches.length > 1)
+		throw new MonitoringError(
+			"REFERENCE_AMBIGUOUS",
+			"Repository alias matches multiple identities; use its provider ID",
+			409,
+		);
+	return matches[0];
+}
 export const inProjectScope = (
 	project: Pick<Project, "repositories">,
 	repository: { id: string; name: string },

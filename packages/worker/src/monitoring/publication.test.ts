@@ -67,6 +67,38 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test("a repository name cannot impersonate the frozen provider repository ID", async () => {
+		const { project, pull } = setup();
+		const receipt = await enqueueDiscovery(
+			sqlite.db,
+			project,
+			[pull.repository.id],
+			now,
+		);
+		const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
+		await expect(
+			registerJobRepositories(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				[{ id: "different-provider-id", name: pull.repository.id }],
+				now + 1,
+			),
+		).rejects.toMatchObject({ code: "INVALID_SCOPE" });
+		expect((await readJob(sqlite.db, receipt.id)).scope_json).toBe(
+			JSON.stringify([pull.repository.id]),
+		);
+		expect(
+			sqlite.raw
+				.query("SELECT COUNT(*) n FROM collection_job_repositories")
+				.get(),
+		).toEqual({ n: 0 });
+		expect(
+			sqlite.raw
+				.query("SELECT repository_id FROM workbench_repositories")
+				.all(),
+		).toEqual([{ repository_id: pull.repository.id }]);
+	});
 	test("discovery follows a renamed repository by its frozen provider ID and retains its old alias", async () => {
 		const project = seedProject(sqlite, { repositories: ["old-name"] });
 		const pull = seedPull(sqlite, {

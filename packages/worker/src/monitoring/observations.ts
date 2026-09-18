@@ -23,6 +23,7 @@ import {
 	type ProjectRow,
 	type RepositoryRow,
 	readProject,
+	resolveRepositoryAlias,
 } from "./store.js";
 
 export type PullReference = { pullId: string } | { url: string };
@@ -72,16 +73,7 @@ export async function resolveRepository(
 		.prepare("SELECT * FROM workbench_repositories WHERE project_id=?")
 		.bind(project.id)
 		.all<RepositoryRow>();
-	const matches = rows.results.filter((row) =>
-		matchesAlias(row, ref.repository),
-	);
-	if (matches.length > 1)
-		throw new MonitoringError(
-			"REFERENCE_AMBIGUOUS",
-			"Repository alias matches multiple identities; use its provider ID",
-			409,
-		);
-	const repository = matches[0];
+	const repository = resolveRepositoryAlias(rows.results, ref.repository);
 	if (
 		!inProjectScope(
 			project,
@@ -367,9 +359,10 @@ export async function enqueueDiscovery(
 		...new Set(
 			scope.map(
 				(name) =>
-					repositories
-						.find((repository) => matchesAlias(repository, name))
-						?.repository_id.toLowerCase() ?? name.toLowerCase(),
+					resolveRepositoryAlias(
+						repositories,
+						name,
+					)?.repository_id.toLowerCase() ?? name.toLowerCase(),
 			),
 		),
 	].sort();
