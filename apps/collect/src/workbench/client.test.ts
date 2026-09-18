@@ -7,6 +7,69 @@ import {
 } from "./client.ts";
 
 describe("local collection API client", () => {
+	test("repository receipts, requirements and failure messages use the claimed lease and reject redirects", async () => {
+		const now = 1_789_632_000;
+		const lease = {
+			job: { id: "job / one" },
+			leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
+		};
+		const job = {
+			id: lease.job.id,
+			projectId: "project",
+			revision: 1,
+			state: "complete",
+			requestedAt: now,
+			startedAt: now,
+			updatedAt: now,
+			completedAt: now,
+			completedPulls: 1,
+			totalPulls: 1,
+			message: "done",
+		};
+		const calls: { url: string; body: Record<string, unknown> }[] = [];
+		const api = createCollectionClient({
+			fetchImpl: async (url, init) => {
+				expect(init?.redirect).toBe("error");
+				calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+				return Response.json(
+					String(url).endsWith("repositories")
+						? [{ repository_id: "repo", state: "queued" }]
+						: job,
+				);
+			},
+		});
+		expect(
+			await api.repositories(lease, [{ id: "repo", name: "app" }]),
+		).toEqual([{ repository_id: "repo", state: "queued" }]);
+		const gates = [
+			{ id: "policy-42", kind: "policy" as const, name: "Approval" },
+		];
+		expect(
+			(await api.publish(lease, "repo", "complete", 1, "x".repeat(2000), gates))
+				.state,
+		).toBe("complete");
+		await api.repositoryFail(lease, "repo", "x".repeat(2000));
+		expect(
+			calls.every(
+				(c) =>
+					c.url.includes("job%20%2F%20one") &&
+					c.body.leaseToken === lease.leaseToken,
+			),
+		).toBe(true);
+		expect(calls[1]?.body).toMatchObject({
+			mergeRequirements: gates,
+			pullRequestCount: 1,
+		});
+		expect(calls[1]?.body.message).toHaveLength(1000);
+		expect(calls[2]?.body.message).toHaveLength(1000);
+		const malformed = createCollectionClient({
+			fetchImpl: async () => Response.json({ state: "unknown" }),
+		});
+		await expect(malformed.repositories(lease, [])).rejects.toThrow();
+		await expect(
+			malformed.publish(lease, "repo", "complete", 0, ""),
+		).rejects.toThrow();
+	});
 	test("schedules and claims the two independent queues explicitly", async () => {
 		const calls: { url: string; body: unknown }[] = [];
 		const api = createCollectionClient({
@@ -159,7 +222,7 @@ describe("local collection API client", () => {
 			job,
 			leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
 		};
-		const scan = { ...data.scans[0]!, source: "cli" as const };
+		const finished = { ...job, state: "complete" as const };
 		const replies = [
 			data,
 			project,
@@ -167,7 +230,7 @@ describe("local collection API client", () => {
 			job,
 			claim,
 			job,
-			scan,
+			finished,
 			{},
 			job,
 		];
@@ -201,7 +264,7 @@ describe("local collection API client", () => {
 		const lease = await api.claim();
 		expect(lease).toEqual(claim);
 		await api.progress(claim, 3, 8, "Collecting");
-		expect(await api.complete(claim, "complete", 8, "Published")).toEqual(scan);
+		expect(await api.complete(claim)).toEqual(finished);
 		await api.fail(claim, "auth_required", "x".repeat(1500));
 		expect(await api.job(job.id)).toEqual(job);
 		expect(calls.map((call) => call.method)).toEqual([
@@ -229,9 +292,6 @@ describe("local collection API client", () => {
 		});
 		expect(calls[6]?.body).toEqual({
 			leaseToken: claim.leaseToken,
-			state: "complete",
-			pullRequestCount: 8,
-			message: "Published",
 		});
 		expect(calls[7]?.body.message).toHaveLength(1000);
 		expect(calls[8]?.path).toBe("/api/collector/jobs/job%20%2F%201");

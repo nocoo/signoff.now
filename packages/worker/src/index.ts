@@ -14,7 +14,11 @@ import {
 	collectorHeartbeatRoute,
 	collectorJobRoute,
 	collectorProgressRoute,
+	collectorPublishRoute,
+	collectorRepositoriesRoute,
+	collectorRepositoryFailRoute,
 } from "./routes/collection.js";
+import { commandRoutes } from "./routes/commands.js";
 import {
 	developersArchiveRoute,
 	developersCreateRoute,
@@ -35,6 +39,7 @@ import {
 	pipelineIngestRoute,
 	pipelineRecomputeCompleteRoute,
 } from "./routes/pipeline.js";
+import { queryRoutes } from "./routes/query.js";
 import {
 	collectionViewRoute,
 	collectorScheduleRoute,
@@ -83,6 +88,8 @@ app.use("/api/*", pipelineAuth);
 app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
+app.route("/api/query/v1", queryRoutes);
+app.route("/api/commands/v1", commandRoutes);
 
 app.get("/api/workbench", workbenchRoute);
 app.get("/api/directory", directoryRoute);
@@ -105,6 +112,12 @@ app.post("/api/collector/heartbeat", collectorHeartbeatRoute);
 app.post("/api/collector/claim", collectorClaimRoute);
 app.post("/api/collector/jobs/:id/progress", collectorProgressRoute);
 app.post("/api/collector/jobs/:id/batch", collectorBatchRoute);
+app.post("/api/collector/jobs/:id/repositories", collectorRepositoriesRoute);
+app.post("/api/collector/jobs/:id/publish", collectorPublishRoute);
+app.post(
+	"/api/collector/jobs/:id/repository-fail",
+	collectorRepositoryFailRoute,
+);
 app.post("/api/collector/jobs/:id/complete", collectorCompleteRoute);
 app.post("/api/collector/jobs/:id/fail", collectorFailRoute);
 

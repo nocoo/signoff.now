@@ -37,6 +37,82 @@ const DEFAULT_CONCURRENCY = 4;
 const BASE_URL = "https://dev.azure.com";
 const BUILD_POLICY_TYPE_ID = "0609b952-1397-4640-95ec-e00a01b2c241";
 
+/** Full candidate history, streamed to staging. Only publication makes it visible. */
+export async function* discoverRepositoryPulls(
+	client: Pick<AdoPagedClient, "getPage">,
+	project: Project,
+	repo: RepoMeta,
+	now: number,
+): AsyncGenerator<PullRequest[]> {
+	let skip = 0;
+	let token: string | null = null;
+	const tokens = new Set<string>();
+	const ids = new Set<number>();
+	const started = Date.now();
+	for (;;) {
+		const page = await client.getPage(
+			adoUrl(
+				`${BASE_URL}/${project.organization}/${encodeURIComponent(repo.projectGuid)}`,
+				`_apis/git/repositories/${encodeURIComponent(repo.id)}/pullrequests`,
+				{
+					"searchCriteria.status": "all",
+					$top: 100,
+					$skip: token ? undefined : skip,
+					continuationToken: token ?? undefined,
+				},
+			),
+		);
+		const raws = parseRaw(
+			adoPullRequestsSchema,
+			page.data,
+			"all PR history",
+		).value;
+		for (const raw of raws) {
+			if (
+				raw.repository.id.toLowerCase() !== repo.id.toLowerCase() ||
+				(raw.repository.project?.id &&
+					raw.repository.project.id.toLowerCase() !==
+						repo.projectGuid.toLowerCase())
+			)
+				throw new AdoError(
+					"bad_response",
+					"PR repository identity differs from discovery scope",
+				);
+			if (ids.has(raw.pullRequestId))
+				throw new AdoError(
+					"bad_response",
+					"Repeated PR while paging repository history; retry discovery",
+				);
+			ids.add(raw.pullRequestId);
+		}
+		if (raws.length)
+			yield raws.map((rawPr) =>
+				normalizePullRequest({
+					projectId: project.id,
+					rawPr,
+					now: now + Math.max(0, Math.floor((Date.now() - started) / 1000)),
+					checksObservedAt: null,
+					collectionIssues: [
+						"Add this PR to the watch list to collect checks.",
+					],
+				}),
+			);
+		if (page.continuationToken) {
+			if (tokens.has(page.continuationToken))
+				throw new AdoError(
+					"bad_response",
+					"Repeated PR history continuation token",
+				);
+			tokens.add(page.continuationToken);
+			token = page.continuationToken;
+		} else {
+			if (raws.length < 100) break;
+			token = null;
+		}
+		skip += raws.length;
+	}
+}
+
 export type RepoMeta = {
 	id: string;
 	name: string;
@@ -727,7 +803,7 @@ export async function collectProjectPulls(opts: {
 	project: Project;
 	client: AdoPagedClient;
 	now: number;
-	targets?: PullRequest[];
+	targets?: KnownOpenPull[];
 	knownOpenPulls?: KnownOpenPull[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<{
@@ -815,7 +891,7 @@ export async function collectProjectPulls(opts: {
 	let completedCount = 0;
 	let hasPartialDetails = globalIssues.length > 0;
 	const startedMs = Date.now();
-	if (opts.onProgress) await opts.onProgress(0, totalPulls);
+	await opts.onProgress?.(0, totalPulls);
 
 	const buildService = new BuildService(client, org);
 
@@ -827,7 +903,7 @@ export async function collectProjectPulls(opts: {
 			name: rawPr.repository.name,
 			projectGuid: rawPr.repository.project?.id || projectKey,
 		};
-		const issues: string[] = [];
+		const issues: string[] = [...globalIssues];
 
 		const { evaluations, statuses } = await fetchPrEvaluationsAndStatuses(
 			client,
@@ -894,12 +970,18 @@ export async function collectProjectPulls(opts: {
 	const queue = [...allPrs];
 	const listOnly = opts.targets?.length === 0;
 	let mergeRequirements: MergeRequirement[] | undefined;
-	if (listOnly) {
+	if (listOnly || opts.targets?.length) {
 		try {
 			mergeRequirements = await discoverMergeRequirements(
 				client,
 				project,
-				targetRepos,
+				listOnly
+					? targetRepos
+					: allPrs.map((pr) => ({
+							id: pr.repository.id,
+							name: pr.repository.name,
+							projectGuid: pr.repository.project?.id ?? projectKey,
+						})),
 			);
 		} catch (error) {
 			if (error instanceof AdoError && error.kind === "unauthenticated")
@@ -922,7 +1004,7 @@ export async function collectProjectPulls(opts: {
 						now,
 						checksObservedAt: null,
 						collectionIssues: [
-							"Checks load with auto refresh on the current PR page.",
+							"Add this PR to the watch list to collect its checks.",
 						],
 					})
 				: await enrichPullRequest(item);
@@ -943,7 +1025,7 @@ export async function collectProjectPulls(opts: {
 	const state = hasPartialDetails ? "partial" : "complete";
 	const message =
 		listOnly && !hasPartialDetails
-			? `Refreshed ${normalizedPulls.length} PR summaries. Checks load for the current PR page.`
+			? `Refreshed ${normalizedPulls.length} PR summaries. Add PRs to the watch list to collect their checks.`
 			: hasPartialDetails
 				? `Collected ${normalizedPulls.length} PRs with partial coverage. ${globalIssues.join(" ")}`.trim()
 				: `Collected ${normalizedPulls.length} PRs completely.`;

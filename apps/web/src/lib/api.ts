@@ -37,7 +37,15 @@ export async function apiFetch<T>(
 			"error" in data &&
 			typeof (data as { error: unknown }).error === "string"
 				? (data as { error: string }).error
-				: `HTTP ${res.status}`;
+				: data &&
+						typeof data === "object" &&
+						"error" in data &&
+						data.error &&
+						typeof data.error === "object" &&
+						"message" in data.error &&
+						typeof data.error.message === "string"
+					? data.error.message
+					: `HTTP ${res.status}`;
 		throw new ApiError(msg, res.status, data);
 	}
 	return data as T;

@@ -397,6 +397,8 @@ export function normalizePullRequest(opts: {
 		sourceBranch: (rawPr.sourceRefName || "").replace(/^refs\/heads\//, ""),
 		targetBranch: (rawPr.targetRefName || "").replace(/^refs\/heads\//, ""),
 		state: resolvePullState(rawPr.status),
+		mergedAt:
+			rawPr.status === "completed" ? parseSeconds(rawPr.closedDate) : null,
 		draft: rawPr.isDraft === true,
 		mergeable: mapMergeable(rawPr.mergeStatus),
 		coverage: issues ? "partial" : "complete",

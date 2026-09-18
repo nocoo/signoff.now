@@ -1,0 +1,271 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { adoPullId, collectorClaimSchema } from "@signoff/domain/collection";
+import { Hono } from "hono";
+import app from "../index";
+import { addObservation, enqueueDiscovery } from "../monitoring/observations";
+import { PR_TEST_NOW, seedProject, seedPull } from "../test/pr-fixture";
+import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
+import type { AppEnv } from "../types";
+import { collectorClaimRoute } from "./collection";
+
+let sqlite: SqliteD1;
+beforeEach(() => {
+	sqlite = createSqliteD1();
+});
+afterEach(() => sqlite.close());
+const request = (path: string, body: unknown = {}, host = "localhost") =>
+	app.request(
+		`http://${host}/api/collector/${path}`,
+		{
+			method: "POST",
+			headers: { host, "content-type": "application/json" },
+			body: JSON.stringify(body),
+		},
+		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+	);
+
+test("idle heartbeat and scheduler neither discover nor revive authentication backoff", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	expect(
+		(await request("heartbeat", { state: "ready", message: "Idle" })).status,
+	).toBe(200);
+	await request("schedule");
+	expect(await (await request("claim")).json()).toBeNull();
+	const receipt = await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW);
+	sqlite.raw
+		.query(
+			"UPDATE collection_jobs SET state='auth_required',not_before=? WHERE id=?",
+		)
+		.run(Math.floor(Date.now() / 1000) + 60, receipt.id);
+	await request("heartbeat", {
+		state: "ready",
+		message: "Another project is ready",
+	});
+	expect(await (await request("claim")).json()).toBeNull();
+});
+
+test("executor endpoints publish one watched PR and its scan receipt, without exposing staging", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const pull = seedPull(sqlite, { id: adoPullId(project.id, "repo-1", "1") });
+	await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);
+	const claim = collectorClaimSchema.parse(
+		await (await request("claim")).json(),
+	);
+	expect(claim.observation?.ref.number).toBe(1);
+	const action = (name: string, data: object = {}) =>
+		request(`jobs/${claim.job.id}/${name}`, {
+			...data,
+			leaseToken: claim.leaseToken,
+		});
+	expect(
+		(await action("repositories", { repositories: [pull.repository] })).status,
+	).toBe(200);
+	expect(
+		(await action("batch", { pulls: [{ ...pull, state: "merged" }] })).status,
+	).toBe(200);
+	expect(sqlite.raw.query("SELECT state FROM pull_requests").get()).toEqual({
+		state: "open",
+	});
+	expect(
+		(
+			await action("publish", {
+				repositoryId: pull.repository.id,
+				state: "complete",
+				pullRequestCount: 1,
+				message: "Merged",
+			})
+		).status,
+	).toBe(200);
+	expect(
+		sqlite.raw.query("SELECT active,stop_reason FROM pr_observations").get(),
+	).toEqual({ active: 0, stop_reason: "completed" });
+	expect(
+		sqlite.raw
+			.query("SELECT state FROM scan_runs WHERE id=?")
+			.get(claim.job.id),
+	).toEqual({ state: "complete" });
+	expect(
+		(
+			await action("progress", {
+				completedPulls: 1,
+				totalPulls: 1,
+				message: "Late",
+			})
+		).status,
+	).toBe(409);
+});
+
+test("discovery completes empty repositories, reports failed repositories, and exposes job receipts", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW);
+	const claim = collectorClaimSchema.parse(
+		await (await request("claim")).json(),
+	);
+	const action = (name: string, data: object = {}) =>
+		request(`jobs/${claim.job.id}/${name}`, {
+			...data,
+			leaseToken: claim.leaseToken,
+		});
+	expect(
+		(
+			await action("repositories", {
+				repositories: [
+					{ id: "empty", name: "empty" },
+					{ id: "denied", name: "denied" },
+				],
+			})
+		).status,
+	).toBe(200);
+	expect(
+		(
+			await action("progress", {
+				completedPulls: 0,
+				totalPulls: null,
+				message: "Discovering",
+			})
+		).status,
+	).toBe(200);
+	expect(
+		(
+			await action("publish", {
+				repositoryId: "empty",
+				state: "complete",
+				pullRequestCount: 0,
+				message: "Empty repository",
+			})
+		).status,
+	).toBe(200);
+	expect(
+		(
+			await action("repository-fail", {
+				repositoryId: "denied",
+				message: "403 forbidden",
+			})
+		).status,
+	).toBe(200);
+	expect(await (await action("complete")).json()).toMatchObject({
+		state: "partial",
+	});
+	const get = await app.request(
+		`http://localhost/api/collector/jobs/${claim.job.id}`,
+		{ headers: { host: "localhost" } },
+		{ DB: sqlite.db },
+	);
+	expect(get.status).toBe(200);
+	expect(await get.json()).toMatchObject({ state: "partial" });
+	const publicReceipt = await app.request(
+		`http://localhost/api/query/v1/jobs/${claim.job.id}`,
+		{ headers: { host: "localhost" } },
+		{ DB: sqlite.db },
+	);
+	expect(await publicReceipt.json()).toMatchObject({
+		repositories: [
+			expect.objectContaining({ state: "failed", error: "403 forbidden" }),
+			expect.objectContaining({ state: "succeeded", pullCount: 0 }),
+		],
+	});
+});
+
+test("executor failures retain watched cache and API validation is bounded", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const pull = seedPull(sqlite, { id: adoPullId(project.id, "repo-1", "1") });
+	await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);
+	const claim = collectorClaimSchema.parse(
+		await (await request("claim")).json(),
+	);
+	expect(
+		(
+			await request(`jobs/${claim.job.id}/fail`, {
+				leaseToken: claim.leaseToken,
+				kind: "auth_required",
+				message: "Login expired",
+			})
+		).status,
+	).toBe(200);
+	expect(sqlite.raw.query("SELECT active FROM pr_observations").get()).toEqual({
+		active: 1,
+	});
+	expect(sqlite.raw.query("SELECT state FROM pull_requests").get()).toEqual({
+		state: "open",
+	});
+	for (const [body, status] of [
+		["{", 400],
+		[JSON.stringify({ message: "x".repeat(8192) }), 413],
+	] as const) {
+		const response = await app.request(
+			"http://localhost/api/collector/heartbeat",
+			{
+				method: "POST",
+				headers: { host: "localhost", "content-type": "application/json" },
+				body,
+			},
+			{ DB: sqlite.db },
+		);
+		expect(response.status).toBe(status);
+	}
+	expect((await request("claim?kind=invalid")).status).toBe(400);
+});
+
+test("collector rejects remote hosts, malformed leases, and unplanned publication", async () => {
+	const direct = new Hono<AppEnv>().post("/claim", collectorClaimRoute);
+	expect(
+		(
+			await direct.request(
+				"https://signoff.hexly.ai/claim",
+				{ method: "POST", headers: { host: "signoff.hexly.ai" } },
+				{ DB: sqlite.db },
+			)
+		).status,
+	).toBe(403);
+	expect(
+		(await request("jobs/missing/batch", { leaseToken: "bad", pulls: [] }))
+			.status,
+	).toBe(400);
+	const project = seedProject(sqlite, { repositories: [] });
+	await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW);
+	const claim = collectorClaimSchema.parse(
+		await (await request("claim")).json(),
+	);
+	expect(
+		(
+			await request(`jobs/${claim.job.id}/complete`, {
+				leaseToken: claim.leaseToken,
+			})
+		).status,
+	).toBe(409);
+});
+
+test("adding a repo preserves watched candidates and cancels stale jobs with a receipt", async () => {
+	const project = seedProject(sqlite, { repositories: ["web-app"] });
+	const pull = seedPull(sqlite);
+	const watching = await addObservation(
+		sqlite.db,
+		"cli",
+		{ pullId: pull.id },
+		PR_TEST_NOW,
+	);
+	const response = await app.request(
+		`http://localhost/api/projects/${project.id}`,
+		{
+			method: "PATCH",
+			headers: { host: "localhost", "content-type": "application/json" },
+			body: JSON.stringify({
+				revision: project.revision,
+				repositories: ["web-app", "another"],
+			}),
+		},
+		{ DB: sqlite.db },
+	);
+	expect(response.status).toBe(200);
+	expect(sqlite.raw.query("SELECT id FROM pull_requests").get()).toEqual({
+		id: pull.id,
+	});
+	expect(
+		sqlite.raw.query("SELECT active,pull_id FROM pr_observations").get(),
+	).toEqual({ active: 1, pull_id: pull.id });
+	expect(
+		sqlite.raw
+			.query("SELECT state,cancel_reason FROM collection_jobs WHERE id=?")
+			.get(watching.job!.id),
+	).toEqual({ state: "canceled", cancel_reason: "scope_changed" });
+});

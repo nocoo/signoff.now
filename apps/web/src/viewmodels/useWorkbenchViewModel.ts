@@ -1,5 +1,6 @@
-import { refreshSettingsSchema } from "@signoff/domain/collection";
+import type { Observation } from "@signoff/domain/monitoring";
 import {
+	type CollectionJob,
 	type Project,
 	type ProjectWrite,
 	projectWriteSchema,
@@ -9,43 +10,52 @@ import {
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import {
-	authorOptions,
-	canScanProject,
-	collectorConnection,
+	addWatches,
+	discover,
+	loadCatalog,
+	loadCollector,
+	loadPending,
+	loadPull,
+	loadPulls,
+	pullQueryParams,
+	queryProject,
+	queryRow,
+	refreshWatches,
+	removeWatches,
+	seconds,
+} from "@/models/monitoringApi";
+import {
 	matchesRepository,
 	PULL_FILTER_PARAMS,
 	PULL_FILTER_STORAGE_KEY,
 	type PullFilter,
-	projectSummaries,
-	pullAuthorId,
-	pullMetrics,
-	pullRows,
-	REFRESH_SETTINGS_STORAGE_KEY,
 	readPullFilter,
-	scopePulls,
-	visiblePulls,
 	writePullFilter,
 } from "@/models/workbench";
 import {
 	createProject,
 	deleteProject,
-	loadWorkbench,
 	patchProject,
 	patchReadiness,
 	patchRefreshSettings,
-	scanProject,
-	updateCollectionView,
 } from "@/models/workbenchApi";
-
-import type { CollectionPage } from "./usePageCollection";
+import { useQueryBlock } from "./useQueryBlock";
 
 const PAGE_SIZE = 20;
+const emptyMetrics = {
+	open: 0,
+	attention: 0,
+	running: 0,
+	ready: 0,
+	draft: 0,
+	merged: 0,
+	closed: 0,
+};
 const message = (error: unknown) =>
 	error instanceof Error ? error.message : "Request failed";
-
-function storedFilters(): string {
+function storedFilters() {
 	try {
 		return localStorage.getItem(PULL_FILTER_STORAGE_KEY) ?? "";
 	} catch {
@@ -53,341 +63,190 @@ function storedFilters(): string {
 	}
 }
 
-function storedRefreshSettings() {
-	const defaults = { listCooldownSeconds: 120, detailCooldownSeconds: 300 };
-	try {
-		const parsed = refreshSettingsSchema.safeParse(
-			JSON.parse(localStorage.getItem(REFRESH_SETTINGS_STORAGE_KEY) ?? "{}"),
-		);
-		return parsed.success ? { ...defaults, ...parsed.data } : defaults;
-	} catch {
-		return defaults;
-	}
-}
-
+type Selection = { pullId: string; observation: Observation | null };
 export function useWorkbenchViewModel() {
-	const [data, setData] = useState<Workbench | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [refreshing, setRefreshing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [mutationError, setMutationError] = useState<string | null>(null);
-	const [notice, setNotice] = useState<string | null>(null);
-	const [busy, setBusy] = useState<string | null>(null);
-	const [cachedRefresh] = useState(storedRefreshSettings);
-	const listCooldownSeconds =
-		data?.refreshQueues?.find((queue) => queue.kind === "list")
-			?.cooldownSeconds ?? cachedRefresh.listCooldownSeconds;
-	const detailCooldownSeconds =
-		data?.refreshQueues?.find((queue) => queue.kind === "details")
-			?.cooldownSeconds ?? cachedRefresh.detailCooldownSeconds;
-	const [collectionError, setCollectionError] = useState<string | null>(null);
-	const [viewId] = useState(() => crypto.randomUUID());
-	const viewSequence = useRef(0);
-	const mounted = useRef(false);
-	const ticket = useRef(0);
-	const mutationLock = useRef(false);
 	const [params, setParams] = useSearchParams();
+	const location = useLocation();
 	const [savedFilters, setSavedFilters] = useState(storedFilters);
-	const hasLiveProjects =
-		data?.projects.some((project) => project.source === "cli") ?? false;
-	const filter = useMemo(() => {
-		const explicit = [...Object.values(PULL_FILTER_PARAMS), "author"].some(
-			(key) => params.has(key),
-		);
-		const parsed = readPullFilter(
-			explicit ? params : new URLSearchParams(savedFilters),
-			hasLiveProjects,
-		);
-		const project = data?.projects.find(
-			(item) => item.id === parsed.projectId && item.source === parsed.source,
-		);
-		return {
-			...parsed,
-			organization:
-				parsed.organization || project?.organization.toLowerCase() || "",
-		};
-	}, [params, hasLiveProjects, data, savedFilters]);
-
-	useEffect(() => {
-		if (loading) return;
-		const next = writePullFilter(filter).toString();
-		if (next === savedFilters) return;
-		setSavedFilters(next);
-		try {
-			localStorage.setItem(PULL_FILTER_STORAGE_KEY, next);
-		} catch {
-			// Navigation still remembers the filters when browser storage is unavailable.
-		}
-	}, [filter, loading, savedFilters]);
-
-	useEffect(() => {
-		try {
-			localStorage.setItem(
-				REFRESH_SETTINGS_STORAGE_KEY,
-				JSON.stringify({ listCooldownSeconds, detailCooldownSeconds }),
-			);
-		} catch {
-			// The current session still works when browser storage is unavailable.
-		}
-	}, [listCooldownSeconds, detailCooldownSeconds]);
-
-	const reload = useCallback(async () => {
-		if (!mounted.current) return;
-		const request = ++ticket.current;
-		setRefreshing(true);
-		try {
-			const next = await loadWorkbench();
-			if (request === ticket.current) {
-				setData(next);
-				setError(null);
-			}
-		} catch (failure) {
-			if (request === ticket.current) setError(message(failure));
-		} finally {
-			if (request === ticket.current) {
-				setLoading(false);
-				setRefreshing(false);
-			}
-		}
-	}, []);
-
-	useEffect(() => {
-		mounted.current = true;
-		void reload();
-		return () => {
-			mounted.current = false;
-			ticket.current++;
-		};
-	}, [reload]);
-	const collecting =
-		data?.collectionJobs?.some((job) =>
-			["running", "queued", "auth_required"].includes(job.state),
-		) ?? false;
-	useEffect(() => {
-		if (!hasLiveProjects && !collecting) return;
-		let pending = false;
-		const poll = async () => {
-			if (
-				pending ||
-				document.visibilityState !== "visible" ||
-				mutationLock.current
-			)
-				return;
-			pending = true;
-			try {
-				await reload();
-			} finally {
-				pending = false;
-			}
-		};
-		const timer = setInterval(() => {
-			void poll();
-		}, 3000);
-		const foreground = () => {
-			void poll();
-		};
-		document.addEventListener("visibilitychange", foreground);
-		return () => {
-			clearInterval(timer);
-			document.removeEventListener("visibilitychange", foreground);
-		};
-	}, [hasLiveProjects, collecting, reload]);
-
-	const publishCollectionView = useCallback(
-		async (view: CollectionPage) => {
-			const sequence = ++viewSequence.current;
-			try {
-				await updateCollectionView({ ...view, viewId, sequence });
-				if (mounted.current && sequence === viewSequence.current)
-					setCollectionError(null);
-				return true;
-			} catch (failure) {
-				if (mounted.current && sequence === viewSequence.current)
-					setCollectionError(message(failure));
-				return false;
-			}
-		},
-		[viewId],
-	);
-
-	const mutate = useCallback(
-		async (label: string, operation: () => Promise<string>) => {
-			if (mutationLock.current) return false;
-			mutationLock.current = true;
-			setBusy(label);
-			setMutationError(null);
-			setNotice(null);
-			let success = false;
-			try {
-				const resultNotice = await operation();
-				if (mounted.current) setNotice(resultNotice);
-				success = true;
-			} catch (failure) {
-				if (mounted.current) setMutationError(message(failure));
-			} finally {
-				await reload();
-				mutationLock.current = false;
-				if (mounted.current) setBusy(null);
-			}
-			return success;
-		},
-		[reload],
-	);
-
-	const rows = useMemo(() => (data ? pullRows(data) : []), [data]);
-	const matching = useMemo(
+	const filter = useMemo(
 		() =>
-			scopePulls(rows, {
-				...filter,
-				organization: "",
-				projectId: "",
-				repository: "",
-			}),
-		[rows, filter],
+			readPullFilter(
+				[...Object.values(PULL_FILTER_PARAMS), "author"].some((key) =>
+					params.has(key),
+				)
+					? params
+					: new URLSearchParams(savedFilters),
+				true,
+			),
+		[params, savedFilters],
+	);
+	useEffect(() => {
+		const next = writePullFilter(filter).toString();
+		if (next !== savedFilters) {
+			setSavedFilters(next);
+			try {
+				localStorage.setItem(PULL_FILTER_STORAGE_KEY, next);
+			} catch {
+				/* URL and session state remain usable. */
+			}
+		}
+	}, [filter, savedFilters]);
+	const requestedPage = Number(params.get("page") ?? 1);
+	const page =
+		Number.isSafeInteger(requestedPage) && requestedPage > 0
+			? requestedPage
+			: 1;
+	const query = pullQueryParams(filter, page);
+	const catalog = useQueryBlock(
+		`repos:${filter.source}`,
+		(signal) => loadCatalog(filter.source, signal),
+		30000,
+	);
+	const pulls = useQueryBlock(
+		location.pathname === "/" ? query : null,
+		(signal) => loadPulls(query, signal),
+		15000,
+	);
+	const collector = useQueryBlock(
+		`collector:${filter.source}`,
+		(signal) => loadCollector(filter.source, signal),
+		3000,
+	);
+	const selectedId = params.get("pr");
+	const detail = useQueryBlock(
+		selectedId ? `pr:${filter.source}:${selectedId}` : null,
+		(signal) => loadPull(filter.source, selectedId ?? "", signal),
+		15000,
+	);
+	const pending = useQueryBlock(
+		filter.watching === "watching"
+			? JSON.stringify([
+					"pending",
+					filter.source,
+					filter.organization,
+					filter.projectId,
+					filter.repository,
+				])
+			: null,
+		(signal) => loadPending(filter.source, signal, filter),
+		15000,
+	);
+	const pageRows = useMemo(
+		() => pulls.data?.data.map(queryRow) ?? [],
+		[pulls.data],
+	);
+	const selected = detail.data
+		? queryRow(detail.data.data)
+		: (pageRows.find((row) => row.pull.id === selectedId) ?? null);
+	const jobs: CollectionJob[] = useMemo(
+		() =>
+			collector.data?.jobs.map((job) => ({
+				id: job.id,
+				projectId: job.projectId,
+				revision: job.projectRevision,
+				state: job.state === "succeeded" ? "complete" : job.state,
+				kind: job.kind === "discover" ? "list" : "details",
+				requestedAt: seconds(job.requestedAt),
+				startedAt: seconds(job.startedAt),
+				updatedAt: seconds(job.updatedAt),
+				completedAt: seconds(job.completedAt),
+				completedPulls: job.progress.completed,
+				totalPulls: job.progress.total,
+				message: job.message,
+			})) ?? [],
+		[collector.data],
 	);
 	const projects = useMemo(
 		() =>
-			data
-				? projectSummaries(data, rows, matching).filter(
-						({ project }) => project.source === filter.source,
-					)
-				: [],
-		[data, rows, matching, filter.source],
+			(catalog.data?.projects ?? []).map((publicProject) => {
+				const project = queryProject(publicProject);
+				const repositories = (catalog.data?.data ?? [])
+					.filter((r) => r.project.id === project.id)
+					.map((r) => ({
+						key: r.key,
+						id: r.repository.id ?? r.repository.name,
+						name: r.repository.name,
+						project,
+						metrics: { ...emptyMetrics, ...r.counts },
+						total:
+							r.counts.open +
+							r.counts.draft +
+							r.counts.merged +
+							r.counts.closed,
+						url: r.repository.url,
+						coverage: r.coverage,
+						lastDiscoveredAt: r.lastDiscoveredAt,
+					}));
+				const metrics = repositories.reduce(
+					(acc, repo) => {
+						for (const key of Object.keys(acc) as (keyof typeof acc)[])
+							acc[key] += repo.metrics[key];
+						return acc;
+					},
+					{ ...emptyMetrics },
+				);
+				return {
+					project,
+					repositories,
+					metrics,
+					total: repositories.reduce((n, r) => n + r.total, 0),
+					job:
+						jobs
+							.filter((j) => j.projectId === project.id)
+							.sort((a, b) => b.requestedAt - a.requestedAt)[0] ?? null,
+					scans: [],
+				};
+			}),
+		[catalog.data, jobs],
 	);
-	const organizations = useMemo(
-		() =>
-			[
-				...new Set(
-					projects.map(({ project }) => project.organization.toLowerCase()),
-				),
-			].sort(),
-		[projects],
+	const organizations = [
+		...new Set(
+			projects.map(({ project }) => project.organization.toLowerCase()),
+		),
+	].sort();
+	const projectOptions = projects.filter(
+		({ project }) =>
+			!filter.organization ||
+			project.organization.toLowerCase() === filter.organization,
 	);
-	const projectOptions = useMemo(
-		() =>
-			projects
-				.filter(
-					({ project }) =>
-						!filter.organization ||
-						project.organization.toLowerCase() === filter.organization,
-				)
-				.sort(
-					(a, b) =>
-						a.project.projectKey.localeCompare(b.project.projectKey) ||
-						a.project.organization.localeCompare(b.project.organization),
-				),
-		[projects, filter.organization],
-	);
-	const repositories = useMemo(
-		() =>
-			projectOptions
-				.filter(
-					({ project }) => !filter.projectId || project.id === filter.projectId,
-				)
-				.flatMap((summary) => summary.repositories)
-				.sort(
-					(a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key),
-				),
-		[projectOptions, filter.projectId],
-	);
-	const selectedRepository =
-		repositories.find((repo) => matchesRepository(repo, filter.repository)) ??
-		null;
-	const scoped = useMemo(() => scopePulls(rows, filter), [rows, filter]);
-	const authors = useMemo(
-		() =>
-			authorOptions([
-				...scopePulls(rows, {
-					...filter,
-					query: "",
-					draft: "include",
-					authors: [],
-				}),
-				...rows.filter(
-					(row) =>
-						row.project.source === filter.source &&
-						filter.authors.includes(pullAuthorId(row)),
-				),
-			]),
-		[rows, filter],
-	);
-	const visible = useMemo(() => visiblePulls(scoped, filter), [scoped, filter]);
-	const metrics = useMemo(() => pullMetrics(scoped), [scoped]);
-	const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-	const requestedPage = Number(params.get("page") ?? 1);
-	const page = Math.min(
-		pageCount,
-		Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1),
-	);
-	const selected =
-		rows.find(
-			(row) =>
-				row.project.source === filter.source &&
-				row.pull.id === params.get("pr"),
-		) ?? null;
-	const pageRows = useMemo(
-		() => visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-		[visible, page],
-	);
-
-	// Only explicit navigation selects an outside-page detail. New data may move an
-	// open row off this page without changing the page's collection round.
-	const detailNavigation = JSON.stringify([filter, page, params.get("pr")]);
-	const detailScope = useRef({ navigation: "", pullId: "" });
-	if (data && detailScope.current.navigation !== detailNavigation) {
-		detailScope.current = {
-			navigation: detailNavigation,
-			pullId:
-				selected && !pageRows.some((row) => row.pull.id === selected.pull.id)
-					? selected.pull.id
-					: "",
-		};
-	}
-	const externalDetail =
-		selected?.pull.id === detailScope.current.pullId ? selected : null;
-	const collectionPullIds = (externalDetail ? [externalDetail] : pageRows)
+	const repositories = projectOptions
 		.filter(
-			({ project }) =>
-				project.enabled &&
-				project.source === "cli" &&
-				project.provider === "ado",
+			({ project }) => !filter.projectId || project.id === filter.projectId,
 		)
-		.map(({ pull }) => pull.id);
-	const navigation = JSON.stringify([filter, page, externalDetail?.pull.id]);
-	const collectionPage = useMemo(
-		() => ({ navigation, key: crypto.randomUUID() }),
-		[navigation],
-	);
-
-	const setFilter = (patch: Partial<PullFilter>) => {
-		const next = { ...filter, ...patch };
-		if (patch.source !== undefined) {
-			next.organization = patch.organization ?? "";
-			next.projectId = patch.projectId ?? "";
-			next.repository = patch.repository ?? "";
-			next.authors = patch.authors ?? [];
-		} else if (patch.organization !== undefined) {
-			next.projectId = patch.projectId ?? "";
-			next.repository = patch.repository ?? "";
-		} else if (patch.projectId !== undefined) {
-			next.repository = patch.repository ?? "";
-		}
-		if (patch.projectId) {
-			const project = data?.projects.find(
-				(item) => item.id === patch.projectId && item.source === next.source,
-			);
-			if (project) next.organization = project.organization.toLowerCase();
-		}
-		setParams(
-			(previous) => {
-				const result = writePullFilter(next, previous);
-				result.delete("page");
-				if (patch.source !== undefined) result.delete("pr");
-				return result;
-			},
-			{ replace: true },
-		);
-	};
+		.flatMap((p) => p.repositories);
+	const selectedRepository =
+		repositories.find((r) => matchesRepository(r, filter.repository)) ?? null;
+	const total = pulls.data?.page.total ?? 0;
+	const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+	const loading = location.pathname === "/" ? pulls.loading : catalog.loading;
+	const data: Workbench | null =
+		catalog.data || pulls.data
+			? {
+					projects: catalog.data?.projects.map(queryProject) ?? [
+						...new Map(pageRows.map((r) => [r.project.id, r.project])).values(),
+					],
+					pullRequests: pageRows.map((r) => r.pull),
+					collectionJobs: jobs,
+					scans: jobs
+						.filter((j) => ["complete", "partial", "failed"].includes(j.state))
+						.map((j) => ({
+							id: j.id,
+							projectId: j.projectId,
+							source: filter.source,
+							state: j.state as "complete" | "partial" | "failed",
+							startedAt: j.startedAt ?? j.requestedAt,
+							completedAt: j.completedAt ?? j.updatedAt,
+							pullRequestCount: j.completedPulls,
+							advancedStages: 0,
+							message: j.message,
+						})),
+					demoMode: import.meta.env.DEV,
+					fetchedAt:
+						seconds(pulls.data?.generatedAt ?? catalog.data?.generatedAt) ??
+						Date.now() / 1000,
+					truncated: false,
+				}
+			: null;
 	const setParam = (key: string, value: string | null) =>
 		setParams(
 			(previous) => {
@@ -398,88 +257,301 @@ export function useWorkbenchViewModel() {
 			},
 			{ replace: key === "page" },
 		);
-
+	useEffect(() => {
+		if (pulls.data && !pulls.loading && page > pageCount)
+			setParams(
+				(previous) => {
+					const next = new URLSearchParams(previous);
+					next.set("page", String(pageCount));
+					return next;
+				},
+				{ replace: true },
+			);
+	}, [pulls.data, pulls.loading, page, pageCount, setParams]);
+	const setFilter = (patch: Partial<PullFilter>) => {
+		const next = { ...filter, ...patch };
+		if (patch.source !== undefined) {
+			next.organization = patch.organization ?? "";
+			next.projectId = patch.projectId ?? "";
+			next.repository = patch.repository ?? "";
+			next.authors = patch.authors ?? [];
+		} else if (patch.organization !== undefined) {
+			next.projectId = patch.projectId ?? "";
+			next.repository = patch.repository ?? "";
+		} else if (patch.projectId !== undefined)
+			next.repository = patch.repository ?? "";
+		if (patch.projectId)
+			next.organization =
+				projects
+					.find((p) => p.project.id === patch.projectId)
+					?.project.organization.toLowerCase() ?? next.organization;
+		setParams(
+			(previous) => {
+				const result = writePullFilter(next, previous);
+				result.delete("page");
+				if (patch.source !== undefined) result.delete("pr");
+				return result;
+			},
+			{ replace: true },
+		);
+	};
+	const reload = useCallback(async () => {
+		await Promise.allSettled([
+			catalog.reload(),
+			pulls.reload(),
+			collector.reload(),
+			detail.reload(),
+			pending.reload(),
+		]);
+	}, [
+		catalog.reload,
+		pulls.reload,
+		collector.reload,
+		detail.reload,
+		pending.reload,
+	]);
+	const [busy, setBusy] = useState<string | null>(null);
+	const [feedback, setFeedback] = useState<{
+		source: PullFilter["source"];
+		error: string | null;
+		notice: string | null;
+	}>({ source: filter.source, error: null, notice: null });
+	const mutationError =
+		feedback.source === filter.source ? feedback.error : null;
+	const notice = feedback.source === filter.source ? feedback.notice : null;
+	const setMutationError = (error: string | null) =>
+		setFeedback((previous) => ({
+			source: filter.source,
+			error,
+			notice: previous.source === filter.source ? previous.notice : null,
+		}));
+	const sourceRef = useRef(filter.source);
+	sourceRef.current = filter.source;
+	const mutationLock = useRef(false);
+	const mounted = useRef(false);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
+	const mutate = async (label: string, operation: () => Promise<string>) => {
+		if (mutationLock.current) return false;
+		const source = filter.source;
+		mutationLock.current = true;
+		setBusy(label);
+		setFeedback({ source, error: null, notice: null });
+		try {
+			const result = await operation();
+			if (mounted.current && sourceRef.current === source) {
+				setFeedback((previous) => ({ ...previous, notice: result }));
+				await reload();
+			}
+			return true;
+		} catch (error) {
+			if (mounted.current && sourceRef.current === source)
+				setMutationError(message(error));
+			return false;
+		} finally {
+			mutationLock.current = false;
+			if (mounted.current) setBusy(null);
+		}
+	};
+	const selectionKey = query;
+	const [selection, setSelection] = useState<{
+		key: string;
+		items: Selection[];
+	}>({ key: "", items: [] });
+	const selectionItems =
+		selection.key === selectionKey
+			? selection.items.filter((item) =>
+					pageRows.some((row) => row.pull.id === item.pullId),
+				)
+			: [];
+	const selectedIds = new Set(selectionItems.map((item) => item.pullId));
+	const selectableRows = pageRows.filter(
+		(row) => row.pull.state === "open" || row.observation?.active,
+	);
+	const toggleSelection = (id: string, checked: boolean) => {
+		const row = selectableRows.find((r) => r.pull.id === id);
+		if (!row) return;
+		setSelection((previous) => ({
+			key: selectionKey,
+			items: [
+				...(previous.key === selectionKey ? previous.items : []).filter(
+					(item) => item.pullId !== id,
+				),
+				...(checked
+					? [{ pullId: id, observation: row.observation ?? null }]
+					: []),
+			],
+		}));
+	};
+	const changeWatches = (adding: boolean, items: Selection[]) =>
+		mutate("watch", async () => {
+			const applicable = items.filter((item) =>
+				adding ? !item.observation?.active : item.observation?.active,
+			);
+			if (!applicable.length) return "No watch changes needed.";
+			const result = adding
+				? await addWatches(
+						filter.source,
+						applicable.map((item) => item.pullId),
+					)
+				: await removeWatches(
+						filter.source,
+						applicable.flatMap((item) =>
+							item.observation ? [item.observation] : [],
+						),
+					);
+			const succeeded = new Set<string>();
+			const failures: string[] = [];
+			const accepted = adding
+				? ["added", "already_observed"]
+				: ["removed", "already_stopped"];
+			for (const [index, item] of applicable.entries()) {
+				const receipt = result.results[index];
+				if (receipt && accepted.includes(receipt.status))
+					succeeded.add(item.pullId);
+				else
+					failures.push(
+						`${item.pullId}: ${receipt ? (receipt.error?.message ?? "Watch generation changed; reload before trying again.") : "Missing command result; reload before trying again."}`,
+					);
+			}
+			if (mounted.current && sourceRef.current === filter.source) {
+				setSelection((previous) =>
+					previous.key === selectionKey
+						? {
+								...previous,
+								items: previous.items.filter(
+									(item) => !succeeded.has(item.pullId),
+								),
+							}
+						: previous,
+				);
+				if (failures.length) setMutationError(failures.join(" "));
+			}
+			return `${succeeded.size} PR${succeeded.size === 1 ? "" : "s"} ${adding ? "added to" : "removed from"} the shared watch list.`;
+		});
+	const canScan = (project: Project) =>
+		(project.source === "demo"
+			? import.meta.env.DEV
+			: project.provider === "ado") &&
+		!jobs.some(
+			(job) =>
+				job.projectId === project.id &&
+				job.kind === "list" &&
+				["queued", "running", "auth_required"].includes(job.state),
+		);
 	return {
 		data,
-		connection: collectorConnection(data),
-		canScan: (project: Project) =>
-			data !== null && canScanProject(project, data),
 		projects,
 		organizations,
 		projectOptions,
 		repositories,
 		selectedRepository,
-		authors,
-		selectRepository: (key: string) => {
-			const repository = repositories.find((repo) => repo.key === key);
-			setFilter(
-				repository
-					? {
-							organization: repository.project.organization.toLowerCase(),
-							projectId: repository.project.id,
-							repository: repository.id,
-						}
-					: { repository: "" },
-			);
-		},
-		rows,
-		visible,
-		metrics,
 		filter,
 		setFilter,
+		connection: collector.data?.connection ?? {
+			state: "offline" as const,
+			message: collector.error ?? "Start signoff daemon to collect watched PRs",
+		},
+		collector: collector.data,
+		catalogError: catalog.error,
+		coverage: pulls.data?.coverage ?? catalog.data?.coverage,
+		rows: pageRows,
+		visible: pageRows,
+		pageRows,
+		total,
+		metrics: pulls.data?.metrics ?? emptyMetrics,
+		authors: pulls.data?.authors ?? [],
 		loading,
-		refreshing,
-		error,
+		pullsLoaded: pulls.data !== null,
+		refreshing: pulls.refreshing || catalog.refreshing,
+		error: location.pathname === "/" ? pulls.error : catalog.error,
 		mutationError,
 		notice,
 		busy,
-		listCooldownSeconds,
-		detailCooldownSeconds,
-		setRefreshCooldown: async (kind: RefreshQueueKind, seconds: number) => {
-			const parsed = refreshCooldownSchema.safeParse(seconds);
-			if (!parsed.success || !data) return false;
-			return mutate("refresh-settings", async () => {
-				await patchRefreshSettings(
-					kind === "list"
-						? { listCooldownSeconds: parsed.data }
-						: { detailCooldownSeconds: parsed.data },
-				);
-				return "";
-			});
-		},
-		publishCollectionView,
-		collectionPageKey: collectionPage.key,
-		collectionPullIds,
-		collectionError,
+		collectionError: collector.error,
+		detailLoading: Boolean(selectedId) && detail.loading,
+		detailError: detail.error,
+		selected,
+		missingSelection: Boolean(selectedId) && !detail.loading && !selected,
+		listCooldownSeconds: 0,
+		detailCooldownSeconds: collector.data?.detailCooldownSeconds ?? 300,
+		setRefreshCooldown: async (kind: RefreshQueueKind, value: number) =>
+			kind === "details" && refreshCooldownSchema.safeParse(value).success
+				? mutate("refresh-settings", async () => {
+						await patchRefreshSettings({
+							detailCooldownSeconds: refreshCooldownSchema.parse(value),
+						});
+						return "Watch refresh cooldown saved.";
+					})
+				: false,
 		reload,
 		page,
 		pageCount,
 		pageSize: PAGE_SIZE,
-		pageRows,
-		setPage: (nextPage: number) => setParam("page", String(nextPage)),
-		selected,
+		setPage: (value: number) => setParam("page", String(value)),
 		selectPull: (id: string | null) => setParam("pr", id),
-		missingSelection:
-			data !== null && !loading && Boolean(params.get("pr")) && !selected,
-		clearMutationError: () => setMutationError(null),
-		refreshPull: async (id: string) => {
-			const row = rows.find((candidate) => candidate.pull.id === id);
-			if (
-				!row?.project.enabled ||
-				(row.project.source === "demo"
-					? !data?.demoMode
-					: row.project.provider !== "ado")
-			)
-				return false;
-			return mutate("checks", async () => {
-				if (row.project.source === "cli") {
-					await scanProject(row.project.id, row.project.revision, [id]);
-					return `Queued PR #${row.pull.number} checks.`;
-				}
-				await scanProject(row.project.id, row.project.revision);
-				return "Sample PR statuses updated.";
-			});
+		selectRepository: (key: string) => {
+			const repo = repositories.find((r) => r.key === key);
+			setFilter(
+				repo
+					? {
+							organization: repo.project.organization.toLowerCase(),
+							projectId: repo.project.id,
+							repository: repo.id,
+						}
+					: { repository: "" },
+			);
 		},
+		clearMutationError: () => setMutationError(null),
+		selectedIds,
+		selectedCount: selectionItems.length,
+		selectionItems,
+		selectableCount: selectableRows.length,
+		toggleSelection,
+		selectPage: (checked: boolean) =>
+			setSelection({
+				key: selectionKey,
+				items: checked
+					? selectableRows.map((row) => ({
+							pullId: row.pull.id,
+							observation: row.observation ?? null,
+						}))
+					: [],
+			}),
+		watchSelected: (adding: boolean) => changeWatches(adding, selectionItems),
+		toggleWatch: () =>
+			selected
+				? changeWatches(!selected.observation?.active, [
+						{
+							pullId: selected.pull.id,
+							observation: selected.observation ?? null,
+						},
+					])
+				: Promise.resolve(false),
+		pendingObservations: pending.data?.data ?? [],
+		pendingTotal: pending.data?.page.total ?? 0,
+		removePending: (observation: { id: string; generation: number }) =>
+			mutate("watch", async () => {
+				const result = await removeWatches(filter.source, [observation]);
+				const item = result.results[0];
+				if (!item || !["removed", "already_stopped"].includes(item.status))
+					throw new Error(
+						item?.error?.message ??
+							"Observation changed; reload before removing it.",
+					);
+				return "PR removed from the watch list.";
+			}),
+		refreshPull: (id?: string) =>
+			mutate("checks", async () => {
+				const result = await refreshWatches(filter.source, id);
+				return result.jobs.length
+					? `Queued ${result.jobs.length} watched PR checks.`
+					: "The watch list is empty.";
+			}),
 		saveReadiness: (project: Project, rules: ReadinessRule[]) =>
 			mutate("readiness", async () => {
 				await patchReadiness(project.id, project.readinessRevision ?? 1, rules);
@@ -487,85 +559,50 @@ export function useWorkbenchViewModel() {
 			}),
 		save: (draft: ProjectWrite, project: Project | null) =>
 			mutate("save", async () => {
-				const saved = project
-					? await patchProject(project.id, {
-							...draft,
-							revision: project.revision,
-						})
-					: await createProject(draft);
+				if (project)
+					await patchProject(project.id, {
+						...draft,
+						revision: project.revision,
+					});
+				else await createProject(draft);
 				return project
 					? "Project updated."
-					: saved.source === "demo"
-						? "Project added. Scan it to load sample pull requests."
-						: "Project added. Scan it to collect live Azure DevOps pull requests.";
+					: "Project added. Discover its PRs to choose which to watch.";
 			}),
 		remove: (project: Project) =>
 			mutate("delete", async () => {
 				await deleteProject(project.id, project.revision);
 				return `${project.name} removed.`;
 			}),
-		toggleMonitoring: (project: Project) =>
-			mutate(project.id, async () => {
-				await patchProject(project.id, {
-					revision: project.revision,
-					enabled: !project.enabled,
-				});
-				return `${project.name} monitoring ${project.enabled ? "paused" : "resumed"}.`;
-			}),
+		canScan,
 		scan: (projectId?: string) =>
 			mutate(projectId ?? "scan-all", async () => {
-				const scannableProjects = (data?.projects ?? []).filter(
-					(p) =>
-						data &&
-						canScanProject(p, data) &&
-						(projectId ? p.id === projectId : p.source === filter.source),
+				const targets = projectId
+					? projects.filter((p) => p.project.id === projectId)
+					: projects.filter((p) => canScan(p.project));
+				const results = await Promise.allSettled(
+					targets.map((p) =>
+						discover(filter.source, { projectId: p.project.id }),
+					),
 				);
-				if (!scannableProjects.length)
-					throw new Error(
-						"No eligible projects to scan. Check monitoring and active scans.",
-					);
-				let count = 0;
-				let stages = 0;
-				let queued = 0;
-				let authRequired = false;
-				const failures: string[] = [];
-				for (const project of scannableProjects) {
-					try {
-						const result =
-							project.source === "cli"
-								? await scanProject(project.id, project.revision, [])
-								: await scanProject(project.id, project.revision);
-						if ("advancedStages" in result) {
-							count++;
-							stages += result.advancedStages;
-						} else {
-							queued++;
-							authRequired ||= result.state === "auth_required";
-						}
-					} catch (failure) {
-						failures.push(`${project.name}: ${message(failure)}`);
-					}
-				}
-				if (failures.length)
-					throw new Error(
-						`${count} project(s) scanned. ${queued} queued. ${failures.join(" ")}`,
-					);
-				const notices: string[] = [];
-				if (count)
-					notices.push(
-						`Scanned ${count} project${count === 1 ? "" : "s"} · ${stages} build stages updated.`,
-					);
-				if (queued)
-					notices.push(
-						`Queued ${queued} project${queued === 1 ? "" : "s"} for live collection.${authRequired ? " Waiting for Azure login." : ""}`,
-					);
-				return notices.join(" ");
+				const errors = results.flatMap((r) =>
+					r.status === "rejected" ? [message(r.reason)] : [],
+				);
+				if (errors.length) throw new Error(errors.join(" "));
+				return `Queued discovery for ${targets.length} project${targets.length === 1 ? "" : "s"}. Select PRs to watch after discovery completes.`;
 			}),
+		discoverRepo: () =>
+			selectedRepository
+				? mutate("discover", async () => {
+						await discover(filter.source, {
+							repositoryUrl: selectedRepository.url,
+						});
+						return "Repository discovery queued. Existing watches are unchanged.";
+					})
+				: Promise.resolve(false),
 	};
 }
-
 export type WorkbenchViewModel = ReturnType<typeof useWorkbenchViewModel>;
-
 export function useProjectFormViewModel(
 	project: Project | null,
 	onSave: (draft: ProjectWrite) => Promise<boolean>,

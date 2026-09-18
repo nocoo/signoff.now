@@ -1,14 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { makeDemoPulls } from "@signoff/domain/demo";
 import {
 	collectionJobSchema,
 	type Project,
 	projectSchema,
 	type ReadinessRule,
-	scanRunSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
 import { Hono } from "hono";
 import app from "../index.js";
+import {
+	completeJob,
+	publishRepository,
+	registerJobRepositories,
+	stagePulls,
+} from "../monitoring/publication";
+import { claimJob } from "../monitoring/scheduler";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1.js";
 import type { AppEnv, Bindings } from "../types.js";
 import { projectsScanRoute } from "./workbench.js";
@@ -314,13 +321,44 @@ async function insertDemoProject(
 	expect(project).toBeDefined();
 	return project!;
 }
-async function scannedProject() {
-	const project = await insertDemoProject();
+async function executeSampleDiscovery(project: Project) {
 	const response = await request(`/api/projects/${project.id}/scan`, "POST", {
 		revision: project.revision,
 	});
-	expect(response.status).toBe(200);
-	expect(scanRunSchema.parse(await response.json()).pullRequestCount).toBe(6);
+	expect(response.status).toBe(202);
+	const job = collectionJobSchema.parse(await response.json());
+	const now = Math.floor(Date.now() / 1000);
+	const claim = (await claimJob(sqlite.db, now, { jobId: job.id }))!;
+	const pulls = makeDemoPulls(project, now);
+	const repos = [
+		...new Map(pulls.map((pr) => [pr.repository.id, pr.repository])).values(),
+	];
+	await registerJobRepositories(
+		sqlite.db,
+		job.id,
+		claim.leaseToken,
+		repos,
+		now,
+	);
+	for (const repo of repos) {
+		const items = pulls.filter((pr) => pr.repository.id === repo.id);
+		await stagePulls(sqlite.db, job.id, claim.leaseToken, items, now);
+		await publishRepository(
+			sqlite.db,
+			job.id,
+			claim.leaseToken,
+			repo.id,
+			items.length,
+			"complete",
+			"Discovered sample",
+			now,
+		);
+	}
+	await completeJob(sqlite.db, job.id, claim.leaseToken, now);
+}
+async function scannedProject() {
+	const project = await insertDemoProject();
+	await executeSampleDiscovery(project);
 	return (await snapshot()).projects[0]!;
 }
 
@@ -378,7 +416,7 @@ describe("project CRUD with actual SQLite", () => {
 			"platform-sdk",
 		]);
 	});
-	test("scope edits clear snapshots and history using the old revision", async () => {
+	test("scope edits remove out-of-scope snapshots while retaining historical scan receipts", async () => {
 		const project = await create({ repositories: ["api-gateway"] });
 		const pull = {
 			id: "ado:scope:repo:1",
@@ -441,7 +479,7 @@ describe("project CRUD with actual SQLite", () => {
 		const after = await snapshot();
 		expect(after.projects[0]?.repositories).toEqual(["platform-sdk"]);
 		expect(after.pullRequests).toEqual([]);
-		expect(after.scans).toEqual([]);
+		expect(after.scans).toHaveLength(1);
 		expect(
 			after.collectionJobs?.filter((job) =>
 				["queued", "running", "auth_required"].includes(job.state),
@@ -559,30 +597,29 @@ describe("project CRUD with actual SQLite", () => {
 	});
 });
 
-describe("local-only demo scanning", () => {
-	test("advances persisted stages and records each scan", async () => {
-		const project = await scannedProject();
-		const before = await snapshot();
+describe("explicit discovery compatibility route", () => {
+	test("discovery queues without collecting or changing watches, and publishes only in the executor", async () => {
+		const project = await insertDemoProject();
 		const response = await request(`/api/projects/${project.id}/scan`, "POST", {
 			revision: project.revision,
 		});
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(202);
+		const pending = await snapshot();
+		expect(pending.pullRequests).toEqual([]);
+		expect(pending.collectionJobs?.[0]).toMatchObject({
+			kind: "list",
+			state: "queued",
+		});
 		expect(
-			scanRunSchema.parse(await response.json()).advancedStages,
-		).toBeGreaterThan(0);
+			sqlite.raw.query("SELECT COUNT(*) AS n FROM pr_observations").get(),
+		).toEqual({ n: 0 });
+		await executeSampleDiscovery(project);
 		const after = await snapshot();
-		expect(after.scans).toHaveLength(2);
-		expect(after.projects[0]!.revision).toBe(project.revision + 1);
-		expect(after.pullRequests).not.toEqual(before.pullRequests);
-		expect(
-			(
-				await request(`/api/projects/${project.id}/scan`, "POST", {
-					revision: project.revision,
-				})
-			).status,
-		).toBe(409);
+		expect(after.pullRequests).toHaveLength(6);
+		expect(after.scans).toHaveLength(1);
+		expect(after.projects[0]?.revision).toBe(project.revision);
 	});
-	test("rejects scans without explicit local mode and never touches CLI data", async () => {
+	test("requires local sample mode, valid bodies and explicit discovery", async () => {
 		const project = await scannedProject();
 		const before = await snapshot();
 		expect(
@@ -608,20 +645,11 @@ describe("local-only demo scanning", () => {
 				)
 			).status,
 		).toBe(403);
-		expect((await snapshot()).pullRequests).toEqual(before.pullRequests);
-		const created = await request(
-			"/api/projects",
-			"POST",
-			{ ...body, projectKey: "CLI Project" },
-			{ SIGNOFF_DEMO_MODE: undefined },
-		);
-		expect(projectSchema.parse(await created.json()).source).toBe("cli");
-		expect(
-			(await request(`/api/projects/${project.id}/scan`, "POST", {})).status,
-		).toBe(400);
-		expect(
-			(await request(`/api/projects/${project.id}/scan`, "POST")).status,
-		).toBe(400);
+		for (const value of [{}, undefined])
+			expect(
+				(await request(`/api/projects/${project.id}/scan`, "POST", value))
+					.status,
+			).toBe(400);
 		expect(
 			(
 				await request(`/api/projects/${project.id}/scan`, "POST", {
@@ -630,34 +658,31 @@ describe("local-only demo scanning", () => {
 				})
 			).status,
 		).toBe(413);
-	});
-	test("enqueues one CLI collection job per revision and returns it again", async () => {
-		const project = await create();
-		expect(project.source).toBe("cli");
-		const first = await request(`/api/projects/${project.id}/scan`, "POST", {
-			revision: project.revision,
-		});
-		expect(first.status).toBe(200);
-		const job = collectionJobSchema.parse(await first.json());
-		expect(job.state).toBe("queued");
-		expect(job.projectId).toBe(project.id);
-		expect(job.revision).toBe(project.revision);
-		const again = await request(`/api/projects/${project.id}/scan`, "POST", {
-			revision: project.revision,
-		});
-		expect(again.status).toBe(200);
-		expect(collectionJobSchema.parse(await again.json()).id).toBe(job.id);
-		const paused = await create({
-			projectKey: "Paused",
-			enabled: false,
-		});
 		expect(
 			(
-				await request(`/api/projects/${paused.id}/scan`, "POST", {
-					revision: paused.revision,
+				await request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: project.revision,
+					pullIds: [before.pullRequests[0]!.id],
 				})
 			).status,
-		).toBe(409);
+		).toBe(410);
+		expect((await snapshot()).pullRequests).toEqual(before.pullRequests);
+	});
+	test("concurrent explicit requests coalesce by scope and work even with the old enabled flag off", async () => {
+		const project = await create({ enabled: false });
+		const responses = await Promise.all(
+			[1, 2].map(() =>
+				request(`/api/projects/${project.id}/scan`, "POST", {
+					revision: project.revision,
+				}),
+			),
+		);
+		expect(responses.map((r) => r.status)).toEqual([202, 202]);
+		const jobs = await Promise.all(
+			responses.map(async (r) => collectionJobSchema.parse(await r.json())),
+		);
+		expect(jobs[0]?.id).toBe(jobs[1]?.id);
+		expect((await snapshot()).collectionJobs).toHaveLength(1);
 		expect(
 			(
 				await request(`/api/projects/${project.id}/scan`, "POST", {
@@ -665,17 +690,13 @@ describe("local-only demo scanning", () => {
 				})
 			).status,
 		).toBe(409);
-		const board = await snapshot();
-		expect(board.collectionJobs).toHaveLength(1);
-		expect(board.collectionJobs?.[0]?.id).toBe(job.id);
-		expect(JSON.stringify(board)).not.toContain("leaseToken");
-		expect(JSON.stringify(board)).not.toContain("lease_token");
+		expect(JSON.stringify(await snapshot())).not.toContain("lease_token");
 	});
-	test("CLI scan fails closed when the project changes during enqueue", async () => {
-		const project = await create({ projectKey: "StaleEnqueue" });
+	test("a project change during enqueue cannot leave a stale task", async () => {
+		const project = await create();
 		sqlite.beforeBatch("INSERT INTO collection_jobs", () => {
 			sqlite.raw
-				.query("UPDATE projects SET revision = revision + 1 WHERE id = ?")
+				.query("UPDATE projects SET revision=revision+1 WHERE id=?")
 				.run(project.id);
 		});
 		expect(
@@ -685,112 +706,7 @@ describe("local-only demo scanning", () => {
 				})
 			).status,
 		).toBe(409);
-	});
-	test("returns the competing CLI job when insert loses the unique slot", async () => {
-		const project = await create({ projectKey: "Race" });
-		const competing = crypto.randomUUID();
-		const timestamp = Math.floor(Date.now() / 1000);
-		sqlite.beforeBatch("INSERT INTO collection_jobs", () => {
-			sqlite.raw
-				.query(
-					`INSERT INTO collection_jobs (id, project_id, revision, state, requested_at, updated_at, completed_pulls, message)
-					 VALUES (?, ?, ?, 'queued', ?, ?, 0, 'waiting')`,
-				)
-				.run(competing, project.id, project.revision, timestamp, timestamp);
-		});
-		const response = await request(`/api/projects/${project.id}/scan`, "POST", {
-			revision: project.revision,
-		});
-		expect(response.status).toBe(200);
-		expect(collectionJobSchema.parse(await response.json()).id).toBe(competing);
-	});
-	test("refuses demo scans that already exceed the sample cap", async () => {
-		const project = await insertDemoProject({ projectKey: "Overflow" });
-		for (let index = 0; index < 41; index++) {
-			const pull = {
-				id: `${project.id}-pr-${index}`,
-				projectId: project.id,
-				externalId: String(index + 1),
-				number: index + 1,
-				repository: { id: "repo", name: "services" },
-				title: "Overflow",
-				description: "",
-				author: { id: "maya", name: "Maya Chen" },
-				sourceBranch: "feature/overflow",
-				targetBranch: "main",
-				state: "open",
-				draft: false,
-				mergeable: "clear",
-				coverage: "complete",
-				createdAt: 10,
-				updatedAt: 20,
-				observedAt: 30,
-				requiredApprovals: 0,
-				reviewers: [],
-				policies: [],
-				builds: [],
-				labels: [],
-				filesChanged: null,
-				additions: null,
-				deletions: null,
-				comments: null,
-				activity: [],
-			};
-			sqlite.raw
-				.query(
-					`INSERT INTO pull_requests (id, project_id, repository_id, external_id, state, updated_at, snapshot)
-					 VALUES (?, ?, 'repo', ?, 'open', 20, ?)`,
-				)
-				.run(pull.id, project.id, String(index + 1), JSON.stringify(pull));
-		}
-		expect(
-			(
-				await request(`/api/projects/${project.id}/scan`, "POST", {
-					revision: project.revision,
-				})
-			).status,
-		).toBe(400);
-	});
-	test("keeps paused projects unchanged", async () => {
-		const project = await create({ enabled: false });
-		expect(
-			(
-				await request(`/api/projects/${project.id}/scan`, "POST", {
-					revision: project.revision,
-				})
-			).status,
-		).toBe(409);
-		expect((await snapshot()).pullRequests).toEqual([]);
-	});
-	test.each([
-		"edit",
-		"delete",
-		"cli",
-	])("does not write snapshots after a concurrent %s", async (change) => {
-		const project = await scannedProject();
-		const before = await snapshot();
-		sqlite.beforeBatch("INSERT INTO pull_requests", () => {
-			if (change === "delete")
-				sqlite.raw.query("DELETE FROM projects WHERE id = ?").run(project.id);
-			else
-				sqlite.raw
-					.query(
-						`UPDATE projects SET revision = revision + 1${change === "cli" ? ", source = 'cli'" : ""} WHERE id = ?`,
-					)
-					.run(project.id);
-		});
-		expect(
-			(
-				await request(`/api/projects/${project.id}/scan`, "POST", {
-					revision: project.revision,
-				})
-			).status,
-		).toBe(409);
-		const after = await snapshot();
-		expect(after.pullRequests).toEqual(
-			change === "delete" ? [] : before.pullRequests,
-		);
-		expect(after.scans).toEqual(change === "delete" ? [] : before.scans);
+		expect((await snapshot()).collectionJobs).toEqual([]);
 	});
 	test("rejects all workbench routes on the pipeline-token host", async () => {
 		for (const [method, path] of [

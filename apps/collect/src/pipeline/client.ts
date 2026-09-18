@@ -47,6 +47,7 @@ export async function pipelineRequest(
 		writeToken?: string | null;
 		fetchImpl: FetchLike;
 		timeoutMs: number;
+		redirect?: "error" | "follow" | "manual";
 	},
 	method: string,
 	path: string,
@@ -70,6 +71,7 @@ export async function pipelineRequest(
 			headers,
 			body: body === undefined ? undefined : JSON.stringify(body),
 			signal: controller.signal,
+			redirect: opts.redirect,
 		});
 		let parsed: unknown = null;
 		const text = await res.text();

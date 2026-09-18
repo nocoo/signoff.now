@@ -22,9 +22,7 @@ import {
 	FolderGit2,
 	GitBranch,
 	ListOrdered,
-	Pause,
 	Pencil,
-	Play,
 	Plus,
 	ScanLine,
 	Trash2,
@@ -62,8 +60,7 @@ export function ProjectsPage() {
 				actions={
 					<>
 						<span className="text-xs text-basalt-muted-foreground">
-							{vm.projects.filter(({ project }) => project.enabled).length}{" "}
-							monitored
+							{vm.projects.length} registered
 						</span>
 						<Button
 							size="sm"
@@ -315,20 +312,6 @@ export function ProjectsPage() {
 										<Button
 											variant="ghost"
 											size="icon"
-											className="h-8 w-8"
-											aria-label={`${project.enabled ? "Pause" : "Resume"} ${project.name}`}
-											disabled={Boolean(vm.busy)}
-											onClick={() => void vm.toggleMonitoring(project)}
-										>
-											{project.enabled ? (
-												<Pause className="h-3.5 w-3.5" aria-hidden />
-											) : (
-												<Play className="h-3.5 w-3.5" aria-hidden />
-											)}
-										</Button>
-										<Button
-											variant="ghost"
-											size="icon"
 											className="h-8 w-8 text-basalt-muted-foreground hover:text-basalt-destructive"
 											aria-label={`Delete ${project.name}`}
 											disabled={Boolean(vm.busy)}
@@ -489,29 +472,22 @@ function ProjectScanStatus({
 	job: CollectionJob | null;
 }) {
 	const labels = {
-		never: "Awaiting first scan",
-		complete: "Monitoring enabled",
+		never: "Awaiting first collection",
+		complete: "Cached data available",
 		partial: "Partial scan",
 		failed: "Scan failed",
 	};
 	const jobLabels = {
+		canceled: "Task canceled",
 		queued: "Queued for collection",
 		running: `Collecting ${job?.completedPulls ?? 0}${!job || job.totalPulls === null ? "" : ` / ${job.totalPulls}`} PRs`,
 		auth_required: "Azure login required",
 		failed: "Collection failed",
-		complete: "Monitoring enabled",
+		complete: "Collection complete",
 		partial: "Partial scan",
 	};
-	const label = project.enabled
-		? job
-			? jobLabels[job.state]
-			: labels[project.scanState]
-		: "Monitoring paused";
-	const Icon = !project.enabled
-		? Pause
-		: project.scanState === "complete"
-			? Check
-			: CircleAlert;
+	const label = job ? jobLabels[job.state] : labels[project.scanState];
+	const Icon = project.scanState === "complete" ? Check : CircleAlert;
 	return (
 		<LayerCard.Well className="py-3">
 			<div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-basalt-muted-foreground">

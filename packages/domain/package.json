@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./query": "./src/query.ts",
+		"./monitoring": "./src/monitoring.ts",
 		"./insights": "./src/insights.ts",
 		"./collection": "./src/collection.ts",
 		"./workbench": "./src/workbench.ts",

@@ -227,6 +227,10 @@ describe("collectProjectPulls", () => {
 		expect(result.pulls[0]?.checksObservedAt).toBe(1_789_632_000);
 		expect(result.pulls[0]?.headSha).toBe("head");
 		expect(
+			calls.some((url) => url.includes("/_apis/policy/configurations")),
+		).toBe(true);
+		expect(result.mergeRequirements).toBeDefined();
+		expect(
 			calls.some(
 				(url) =>
 					url.includes("202") ||

@@ -9,7 +9,6 @@ import {
 	DialogTitle,
 	Field,
 	Input,
-	Switch,
 } from "@nocoo/basalt";
 import { InputArea } from "@nocoo/basalt/components/input-area";
 import type { Project, ProjectWrite } from "@signoff/domain/workbench";
@@ -169,21 +168,12 @@ export function ProjectDialog({
 								}
 							/>
 						</Field>
-						<Field
-							label="Monitoring"
-							className="sm:col-span-2"
-							hint="Paused projects keep their snapshots and are skipped when scanning."
-						>
-							<Switch
-								checked={vm.draft.enabled}
-								onCheckedChange={(enabled) => vm.setField("enabled", enabled)}
-							/>
-						</Field>
 					</fieldset>
 					{project ? (
 						<p className="mt-4 text-xs leading-5 text-basalt-muted-foreground">
-							Changing the organization, ADO project or repository scope clears
-							its saved PR snapshots. Scan again to load the new source.
+							Changing the organization or project clears its snapshots and
+							stops its watches. Changing repository scope preserves PRs and
+							watches that remain in scope.
 						</p>
 					) : null}
 					{project?.source === "demo" ? (

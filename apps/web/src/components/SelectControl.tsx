@@ -15,7 +15,7 @@ import {
 const EMPTY_VALUE = "__signoff_empty__";
 
 type OptionProps = {
-	value?: string;
+	value?: string | number;
 	children?: ReactNode;
 	disabled?: boolean;
 };
@@ -47,7 +47,7 @@ export function SelectControl({
 }) {
 	const options = Children.toArray(children).flatMap((child) => {
 		if (!isValidElement<OptionProps>(child)) return [];
-		const optionValue = child.props.value ?? "";
+		const optionValue = String(child.props.value ?? "");
 		return [
 			{
 				value: optionValue,

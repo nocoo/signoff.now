@@ -3,7 +3,8 @@
  * signoff collect CLI (apps/collect — temporary name; final name in 07).
  * 05: doctor / settings pull|show / collect --dry-run / ingest fixture (stub).
  */
-import { Command } from "commander";
+import { Command, CommanderError } from "commander";
+import { z } from "zod";
 import { createBunFs } from "./cache/fs-bun.ts";
 import { collectDryRun } from "./commands/collect-dry-run.ts";
 import { ingestFixture } from "./commands/ingest-fixture.ts";
@@ -15,7 +16,9 @@ import { defaultExec } from "./doctor/exec-bun.ts";
 import { formatDoctor, runDoctor } from "./doctor/index.ts";
 import { ExitCode } from "./exit-codes.ts";
 import { createLogger } from "./logger.ts";
+import { isPipelineClientError } from "./pipeline/client";
 import { createPipelineClient } from "./pipeline/client.ts";
+import { registerWorkbenchCommands } from "./workbench/commands";
 
 const log = createLogger();
 
@@ -26,55 +29,12 @@ async function main(): Promise<void> {
 		.description("SignOff PR workbench and Azure DevOps activity collection")
 		.version("0.0.1");
 
-	const workbench = program
-		.command("workbench")
-		.description("Collect real pull requests into the local PR workbench");
-	workbench
-		.command("sync")
-		.description(
-			"Collect all enabled real projects; optionally add repository URLs first",
-		)
-		.option("--repo <urls...>", "Azure DevOps repository URLs to add and scan")
-		.option("--api-base <url>", "Local Worker origin", "http://127.0.0.1:37042")
-		.action(async (options: { repo?: string[]; apiBase: string }) => {
-			const { createCollectionClient } = await import("./workbench/client.ts");
-			const { createAdoClient } = await import("./ado/client.ts");
-			const { collectProjectPulls } = await import("./workbench/ado.ts");
-			const { registerRepositories, syncCollections } = await import(
-				"./workbench/run.ts"
-			);
-			const api = createCollectionClient({ apiBase: options.apiBase });
-			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
-			const ids = options.repo
-				? await registerRepositories(api, options.repo)
-				: undefined;
-			const succeeded = await syncCollections({
-				api,
-				ado,
-				collect: collectProjectPulls,
-				log,
-				projectIds: ids,
-			});
-			process.exitCode = succeeded ? ExitCode.OK : ExitCode.ENV;
-		});
-	workbench
-		.command("watch")
-		.description(
-			"Refresh PR lists in the background and collect checks for the current page",
-		)
-		.option("--api-base <url>", "Local Worker origin", "http://127.0.0.1:37042")
-		.action(async (options: { apiBase: string }) => {
-			const { createCollectionClient } = await import("./workbench/client.ts");
-			const { createAdoClient } = await import("./ado/client.ts");
-			const { collectProjectPulls } = await import("./workbench/ado.ts");
-			const { watchCollections } = await import("./workbench/run.ts");
-			const api = createCollectionClient({ apiBase: options.apiBase });
-			const ado = createAdoClient({ exec: defaultExec, fetchFn: fetch });
-			log.info(
-				"Local collector online. Independent list and current-page check queues use completion-based cooldowns.",
-			);
-			await watchCollections({ api, ado, collect: collectProjectPulls, log });
-		});
+	program.exitOverride().configureOutput({
+		writeErr: () => {
+			/* Structured errors are emitted by the top-level handler. */
+		},
+	});
+	registerWorkbenchCommands(program);
 
 	program
 		.command("doctor")
@@ -270,8 +230,52 @@ async function main(): Promise<void> {
 	await program.parseAsync(process.argv);
 }
 
-main().catch((e) => {
-	// biome-ignore lint/suspicious/noConsole: fatal CLI error path
-	console.error(e);
-	process.exit(ExitCode.RUNTIME);
+main().catch((error: unknown) => {
+	if (error instanceof CommanderError && error.exitCode === 0) return;
+	let code = 1;
+	let detail = {
+		code: "RUNTIME_ERROR",
+		message: error instanceof Error ? error.message : "Command failed",
+		retryable: false,
+	};
+	if (
+		error instanceof CommanderError ||
+		error instanceof z.ZodError ||
+		error instanceof TypeError
+	) {
+		code = 3;
+		detail.code = "INVALID_ARGUMENT";
+		if (
+			error instanceof TypeError &&
+			/fetch|connect|network|timed out/i.test(error.message)
+		) {
+			code = 2;
+			detail.code = "SERVICE_UNREACHABLE";
+			detail.retryable = true;
+		}
+	} else if (isPipelineClientError(error)) {
+		code = error.status === 404 ? 5 : error.status >= 500 ? 4 : 3;
+		const body = error.body as { error?: typeof detail } | null;
+		detail =
+			body?.error && typeof body.error === "object"
+				? body.error
+				: {
+						code: "SERVICE_ERROR",
+						message: error.message,
+						retryable: code === 4,
+					};
+	} else if (
+		error instanceof Error &&
+		(error.name === "AbortError" ||
+			/connect|ECONN|fetch|network/i.test(error.message))
+	) {
+		code = 2;
+		detail = {
+			code: "SERVICE_UNREACHABLE",
+			message: error.message,
+			retryable: true,
+		};
+	}
+	process.stderr.write(`${JSON.stringify({ error: detail })}\n`);
+	process.exitCode = code;
 });

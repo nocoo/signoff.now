@@ -240,6 +240,8 @@ export const pullRequestSchema = z.object({
 	createdAt: instant,
 	updatedAt: instant,
 	observedAt: instant,
+	mergedAt: instant.nullable().optional(),
+	checksInvalidated: z.boolean().optional(),
 	headSha: z.string().max(240).nullable().optional(),
 	targetSha: z.string().max(240).nullable().optional(),
 	checksObservedAt: instant.nullable().optional(),
@@ -294,6 +296,7 @@ export const collectionJobSchema = z.object({
 		"queued",
 		"running",
 		"auth_required",
+		"canceled",
 		"complete",
 		"partial",
 		"failed",
@@ -831,23 +834,13 @@ export function pullReadiness(
 				reviewGate,
 		);
 	}
-	if (!project.enabled)
-		add(
-			"unknown",
-			"Monitoring paused",
-			"Resume monitoring and scan this project",
-		);
-	else if (pr.checksObservedAt === null)
+	if (pr.checksObservedAt === null || pr.checksInvalidated)
 		add(
 			"unknown",
 			"Awaiting checks",
-			"Enable auto refresh on this page to collect policies, builds, and stages",
+			"Add this PR to the watch list to collect policies, builds, and stages",
 		);
-	else if (
-		pr.coverage === "partial" ||
-		pr.mergeable === "unknown" ||
-		project.scanState === "failed"
-	)
+	else if (pr.coverage === "partial" || pr.mergeable === "unknown")
 		add(
 			"unknown",
 			"Scan incomplete",
@@ -890,6 +883,57 @@ export function pullReadiness(
 			};
 }
 
+/** Only gates evidenced on this PR; project-only policies may belong to other repositories or branches. */
+export function pullRequirements(pr: PullRequest, project: Project) {
+	const gates = projectMergeRequirements(
+		{ ...project, mergeRequirements: [] },
+		[pr],
+	);
+	const rules = projectReadinessRules(project, [pr]);
+	const issues = pullReadiness(
+		{ ...pr, state: "open", draft: false },
+		{ ...project, mergeRequirements: gates },
+	).issues;
+	return gates
+		.map((gate) => {
+			const rule = rules.find((r) => r.gateId === gate.id);
+			const issue = issues.find((i) => i.gateId === gate.id);
+			const state: CheckState =
+				gate.kind === "conflict"
+					? pr.mergeable === "clear"
+						? "passed"
+						: pr.mergeable === "conflicts"
+							? "failed"
+							: "unknown"
+					: pr.checksObservedAt === null || pr.checksInvalidated
+						? "unknown"
+						: issue
+							? (
+									{
+										blocked: "failed",
+										approval: "waiting",
+										review: "waiting",
+										running: "running",
+										unknown: "unknown",
+									} as const
+								)[issue.kind]
+							: "passed";
+			return {
+				...gate,
+				required: true,
+				state,
+				label: rule?.label ?? gate.name,
+				color: rule?.color ?? "gray",
+				links: [pullUrl(project, pr)],
+			};
+		})
+		.sort(
+			(a, b) =>
+				rules.findIndex((r) => r.gateId === a.id) -
+				rules.findIndex((r) => r.gateId === b.id),
+		);
+}
+
 export function pullProgress(pr: PullRequest) {
 	const checks = [...pr.policies, ...pr.builds].filter((c) => c.required);
 	const stages = pr.builds.flatMap((b) => b.stages);
@@ -906,17 +950,24 @@ export function pullProgress(pr: PullRequest) {
 	};
 }
 
-export function organizationUrl(project: Project): string {
+export function organizationUrl(
+	project: Pick<Project, "provider" | "organization">,
+): string {
 	return project.provider === "ado"
 		? `https://dev.azure.com/${encodeURIComponent(project.organization)}`
 		: "https://github.com";
 }
 
-export function projectUrl(project: Project): string {
+export function projectUrl(
+	project: Pick<Project, "provider" | "organization" | "projectKey">,
+): string {
 	return `${organizationUrl(project)}/${encodeURIComponent(project.projectKey)}`;
 }
 
-export function repositoryUrl(project: Project, repository: string): string {
+export function repositoryUrl(
+	project: Pick<Project, "provider" | "organization" | "projectKey">,
+	repository: string,
+): string {
 	return `${projectUrl(project)}/${project.provider === "ado" ? "_git/" : ""}${encodeURIComponent(repository)}`;
 }
 

@@ -356,12 +356,15 @@ describe("merge readiness", () => {
 		const pr = structuredClone(ready);
 		pr.builds[0]!.stages = [];
 		expect(pullReadiness(pr, project).kind).toBe("unknown");
-		expect(pullReadiness(ready, { ...project, enabled: false }).label).toBe(
-			"Monitoring paused",
+		expect(pullReadiness(ready, { ...project, enabled: false }).kind).toBe(
+			"ready",
 		);
 		expect(pullReadiness(ready, { ...project, scanState: "failed" }).kind).toBe(
-			"unknown",
+			"ready",
 		);
+		expect(
+			pullReadiness({ ...ready, checksObservedAt: null }, project).action,
+		).toContain("watch list");
 	});
 	test("counts approvals and required reviewers separately", () => {
 		const pr = structuredClone(ready);

@@ -7,6 +7,7 @@ import {
 	projectMergeRequirements,
 	projectReadinessRules,
 	pullReadiness,
+	pullRequirements,
 	readinessColor,
 	readinessPriority,
 	readinessRulesSchema,
@@ -68,6 +69,86 @@ const configured: Project = {
 const REVIEW_ID = "review:minimum number of reviewers";
 const CI_ID = "build:pipeline-1";
 const POP_ID = "policy:proof of presence";
+
+describe("queryable merge requirement facts", () => {
+	test("exposes each applicable logical gate in user order, with source IDs and links", () => {
+		const pull = {
+			...ready,
+			policies: [
+				{ ...review, state: "passed" as const },
+				{ ...ci, state: "passed" as const },
+				presence,
+			],
+			requiredApprovals: 1,
+		};
+		const requirements = pullRequirements(pull, {
+			...configured,
+			mergeRequirements: [
+				...configured.mergeRequirements!,
+				{ id: "unrelated", name: "Other repository policy", kind: "policy" },
+			],
+		});
+		expect(requirements.map((r) => r.id)).toEqual([
+			"merge-conflicts",
+			CI_ID,
+			REVIEW_ID,
+			POP_ID,
+		]);
+		expect(requirements.find((r) => r.id === REVIEW_ID)).toMatchObject({
+			required: true,
+			state: "waiting",
+			sourceIds: [review.id],
+			label: "Review",
+			color: "orange",
+		});
+		expect(requirements.find((r) => r.id === CI_ID)?.state).toBe("passed");
+		expect(requirements.find((r) => r.id === POP_ID)).toMatchObject({
+			state: "running",
+			color: "yellow",
+		});
+		expect(requirements.every((r) => r.links[0]?.startsWith("https://"))).toBe(
+			true,
+		);
+	});
+	test("invalidated checks never make an otherwise ready PR mergeable", () => {
+		const result = pullReadiness(
+			{ ...ready, checksObservedAt: 1_789_632_000, checksInvalidated: true },
+			project,
+		);
+		expect(result.kind).toBe("unknown");
+		expect(result.label).toBe("Awaiting checks");
+	});
+	test("draft and completed PRs still expose check facts; missing and invalidated checks never pass", () => {
+		for (const state of ["open", "merged"] as const) {
+			const pull = {
+				...ready,
+				state,
+				draft: true,
+				policies: [{ ...review, state: "passed" as const }],
+				requiredApprovals: 1,
+			};
+			expect(
+				pullRequirements(pull, project).find((r) => r.id === REVIEW_ID)?.state,
+			).toBe("waiting");
+			for (const checks of [
+				{ checksObservedAt: null },
+				{ checksInvalidated: true },
+			]) {
+				expect(
+					pullRequirements({ ...pull, ...checks }, project).find(
+						(r) => r.id === REVIEW_ID,
+					)?.state,
+				).toBe("unknown");
+			}
+		}
+		expect(
+			pullRequirements({ ...ready, mergeable: "unknown" }, project)[0]?.state,
+		).toBe("unknown");
+		expect(
+			pullRequirements({ ...ready, mergeable: "conflicts" }, project)[0]?.state,
+		).toBe("failed");
+	});
+});
 
 describe("actual project merge requirements", () => {
 	test("a fresh rejection by a required reviewer blocks a cached passing policy", () => {

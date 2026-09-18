@@ -27,6 +27,8 @@ import {
 import {
 	ArrowRight,
 	ExternalLink,
+	Eye,
+	EyeOff,
 	GitBranch,
 	GitPullRequest,
 	MessageSquare,
@@ -56,6 +58,9 @@ export function PullDetailSheet({
 	onScan,
 	canScan,
 	busy,
+	onToggleWatch,
+	loading = false,
+	error,
 }: {
 	row: PullRow | null;
 	missing: boolean;
@@ -64,10 +69,13 @@ export function PullDetailSheet({
 	onScan: () => void;
 	canScan: boolean;
 	busy: boolean;
+	onToggleWatch?: () => void;
+	loading?: boolean;
+	error?: string | null;
 }) {
 	return (
 		<Sheet
-			open={Boolean(row) || missing}
+			open={Boolean(row) || missing || loading}
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
@@ -89,7 +97,16 @@ export function PullDetailSheet({
 						onScan={onScan}
 						canScan={canScan}
 						busy={busy}
+						onToggleWatch={onToggleWatch}
+						loading={loading}
+						error={error}
 					/>
+				) : loading ? (
+					<div className="p-6">
+						<SheetTitle>Loading PR details</SheetTitle>
+						<SheetDescription>Reading the saved snapshot.</SheetDescription>
+						<LayerCard.Loading label="Loading PR details" />
+					</div>
 				) : (
 					<div className="px-5 py-6 sm:px-6">
 						<SheetTitle>Pull request unavailable</SheetTitle>
@@ -119,11 +136,17 @@ function PullDetail({
 	onScan,
 	canScan,
 	busy,
+	onToggleWatch,
+	loading,
+	error,
 }: {
 	row: PullRow;
 	onScan: () => void;
 	canScan: boolean;
 	busy: boolean;
+	onToggleWatch?: () => void;
+	loading?: boolean;
+	error?: string | null;
 }) {
 	const { pull, project, readiness, progress } = row;
 	const checksAt =
@@ -132,6 +155,11 @@ function PullDetail({
 			: (pull.checksObservedAt ?? pull.observedAt);
 	return (
 		<>
+			{error ? (
+				<AlertBanner variant="error">
+					{error} Showing the last available PR data.
+				</AlertBanner>
+			) : null}
 			<div className="space-y-4 border-b border-basalt-border px-5 py-5 sm:px-6">
 				<div className="flex items-center justify-between gap-3">
 					<div className="flex flex-wrap items-center gap-2">
@@ -170,6 +198,23 @@ function PullDetail({
 						secondary={`Opened ${relativeTime(pull.createdAt)}`}
 					/>
 					<div className="flex items-center gap-2">
+						{pull.state === "open" && onToggleWatch ? (
+							<Button
+								variant={row.observation?.active ? "outline" : "default"}
+								size="sm"
+								disabled={busy}
+								onClick={onToggleWatch}
+							>
+								{row.observation?.active ? (
+									<EyeOff className="h-3.5 w-3.5" aria-hidden />
+								) : (
+									<Eye className="h-3.5 w-3.5" aria-hidden />
+								)}
+								{row.observation?.active
+									? "Stop watching"
+									: "Add to watch list"}
+							</Button>
+						) : null}
 						{project.source !== "demo" ? (
 							<Button variant="outline" size="sm" asChild>
 								<a
@@ -310,6 +355,14 @@ function PullDetail({
 						<Reviewers pull={pull} />
 						<section>
 							<h3 className="mb-3 text-sm font-semibold">About this change</h3>
+							{loading ? (
+								<p
+									role="status"
+									className="mb-2 text-xs text-basalt-muted-foreground"
+								>
+									Loading the full description…
+								</p>
+							) : null}
 							<PullDescription
 								description={pull.description}
 								sourceUrl={pullUrl(project, pull)}
@@ -361,7 +414,7 @@ function PullDetail({
 						</div>
 						{checksAt === null ? (
 							<AlertBanner>
-								Checks load while this PR is open and auto refresh is enabled.
+								Add this PR to the shared watch list to collect its checks.
 							</AlertBanner>
 						) : pull.coverage === "partial" ? (
 							<AlertBanner variant="warning">

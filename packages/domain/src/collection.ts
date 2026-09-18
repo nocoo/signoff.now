@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { observationSchema, repositoryIdentitySchema } from "./monitoring.js";
 import {
 	collectionJobSchema,
 	mergeRequirementSchema,
@@ -54,11 +55,37 @@ export const collectorClaimSchema = z
 		job: collectionJobSchema,
 		project: projectSchema,
 		leaseToken,
+		observation: observationSchema.optional(),
+		scope: z.array(repositoryNameSchema).optional(),
 		targets: z.array(pullRequestSchema).max(20).optional(),
-		knownOpenPulls: z.array(knownOpenPullSchema).max(10000).optional(),
+		/** Present once a discovery's repository plan has been resolved, including an empty plan. */
+		repositories: z.array(repositoryIdentitySchema).max(1000).optional(),
+		knownOpenPulls: z.array(knownOpenPullSchema).optional(),
 	})
-	.refine(({ job, project, targets }) => {
+	.refine(({ job, project, targets, observation }) => {
 		const ids = job.pullIds;
+		if (observation)
+			return (
+				observation.active &&
+				observation.source === project.source &&
+				observation.ref.provider === project.provider &&
+				observation.ref.projectId === project.id &&
+				observation.ref.organization.toLowerCase() ===
+					project.organization.toLowerCase() &&
+				observation.ref.projectKey.toLowerCase() ===
+					project.projectKey.toLowerCase() &&
+				ids?.length === 1 &&
+				targets !== undefined &&
+				targets.length <= 1 &&
+				targets.every(
+					(pull) =>
+						ids.includes(pull.id) &&
+						pull.projectId === project.id &&
+						pull.repository.id.toLowerCase() ===
+							observation.ref.repository.id.toLowerCase() &&
+						pull.number === observation.ref.number,
+				)
+			);
 		if (ids === undefined) return targets === undefined;
 		return (
 			targets !== undefined &&
@@ -106,6 +133,31 @@ export const collectionFailureSchema = z
 		message,
 	})
 	.strict();
+
+export const collectionRepositoriesSchema = z
+	.object({
+		leaseToken,
+		repositories: z.array(repositoryIdentitySchema).max(1000),
+	})
+	.strict();
+export const collectionPublishSchema = z
+	.object({
+		leaseToken,
+		repositoryId: repositoryIdentitySchema.shape.id,
+		state: z.enum(["complete", "partial"]),
+		pullRequestCount: count,
+		message,
+		mergeRequirements: z.array(mergeRequirementSchema).max(1000).optional(),
+	})
+	.strict();
+export const collectionRepositoryFailureSchema = z
+	.object({
+		leaseToken,
+		repositoryId: repositoryIdentitySchema.shape.id,
+		message,
+	})
+	.strict();
+export const collectionDoneSchema = z.object({ leaseToken }).strict();
 
 export function adoPullId(
 	projectId: string,

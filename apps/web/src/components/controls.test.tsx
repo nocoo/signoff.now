@@ -4,6 +4,27 @@ import { describe, expect, it, vi } from "vitest";
 import { SelectControl } from "./SelectControl";
 
 describe("SelectControl", () => {
+	it("renders numeric option values as strings, including zero", () => {
+		const onChange = vi.fn();
+		const { rerender } = render(
+			<SelectControl aria-label="Cooldown" value="300" onChange={onChange}>
+				<option value={0}>Manual</option>
+				<option value={300}>5 min</option>
+			</SelectControl>,
+		);
+		expect(screen.getByRole("combobox", { name: "Cooldown" }).textContent).toBe(
+			"5 min",
+		);
+		rerender(
+			<SelectControl aria-label="Cooldown" value="0" onChange={onChange}>
+				<option value={0}>Manual</option>
+				<option value={300}>5 min</option>
+			</SelectControl>,
+		);
+		expect(screen.getByRole("combobox", { name: "Cooldown" }).textContent).toBe(
+			"Manual",
+		);
+	});
 	const mount = (onChange = vi.fn()) =>
 		render(
 			<SelectControl aria-label="Status" value="" onChange={onChange}>

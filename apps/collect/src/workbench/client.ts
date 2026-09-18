@@ -2,6 +2,7 @@ import {
 	type CollectorClaim,
 	collectorClaimSchema,
 } from "@signoff/domain/collection";
+import type { RepositoryIdentity } from "@signoff/domain/monitoring";
 import {
 	type CollectorStatus,
 	collectionJobSchema,
@@ -12,9 +13,9 @@ import {
 	projectSchema,
 	type RefreshQueueKind,
 	refreshQueueSchema,
-	scanRunSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
+import { z } from "zod";
 import { type FetchLike, pipelineRequest } from "../pipeline/client.ts";
 
 export function collectionApiBase(value = "http://127.0.0.1:37042"): string {
@@ -67,6 +68,7 @@ export function createCollectionClient(
 		apiBase: collectionApiBase(opts.apiBase),
 		fetchImpl: opts.fetchImpl ?? globalThis.fetch.bind(globalThis),
 		timeoutMs: 30_000,
+		redirect: "error" as const,
 	};
 	const request = (method: string, path: string, body?: unknown) =>
 		pipelineRequest(config, method, path, body);
@@ -127,21 +129,45 @@ export function createCollectionClient(
 			for (const chunk of collectionChunks(pulls))
 				await jobRequest(lease, "batch", { pulls: chunk });
 		},
-		complete: async (
+		repositories: async (lease: Lease, repositories: RepositoryIdentity[]) =>
+			z
+				.array(
+					z.object({
+						repository_id: z.string(),
+						state: z.enum([
+							"queued",
+							"running",
+							"succeeded",
+							"failed",
+							"canceled",
+						]),
+					}),
+				)
+				.parse(await jobRequest(lease, "repositories", { repositories })),
+		publish: async (
 			lease: Lease,
+			repositoryId: string,
 			state: "complete" | "partial",
 			pullRequestCount: number,
 			message: string,
 			mergeRequirements?: MergeRequirement[],
 		) =>
-			scanRunSchema.parse(
-				await jobRequest(lease, "complete", {
+			collectionJobSchema.parse(
+				await jobRequest(lease, "publish", {
+					repositoryId,
 					state,
 					pullRequestCount,
-					message,
+					message: message.slice(0, 1000),
 					mergeRequirements,
 				}),
 			),
+		repositoryFail: (lease: Lease, repositoryId: string, message: string) =>
+			jobRequest(lease, "repository-fail", {
+				repositoryId,
+				message: message.slice(0, 1000),
+			}),
+		complete: async (lease: Lease) =>
+			collectionJobSchema.parse(await jobRequest(lease, "complete", {})),
 		fail: (
 			lease: Lease,
 			kind:

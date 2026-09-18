@@ -1,10 +1,10 @@
 import { Badge, Button, Label } from "@nocoo/basalt";
-import { FlaskConical, Radio, RefreshCw, ScanLine } from "lucide-react";
+import { Radio, RefreshCw, ScanLine } from "lucide-react";
 import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
-import { REFRESH_INTERVALS, relativeTime } from "@/models/workbench";
+import { REFRESH_INTERVALS } from "@/models/workbench";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 
 export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
@@ -21,7 +21,7 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 					aria-hidden
 					className={cn("h-4 w-4", vm.refreshing && "motion-safe:animate-spin")}
 				/>
-				Reload
+				Reload cache
 			</Button>
 			<Button
 				size="sm"
@@ -32,16 +32,11 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 				onClick={() => void vm.scan()}
 			>
 				<ScanLine aria-hidden className="h-4 w-4" />
-				{vm.busy === "scan-all"
-					? "Queuing…"
-					: vm.filter.source === "cli"
-						? "Refresh list"
-						: "Scan projects"}
+				Discover PRs
 			</Button>
 		</>
 	);
 }
-
 export function WorkbenchConnection({
 	vm,
 	compact = false,
@@ -49,9 +44,8 @@ export function WorkbenchConnection({
 	vm: WorkbenchViewModel;
 	compact?: boolean;
 }) {
-	const refreshId = useId();
-	const samplesOnly = vm.filter.source === "demo";
-	const connectionLabels = {
+	const id = useId();
+	const labels = {
 		ready: "Collector connected",
 		offline: "Collector offline",
 		auth_required: "Azure login required",
@@ -60,101 +54,49 @@ export function WorkbenchConnection({
 	return (
 		<div
 			className={cn(
-				"flex flex-wrap items-center justify-between gap-3 text-xs text-basalt-muted-foreground",
-				compact
-					? "w-full max-w-full sm:w-auto sm:flex-1 md:max-w-64 lg:max-w-none"
-					: "rounded-basalt-md bg-basalt-muted/40 px-3 py-2.5",
+				"flex flex-wrap items-center gap-3 text-xs text-basalt-muted-foreground",
+				!compact && "rounded-basalt-md bg-basalt-muted/40 px-3 py-2.5",
 			)}
 		>
-			<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-				{samplesOnly ? (
-					<>
-						<Badge variant="info" className="gap-1.5">
-							<FlaskConical className="h-3 w-3" aria-hidden />
-							Sample data
-						</Badge>
-						{!compact ? (
-							<span>Sample PRs · scan to simulate build progress.</span>
-						) : null}
-					</>
-				) : (
-					<>
-						<Badge
-							variant={vm.connection.state === "ready" ? "success" : "warning"}
-							className="gap-1.5"
-						>
-							<Radio className="h-3 w-3" aria-hidden />
-							{connectionLabels[vm.connection.state]}
-						</Badge>
-						{!compact ? (
-							<span className="break-words">
-								{vm.connection.state === "ready"
-									? "All active PRs + recent merged and closed PRs."
-									: vm.connection.message}
-							</span>
-						) : null}
-					</>
-				)}
-			</div>
-			<div className="flex flex-wrap items-center gap-3">
-				{!compact ? (
-					<span>
-						{vm.data
-							? `Snapshot loaded ${relativeTime(vm.data.fetchedAt)}`
-							: "Loading snapshot…"}
-					</span>
-				) : null}
-				<div className="flex items-center gap-3">
-					{!samplesOnly
-						? (["list", "details"] as const).map((kind) => (
-								<div
-									key={kind}
-									className="flex items-center gap-2"
-									title={
-										kind === "list"
-											? "Refresh PR lists after every project finishes, then wait this interval. Continues in the background."
-											: "Refresh every PR on this page, then wait this interval. Pauses in the background; resumes on return."
-									}
-								>
-									<Label
-										htmlFor={`${refreshId}-${kind}`}
-										className="text-xs font-normal text-basalt-muted-foreground"
-									>
-										{kind === "list" ? "List" : "Checks"}
-									</Label>
-									<SelectControl
-										id={`${refreshId}-${kind}`}
-										aria-label={
-											kind === "list"
-												? "PR list refresh cooldown"
-												: "PR checks refresh cooldown"
-										}
-										value={String(
-											kind === "list"
-												? vm.listCooldownSeconds
-												: vm.detailCooldownSeconds,
-										)}
-										disabled={vm.loading || Boolean(vm.busy)}
-										onChange={(value) => {
-											void vm.setRefreshCooldown(kind, Number(value));
-										}}
-										className={cn("h-8 text-xs", compact ? "w-20" : "w-24")}
-									>
-										{REFRESH_INTERVALS.map((seconds) => (
-											<option key={seconds} value={String(seconds)}>
-												{seconds === 0 ? "Off" : `${seconds / 60} min`}
-											</option>
-										))}
-									</SelectControl>
-								</div>
-							))
-						: null}
-				</div>
+			<Badge
+				variant={vm.connection.state === "ready" ? "success" : "warning"}
+				className="gap-1.5"
+				title={vm.connection.message}
+			>
+				<Radio className="h-3 w-3" aria-hidden />
+				{labels[vm.connection.state]}
+			</Badge>
+			<span>{vm.collector?.watching ?? 0} watching</span>
+			<div
+				className="flex items-center gap-2"
+				title="Refresh only the shared watch list. Wait this interval after a project's entire round finishes; continues without an open webpage."
+			>
+				<Label
+					htmlFor={id}
+					className="text-xs font-normal text-basalt-muted-foreground"
+				>
+					Checks
+				</Label>
+				<SelectControl
+					id={id}
+					aria-label="Watched PR refresh cooldown"
+					value={String(vm.detailCooldownSeconds)}
+					disabled={Boolean(vm.busy)}
+					onChange={(value) =>
+						void vm.setRefreshCooldown("details", Number(value))
+					}
+					className="h-8 w-24 text-xs"
+				>
+					{REFRESH_INTERVALS.map((seconds) => (
+						<option key={seconds} value={seconds}>
+							{seconds === 0 ? "Manual" : `${seconds / 60} min`}
+						</option>
+					))}
+				</SelectControl>
 			</div>
 		</div>
 	);
 }
-
 export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
 	return (
 		<>
@@ -162,19 +104,26 @@ export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
 				<AlertBanner variant="error">
 					{vm.error}
 					{vm.data
-						? " Showing the last loaded snapshot."
-						: " Refresh to try again."}
+						? " Showing the last loaded data."
+						: " Retry to read the cache."}
 				</AlertBanner>
 			) : null}
 			{vm.mutationError ? (
 				<AlertBanner variant="error">{vm.mutationError}</AlertBanner>
 			) : null}
 			{vm.notice ? <AlertBanner>{vm.notice}</AlertBanner> : null}
-			{vm.data?.truncated ? (
-				<AlertBanner variant="warning">
-					Showing the latest 1,000 PRs. Counts reflect this snapshot and may
-					omit older PRs.
-				</AlertBanner>
+			{vm.coverage?.state !== "complete" && vm.coverage ? (
+				<p
+					className="px-1 text-xs text-basalt-muted-foreground"
+					title={vm.coverage.missing.join("\n")}
+				>
+					History coverage:{" "}
+					{vm.coverage.state === "not_collected"
+						? "not yet discovered"
+						: "partial"}
+					. Use Discover PRs to load all accessible PRs, including drafts and
+					completed work.
+				</p>
 			) : null}
 		</>
 	);

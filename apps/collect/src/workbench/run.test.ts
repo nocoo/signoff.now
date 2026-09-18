@@ -1,30 +1,45 @@
-import { describe, expect, spyOn, test } from "bun:test";
-import type { CollectorClaim } from "@signoff/domain/collection";
+import { describe, expect, test } from "bun:test";
+import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { demoWorkspace } from "@signoff/domain/demo";
+import { makeWatchRef } from "@signoff/domain/monitoring";
 import { AdoError, type AdoPagedClient } from "../ado/client.ts";
 import type { CollectionClient } from "./client.ts";
-import {
-	collectionError,
-	registerRepositories,
-	runCollectionOnce,
-	syncCollections,
-	watchCollections,
-} from "./run.ts";
+import { collectionError, runCollectionOnce, watchCollections } from "./run.ts";
 
-const time = 1_789_632_000;
+const time = Math.floor(Date.now() / 1000);
 const demo = demoWorkspace(time);
 const project = {
 	...demo.projects[0]!,
 	source: "cli" as const,
-	repositories: ["api-gateway"],
+	repositories: [],
+};
+const rawPull = demo.pullRequests.find((p) => p.projectId === project.id)!;
+const pull = {
+	...rawPull,
+	id: adoPullId(project.id, rawPull.repository.id, String(rawPull.number)),
 };
 const claim: CollectorClaim = {
 	project,
 	leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
+	targets: [pull],
+	scope: [pull.repository.id],
+	observation: {
+		id: "observation",
+		source: "cli",
+		ref: makeWatchRef(project, pull.repository, pull.number),
+		pullId: pull.id,
+		active: true,
+		generation: 1,
+		addedAt: time,
+		stoppedAt: null,
+		stopReason: null,
+	},
 	job: {
 		id: "job",
 		projectId: project.id,
 		revision: 1,
+		kind: "details",
+		pullIds: [pull.id],
 		state: "running",
 		requestedAt: time,
 		startedAt: time,
@@ -35,17 +50,6 @@ const claim: CollectorClaim = {
 		message: "",
 	},
 };
-const scan = {
-	id: "scan",
-	projectId: project.id,
-	source: "cli" as const,
-	state: "complete" as const,
-	startedAt: time,
-	completedAt: time,
-	pullRequestCount: 1,
-	advancedStages: 0,
-	message: "Collected",
-};
 
 function setup() {
 	const events: string[] = [];
@@ -53,7 +57,7 @@ function setup() {
 		job: async () => claim.job,
 		schedule: async (kind) => ({
 			kind,
-			cooldownSeconds: kind === "list" ? 120 : 300,
+			cooldownSeconds: 300,
 			lastCompletedAt: null,
 			roundId: null,
 			requested: false,
@@ -62,27 +66,16 @@ function setup() {
 			completedJobs: 0,
 		}),
 		load: async () => ({
-			projects: [project],
-			pullRequests: [],
-			scans: [],
+			...demo,
 			demoMode: true,
 			fetchedAt: time,
 			truncated: false,
 		}),
-		createProject: async (body) => {
-			events.push(`create:${body.organization}`);
-			return { ...project, ...body };
-		},
-		patchProject: async (p, body) => {
-			events.push(`patch:${body.repositories?.join(",")}`);
-			return { ...p, ...body };
-		},
-		enqueue: async () => {
-			events.push("enqueue");
-			return claim.job;
-		},
-		heartbeat: async (state) => {
-			events.push(`heartbeat:${state}`);
+		createProject: async (body) => ({ ...project, ...body }),
+		patchProject: async (p, body) => ({ ...p, ...body }),
+		enqueue: async () => claim.job,
+		heartbeat: async () => {
+			events.push("heartbeat");
 		},
 		claim: async () => {
 			events.push("claim");
@@ -94,11 +87,25 @@ function setup() {
 		upload: async () => {
 			events.push("upload");
 		},
+		repositories: async (_lease, repos) => {
+			events.push("plan");
+			return repos.map((r) => ({
+				repository_id: r.id,
+				state: "queued" as const,
+			}));
+		},
+		publish: async (_lease, _repo, state) => {
+			events.push("publish");
+			return { ...claim.job, state };
+		},
+		repositoryFail: async (_lease, repo) => {
+			events.push(`repo-fail:${repo}`);
+		},
 		complete: async () => {
 			events.push("complete");
-			return scan;
+			return { ...claim.job, state: "complete" };
 		},
-		fail: async (_job, kind) => {
+		fail: async (_lease, kind) => {
 			events.push(`fail:${kind}`);
 		},
 	};
@@ -118,70 +125,416 @@ function setup() {
 		warn: (s: string) => events.push(s),
 		error: (s: string) => events.push(s),
 	};
-	return { api, ado, log, events };
+	return {
+		api,
+		ado,
+		makeAdo: () => {
+			events.push("provider");
+			return ado;
+		},
+		log,
+		events,
+	};
+}
+const collected = async () => ({
+	pulls: [pull],
+	state: "complete" as const,
+	message: "Collected",
+});
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((r) => {
+		resolve = r;
+	});
+	return { promise, resolve };
 }
 
-describe("real collector orchestration", () => {
-	test("continues list discovery while a detail job is still running without overlapping either lane", async () => {
+describe("saved-task executor", () => {
+	test("publishes collected merge requirement definitions with the watched snapshot", async () => {
+		const deps = setup();
+		const requirements = [
+			{
+				id: "config-42",
+				name: "Required validation",
+				kind: "build" as const,
+				definitionId: "ci",
+			},
+		];
+		let saved: unknown;
+		deps.api.publish = async (
+			_lease,
+			_repo,
+			state,
+			_count,
+			_message,
+			gates,
+		) => {
+			saved = gates;
+			return { ...claim.job, state };
+		};
+		await runCollectionOnce({
+			...deps,
+			collect: async () => ({
+				...(await collected()),
+				mergeRequirements: requirements,
+			}),
+		});
+		expect(saved).toEqual(requirements);
+	});
+	test("an empty claim never constructs the provider or checks login", async () => {
+		const deps = setup();
+		deps.api.claim = async () => null;
+		expect(await runCollectionOnce({ ...deps, collect: collected })).toEqual({
+			processed: false,
+			state: "idle",
+		});
+		expect(deps.events).toEqual([]);
+	});
+	test("claims before authentication and refreshes only the complete watched identity", async () => {
+		const deps = setup();
+		const result = await runCollectionOnce({
+			...deps,
+			collect: async (opts) => {
+				expect(deps.events.slice(0, 3)).toEqual(["claim", "provider", "auth"]);
+				expect(opts.targets).toEqual([
+					{ id: pull.id, number: pull.number, repository: pull.repository },
+				]);
+				return collected();
+			},
+		});
+		expect(result).toEqual({ processed: true, state: "complete" });
+		expect(deps.events.indexOf("upload")).toBeLessThan(
+			deps.events.indexOf("publish"),
+		);
+		expect(deps.events).not.toContain("complete");
+	});
+	test("a pending first result refreshes directly using the provider repo ID", async () => {
+		const deps = setup();
+		deps.api.claim = async () => ({
+			...claim,
+			targets: [],
+			observation: { ...claim.observation!, pullId: null },
+		});
+		await runCollectionOnce({
+			...deps,
+			collect: async (opts) => {
+				expect(opts.targets?.[0]?.id).toBe(pull.id);
+				return collected();
+			},
+		});
+		expect(deps.events).toContain("publish");
+	});
+	test.each([
+		"unauthenticated",
+		"forbidden",
+		"not_found",
+		"server",
+		"bad_response",
+	] as const)("records %s without replacing cached facts", async (kind) => {
+		const deps = setup();
+		deps.ado.checkAuth = async () => {
+			throw new AdoError(kind, "Provider unavailable");
+		};
+		const result = await runCollectionOnce({ ...deps, collect: collected });
+		expect(result.state).toBe(
+			kind === "unauthenticated" ? "auth_required" : "failed",
+		);
+		expect(deps.events).not.toContain("upload");
+		expect(deps.events.includes("invalidate")).toBe(kind === "unauthenticated");
+	});
+	test("preserves partial completion and monotonic progress", async () => {
+		const deps = setup();
+		const progress: number[] = [];
+		deps.api.progress = async (_lease, done) => {
+			progress.push(done);
+		};
+		const result = await runCollectionOnce({
+			...deps,
+			collect: async (opts) => {
+				await opts.onProgress?.(2, 3);
+				await opts.onProgress?.(1, 3);
+				return { pulls: [pull], state: "partial", message: "Missing timeline" };
+			},
+		});
+		expect(result.state).toBe("partial");
+		expect(progress).toEqual([2, 2]);
+	});
+	test("lost progress lease prevents all publication even when reporting failure also fails", async () => {
+		const deps = setup();
+		deps.api.progress = async () => {
+			throw {
+				status: 409,
+				body: { error: "Lease changed" },
+				message: "HTTP 409",
+			};
+		};
+		deps.api.fail = async () => {
+			throw new Error("Worker offline");
+		};
+		await runCollectionOnce({
+			...deps,
+			collect: async (opts) => {
+				await opts.onProgress?.(1, 1);
+				return collected();
+			},
+		});
+		expect(deps.events).not.toContain("upload");
+		expect(deps.events).not.toContain("publish");
+		expect(deps.events.some((e) => e.includes("lease changed"))).toBe(true);
+	});
+	test("a lost background lease stops provider calls after the in-flight request", async () => {
+		const deps = setup();
+		const pending = deferred<unknown>();
+		const renewalFailed = deferred<void>();
+		let gets = 0;
+		deps.ado.get = async () => {
+			gets++;
+			return pending.promise;
+		};
+		deps.api.progress = async () => {
+			renewalFailed.resolve();
+			throw new Error("Lease lost");
+		};
+		const run = runCollectionOnce({
+			...deps,
+			keepAliveMs: 2,
+			collect: async (opts) => {
+				await opts.client.get("https://dev.azure.com/org/first");
+				await opts.client.get("https://dev.azure.com/org/second");
+				return collected();
+			},
+		});
+		await renewalFailed.promise;
+		pending.resolve({});
+		await run;
+		expect(gets).toBe(1);
+		expect(deps.events).not.toContain("publish");
+	});
+	test("long-running collection renews both the task and daemon heartbeat", async () => {
+		const deps = setup();
+		const reported = deferred<void>();
+		deps.api.progress = async () => {
+			deps.events.push("progress");
+			reported.resolve();
+		};
+		await runCollectionOnce({
+			...deps,
+			keepAliveMs: 2,
+			collect: async () => {
+				await reported.promise;
+				return collected();
+			},
+		});
+		expect(deps.events).toContain("heartbeat");
+		expect(deps.events).toContain("publish");
+	});
+	test("shutdown or upload errors keep the previous snapshot", async () => {
+		for (const shutdown of [false, true]) {
+			const deps = setup();
+			const controller = new AbortController();
+			deps.api.upload = async () => {
+				throw new Error("Upload interrupted");
+			};
+			await runCollectionOnce({
+				...deps,
+				signal: controller.signal,
+				collect: async () => {
+					if (shutdown) controller.abort();
+					return collected();
+				},
+			});
+			expect(deps.events).not.toContain("publish");
+		}
+	});
+	test("malformed refresh claims fail before collection", async () => {
+		const deps = setup();
+		deps.api.claim = async () => ({ ...claim, observation: undefined });
+		expect(
+			(await runCollectionOnce({ ...deps, collect: collected })).state,
+		).toBe("failed");
+		expect(deps.events).not.toContain("upload");
+	});
+});
+
+describe("explicit repository discovery", () => {
+	test("resumes a frozen repository plan without enumerating newly registered repositories", async () => {
+		const deps = discovery();
+		deps.api.claim = async () => ({
+			...claim,
+			targets: [],
+			observation: undefined,
+			scope: ["empty"],
+			repositories: [
+				{ id: "empty", name: "empty", projectExternalId: "project-guid" },
+			],
+			job: { ...claim.job, kind: "list", pullIds: [] },
+		});
+		let calls = 0;
+		deps.ado.getPage = async (url) => {
+			expect(url).toContain("/empty/pullrequests");
+			calls++;
+			return { data: { value: [] }, continuationToken: null };
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect(calls).toBe(1);
+	});
+	function discovery() {
+		const deps = setup();
+		deps.api.claim = async () => ({
+			...claim,
+			targets: [],
+			observation: undefined,
+			scope: [],
+			job: { ...claim.job, kind: "list", pullIds: [] },
+		});
+		deps.ado.getPage = async (url) => {
+			if (url.includes("/pullrequests")) {
+				if (url.includes("/broken/"))
+					throw new AdoError("forbidden", "403 repository access");
+				expect(url).toContain("searchCriteria.status=all");
+				return { data: { value: [] }, continuationToken: null };
+			}
+			return {
+				data: {
+					value: [
+						{
+							id: "empty",
+							name: "empty",
+							project: { id: "project-guid", name: project.projectKey },
+						},
+						{
+							id: "broken",
+							name: "broken",
+							project: { id: "project-guid", name: project.projectKey },
+						},
+					],
+				},
+				continuationToken: null,
+			};
+		};
+		return deps;
+	}
+	test("publishes each completed repository and retains partial failure", async () => {
+		const deps = discovery();
+		deps.api.complete = async () => ({ ...claim.job, state: "partial" });
+		expect((await runCollectionOnce(deps)).state).toBe("partial");
+		expect(deps.events).toContain("publish");
+		expect(deps.events).toContain("repo-fail:broken");
+	});
+	test("a reclaimed task skips repositories already finished", async () => {
+		const deps = discovery();
+		deps.api.repositories = async () => [
+			{ repository_id: "empty", state: "succeeded" },
+			{ repository_id: "broken", state: "failed" },
+		];
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect(deps.events).not.toContain("publish");
+		expect(deps.events).not.toContain("repo-fail:broken");
+	});
+	test("authentication failure during discovery pauses the task", async () => {
+		const deps = discovery();
+		const getPage = deps.ado.getPage;
+		deps.ado.getPage = async (url) => {
+			if (url.includes("/pullrequests"))
+				throw new AdoError("unauthenticated", "Expired");
+			return getPage(url);
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("auth_required");
+		expect(deps.events).not.toContain("complete");
+	});
+});
+
+describe("sample and daemon orchestration", () => {
+	test("sample discovery and refresh never initialize Azure", async () => {
+		for (const details of [false, true]) {
+			const deps = setup();
+			deps.api.claim = async () => ({
+				...claim,
+				project: { ...project, source: "demo" },
+				targets: [pull],
+				scope: [],
+				job: { ...claim.job, kind: details ? "details" : "list" },
+			});
+			expect((await runCollectionOnce(deps)).processed).toBe(true);
+			expect(deps.events).not.toContain("provider");
+			expect(deps.events).toContain("publish");
+		}
+	});
+	test("sample generation handles first discovery and rejects an unknown sample PR", async () => {
+		const deps = setup();
+		deps.api.load = async () => ({
+			...demo,
+			pullRequests: [],
+			demoMode: true,
+			fetchedAt: time,
+			truncated: false,
+		});
+		deps.api.claim = async () => ({
+			...claim,
+			project: { ...project, source: "demo" },
+			scope: [],
+			job: { ...claim.job, kind: "list" },
+		});
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		deps.api.claim = async () => ({
+			...claim,
+			project: { ...project, source: "demo" },
+			targets: [],
+		});
+		expect((await runCollectionOnce(deps)).state).toBe("failed");
+	});
+	test("idle daemon maintains health without touching providers", async () => {
 		const deps = setup();
 		const controller = new AbortController();
-		let releaseDetails!: () => void;
-		let completedLists!: () => void;
-		const detailsPending = new Promise<void>((resolve) => {
-			releaseDetails = resolve;
+		deps.api.claim = async () => null;
+		await watchCollections({
+			...deps,
+			signal: controller.signal,
+			sleep: async (ms) => {
+				expect(ms).toBe(3000);
+				controller.abort();
+			},
 		});
-		const listsDone = new Promise<void>((resolve) => {
-			completedLists = resolve;
-		});
-		let lists = 0;
-		let details = 0;
-		const lanes: (string | undefined)[] = [];
-		deps.api.claim = async (kind) => {
-			lanes.push(kind);
-			if (kind === "details")
-				return details++ === 0
-					? { ...claim, job: { ...claim.job, id: "details", kind } }
-					: null;
-			return lists++ < 3
+		expect(deps.events).toContain("heartbeat");
+		expect(deps.events).not.toContain("provider");
+	});
+	test("two claimed projects progress independently and shut down after in-flight work", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		const release = deferred<void>();
+		const secondFinished = deferred<void>();
+		let n = 0;
+		deps.api.claim = async () =>
+			n++ < 2
 				? {
 						...claim,
-						targets: [],
-						job: { ...claim.job, id: "list", kind: "list", pullIds: [] },
+						project: { ...project, id: `project-${n}` },
+						job: { ...claim.job, id: `job-${n}` },
 					}
 				: null;
+		deps.api.publish = async (lease) => {
+			if (lease.job.id === "job-2") secondFinished.resolve();
+			return { ...claim.job, state: "complete" };
 		};
-		deps.api.complete = async (job) => {
-			if (job.job.id === "list" && lists === 3) completedLists();
-			return scan;
-		};
-		const busy = { list: 0, details: 0 };
-		const maxima = { list: 0, details: 0 };
-		const watching = watchCollections({
+		const waiting = watchCollections({
 			...deps,
 			signal: controller.signal,
 			sleep: async () => {
-				controller.abort();
+				await release.promise;
 			},
 			collect: async (opts) => {
-				const kind = opts.targets?.length === 0 ? "list" : "details";
-				busy[kind]++;
-				maxima[kind] = Math.max(maxima[kind], busy[kind]);
-				if (kind === "details") await detailsPending;
-				busy[kind]--;
-				return { pulls: [], state: "complete", message: "done" };
+				if (opts.project.id === "project-1") await release.promise;
+				return collected();
 			},
 		});
-		await listsDone;
-		expect(busy.details).toBe(1);
-		expect(maxima).toEqual({ list: 1, details: 1 });
-		expect(lanes).toContain("list");
-		expect(lanes).toContain("details");
+		await secondFinished.promise;
 		controller.abort();
-		releaseDetails();
-		await watching;
+		release.resolve();
+		await waiting;
+		expect(n).toBeGreaterThanOrEqual(2);
 	});
-	test("backs off expired login and transport failures instead of spinning either queue", async () => {
-		for (const auth of [true, false]) {
+	test("authentication and service errors back off without spinning", async () => {
+		for (const auth of [false, true]) {
 			const deps = setup();
 			const controller = new AbortController();
 			const sleeps: number[] = [];
@@ -200,396 +553,42 @@ describe("real collector orchestration", () => {
 					sleeps.push(ms);
 					controller.abort();
 				},
-				collect: async () => {
-					throw new Error("must not collect");
-				},
 			});
-			expect(sleeps).toContain(auth ? 15_000 : 10_000);
+			expect(sleeps).toContain(auth ? 3000 : 10000);
 			expect(deps.events).not.toContain("upload");
 		}
 	});
-	test("keeps transport, authorization and malformed data failures distinct", () => {
-		for (const kind of [
-			"not_found",
-			"rate_limited",
-			"bad_response",
-			"bad_request",
-			"result_too_large",
-		] as const) {
-			expect(collectionError(new AdoError(kind, "Read failed"))).toEqual({
-				kind:
-					kind === "not_found"
-						? "not_found"
-						: kind === "rate_limited"
-							? "unavailable"
-							: "invalid_data",
-				message: "Read failed",
-			});
-		}
+});
+
+test("normalizes provider, HTTP and unknown failures without exposing stacks", () => {
+	for (const kind of [
+		"not_found",
+		"rate_limited",
+		"bad_response",
+		"bad_request",
+		"result_too_large",
+		"forbidden",
+		"server",
+	] as const)
+		expect(collectionError(new AdoError(kind, "Read failed"))).toEqual({
+			kind:
+				kind === "not_found" || kind === "forbidden"
+					? kind
+					: kind === "rate_limited" || kind === "server"
+						? "unavailable"
+						: "invalid_data",
+			message: "Read failed",
+		});
+	for (const error of ["Lease changed", { message: "Lease changed" }])
 		expect(
-			collectionError({
-				status: 409,
-				body: { error: "Lease changed" },
-				message: "HTTP 409",
-			}),
-		).toEqual({ kind: "unavailable", message: "Lease changed" });
-		expect(
-			collectionError({ status: 503, body: "HTML", message: "HTTP 503" }),
-		).toEqual({ kind: "unavailable", message: "HTTP 503" });
-		expect(collectionError("broken")).toEqual({
-			kind: "invalid_data",
-			message: "Collection failed",
-		});
-	});
-	test("does not claim work when Azure CLI returns malformed login data", async () => {
-		const deps = setup();
-		deps.ado.checkAuth = async () => {
-			throw new AdoError("bad_response", "Invalid token output");
-		};
-		expect(
-			await runCollectionOnce({
-				...deps,
-				collect: async () => {
-					throw new Error("must not collect");
-				},
-			}),
-		).toEqual({ processed: false, state: "failed" });
-		expect(deps.events).toContain("heartbeat:error");
-		expect(deps.events).not.toContain("claim");
-	});
-	test("lost lease during progress aborts publication even if reporting failure also fails", async () => {
-		const deps = setup();
-		deps.api.progress = async () => {
-			throw {
-				status: 409,
-				body: { error: "Lease changed" },
-				message: "HTTP 409",
-			};
-		};
-		deps.api.fail = async () => {
-			throw new Error("Worker offline");
-		};
-		const result = await runCollectionOnce({
-			...deps,
-			collect: async (opts) => {
-				await opts.onProgress?.(1, 3);
-				return {
-					pulls: [],
-					state: "complete",
-					message: "Unexpected completion",
-				};
-			},
-		});
-		expect(result.state).toBe("failed");
-		expect(
-			deps.events.some((event) => event.includes("lease will expire")),
-		).toBe(true);
-		expect(deps.events).not.toContain("upload");
-		expect(deps.events).not.toContain("complete");
-	});
-	test("a background keepalive failure prevents publication after collection finishes", async () => {
-		const deps = setup();
-		deps.api.progress = async () => {
-			throw new Error("Lease unavailable");
-		};
-		const result = await runCollectionOnce({
-			...deps,
-			keepAliveMs: 5,
-			collect: async () => {
-				await new Promise((resolve) => setTimeout(resolve, 15));
-				return { pulls: [], state: "complete", message: "Collected" };
-			},
-		});
-		expect(result.state).toBe("failed");
-		expect(deps.events).not.toContain("complete");
-	});
-	test("reports partial completion honestly and sends monotonic progress", async () => {
-		const deps = setup();
-		const progress: number[] = [];
-		deps.api.progress = async (_lease, done) => {
-			progress.push(done);
-		};
-		deps.api.complete = async (_lease, state) => ({ ...scan, state });
-		expect(
-			(
-				await runCollectionOnce({
-					...deps,
-					collect: async (opts) => {
-						await opts.onProgress?.(2, 3);
-						await opts.onProgress?.(1, 3);
-						return { pulls: [], state: "partial", message: "Missing timeline" };
-					},
-				})
-			).state,
-		).toBe("partial");
-		expect(progress).toEqual([2, 2]);
-	});
-	test("keeps leases alive and publishes only after collection and every upload", async () => {
-		const deps = setup();
-		const result = await runCollectionOnce({
-			...deps,
-			keepAliveMs: 5,
-			collect: async (opts) => {
-				await opts.onProgress?.(1, 1);
-				await new Promise((resolve) => setTimeout(resolve, 15));
-				expect(deps.events).not.toContain("complete");
-				return {
-					pulls: [demo.pullRequests[0]!],
-					state: "complete",
-					message: "Collected 1 PR",
-				};
-			},
-		});
-		expect(result.state).toBe("complete");
-		expect(deps.events.filter((e) => e === "progress").length).toBeGreaterThan(
-			1,
-		);
-		expect(deps.events.indexOf("upload")).toBeLessThan(
-			deps.events.indexOf("complete"),
-		);
-	});
-	test("an expired session does not claim, collect or overwrite prior snapshots", async () => {
-		const deps = setup();
-		deps.ado.checkAuth = async () => {
-			throw new AdoError("unauthenticated", "Run az login");
-		};
-		const result = await runCollectionOnce({
-			...deps,
-			collect: async () => {
-				throw new Error("must not collect");
-			},
-		});
-		expect(result.state).toBe("auth_required");
-		expect(deps.events).toContain("heartbeat:auth_required");
-		expect(deps.events).not.toContain("claim");
-		expect(deps.events).not.toContain("upload");
-	});
-	test("records distinct permission and mid-scan auth failures without publishing", async () => {
-		for (const kind of ["forbidden", "unauthenticated", "server"] as const) {
-			const deps = setup();
-			await runCollectionOnce({
-				...deps,
-				collect: async () => {
-					throw new AdoError(kind, "Cannot read checks");
-				},
-			});
-			expect(deps.events).toContain(
-				`fail:${kind === "unauthenticated" ? "auth_required" : kind === "server" ? "unavailable" : kind}`,
-			);
-			expect(deps.events).not.toContain("complete");
-		}
-	});
-	test("upload failure preserves the previous snapshot and an idle queue does no work", async () => {
-		const deps = setup();
-		deps.api.upload = async () => {
-			throw new Error("Upload interrupted");
-		};
-		await runCollectionOnce({
-			...deps,
-			collect: async () => ({
-				pulls: [],
-				state: "partial",
-				message: "partial",
-			}),
-		});
-		expect(deps.events).toContain("fail:invalid_data");
-		expect(deps.events).not.toContain("complete");
-		deps.api.claim = async () => null;
-		expect(
-			(
-				await runCollectionOnce({
-					...deps,
-					collect: async () => {
-						throw new Error("must not collect");
-					},
-				})
-			).processed,
-		).toBe(false);
-	});
-	test("registers scoped URLs idempotently and never narrows an existing all-repository project", async () => {
-		const deps = setup();
-		await registerRepositories(deps.api, [
-			"https://dev.azure.com/neworg/Project/_git/repo",
-		]);
-		expect(deps.events).toContain("create:neworg");
-		await registerRepositories(deps.api, [
-			`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/api-gateway`,
-		]);
-		expect(deps.events.filter((e) => e.startsWith("patch"))).toHaveLength(0);
-		await registerRepositories(deps.api, [
-			`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/other`,
-		]);
-		expect(deps.events).toContain("patch:api-gateway,other");
-		deps.api.load = async () => ({
-			projects: [{ ...project, repositories: [] }],
-			pullRequests: [],
-			scans: [],
-			demoMode: false,
-			fetchedAt: time,
-			truncated: false,
-		});
-		const before = deps.events.length;
-		await registerRepositories(deps.api, [
-			`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/other`,
-		]);
-		expect(deps.events.length).toBe(before);
-	});
-	test("explicit sync queues a full scan despite a paused automatic detail job", async () => {
-		const deps = setup();
-		let full = { ...claim.job, state: "queued" as typeof claim.job.state };
-		let collected = 0;
-		deps.api.job = async () => full;
-		deps.api.load = async () => ({
-			projects: [
-				{ ...project, lastScannedAt: time },
-				{ ...project, id: "paused", enabled: false },
-				{ ...project, id: "demo", source: "demo" },
-				{ ...project, id: "github", provider: "github" },
-				{ ...project, id: "unselected" },
-			],
-			collectionJobs: [
-				{
-					...claim.job,
-					id: "paused-details",
-					state: "queued",
-					kind: "details",
-					roundId: "round",
-				},
-				full,
-			],
-			pullRequests: [],
-			scans: [],
-			demoMode: true,
-			fetchedAt: time,
-			truncated: false,
-		});
-		deps.api.enqueue = async (p) => {
-			expect(p.id).toBe(project.id);
-			deps.events.push("enqueue");
-			return full;
-		};
-		deps.api.claim = async (_kind, jobId) => {
-			expect(jobId).toBe(full.id);
-			return claim;
-		};
-		deps.api.complete = async () => {
-			full = { ...full, state: "complete" };
-			return scan;
-		};
-		expect(
-			await syncCollections({
-				...deps,
-				projectIds: [project.id, "paused", "demo", "github"],
-				collect: async ({ targets }) => {
-					expect(targets).toBeUndefined();
-					collected++;
-					return { pulls: [], state: "complete", message: "done" };
-				},
-			}),
-		).toBe(true);
-		expect(collected).toBe(1);
-		expect(deps.events.filter((e) => e === "enqueue")).toHaveLength(1);
-	});
-	test("sync waits through an idle claim until its full scan can run or another collector publishes it", async () => {
-		for (const ownedElsewhere of [false, true]) {
-			const deps = setup();
-			const load = deps.api.load;
-			let state: typeof claim.job.state = "queued";
-			let released = false;
-			let collected = 0;
-			deps.api.job = async () => ({ ...claim.job, state });
-			deps.api.load = async () => ({
-				...(await load()),
-				collectionJobs: [{ ...claim.job, state }],
-			});
-			deps.api.claim = async () => (released && !ownedElsewhere ? claim : null);
-			deps.api.complete = async () => {
-				state = "complete";
-				return scan;
-			};
-			const sleep = spyOn(Bun, "sleep").mockImplementation(async (ms) => {
-				expect(ms).toBe(3000);
-				expect(released).toBe(false);
-				released = true;
-				if (ownedElsewhere) state = "partial";
-			});
-			try {
-				expect(
-					await syncCollections({
-						...deps,
-						collect: async () => {
-							collected++;
-							return { pulls: [], state: "complete", message: "done" };
-						},
-					}),
-				).toBe(true);
-			} finally {
-				sleep.mockRestore();
-			}
-			expect(released).toBe(true);
-			expect(collected).toBe(ownedElsewhere ? 0 : 1);
-		}
-	});
-	test("sync never treats missing, failed or auth-required target work as a successful idle queue", async () => {
-		for (const state of ["failed", "auth_required", null] as const) {
-			const deps = setup();
-			const load = deps.api.load;
-			deps.api.load = async () => ({
-				...(await load()),
-				collectionJobs: state ? [{ ...claim.job, state }] : [],
-			});
-			deps.api.claim = async () => null;
-			deps.api.job = async () => {
-				if (state === null) throw new Error("Collection job not found");
-				return { ...claim.job, state };
-			};
-			const result = syncCollections({
-				...deps,
-				collect: async () => {
-					throw new Error("No collection should run");
-				},
-			});
-			if (state === null)
-				await expect(result).rejects.toThrow("Collection job not found");
-			else expect(await result).toBe(false);
-		}
-	});
-	test("sync stops with a failure on expired authentication and succeeds with no eligible projects", async () => {
-		const deps = setup();
-		deps.ado.checkAuth = async () => {
-			throw new AdoError("unauthenticated", "Run az login");
-		};
-		const opts = {
-			...deps,
-			collect: async () => ({
-				pulls: [],
-				state: "complete" as const,
-				message: "done",
-			}),
-		};
-		expect(await syncCollections(opts)).toBe(false);
-		expect(await syncCollections({ ...opts, projectIds: [] })).toBe(true);
-	});
-	test("validates every URL before writes and never silently converts a demo project", async () => {
-		const deps = setup();
-		await expect(
-			registerRepositories(deps.api, [
-				"https://dev.azure.com/neworg/Project/_git/repo",
-				"https://github.com/acme/repo",
-			]),
-		).rejects.toBeInstanceOf(Error);
-		expect(deps.events).toEqual([]);
-		deps.api.load = async () => ({
-			...demo,
-			demoMode: true,
-			fetchedAt: time,
-			truncated: false,
-		});
-		await expect(
-			registerRepositories(deps.api, [
-				`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/api-gateway`,
-			]),
-		).rejects.toThrow(/demo project/);
-		expect(deps.events).toEqual([]);
+			collectionError({ status: 409, body: { error }, message: "HTTP 409" })
+				.message,
+		).toBe("Lease changed");
+	expect(
+		collectionError({ status: 503, body: "HTML", message: "HTTP 503" }).message,
+	).toBe("HTTP 503");
+	expect(collectionError("broken")).toEqual({
+		kind: "invalid_data",
+		message: "Collection failed",
 	});
 });

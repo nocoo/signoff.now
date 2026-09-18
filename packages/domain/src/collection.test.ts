@@ -9,6 +9,7 @@ import {
 	refreshSettingsSchema,
 } from "./collection.js";
 import { demoWorkspace } from "./demo.js";
+import { makeWatchRef } from "./monitoring.js";
 import {
 	projectWriteSchema,
 	pullRequestSchema,
@@ -17,6 +18,73 @@ import {
 } from "./workbench.js";
 
 describe("live collection contract", () => {
+	test("observed claims keep the complete reference and optional cached snapshot in the same scope", () => {
+		const data = demoWorkspace(1_789_632_000);
+		const project = data.projects[0]!;
+		const pull = data.pullRequests[0]!;
+		const observation = {
+			id: "watch-1",
+			source: project.source,
+			active: true,
+			generation: 1,
+			ref: makeWatchRef(project, pull.repository, pull.number),
+			pullId: pull.id,
+			addedAt: 1,
+			stoppedAt: null,
+			stopReason: null,
+		};
+		const claim = {
+			project,
+			observation,
+			targets: [pull],
+			leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
+			job: {
+				id: "job",
+				projectId: project.id,
+				revision: project.revision,
+				state: "running",
+				kind: "details",
+				pullIds: [pull.id],
+				requestedAt: 1,
+				startedAt: 1,
+				updatedAt: 1,
+				completedAt: null,
+				completedPulls: 0,
+				totalPulls: 1,
+				message: "Collecting watched PR",
+			},
+		};
+		expect(collectorClaimSchema.safeParse(claim).success).toBe(true);
+		expect(
+			collectorClaimSchema.safeParse({
+				...claim,
+				targets: [],
+				observation: { ...observation, pullId: null },
+			}).success,
+		).toBe(true);
+		for (const patch of [
+			{ observation: { ...observation, active: false } },
+			{
+				observation: {
+					...observation,
+					ref: { ...observation.ref, projectId: "elsewhere" },
+				},
+			},
+			{ targets: undefined },
+			{ targets: [pull, pull] },
+			{ targets: [{ ...pull, id: "another" }] },
+			{ targets: [{ ...pull, projectId: "another-project" }] },
+			{
+				targets: [
+					{ ...pull, repository: { ...pull.repository, id: "another-repo" } },
+				],
+			},
+			{ targets: [{ ...pull, number: pull.number + 1 }] },
+		])
+			expect(
+				collectorClaimSchema.safeParse({ ...claim, ...patch }).success,
+			).toBe(false);
+	});
 	test("validates independent cooldown settings and bounded, sequenced current-page updates", () => {
 		expect(
 			refreshSettingsSchema.parse({

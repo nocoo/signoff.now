@@ -1,29 +1,25 @@
-import { demoWorkspace } from "@signoff/domain/demo";
-import type {
-	Project,
-	ProjectWrite,
-	RefreshQueue,
-	Workbench,
-} from "@signoff/domain/workbench";
+import type { ProjectWrite } from "@signoff/domain/workbench";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	DEFAULT_PULL_FILTER,
-	PULL_FILTER_STORAGE_KEY,
-	REFRESH_SETTINGS_STORAGE_KEY,
-} from "@/models/workbench";
+import * as api from "@/models/monitoringApi";
+import { PULL_FILTER_STORAGE_KEY } from "@/models/workbench";
 import {
 	createProject,
 	deleteProject,
-	loadWorkbench,
 	patchProject,
 	patchReadiness,
 	patchRefreshSettings,
-	scanProject,
-	updateCollectionView,
 } from "@/models/workbenchApi";
+import {
+	fixtureObservation,
+	fixtureProject as project,
+	publicProject,
+	publicPull,
+	fixturePull as pull,
+	queryFixture,
+} from "@/test/monitoring-fixture";
 import {
 	useProjectFormViewModel,
 	useWorkbenchViewModel,
@@ -32,43 +28,22 @@ import {
 vi.mock("@/models/workbenchApi", () => ({
 	createProject: vi.fn(),
 	deleteProject: vi.fn(),
-	loadWorkbench: vi.fn(),
 	patchProject: vi.fn(),
 	patchReadiness: vi.fn(),
 	patchRefreshSettings: vi.fn(),
-	updateCollectionView: vi.fn(),
-	scanProject: vi.fn(),
 }));
-const NOW = 1_800_000_000;
-const defaultQueues = (): RefreshQueue[] =>
-	["list", "details"].map((kind) => ({
-		kind: kind as "list" | "details",
-		cooldownSeconds: kind === "list" ? 120 : 300,
-		lastCompletedAt: null,
-		roundId: null,
-		requested: false,
-		foregroundUntil: 0,
-		totalJobs: 0,
-		completedJobs: 0,
-	}));
-const snapshot = (): Workbench => ({
-	...demoWorkspace(NOW),
-	demoMode: true,
-	fetchedAt: NOW,
-	truncated: false,
-	refreshQueues: defaultQueues(),
-});
-function liveSnapshot(): Workbench {
-	const data = snapshot();
-	return {
-		...data,
-		projects: data.projects
-			.filter((p) => p.provider === "ado")
-			.map((p) => ({ ...p, source: "cli" as const })),
-		collector: { lastSeenAt: NOW, state: "ready", message: "Connected" },
-	};
-}
-const project = snapshot().projects[0];
+vi.mock("@/models/monitoringApi", async (original) => ({
+	...(await original<typeof import("@/models/monitoringApi")>()),
+	loadCatalog: vi.fn(),
+	loadPulls: vi.fn(),
+	loadCollector: vi.fn(),
+	loadPull: vi.fn(),
+	loadPending: vi.fn(),
+	addWatches: vi.fn(),
+	removeWatches: vi.fn(),
+	discover: vi.fn(),
+	refreshWatches: vi.fn(),
+}));
 const draft: ProjectWrite = {
 	provider: "ado",
 	name: "Core",
@@ -79,887 +54,495 @@ const draft: ProjectWrite = {
 	enabled: true,
 	repositories: [],
 };
-
-function pending<T>() {
+const fixture = queryFixture();
+function deferred<T>() {
 	let resolve!: (value: T) => void;
-	let reject!: (error: unknown) => void;
-	const promise = new Promise<T>((fulfill, fail) => {
-		resolve = fulfill;
-		reject = fail;
+	const promise = new Promise<T>((r) => {
+		resolve = r;
 	});
-	return { promise, resolve, reject };
+	return { promise, resolve };
 }
-function mount(entry = "/") {
+function render(path = "/") {
 	return renderHook(
 		() => ({
-			...useWorkbenchViewModel(),
+			vm: useWorkbenchViewModel(),
 			location: useLocation(),
 			navigate: useNavigate(),
 		}),
 		{
 			wrapper: ({ children }: { children: ReactNode }) => (
-				<MemoryRouter initialEntries={[entry]}>{children}</MemoryRouter>
+				<MemoryRouter initialEntries={[path]}>{children}</MemoryRouter>
 			),
 		},
 	);
 }
-async function loaded(entry = "/") {
-	const hook = mount(entry);
-	await waitFor(() => expect(hook.result.current.loading).toBe(false));
-	return hook;
-}
+const loaded = async (result: ReturnType<typeof render>["result"]) =>
+	waitFor(() => {
+		expect(result.current.vm.loading).toBe(false);
+		expect(result.current.vm.collector).not.toBeNull();
+	});
 beforeEach(() => {
+	vi.resetAllMocks();
 	localStorage.clear();
-	vi.mocked(loadWorkbench).mockReset().mockResolvedValue(snapshot());
-	vi.mocked(createProject).mockReset().mockResolvedValue(project);
-	vi.mocked(patchProject).mockReset().mockResolvedValue(project);
-	vi.mocked(patchReadiness).mockReset().mockResolvedValue(project);
-	vi.mocked(updateCollectionView)
-		.mockReset()
-		.mockResolvedValue(defaultQueues());
-	let settingsData = snapshot();
-	vi.mocked(patchRefreshSettings)
-		.mockReset()
-		.mockImplementation(async (settings) => {
-			settingsData = {
-				...settingsData,
-				refreshQueues: settingsData.refreshQueues!.map((q) => ({
-					...q,
-					cooldownSeconds:
-						(q.kind === "list"
-							? settings.listCooldownSeconds
-							: settings.detailCooldownSeconds) ?? q.cooldownSeconds,
-				})),
-			};
-			vi.mocked(loadWorkbench).mockResolvedValue(settingsData);
-			return settingsData.refreshQueues!;
-		});
-	vi.mocked(deleteProject).mockReset().mockResolvedValue(undefined);
-	vi.mocked(scanProject)
-		.mockReset()
-		.mockResolvedValue({ ...snapshot().scans[0], advancedStages: 2 });
-	vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+	vi.mocked(api.loadCatalog).mockImplementation(
+		async (source) => queryFixture(source).catalog,
+	);
+	vi.mocked(api.loadPulls).mockImplementation(
+		async (query) =>
+			queryFixture(
+				new URLSearchParams(query).get("source") === "sample" ? "demo" : "cli",
+			).pulls,
+	);
+	vi.mocked(api.loadCollector).mockImplementation(
+		async (source) => queryFixture(source).collector,
+	);
+	vi.mocked(api.loadPull).mockImplementation(async (source, id) => ({
+		...queryFixture(source).envelope,
+		data: {
+			...queryFixture(source).pulls.data[0]!,
+			id,
+			description: "Full detail",
+		},
+	}));
+	vi.mocked(api.loadPending).mockResolvedValue({
+		...fixture.envelope,
+		data: [],
+		page: { ...fixture.page, total: 0 },
+	});
+	vi.mocked(api.addWatches).mockResolvedValue({
+		results: [{ status: "added" }],
+	});
+	vi.mocked(api.removeWatches).mockResolvedValue({
+		results: [{ status: "removed" }],
+	});
+	vi.mocked(api.discover).mockResolvedValue({ jobs: [] });
+	vi.mocked(api.refreshWatches).mockResolvedValue({ jobs: [] });
 });
 afterEach(() => {
 	cleanup();
-	vi.useRealTimers();
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
-describe("workbench loading and URL state", () => {
-	it("defaults list cooldown to two minutes and checks to five, persisting changes independently", async () => {
-		const first = await loaded();
-		expect(first.result.current.listCooldownSeconds).toBe(120);
-		expect(first.result.current.detailCooldownSeconds).toBe(300);
-		await act(() => first.result.current.setRefreshCooldown("list", 600));
-		expect(first.result.current.listCooldownSeconds).toBe(600);
-		expect(first.result.current.detailCooldownSeconds).toBe(300);
-		await act(() => first.result.current.setRefreshCooldown("details", 0));
-		expect(patchRefreshSettings).toHaveBeenLastCalledWith({
-			detailCooldownSeconds: 0,
-		});
-		expect(
-			JSON.parse(localStorage.getItem(REFRESH_SETTINGS_STORAGE_KEY)!),
-		).toEqual({ listCooldownSeconds: 600, detailCooldownSeconds: 0 });
-		first.unmount();
-		const second = await loaded();
-		expect(second.result.current.listCooldownSeconds).toBe(600);
-		expect(second.result.current.detailCooldownSeconds).toBe(0);
-	});
-	it("uses cached preferences before loading and the server's settings afterwards without overwriting them", async () => {
-		localStorage.setItem(
-			REFRESH_SETTINGS_STORAGE_KEY,
-			JSON.stringify({ listCooldownSeconds: 60, detailCooldownSeconds: 600 }),
-		);
-		const slow = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(slow.promise);
-		const { result } = mount();
-		expect(result.current.listCooldownSeconds).toBe(60);
-		expect(result.current.detailCooldownSeconds).toBe(600);
-		await act(() => slow.resolve(snapshot()));
-		expect(result.current.listCooldownSeconds).toBe(120);
-		expect(result.current.detailCooldownSeconds).toBe(300);
-		expect(patchRefreshSettings).not.toHaveBeenCalled();
-	});
-	it.each([
-		"",
-		"broken",
-		'{"listCooldownSeconds":-1}',
-		'{"detailCooldownSeconds":30}',
-	])("ignores invalid cached refresh settings %s", async (saved) => {
-		localStorage.setItem(REFRESH_SETTINGS_STORAGE_KEY, saved);
-		const { result } = await loaded();
-		expect(result.current.listCooldownSeconds).toBe(120);
-		expect(result.current.detailCooldownSeconds).toBe(300);
-	});
-	it("keeps prior settings after a failed save and rejects unsupported cooldowns", async () => {
-		const { result } = await loaded();
-		await act(async () => {
-			expect(await result.current.setRefreshCooldown("list", 30)).toBe(false);
-		});
-		expect(patchRefreshSettings).not.toHaveBeenCalled();
-		vi.mocked(patchRefreshSettings).mockRejectedValueOnce(
-			new Error("Settings unavailable"),
-		);
-		await act(async () => {
-			expect(await result.current.setRefreshCooldown("details", 60)).toBe(
-				false,
-			);
-		});
-		expect(result.current.detailCooldownSeconds).toBe(300);
-		expect(result.current.mutationError).toBe("Settings unavailable");
-	});
-	it("selects every PR on the current page, regardless of check age, without enqueueing PR jobs in the browser", async () => {
-		vi.mocked(loadWorkbench).mockResolvedValue(liveSnapshot());
-		const { result } = await loaded();
-		const first = result.current.collectionPullIds;
-		expect(first).toHaveLength(20);
-		expect(first).toEqual(result.current.pageRows.map((row) => row.pull.id));
-		const key = result.current.collectionPageKey;
-		act(() => result.current.setPage(2));
-		expect(
-			result.current.collectionPullIds.every((id) => !first.includes(id)),
-		).toBe(true);
-		expect(result.current.collectionPageKey).not.toBe(key);
-		expect(scanProject).not.toHaveBeenCalled();
-	});
-	it("keeps automatic table reorderings in the same page round and switches scope only for navigation", async () => {
-		const data = liveSnapshot();
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		const { result } = await loaded();
-		const key = result.current.collectionPageKey;
-		vi.mocked(loadWorkbench).mockResolvedValue({
-			...data,
-			pullRequests: data.pullRequests.map((p) => ({
-				...p,
-				updatedAt: p.updatedAt + 60,
-			})),
-		});
-		await act(() => result.current.reload());
-		expect(result.current.collectionPageKey).toBe(key);
-		act(() => result.current.setFilter({ projectId: data.projects[0].id }));
-		expect(result.current.collectionPageKey).not.toBe(key);
-	});
-	it("selects only an outside-page detail when it is opened", async () => {
-		const data = liveSnapshot();
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		const target = data.pullRequests.find(
-			(p) => p.projectId === data.projects[1].id,
-		)!;
-		const { result } = await loaded(
-			`/?source=cli&project=${data.projects[0].id}&pr=${target.id}`,
-		);
-		expect(result.current.collectionPullIds).toEqual([target.id]);
-		act(() => result.current.selectPull(null));
-		expect(result.current.collectionPullIds).toEqual(
-			result.current.pageRows.map((row) => row.pull.id),
-		);
-	});
-	it("keeps collecting the page when refreshed sorting moves its open detail off the page", async () => {
-		const data = liveSnapshot();
-		data.pullRequests = Array.from({ length: 21 }, (_, index) => ({
-			...data.pullRequests[0],
-			id: `pull-${index + 1}`,
-			number: index + 1,
-			projectId: data.projects[0].id,
-			state: "open",
-			draft: false,
-			updatedAt: NOW - index,
-		}));
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		const { result } = await loaded("/?source=cli&sort=updated&direction=desc");
-		const target = data.pullRequests[19];
-		const key = result.current.collectionPageKey;
-		act(() => result.current.selectPull(target.id));
-		expect(result.current.collectionPageKey).toBe(key);
-		vi.mocked(loadWorkbench).mockResolvedValue({
-			...data,
-			pullRequests: data.pullRequests.map((p, index) =>
-				index === 20 ? { ...p, updatedAt: NOW + 1 } : p,
-			),
-		});
-		await act(() => result.current.reload());
-		expect(result.current.pageRows.map((row) => row.pull.id)).not.toContain(
-			target.id,
-		);
-		expect(result.current.collectionPageKey).toBe(key);
-		expect(result.current.collectionPullIds).toEqual(
-			result.current.pageRows.map((row) => row.pull.id),
-		);
-		expect(result.current.collectionPullIds).toHaveLength(20);
-		act(() => result.current.selectPull(null));
-		act(() => result.current.selectPull(target.id));
-		expect(result.current.collectionPullIds).toEqual([target.id]);
-		expect(result.current.collectionPageKey).not.toBe(key);
-	});
-	it("sequences page notifications across navigation and ignores old response errors after a hide", async () => {
-		const { result } = await loaded();
-		const first = pending<RefreshQueue[]>();
-		vi.mocked(updateCollectionView).mockReturnValueOnce(first.promise);
-		let showing!: Promise<boolean>;
-		act(() => {
-			showing = result.current.publishCollectionView({
-				visible: true,
-				refresh: true,
-				pageKey: "first",
-				pullIds: ["pr"],
-			});
-		});
-		await act(() =>
-			result.current.publishCollectionView({
-				visible: false,
-				refresh: false,
-				pageKey: "first",
-				pullIds: [],
-			}),
-		);
-		const calls = vi
-			.mocked(updateCollectionView)
-			.mock.calls.map((call) => call[0]);
-		expect(calls[0].viewId).toBe(calls[1].viewId);
-		expect(calls[1].sequence).toBeGreaterThan(calls[0].sequence);
-		await act(async () => {
-			first.reject(new Error("Late error"));
-			await showing;
-		});
-		expect(result.current.collectionError).toBeNull();
-		vi.mocked(updateCollectionView).mockRejectedValueOnce(
-			new Error("Worker unavailable"),
-		);
-		await act(() =>
-			result.current.publishCollectionView({
-				visible: true,
-				refresh: true,
-				pageKey: "second",
-				pullIds: [],
-			}),
-		);
-		expect(result.current.collectionError).toBe("Worker unavailable");
-		await act(() =>
-			result.current.publishCollectionView({
-				visible: true,
-				refresh: false,
-				pageKey: "second",
-				pullIds: [],
-			}),
-		);
-		expect(result.current.collectionError).toBeNull();
-	});
-	it("remembers every filter across navigation and reloads, with explicit shared URLs taking precedence", async () => {
-		const first = await loaded();
-		act(() =>
-			first.result.current.setFilter({
-				source: "demo",
-				organization: "github.com",
-				projectId: "demo-github-nocoo",
-				repository: "signoff.now",
-				draft: "include",
-				authors: ["github:maya", "github:alex"],
-				query: "review",
-				state: "all",
-				status: "attention",
-				sort: "oldest",
-			}),
-		);
-		const selected = first.result.current.filter;
-		act(() => first.result.current.navigate("/projects"));
-		expect(first.result.current.filter).toEqual(selected);
-		act(() => first.result.current.navigate("/"));
-		expect(first.result.current.filter).toEqual(selected);
-		expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toContain(
-			"author=github%3Amaya",
-		);
-		first.unmount();
-		const second = await loaded();
-		expect(second.result.current.filter).toEqual(selected);
-		act(() => second.result.current.navigate("/?source=cli&org=msdata"));
-		expect(second.result.current.filter).toMatchObject({
+describe("independent cached blocks", () => {
+	it("loads live cache only and never creates provider work when a page opens", async () => {
+		const { result } = render();
+		await loaded(result);
+		expect(result.current.vm.filter).toMatchObject({
 			source: "cli",
-			organization: "msdata",
-			projectId: "",
-			repository: "",
-			authors: [],
 			draft: "exclude",
-			query: "",
+			watching: "all",
 		});
-	});
-	it("keeps author choices and matching repository statistics usable after selecting multiple authors", async () => {
-		const { result } = await loaded("/?source=demo&org=github.com&page=2");
-		const authors = result.current.authors;
-		act(() =>
-			result.current.setFilter({ authors: ["github:maya", "github:alex"] }),
+		expect(result.current.vm.pageSize).toBe(20);
+		expect(result.current.vm.total).toBe(1);
+		expect(result.current.vm.projects[0]?.repositories[0]?.metrics.open).toBe(
+			1,
 		);
-		expect(result.current.authors).toEqual(authors);
-		expect(result.current.visible).toHaveLength(2);
-		expect(result.current.metrics.open).toBe(2);
-		expect(result.current.repositories[0]?.metrics.open).toBe(2);
-		expect(result.current.page).toBe(1);
-		expect(
-			new URLSearchParams(result.current.location.search).getAll("author"),
-		).toEqual(["github:maya", "github:alex"]);
-		act(() => result.current.setFilter({ draft: "only", authors: [] }));
-		expect(result.current.visible).toHaveLength(1);
-		expect(result.current.visible[0]?.pull.draft).toBe(true);
-		act(() => result.current.selectPull(result.current.visible[0]!.pull.id));
-		act(() => result.current.setFilter({ source: "cli" }));
-		expect(result.current.filter.authors).toEqual([]);
-		expect(result.current.selected).toBeNull();
-		expect(result.current.missingSelection).toBe(false);
+		expect(result.current.vm.connection.state).toBe("ready");
+		for (const command of [
+			api.addWatches,
+			api.removeWatches,
+			api.discover,
+			api.refreshWatches,
+		])
+			expect(command).not.toHaveBeenCalled();
 	});
-	it("uses 20 PRs per page and restores safe defaults when storage is unavailable", async () => {
+	it("keeps successful PR data when repository and collector blocks fail", async () => {
+		vi.mocked(api.loadCatalog).mockRejectedValue(
+			new Error("Repos unavailable"),
+		);
+		vi.mocked(api.loadCollector).mockRejectedValue(
+			new Error("Collector unavailable"),
+		);
+		const { result } = render();
+		await waitFor(() =>
+			expect(result.current.vm.collectionError).toBe("Collector unavailable"),
+		);
+		expect(result.current.vm.pageRows).toHaveLength(1);
+		expect(result.current.vm.catalogError).toBe("Repos unavailable");
+		expect(result.current.vm.data?.projects).toHaveLength(1);
+		expect(result.current.vm.connection.state).toBe("offline");
+	});
+	it("retains the last successful block after a refresh failure and recovers on retry", async () => {
+		const { result } = render();
+		await loaded(result);
+		vi.mocked(api.loadPulls).mockRejectedValueOnce(new Error("Read failed"));
+		await act(() => result.current.vm.reload());
+		expect(result.current.vm.error).toBe("Read failed");
+		expect(result.current.vm.rows).toHaveLength(1);
+		await act(() => result.current.vm.reload());
+		expect(result.current.vm.error).toBeNull();
+	});
+	it("never displays a late Live result in Sample", async () => {
+		const old = deferred<typeof fixture.pulls>();
+		vi.mocked(api.loadPulls).mockReturnValueOnce(old.promise);
+		const { result } = render();
+		await act(async () => {});
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		await loaded(result);
+		await act(async () => old.resolve(fixture.pulls));
+		expect(result.current.vm.pageRows[0]?.project.source).toBe("demo");
+	});
+	it("loads full detail independently from the visible list and reports cache misses", async () => {
+		const { result } = render("/?pr=off-page");
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
+		expect(result.current.vm.selected?.pull).toMatchObject({
+			id: "off-page",
+			description: "Full detail",
+		});
+		act(() => result.current.vm.selectPull(null));
+		expect(result.current.vm.selected).toBeNull();
+		vi.mocked(api.loadPull).mockRejectedValue(new Error("PR is not cached"));
+		act(() => result.current.vm.selectPull("missing"));
+		await waitFor(() => expect(result.current.vm.missingSelection).toBe(true));
+		expect(result.current.vm.detailError).toBe("PR is not cached");
+	});
+	it("changing routes stops the PR page query while preserving global source and catalog", async () => {
+		const { result } = render("/projects");
+		await loaded(result);
+		expect(api.loadPulls).not.toHaveBeenCalled();
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		act(() => result.current.navigate("/"));
+		await loaded(result);
+		expect(result.current.vm.filter.source).toBe("demo");
+		expect(result.current.vm.pageRows[0]?.project.source).toBe("demo");
+	});
+});
+
+describe("filters, server pages and temporary selection", () => {
+	it("restores saved filters and gives explicit URL filters priority", async () => {
+		localStorage.setItem(
+			PULL_FILTER_STORAGE_KEY,
+			"source=demo&draft=include&watching=watching",
+		);
+		const first = render();
+		await loaded(first.result);
+		expect(first.result.current.vm.filter).toMatchObject({
+			source: "demo",
+			draft: "include",
+			watching: "watching",
+		});
+		first.unmount();
+		const second = render("/?source=cli");
+		await loaded(second.result);
+		expect(second.result.current.vm.filter.source).toBe("cli");
+	});
+	it("works even when browser storage is unavailable", async () => {
 		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-			throw new Error("Storage disabled");
+			throw new Error("Blocked");
 		});
 		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-			throw new Error("Quota exceeded");
+			throw new Error("Blocked");
 		});
-		const { result } = await loaded();
-		expect(result.current.pageSize).toBe(20);
-		expect(result.current.pageRows).toHaveLength(20);
-		expect(result.current.filter.draft).toBe("exclude");
-		expect(result.current.listCooldownSeconds).toBe(120);
-		await act(() => result.current.setRefreshCooldown("list", 600));
-		expect(result.current.listCooldownSeconds).toBe(600);
-		act(() => result.current.setFilter({ draft: "include" }));
-		expect(result.current.visible).toHaveLength(36);
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.setFilter({ query: "find me" }));
+		expect(result.current.vm.filter.query).toBe("find me");
 	});
-	it("defaults mixed workspaces to live projects and remembers an explicit source selection", async () => {
-		const data = snapshot();
-		data.projects[0] = { ...data.projects[0], source: "cli" };
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		const { result } = await loaded();
-		expect(result.current.filter.source).toBe("cli");
-		expect(result.current.projects).toHaveLength(1);
-		expect(result.current.visible).toHaveLength(10);
-		act(() => result.current.setFilter({ source: "demo" }));
-		expect(result.current.visible).toHaveLength(21);
-		expect(
-			new URLSearchParams(result.current.location.search).get("source"),
-		).toBe("demo");
-	});
-	it("cascades organization, ADO project, and repository selections while preserving repository statistics", async () => {
-		const { result } = await loaded("/?keep=1");
-		expect(result.current.organizations).toEqual([
-			"fabrikam-demo",
-			"github.com",
-			"northstar-demo",
-		]);
-		act(() => result.current.setFilter({ organization: "northstar-demo" }));
-		expect(
-			result.current.projectOptions.map(
-				(summary) => summary.project.projectKey,
-			),
-		).toEqual(["Commerce", "Mobile", "Platform"]);
-		expect(result.current.repositories).toHaveLength(9);
-		expect(
-			result.current.visible.every(
-				(row) => row.project.organization === "northstar-demo",
-			),
-		).toBe(true);
-		const repository = result.current.repositories.find(
-			(repo) => repo.name === "api-gateway",
-		);
-		if (!repository) throw new Error("Expected the API gateway repository");
-		act(() => result.current.selectRepository(repository.key));
-		expect(result.current.filter).toMatchObject({
-			organization: "northstar-demo",
-			projectId: "demo-platform",
-			repository: "demo-platform-api-gateway",
-		});
-		expect(result.current.metrics).toEqual(repository.metrics);
-		expect(result.current.selectedRepository?.key).toBe(repository.key);
-		expect(result.current.repositories).toHaveLength(3);
-		act(() => result.current.setFilter({ query: "no matching PR" }));
-		expect(result.current.visible).toHaveLength(0);
-		expect(result.current.selectedRepository?.metrics.open).toBe(0);
-		act(() => result.current.setPage(2));
-		act(() => result.current.setFilter({ organization: "fabrikam-demo" }));
-		expect(result.current.filter).toMatchObject({
-			organization: "fabrikam-demo",
-			projectId: "",
-			repository: "",
-			query: "no matching PR",
-		});
-		expect(result.current.projectOptions).toHaveLength(1);
-		expect(result.current.repositories).toHaveLength(3);
-		expect(result.current.page).toBe(1);
-		expect(
-			new URLSearchParams(result.current.location.search).get("keep"),
-		).toBe("1");
-		act(() => result.current.setFilter({ source: "cli" }));
-		expect(result.current.filter).toMatchObject({
-			organization: "",
-			projectId: "",
-			repository: "",
-		});
-		expect(result.current.repositories).toEqual([]);
-	});
-	it("opens a shared repository scope with its actual ADO parent and retains filters after clearing the repository", async () => {
-		const { result } = await loaded(
-			"/?project=demo-platform&repo=api-gateway&state=all",
-		);
-		expect(result.current.filter.organization).toBe("northstar-demo");
-		expect(result.current.selectedRepository?.name).toBe("api-gateway");
-		expect(result.current.visible).toHaveLength(4);
-		act(() => result.current.selectRepository(""));
-		expect(result.current.filter.repository).toBe("");
-		expect(result.current.filter.projectId).toBe("demo-platform");
-		expect(result.current.visible).toHaveLength(11);
-		act(() => result.current.setFilter({ projectId: "demo-commerce" }));
-		expect(result.current.filter.organization).toBe("northstar-demo");
-		expect(result.current.repositories.map((repo) => repo.name)).toEqual([
-			"billing-api",
-			"checkout",
-			"orders",
-		]);
-	});
-	it("queues a real scan and reports pending work instead of pretending it completed", async () => {
-		const data = snapshot();
-		data.demoMode = false;
-		data.projects[0] = { ...data.projects[0], source: "cli" };
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		vi.mocked(scanProject).mockResolvedValue({
-			id: "job",
+	it("keeps hierarchy consistent and caches watch, author and draft filters", async () => {
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectRepository("repo-key"));
+		expect(result.current.vm.filter).toMatchObject({
+			organization: project.organization.toLowerCase(),
 			projectId: project.id,
-			revision: project.revision,
-			state: "queued",
-			requestedAt: NOW,
-			startedAt: null,
-			updatedAt: NOW,
-			completedAt: null,
-			completedPulls: 0,
-			totalPulls: null,
-			message: "Waiting for collector",
+			repository: pull.repository.id,
 		});
-		const { result } = await loaded();
-		await act(() => result.current.scan(project.id));
-		expect(scanProject).toHaveBeenCalledWith(project.id, project.revision, []);
-		expect(result.current.notice).toContain("Queued 1 project");
-		expect(result.current.notice).not.toContain("Scanned");
-	});
-	it("loads project summaries, repositories, metrics, and a bounded first page", async () => {
-		const { result } = await loaded();
-		expect(result.current.rows).toHaveLength(46);
-		expect(result.current.visible).toHaveLength(31);
-		expect(result.current.projects).toHaveLength(5);
-		expect(result.current.repositories).toHaveLength(13);
-		expect(result.current.metrics).toMatchObject({
-			open: 31,
-			attention: 18,
-			ready: 7,
-		});
-		expect(result.current.pageRows).toHaveLength(20);
-		expect(result.current.pageCount).toBe(2);
-		expect(result.current.refreshing).toBe(false);
-		expect(result.current.error).toBeNull();
-	});
-	it("drives filters, pages, and details from shareable URLs without discarding unrelated state", async () => {
-		const { result } = await loaded("/?page=2&pr=demo-platform-pr-4821&keep=1");
-		expect(result.current.page).toBe(2);
-		expect(result.current.selected?.pull.number).toBe(4821);
+		await act(async () => {});
+		expect(result.current.vm.selectedRepository?.name).toBe(
+			pull.repository.name,
+		);
 		act(() =>
-			result.current.setFilter({
-				projectId: "demo-platform",
-				state: "all",
-				sort: "oldest",
+			result.current.vm.setFilter({
+				draft: "include",
+				authors: ["one", "two"],
+				watching: "watching",
 			}),
 		);
-		expect(result.current.page).toBe(1);
-		expect(result.current.visible).toHaveLength(11);
-		expect(result.current.repositories).toHaveLength(3);
-		expect(result.current.selected?.pull.number).toBe(4821);
-		expect(
-			new URLSearchParams(result.current.location.search).get("keep"),
-		).toBe("1");
-		act(() =>
-			result.current.setFilter({
-				repository: "demo-platform-api-gateway",
-				query: "token",
-				status: "blocked",
-			}),
+		expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toContain(
+			"watching=watching",
 		);
-		expect(result.current.visible.map((row) => row.pull.number)).toEqual([
-			4821,
-		]);
-		act(() => result.current.setFilter({ projectId: "demo-commerce" }));
-		expect(result.current.filter.repository).toBe("");
-		act(() => result.current.setFilter(DEFAULT_PULL_FILTER));
-		expect(result.current.filter).toEqual(DEFAULT_PULL_FILTER);
-		act(() => result.current.setPage(3));
-		expect(result.current.pageRows).toHaveLength(11);
-		act(() => result.current.selectPull(null));
-		expect(result.current.selected).toBeNull();
-		expect(
-			new URLSearchParams(result.current.location.search).get("pr"),
-		).toBeNull();
-		act(() => result.current.selectPull("demo-mobile-pr-1535"));
-		expect(result.current.selected?.pull.state).toBe("merged");
+		act(() => result.current.vm.setFilter({ organization: "elsewhere" }));
+		expect(result.current.vm.filter.projectId).toBe("");
+		expect(result.current.vm.filter.repository).toBe("");
+		act(() => result.current.vm.setFilter({ projectId: "unknown" }));
+		expect(result.current.vm.filter.repository).toBe("");
+		act(() => result.current.vm.selectRepository("missing"));
+		expect(result.current.vm.filter.repository).toBe("");
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		expect(result.current.vm.filter.authors).toEqual([]);
 	});
-	it.each([
-		["-20", 1],
-		["nope", 1],
-		["Infinity", 1],
-		["2.9", 2],
-		["999", 2],
-	])("clamps page %s to %s", async (input, expected) => {
-		const { result } = await loaded(`/?page=${input}`);
-		expect(result.current.page).toBe(expected);
-	});
-	it("distinguishes a missing PR from a snapshot that could not be loaded", async () => {
-		const first = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(first.promise);
-		const { result } = mount("/?pr=missing");
-		expect(result.current.missingSelection).toBe(false);
-		expect(result.current.projects).toEqual([]);
-		await act(async () => first.reject(new Error("Offline")));
-		expect(result.current.error).toBe("Offline");
-		expect(result.current.missingSelection).toBe(false);
-		await act(async () => result.current.reload());
-		expect(result.current.error).toBeNull();
-		expect(result.current.missingSelection).toBe(true);
-	});
-	it("retains the previous snapshot on a failed refresh", async () => {
-		const { result } = await loaded();
-		vi.mocked(loadWorkbench).mockRejectedValueOnce("network unavailable");
-		await act(async () => result.current.reload());
-		expect(result.current.error).toBe("Request failed");
-		expect(result.current.rows).toHaveLength(46);
-		expect(result.current.refreshing).toBe(false);
-	});
-	it("ignores slow snapshots and errors superseded by a newer refresh", async () => {
-		const slow = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(slow.promise);
-		const { result } = mount();
-		const fresh = { ...snapshot(), fetchedAt: NOW + 90 };
-		vi.mocked(loadWorkbench).mockResolvedValueOnce(fresh);
-		await act(async () => result.current.reload());
-		await act(async () => slow.resolve(snapshot()));
-		expect(result.current.data?.fetchedAt).toBe(NOW + 90);
-		const lateError = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(lateError.promise);
-		let obsolete = Promise.resolve();
-		act(() => {
-			obsolete = result.current.reload();
+	it("uses server totals, clamps removed pages and validates malformed page numbers", async () => {
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			page: { ...fixture.page, total: 45 },
 		});
-		await act(async () => result.current.reload());
-		await act(async () => {
-			lateError.reject(new Error("Old failure"));
-			await obsolete;
-		});
-		expect(result.current.error).toBeNull();
-	});
-	it("stops loading after unmount and ignores pending completions", async () => {
-		const slow = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(slow.promise);
-		const { result, unmount } = mount();
-		const reload = result.current.reload;
-		unmount();
-		await act(async () => slow.resolve(snapshot()));
-		await reload();
-		expect(loadWorkbench).toHaveBeenCalledTimes(1);
-	});
-	it("polls live snapshots independently of collection cooldowns, avoids overlapping reads, and reloads on foreground return", async () => {
-		vi.useFakeTimers();
-		const data = liveSnapshot();
-		data.refreshQueues = defaultQueues().map((q) => ({
-			...q,
-			cooldownSeconds: 0,
-		}));
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		const { unmount } = mount();
+		const first = render("/?page=2");
+		await loaded(first.result);
+		expect(first.result.current.vm.pageCount).toBe(3);
+		expect(first.result.current.vm.pageRows).toHaveLength(1);
+		act(() => first.result.current.vm.setPage(3));
 		await act(async () => {});
-		const slow = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(slow.promise);
-		await act(() => vi.advanceTimersByTimeAsync(3000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		await act(() => vi.advanceTimersByTimeAsync(15_000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-		await act(() => slow.resolve(data));
-		await act(() => vi.advanceTimersByTimeAsync(15_000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-		await act(async () =>
-			document.dispatchEvent(new Event("visibilitychange")),
+		expect(first.result.current.vm.page).toBe(3);
+		vi.mocked(api.loadPulls).mockResolvedValue(fixture.pulls);
+		await act(() => first.result.current.vm.reload());
+		await waitFor(() => expect(first.result.current.vm.page).toBe(1));
+		first.unmount();
+		const second = render("/?page=NaN");
+		await loaded(second.result);
+		expect(second.result.current.vm.page).toBe(1);
+	});
+	it("selects eligible rows only and clears temporary selection on filter changes", async () => {
+		const watchedTerminal = publicPull(
+			{ ...pull, id: "terminal-watched", state: "merged" },
+			project,
+			fixtureObservation({ pullId: "terminal-watched" }),
 		);
-		expect(loadWorkbench).toHaveBeenCalledTimes(3);
-		unmount();
-		await act(() => vi.advanceTimersByTimeAsync(15_000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(3);
-	});
-	it("skips automatic snapshot reads during a manual mutation and resumes after it finishes", async () => {
-		vi.useFakeTimers();
-		vi.mocked(loadWorkbench).mockResolvedValue(liveSnapshot());
-		const { result } = mount();
-		await act(async () => {});
-		const saving = pending<Project>();
-		vi.mocked(createProject).mockReturnValueOnce(saving.promise);
-		let mutation!: Promise<boolean>;
-		act(() => {
-			mutation = result.current.save(draft, null);
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [
+				publicPull(),
+				publicPull({ ...pull, id: "draft", draft: true }),
+				publicPull({ ...pull, id: "done", state: "merged" }),
+				watchedTerminal,
+			],
 		});
-		await act(() => vi.advanceTimersByTimeAsync(15_000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(1);
-		await act(async () => {
-			saving.resolve(project);
-			await mutation;
-		});
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		await act(() => vi.advanceTimersByTimeAsync(3000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(3);
+		const { result } = render();
+		await loaded(result);
+		expect(result.current.vm.selectableCount).toBe(3);
+		act(() => result.current.vm.selectPage(true));
+		expect(result.current.vm.selectedCount).toBe(3);
+		expect(api.addWatches).not.toHaveBeenCalled();
+		act(() => result.current.vm.toggleSelection("done", true));
+		expect(result.current.vm.selectedCount).toBe(3);
+		act(() => result.current.vm.toggleSelection(pull.id, false));
+		expect(result.current.vm.selectedIds.has(pull.id)).toBe(false);
+		act(() => result.current.vm.selectPage(false));
+		expect(result.current.vm.selectedCount).toBe(0);
+		act(() => result.current.vm.toggleSelection(pull.id, true));
+		act(() => result.current.vm.setFilter({ query: "different" }));
+		expect(result.current.vm.selectedCount).toBe(0);
 	});
-	it.each([
-		"queued",
-		"running",
-		"auth_required",
-	] as const)("polls %s progress even with both automatic queues disabled", async (state) => {
-		vi.useFakeTimers();
-		const data: Workbench = {
-			...snapshot(),
-			refreshQueues: defaultQueues().map((q) => ({ ...q, cooldownSeconds: 0 })),
-			collectionJobs: [
+});
+
+describe("shared watch mutations", () => {
+	it("keeps unconfirmed batch items selected when the server omits a result", async () => {
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [publicPull(), publicPull({ ...pull, id: "second" })],
+		});
+		vi.mocked(api.addWatches).mockResolvedValue({
+			results: [{ status: "added" }],
+		});
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectPage(true));
+		await act(() => result.current.vm.watchSelected(true));
+		expect(result.current.vm.selectedIds).toEqual(new Set(["second"]));
+		expect(result.current.vm.mutationError).toContain(
+			"second: Missing command result",
+		);
+		expect(result.current.vm.notice).toContain("1 PR added");
+	});
+	it("batch add removes only successful selections and keeps per-item errors visible", async () => {
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [publicPull(), publicPull({ ...pull, id: "second" })],
+		});
+		vi.mocked(api.addWatches).mockResolvedValue({
+			results: [
+				{ status: "added" },
 				{
-					id: "job",
-					projectId: project.id,
-					revision: project.revision,
-					state,
-					requestedAt: NOW,
-					startedAt: NOW,
-					updatedAt: NOW,
-					completedAt: null,
-					completedPulls: 2,
-					totalPulls: 20,
-					message: "Collecting",
+					status: "rejected",
+					error: {
+						code: "PR_TERMINAL",
+						message: "Already merged",
+						retryable: false,
+					},
 				},
 			],
+		});
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectPage(true));
+		await act(() => result.current.vm.watchSelected(true));
+		expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id, "second"]);
+		expect(result.current.vm.selectedIds).toEqual(new Set(["second"]));
+		expect(result.current.vm.mutationError).toContain("Already merged");
+		expect(result.current.vm.notice).toContain("1 PR added");
+	});
+	it("captures the selected generation instead of deleting a newer CLI watch", async () => {
+		const first = publicPull(pull, project, fixtureObservation());
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [first],
+		});
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectPage(true));
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [publicPull(pull, project, fixtureObservation({ generation: 2 }))],
+		});
+		await act(() => result.current.vm.reload());
+		vi.mocked(api.removeWatches).mockResolvedValue({
+			results: [{ status: "conflict" }],
+		});
+		await act(() => result.current.vm.watchSelected(false));
+		expect(api.removeWatches).toHaveBeenCalledWith("cli", [
+			expect.objectContaining({ generation: 1 }),
+		]);
+		expect(result.current.vm.selectedCount).toBe(1);
+		expect(result.current.vm.mutationError).toContain("generation changed");
+	});
+	it("detail watch controls use the same API and explicit refresh only targets saved watches", async () => {
+		const { result } = render(`/?pr=${encodeURIComponent(pull.id)}`);
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
+		await act(() => result.current.vm.toggleWatch());
+		expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id]);
+		await act(() => result.current.vm.refreshPull());
+		expect(api.refreshWatches).toHaveBeenCalledWith("cli", undefined);
+		expect(result.current.vm.notice).toBe("The watch list is empty.");
+		await act(() => result.current.vm.refreshPull(pull.id));
+		expect(api.refreshWatches).toHaveBeenLastCalledWith("cli", pull.id);
+		act(() => result.current.vm.selectPull(null));
+		await act(async () =>
+			expect(await result.current.vm.toggleWatch()).toBe(false),
+		);
+	});
+	it("empty selections are no-ops and concurrent clicks do not duplicate writes", async () => {
+		const { result } = render();
+		await loaded(result);
+		await act(() => result.current.vm.watchSelected(true));
+		expect(api.addWatches).not.toHaveBeenCalled();
+		act(() => result.current.vm.selectPage(true));
+		const pending = deferred<{ results: { status: "added" }[] }>();
+		vi.mocked(api.addWatches).mockReturnValue(pending.promise);
+		let running!: Promise<boolean>;
+		act(() => {
+			running = result.current.vm.watchSelected(true);
+		});
+		await act(async () =>
+			expect(await result.current.vm.watchSelected(true)).toBe(false),
+		);
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		await act(async () => {
+			pending.resolve({ results: [{ status: "added" }] });
+			await running;
+		});
+		expect(result.current.vm.notice).toBeNull();
+		expect(api.addWatches).toHaveBeenCalledOnce();
+	});
+	it("pending refs stay visible and removals surface conflicts and rejections", async () => {
+		const watch = fixtureObservation();
+		const item = {
+			...publicPull(pull, project, watch).observation!,
+			pull: null,
+			pullId: null,
 		};
-		vi.mocked(loadWorkbench).mockResolvedValueOnce(data);
-		mount();
-		await act(async () => {});
-		await act(() => vi.advanceTimersByTimeAsync(2999));
-		expect(loadWorkbench).toHaveBeenCalledTimes(1);
-		await act(() => vi.advanceTimersByTimeAsync(1));
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		await act(() => vi.advanceTimersByTimeAsync(120_000));
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
+		vi.mocked(api.loadPending).mockResolvedValue({
+			...fixture.envelope,
+			data: [item],
+			page: { ...fixture.page, total: 1 },
+		});
+		const { result } = render("/?watching=watching");
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.pendingTotal).toBe(1));
+		await act(() => result.current.vm.removePending(watch));
+		expect(result.current.vm.notice).toContain("removed");
+		for (const status of ["conflict", "rejected"] as const) {
+			vi.mocked(api.removeWatches).mockResolvedValue({ results: [{ status }] });
+			await act(() => result.current.vm.removePending(watch));
+			expect(result.current.vm.mutationError).not.toBeNull();
+		}
+	});
+	it("retains failed selections and clears errors explicitly", async () => {
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectPage(true));
+		vi.mocked(api.addWatches).mockRejectedValue("offline");
+		await act(() => result.current.vm.watchSelected(true));
+		expect(result.current.vm.mutationError).toBe("Request failed");
+		expect(result.current.vm.selectedCount).toBe(1);
+		act(() => result.current.vm.clearMutationError());
+		expect(result.current.vm.mutationError).toBeNull();
 	});
 });
 
-describe("project mutations", () => {
-	it("refreshes a detail independently while list scans always request lightweight summaries", async () => {
-		const data = liveSnapshot();
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		const { result } = await loaded();
-		const selected = result.current.pageRows[0];
-		await act(() => result.current.refreshPull(selected.pull.id));
-		expect(scanProject).toHaveBeenLastCalledWith(
-			selected.project.id,
-			selected.project.revision,
-			[selected.pull.id],
-		);
-		await act(() => result.current.scan(selected.project.id));
-		expect(scanProject).toHaveBeenLastCalledWith(
-			selected.project.id,
-			selected.project.revision,
-			[],
-		);
-		await act(async () => {
-			expect(await result.current.refreshPull("missing")).toBe(false);
-		});
-		expect(scanProject).toHaveBeenCalledTimes(2);
-	});
-	it("saves readiness with the settings revision, reloads rows, and retains errors on conflict", async () => {
-		const { result } = await loaded();
-		await act(async () => {
-			expect(await result.current.saveReadiness(project, [])).toBe(true);
-		});
-		expect(patchReadiness).toHaveBeenLastCalledWith(project.id, 1, []);
-		expect(result.current.notice).toContain("Readiness");
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		vi.mocked(patchReadiness).mockRejectedValueOnce(
-			new Error("Readiness settings changed"),
-		);
-		await act(async () => {
-			expect(
-				await result.current.saveReadiness(
-					{ ...project, readinessRevision: 4 },
-					[],
-				),
-			).toBe(false);
-		});
-		expect(patchReadiness).toHaveBeenLastCalledWith(project.id, 4, []);
-		expect(result.current.mutationError).toBe("Readiness settings changed");
-	});
-	it("creates and edits projects with explicit revisions, then refreshes the saved data", async () => {
-		const { result } = await loaded();
-		await act(async () =>
-			expect(await result.current.save(draft, null)).toBe(true),
-		);
+describe("project settings and explicit discovery", () => {
+	it("saves project CRUD and readiness without collecting, using captured revisions", async () => {
+		const { result } = render();
+		await loaded(result);
+		await act(() => result.current.vm.save(draft, null));
 		expect(createProject).toHaveBeenCalledWith(draft);
-		expect(result.current.notice).toMatch(/Scan it to load sample/);
-		await act(async () =>
-			expect(await result.current.save(draft, project)).toBe(true),
-		);
+		await act(() => result.current.vm.save(draft, project));
 		expect(patchProject).toHaveBeenCalledWith(project.id, {
 			...draft,
-			revision: 1,
+			revision: project.revision,
 		});
-		expect(result.current.notice).toBe("Project updated.");
-		expect(loadWorkbench).toHaveBeenCalledTimes(3);
-		expect(result.current.busy).toBeNull();
-	});
-	it("does not advertise mock collection for live-source projects", async () => {
-		vi.mocked(createProject).mockResolvedValue({ ...project, source: "cli" });
-		vi.mocked(loadWorkbench).mockResolvedValue({
-			...snapshot(),
-			demoMode: false,
-		});
-		const { result } = await loaded();
-		await act(async () => result.current.save(draft, null));
-		expect(result.current.notice).toBe(
-			"Project added. Scan it to collect live Azure DevOps pull requests.",
+		await act(() => result.current.vm.saveReadiness(project, []));
+		expect(patchReadiness).toHaveBeenCalledWith(
+			project.id,
+			project.readinessRevision ?? 1,
+			[],
 		);
+		await act(() => result.current.vm.remove(project));
+		expect(deleteProject).toHaveBeenCalledWith(project.id, project.revision);
+		expect(api.discover).not.toHaveBeenCalled();
 	});
-	it("pauses, resumes, and removes precisely the project version the user saw", async () => {
-		const { result } = await loaded();
-		await act(async () => result.current.toggleMonitoring(project));
-		expect(patchProject).toHaveBeenLastCalledWith(project.id, {
-			revision: 1,
-			enabled: false,
-		});
-		expect(result.current.notice).toMatch(/paused/);
+	it("accepts only valid detail cooldowns and never re-enables automatic discovery", async () => {
+		const { result } = render();
+		await loaded(result);
+		expect(result.current.vm.detailCooldownSeconds).toBe(300);
 		await act(async () =>
-			result.current.toggleMonitoring({
-				...project,
-				revision: 2,
-				enabled: false,
-			}),
+			expect(await result.current.vm.setRefreshCooldown("list", 120)).toBe(
+				false,
+			),
 		);
-		expect(patchProject).toHaveBeenLastCalledWith(project.id, {
-			revision: 2,
-			enabled: true,
-		});
-		expect(result.current.notice).toMatch(/resumed/);
-		await act(async () => result.current.remove({ ...project, revision: 3 }));
-		expect(deleteProject).toHaveBeenCalledWith(project.id, 3);
-		expect(result.current.notice).toBe("Core Platform removed.");
-	});
-	it("retains the form on failure and reloads revisions before the next operation", async () => {
-		const { result } = await loaded();
-		vi.mocked(patchProject).mockRejectedValueOnce(new Error("Project changed"));
 		await act(async () =>
-			expect(await result.current.save(draft, project)).toBe(false),
+			expect(await result.current.vm.setRefreshCooldown("details", 1)).toBe(
+				false,
+			),
 		);
-		expect(result.current.mutationError).toBe("Project changed");
-		expect(result.current.notice).toBeNull();
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-		act(() => result.current.clearMutationError());
-		expect(result.current.mutationError).toBeNull();
-		vi.mocked(deleteProject).mockRejectedValueOnce("offline");
-		await act(async () => result.current.remove(project));
-		expect(result.current.mutationError).toBe("Request failed");
-	});
-	it("holds the mutation lock until the post-save snapshot arrives", async () => {
-		const { result } = await loaded();
-		const refresh = pending<Workbench>();
-		vi.mocked(loadWorkbench).mockReturnValueOnce(refresh.promise);
-		let first = Promise.resolve(false);
-		await act(async () => {
-			first = result.current.save(draft, null);
-			await Promise.resolve();
+		await act(() => result.current.vm.setRefreshCooldown("details", 600));
+		expect(patchRefreshSettings).toHaveBeenCalledWith({
+			detailCooldownSeconds: 600,
 		});
-		expect(result.current.busy).toBe("save");
+	});
+	it("explicit discovery respects repository identity and reports scheduling failures", async () => {
+		const { result } = render();
+		await loaded(result);
 		await act(async () =>
-			expect(await result.current.remove(project)).toBe(false),
+			expect(await result.current.vm.discoverRepo()).toBe(false),
 		);
-		expect(deleteProject).not.toHaveBeenCalled();
-		await act(async () => {
-			refresh.resolve(snapshot());
-			await first;
+		act(() => result.current.vm.selectRepository("repo-key"));
+		await act(() => result.current.vm.discoverRepo());
+		expect(api.discover).toHaveBeenCalledWith("cli", {
+			repositoryUrl: fixture.catalog.data[0]!.repository.url,
 		});
-		expect(result.current.busy).toBeNull();
+		await act(() => result.current.vm.scan(project.id));
+		expect(api.discover).toHaveBeenCalledWith("cli", { projectId: project.id });
+		vi.mocked(api.discover).mockRejectedValue(new Error("Scheduler offline"));
+		await act(() => result.current.vm.scan());
+		expect(result.current.vm.mutationError).toBe("Scheduler offline");
+		expect(result.current.vm.canScan({ ...project, provider: "github" })).toBe(
+			false,
+		);
 	});
-	it.each([
-		"resolve",
-		"reject",
-	] as const)("settles an in-flight mutation after unmount: %s", async (outcome) => {
-		const { result, unmount } = await loaded();
-		const saving = pending<Project>();
-		vi.mocked(createProject).mockReturnValueOnce(saving.promise);
-		let first = Promise.resolve(false);
-		act(() => {
-			first = result.current.save(draft, null);
+	it("repository pages remain useful with empty catalogs or a failed project read", async () => {
+		vi.mocked(api.loadCatalog).mockResolvedValue({
+			...fixture.catalog,
+			data: [],
+			projects: [{ ...publicProject(project), repositories: [] }],
 		});
-		unmount();
-		if (outcome === "resolve") saving.resolve(project);
-		else saving.reject(new Error("Conflict"));
-		expect(await first).toBe(outcome === "resolve");
-		expect(loadWorkbench).toHaveBeenCalledTimes(1);
-	});
-});
-
-describe("demo scanning", () => {
-	it("scans a selected project or all eligible projects and reports stage progress", async () => {
-		const { result } = await loaded();
-		await act(async () =>
-			expect(await result.current.scan(project.id)).toBe(true),
-		);
-		expect(scanProject).toHaveBeenCalledTimes(1);
-		expect(scanProject).toHaveBeenCalledWith(project.id, 1);
-		expect(result.current.notice).toBe(
-			"Scanned 1 project · 2 build stages updated.",
-		);
-		vi.mocked(scanProject).mockClear();
-		await act(async () => result.current.scan());
-		expect(scanProject).toHaveBeenCalledTimes(5);
-		expect(result.current.notice).toBe(
-			"Scanned 5 projects · 10 build stages updated.",
-		);
-	});
-	it("scans only the chosen source, skips paused projects and continues after a failure", async () => {
-		const data = snapshot();
-		data.projects[1].enabled = false;
-		data.projects[2].source = "cli";
-		vi.mocked(loadWorkbench).mockResolvedValue(data);
-		vi.mocked(scanProject).mockRejectedValueOnce(
-			new Error("Changed during scan"),
-		);
-		const { result } = await loaded("/?source=demo");
-		await act(async () => expect(await result.current.scan()).toBe(false));
-		expect(vi.mocked(scanProject).mock.calls.map((call) => call[0])).toEqual([
-			"demo-platform",
-			"demo-mobile",
-			"demo-github-nocoo",
-		]);
-		expect(result.current.mutationError).toBe(
-			"2 project(s) scanned. 0 queued. Core Platform: Changed during scan",
-		);
-		expect(result.current.notice).toBeNull();
-		expect(loadWorkbench).toHaveBeenCalledTimes(2);
-	});
-	it("refuses demo writes without local demo mode or an eligible project", async () => {
-		vi.mocked(loadWorkbench).mockResolvedValue({
-			...snapshot(),
-			demoMode: false,
-		});
-		const { result } = await loaded();
-		await act(async () => expect(await result.current.scan()).toBe(false));
-		expect(scanProject).not.toHaveBeenCalled();
-		vi.mocked(loadWorkbench).mockResolvedValue(snapshot());
-		await act(async () => result.current.reload());
-		await act(async () =>
-			expect(await result.current.scan("missing")).toBe(false),
-		);
-		expect(scanProject).not.toHaveBeenCalled();
-	});
-	it("cannot scan before a usable snapshot has loaded", async () => {
-		vi.mocked(loadWorkbench).mockRejectedValue(new Error("Offline"));
-		const { result } = await loaded();
-		await act(async () => expect(await result.current.scan()).toBe(false));
-		expect(result.current.mutationError).toBe(
-			"No eligible projects to scan. Check monitoring and active scans.",
-		);
-		expect(scanProject).not.toHaveBeenCalled();
+		const { result } = render("/projects");
+		await loaded(result);
+		expect(result.current.vm.projects[0]?.total).toBe(0);
+		vi.mocked(api.loadCatalog).mockRejectedValue(new Error("No cache"));
+		await act(() => result.current.vm.reload());
+		expect(result.current.vm.error).toBe("No cache");
 	});
 });
 
