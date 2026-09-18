@@ -179,6 +179,8 @@ export const machineConditionSchema = z.discriminatedUnion("fact", [
 export type MachineCondition = z.infer<typeof machineConditionSchema>;
 export const stateMachineSchema = z
 	.object({
+		/** Older saved machines used explicit gate order. */
+		priority: z.enum(["severity", "gate"]).optional(),
 		states: z
 			.array(
 				z

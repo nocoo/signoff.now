@@ -147,6 +147,7 @@ export function defaultStateMachine(
 ): StateMachine {
 	const requirements = projectMergeRequirements(project, pulls);
 	return {
+		priority: project.readinessRules?.length ? "gate" : "severity",
 		states: (Object.keys(READINESS_LABELS) as ReadinessKind[]).map((kind) => ({
 			id: kind,
 			kind,
@@ -314,7 +315,14 @@ export function evaluatePull(
 				),
 			}
 		: project;
-	const base = basePullReadiness(pull, effectiveProject);
+	// Saving a default machine must not silently switch from the legacy
+	// severity strategy to alphabetical gate order. Presentation stays separate.
+	const base = basePullReadiness(
+		pull,
+		machine.config.priority === "severity"
+			? { ...project, readinessRules: [] }
+			: effectiveProject,
+	);
 	if (
 		pull.state === "open" &&
 		pull.evidence?.status &&

@@ -25,6 +25,31 @@ const pull: PullRequest = {
 };
 
 describe("replayable PR state machines", () => {
+	test("saving the initial machine or editing state labels preserves automatic blocker priority", () => {
+		const facts = workspace.pullRequests[0]!;
+		const automatic = { ...project, readinessRules: [] };
+		const before = evaluatePull(facts, automatic).readiness;
+		const config = defaultStateMachine(automatic, [facts]);
+		const saved = {
+			...automatic,
+			stateMachine: { default: config, repositories: {} },
+		};
+		expect(evaluatePull(facts, saved).readiness).toEqual(before);
+		config.states.find((s) => s.id === before.kind)!.label = "Needs action";
+		expect(evaluatePull(facts, saved).readiness).toMatchObject({
+			kind: before.kind,
+			gateId: before.gateId,
+			label: "Needs action",
+		});
+		config.priority = "gate";
+		expect(evaluatePull(facts, saved).readiness.kind).toBe("running");
+		delete config.priority;
+		expect(evaluatePull(facts, saved).readiness.kind).toBe("running");
+		expect(
+			defaultStateMachine({ ...automatic, readinessRules: [config.gates[0]!] })
+				.priority,
+		).toBe("gate");
+	});
 	test("independent gates remain concurrent while every typed condition is explainable", () => {
 		const facts: PullRequest = {
 			...pull,
