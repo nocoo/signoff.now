@@ -25,7 +25,7 @@ bun "$SIGNOFF_CLI" status --pretty
 
 Run from any directory. Dependencies must already be installed in that checkout. No npm publication, global linking of the executable, or web build is required to run queries. For App/cron processes with no Bun in PATH, use the absolute Bun executable. Pass subprocess arguments as an array.
 
-Worker defaults to `http://127.0.0.1:37042`; `--api-base` or `SIGNOFF_QUERY_API_BASE` can select another loopback origin. Reuse the running Worker and daemon. If startup is part of the task, `bun run dev:worker` from the checkout applies local migrations and starts the Worker; `bun "$SIGNOFF_CLI" daemon` runs collection separately. Do not seed or reset existing data. The webpage can be closed, and cached queries still work with the daemon stopped.
+Worker defaults to `http://127.0.0.1:37042`; `--api-base` or `SIGNOFF_QUERY_API_BASE` can select another loopback origin. Reuse the running Worker and daemon. If startup on a fresh checkout is part of the task, run `bun install --frozen-lockfile` and `bun run build:web` first: Wrangler's ASSETS binding requires `apps/web/dist`. Then `bun run dev:worker` applies local migrations and starts the Worker; `bun "$SIGNOFF_CLI" daemon` runs collection separately. Consumers reusing an existing Worker do not build or start the webpage. Do not seed or reset existing data. The webpage can be closed, and cached queries still work with the daemon stopped.
 
 ## Read cached facts
 

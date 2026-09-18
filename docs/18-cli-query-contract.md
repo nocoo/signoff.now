@@ -275,7 +275,7 @@ bun "$SIGNOFF_CLI" pr get '<完整 PR URL 或 SignOff PR id>'
 
 若 shell / cron / App 的 PATH 中没有 Bun，使用上表中的绝对 Bun 路径。`SIGNOFF_CLI` / `SIGNOFF_REPO` 不是 CLI 内置选项，只供调用方定位文件；`SIGNOFF_QUERY_API_BASE` 才是 CLI 自身读取的服务配置。
 
-本机需已有运行中的 Worker，默认 `http://127.0.0.1:37042`。维护者在 SignOff 根目录执行一次 `bun install --frozen-lockfile`，并在独立终端运行 `bun run dev:worker`；它应用本地迁移、使用原来的 Wrangler SQLite。要处理发现任务或持续刷新关注清单，再运行 `bun "$SIGNOFF_CLI" daemon`。复用已启动的服务，每个消费 App 无需另开 daemon。网页无需打开，daemon 停止后仍可查询已有缓存；查询和清单命令都不要求 Azure / GitHub 登录，只有执行采集任务的 daemon 使用 Azure CLI。
+本机需已有运行中的 Worker，默认 `http://127.0.0.1:37042`。维护者在新的 SignOff checkout 先执行 `bun install --frozen-lockfile` 和 `bun run build:web`，生成 Wrangler ASSETS 绑定所需的 `apps/web/dist`，再在独立终端运行 `bun run dev:worker`；它应用本地迁移、使用原来的 Wrangler SQLite。复用现有 Worker 的消费者无需重新构建或启动网页。要处理发现任务或持续刷新关注清单，再运行 `bun "$SIGNOFF_CLI" daemon`。复用已启动的服务，每个消费 App 无需另开 daemon。网页无需打开，daemon 停止后仍可查询已有缓存；查询和清单命令都不要求 Azure / GitHub 登录，只有执行采集任务的 daemon 使用 Azure CLI。
 
 Node.js 消费者可直接调用同一入口，以参数数组传递引用：
 
