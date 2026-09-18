@@ -31,6 +31,8 @@
 
 URL 去掉可选末尾斜杠，严格解析路径，拒绝查询参数、fragment、用户信息和其他主机；ADO 的组织 / 项目以及本地目录中的仓库别名按其大小写规则匹配，PR number 使用规范正整数。`pullId`、仓库名称 URL 和 GUID URL 最终都必须在本地解析成同一个唯一键。
 
+仓库解析先匹配稳定 ID，再匹配唯一名称 / 保留别名。ADO 中 GUID 格式的引用始终表示 ID，即使首次发现之前目录为空，也不能被另一个仓库的名称替代；仓库名称恰好为 GUID 时使用它自己的 provider ID。解析上下文先按 source / provider / org / project 限定，再确定仓库，最后匹配 PR number 或 active 状态；停止记录保留的仓库身份也参与只读 lookup，避免目标 PR 不存在时误选另一个仓库。
+
 并发 add 使用数据库唯一约束与条件写：不存在则插入 generation 1，已 active 返回原行，已 inactive 则只有一次条件更新能激活下一代。失败竞争者重新读取结果，不再建立第二项。观察变更与首个 queued refresh 任务在同一事务提交，回执包含 observation ID / generation 与 job ID；任一写入失败则该项整体回滚，不会只保存观察而漏掉首个任务。重复添加不重置冷却、不制造第二份工作，有同代次未结束任务时返回复用回执，否则 job 为 null。
 
 **当前支持的引用**：支持已缓存 PR ID，以及仓库身份已在本地目录中、但 PR 本身尚未缓存的完整 URL。此时保存待首次结果项，`pullId` 可空，但 repository ID 已知。未注册范围返回 `REPOSITORY_NOT_TRACKED`；已注册但尚无仓库身份返回 `REFERENCE_UNRESOLVED`，调用者先显式 discover。发现必须保存仓库元数据，即使该仓库有零条 PR；不能靠 PR 列表反推唯一的仓库目录。
@@ -93,6 +95,8 @@ Sample 的观察记录单独隔离，只在现有本地 demo 模式允许写入�
 上游仓库改名但 provider ID 未变时，用该 ID 已保存的名称别名验证项目配置范围，接受新名称并保留旧名称。旧 URL、新 URL、GUID URL 和缓存 PR ID 都解析到同一个观察身份；不能把不同 provider ID 当成原仓库接纳。
 
 配置名称因改名 / 名称复用而匹配多个仓库 ID 时，项目级发现与 URL 发现都返回 `REFERENCE_AMBIGUOUS`，不创建任务；调用者需提供明确的仓库 ID。已解析或已固定的 provider ID 只按 ID 校验，其他仓库的同名字符串不能替代它。
+
+首次 ADO 枚举、Sample 任务过滤、计划登记、项目范围清理和缓存查询采用相同的 ID 优先规则。源返回仓库的顺序不会改变选中身份；请求的 ADO ID 缺失时返回失败，不能把同名仓库发布成该 ID 的成功发现结果。
 
 保存的观察 ref 用于定位刷新目标，计划登记不把其中的旧名称写回目录。目录名称由发现返回的仓库元数据，或通过 lease / revision / version / generation 校验后发布的 PR 快照更新；刷新暂存、失败或移除后的迟到结果不更新目录。名称更新保留已有别名，也不把单条 PR 刷新标记为完整历史发现。
 

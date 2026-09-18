@@ -52,6 +52,8 @@ signoff pr get 59382 \
 
 仓库在源站改名后，显式 discover 按已解析的 provider ID 更新名称并保留旧别名。原配置名称、旧 / 新 URL 与缓存 PR ID 仍指向同一仓库和观察项，项目元数据编辑也不会丢弃这个范围。
 
+完整 URL 中的仓库段先按稳定 ID 匹配，再解析唯一名称或保留别名。ADO GUID 格式始终作为 ID，即使目录为空也不能落到同名仓库；GUID 格式的仓库名称应改用它自己的真实 ID 引用。查找仓库身份先于 PR number 和 active 筛选，因此某个编号未缓存 / 未关注时，不会误用另一仓库的同编号记录。HTTP `repositoryId` 参数只接受 ID 语义，名称 / 别名筛选使用 `repo=<完整仓库 URL>`。
+
 仓库目录和覆盖信息也按保留别名解析配置范围，改名后仍只有一条已解析仓库；只有真正未解析的配置才显示为缺少发现结果。旧关注项后续刷新时，其保存的 ref 不覆盖目录新名称；成功发布的当前 PR 事实可以更新目录名称，失败和迟到结果保留已有信息。
 
 `watch remove` 接受相同引用语法，先调用只读 observation lookup 取得该 PR 唯一记录的 ID / generation，再发送带版本的删除。查到同代次已停止是幂等成功；从未观察返回 `NOT_FOUND`；两步之间发生重新加入则返回冲突，不自动重试删除新代次。查询可以利用本地仓库目录或停止记录内保留的自足 ref；项目删除后也可找到停止记录。别名有歧义时返回 `REFERENCE_AMBIGUOUS`，要求使用带仓库 GUID 的引用，不能猜测。
@@ -187,9 +189,11 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 | `POST /api/commands/v1/discover` | `{ source, repositoryUrl }` 或 `{ source, projectId }`，二选一；前者仅该注册仓库，后者固定该项目当前已配置范围与 revision；返回 HTTP 202 |
 | `POST /api/commands/v1/refresh` | `{ source, target }`，target 为 `{ pullId }`、`{ url }`、`{ repositoryUrl }` 或 `{ all: true }` 之一；只覆盖 active 观察项，返回 HTTP 202 |
 
-`repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；旧 enabled 字段不控制关注清单或显式发现，详见 16。
+`repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。先读取完整分页目录，再判断已注册范围，避免目录较大时重复修改项目 revision。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；旧 enabled 字段不控制关注清单或显式发现，详见 16。
 
 批量观察操作逐项原子，不因一项已终态而撤销其他成功添加项；批量结果 HTTP 200，CLI 在任一项失败时返回非零并保留结构化逐项结果。顶层格式无效则整次 400，零写入。移除客户端先只读取得当前 observation ID / generation，再发送带版本的命令；冲突不自动重试删除新一代。
+
+可通过顶层 URL 格式校验、但路径含非法百分号编码的引用（例如 `%ZZ`）也只是该项的 `INVALID_REFERENCE`；后续有效项继续执行，成功项保留 job 回执。CLI 在本地解析到此类参数时，以 exit 3 / `INVALID_ARGUMENT` 返回，不访问服务或 provider。
 
 added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false, notBefore }`，与观察激活同一事务创建；失败项没有观察 / 任务残留。already_observed 不产生新工作：若有同代次 queued / running / auth_required 任务则返回该 job 且 coalesced 为 true，否则 job 为 null，保留当前冷却。执行任务后来失败不撤销观察，按 16 的恢复规则重试；消费者可直接用回执中的 ID 调用 job get，不需要扫描任务列表。
 
