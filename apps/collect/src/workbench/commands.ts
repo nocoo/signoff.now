@@ -1,4 +1,5 @@
 import {
+	matchesRepositoryReference,
 	parsePullReference,
 	parseRepositoryReference,
 } from "@signoff/domain/monitoring";
@@ -183,14 +184,26 @@ async function registerRepos(command: Command, urls: string[]) {
 		throw new TypeError("Live GitHub collection is not available yet");
 	const result = [];
 	for (const ref of refs) {
-		const catalog = repoListSchema.parse(
-			await request(command, "GET", "/api/query/v1/repos?source=live"),
+		const catalog = await readAllPages(async (cursor) =>
+			repoListSchema.parse(
+				await request(
+					command,
+					"GET",
+					`/api/query/v1/repos?source=live&limit=200${cursor ? `&cursor=${encode(cursor)}` : ""}`,
+				),
+			),
 		);
 		const project = catalog.projects.find(
 			(p) =>
 				p.provider === ref.provider &&
 				p.organization.toLowerCase() === ref.organization.toLowerCase() &&
 				p.projectKey.toLowerCase() === ref.projectKey.toLowerCase(),
+		);
+		const projectRepos = catalog.data.filter(
+			(repo) => repo.project.id === project?.id,
+		);
+		const knownIds = projectRepos.flatMap((repo) =>
+			repo.repository.id === null ? [] : [repo.repository.id],
 		);
 		if (!project) {
 			result.push(
@@ -212,13 +225,13 @@ async function registerRepos(command: Command, urls: string[]) {
 			!project.repositories.some(
 				(name) => name.toLowerCase() === ref.repository.toLowerCase(),
 			) &&
-			!catalog.data.some(
-				(repo) =>
-					repo.project.id === project.id &&
-					[
-						repo.repository.name.toLowerCase(),
-						repo.repository.id?.toLowerCase(),
-					].includes(ref.repository.toLowerCase()),
+			!projectRepos.some((repo) =>
+				matchesRepositoryReference(
+					repo.repository,
+					ref.repository,
+					ref.provider,
+					knownIds,
+				),
 			)
 		) {
 			result.push(

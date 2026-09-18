@@ -120,3 +120,51 @@ test("malformed URL encoding fails locally with an argument error", async () => 
 	expect(JSON.parse(invalid.stderr).error.code).toBe("INVALID_ARGUMENT");
 	expect(requests).toBe(0);
 });
+test("repo add registers an ADO ID even when a tracked repository is named after it", async () => {
+	const id = "11111111-1111-1111-1111-111111111111";
+	const other = "22222222-2222-2222-2222-222222222222";
+	seedProject(sqlite, { repositories: [other] });
+	seedPull(sqlite, { repository: { id: other, name: id } });
+	const result = await cli(
+		"repo",
+		"add",
+		`https://dev.azure.com/test-org/Platform/_git/${id}`,
+	);
+	expect(result.code).toBe(0);
+	expect(result.json.data[0].repositories).toEqual([other, id]);
+	expect(
+		sqlite.raw.query("SELECT COUNT(*) n FROM collection_jobs").get(),
+	).toEqual({ n: 0 });
+	expect(
+		sqlite.raw.query("SELECT COUNT(*) n FROM pr_observations").get(),
+	).toEqual({ n: 0 });
+});
+test("repo add reads every catalog page before changing an already registered scope", async () => {
+	seedProject(sqlite, { id: "aa-many", repositories: [] });
+	for (let index = 0; index < 201; index++)
+		seedPull(sqlite, {
+			id: `unrelated-${index}`,
+			projectId: "aa-many",
+			repository: { id: `repo-${index}`, name: `repo-${index}` },
+		});
+	const target = seedProject(sqlite, {
+		id: "zz-target",
+		organization: "target-org",
+		repositories: ["main-repository"],
+	});
+	const id = "11111111-1111-1111-1111-111111111111";
+	seedPull(sqlite, {
+		projectId: target.id,
+		repository: { id, name: "main-repository" },
+	});
+	const result = await cli(
+		"repo",
+		"add",
+		`https://dev.azure.com/target-org/Platform/_git/${id}`,
+	);
+	expect(result.code).toBe(0);
+	expect(result.json.data[0]).toMatchObject({
+		revision: target.revision,
+		repositories: target.repositories,
+	});
+});

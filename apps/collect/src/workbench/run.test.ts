@@ -515,6 +515,37 @@ describe("explicit repository discovery", () => {
 });
 
 describe("sample and daemon orchestration", () => {
+	test("Sample discovery keeps ID scope when another repository name equals that ID", async () => {
+		const deps = setup();
+		deps.api.claim = async () => ({
+			...claim,
+			project: { ...project, source: "demo" },
+			job: { ...claim.job, kind: "list" },
+		});
+		deps.api.load = async () => ({
+			...demo,
+			pullRequests: [
+				{
+					...pull,
+					id: "other-pull",
+					repository: { id: "other-id", name: pull.repository.id },
+				},
+				pull,
+			],
+			demoMode: true,
+			fetchedAt: time,
+			truncated: false,
+		});
+		const planned: string[] = [];
+		const original = deps.api.repositories;
+		deps.api.repositories = async (lease, repos) => {
+			planned.push(...repos.map((repo) => repo.id));
+			return original(lease, repos);
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect(planned).toEqual([pull.repository.id]);
+		expect(deps.events).not.toContain("provider");
+	});
 	test("sample discovery and refresh never initialize Azure", async () => {
 		for (const details of [false, true]) {
 			const deps = setup();

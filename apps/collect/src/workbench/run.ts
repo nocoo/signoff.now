@@ -1,5 +1,6 @@
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { advanceDemoPull, makeDemoPulls } from "@signoff/domain/demo";
+import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import type { PullRequest } from "@signoff/domain/workbench";
 import { AdoError, type AdoPagedClient } from "../ado/client.ts";
 import type { Logger } from "../logger.ts";
@@ -74,14 +75,17 @@ async function sampleTask(
 			(p) => p.projectId === claim.project.id,
 		);
 		pulls = cached.length ? cached : makeDemoPulls(claim.project, timestamp);
+		const repositoryIds = pulls.map((pull) => pull.repository.id);
 		pulls = pulls.filter(
 			(p) =>
 				!claim.scope?.length ||
 				claim.scope.some((s) =>
-					[
-						p.repository.id.toLowerCase(),
-						p.repository.name.toLowerCase(),
-					].includes(s.toLowerCase()),
+					matchesRepositoryReference(
+						p.repository,
+						s,
+						claim.project.provider,
+						repositoryIds,
+					),
 				),
 		);
 	}
