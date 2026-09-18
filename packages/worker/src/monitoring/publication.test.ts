@@ -68,6 +68,78 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test.each([
+		"succeeded",
+		"outside",
+		"failed",
+	] as const)("a rejected failure for a %s repository cannot mutate retained state", async (state) => {
+		const project = seedProject(sqlite, { repositories: [] });
+		sqlite.raw
+			.query(
+				"INSERT INTO workbench_repositories(project_id,repository_id,name,discovery_state) VALUES(?,?,?,'complete')",
+			)
+			.run(project.id, "outside", "Outside");
+		const job = await enqueueDiscovery(sqlite.db, project, [], now);
+		const claim = (await claimJob(sqlite.db, now, { jobId: job.id }))!;
+		await registerJobRepositories(
+			sqlite.db,
+			job.id,
+			claim.leaseToken,
+			[
+				{ id: "repo-a", name: "A" },
+				{ id: "repo-b", name: "B" },
+			],
+			now,
+		);
+		if (state === "succeeded")
+			await publishRepository(
+				sqlite.db,
+				job.id,
+				claim.leaseToken,
+				"repo-a",
+				0,
+				"complete",
+				"Complete history",
+				now,
+			);
+		if (state === "failed")
+			await rejectRepository(
+				sqlite.db,
+				job.id,
+				claim.leaseToken,
+				"repo-a",
+				"Original failure",
+				now,
+			);
+		const snapshot = () => ({
+			catalog: sqlite.raw
+				.query("SELECT * FROM workbench_repositories ORDER BY repository_id")
+				.all(),
+			receipts: sqlite.raw
+				.query(
+					"SELECT * FROM collection_job_repositories ORDER BY repository_id",
+				)
+				.all(),
+			staging: sqlite.raw
+				.query("SELECT * FROM collection_staging ORDER BY pull_id")
+				.all(),
+			revisions: sqlite.raw
+				.query("SELECT * FROM workbench_revisions ORDER BY source")
+				.all(),
+		});
+		const before = snapshot();
+		await expect(
+			rejectRepository(
+				sqlite.db,
+				job.id,
+				claim.leaseToken,
+				state === "outside" ? "outside" : "repo-a",
+				"Delayed failure",
+				now + 1,
+			),
+		).rejects.toMatchObject({ status: 409 });
+		expect(snapshot()).toEqual(before);
+	});
 	test("cold ID scope rejects a differently identified repository whose name is that ID", async () => {
 		const id = "11111111-1111-1111-1111-111111111111";
 		const project = seedProject(sqlite, { repositories: [id] });

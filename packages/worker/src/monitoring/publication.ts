@@ -456,22 +456,26 @@ export async function rejectRepository(
 	message: string,
 	timestamp: number,
 ) {
+	const publication = crypto.randomUUID();
+	const receipt =
+		"EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=? AND r.repository_id=? AND r.publication_token=?)";
+	const receiptBinds = [id, repositoryId, publication];
 	const results = await db.batch([
 		db
 			.prepare(
-				`UPDATE collection_job_repositories SET state='failed',pull_count=NULL,message=? WHERE job_id=? AND repository_id=? AND state IN ('queued','running') AND ${RUNNING_JOB}`,
+				`UPDATE collection_job_repositories SET state='failed',pull_count=NULL,message=?,publication_token=? WHERE job_id=? AND repository_id=? AND state IN ('queued','running') AND ${RUNNING_JOB}`,
 			)
-			.bind(message, id, repositoryId, id, token, timestamp),
+			.bind(message, publication, id, repositoryId, id, token, timestamp),
 		db
 			.prepare(
-				`UPDATE workbench_repositories SET discovery_state='failed',discovery_message=? WHERE project_id=(SELECT project_id FROM collection_jobs WHERE id=? AND kind='list') AND repository_id=? AND ${RUNNING_JOB}`,
+				`UPDATE workbench_repositories SET discovery_state='failed',discovery_message=? WHERE project_id=(SELECT project_id FROM collection_jobs WHERE id=? AND kind='list') AND repository_id=? AND ${receipt}`,
 			)
-			.bind(message, id, repositoryId, id, token, timestamp),
+			.bind(message, id, repositoryId, ...receiptBinds),
 		db
 			.prepare(
-				`DELETE FROM collection_staging WHERE job_id=? AND repository_id=? AND ${RUNNING_JOB}`,
+				`DELETE FROM collection_staging WHERE job_id=? AND repository_id=? AND ${receipt}`,
 			)
-			.bind(id, repositoryId, id, token, timestamp),
+			.bind(id, repositoryId, ...receiptBinds),
 	]);
 	if ((results[0]?.meta.changes ?? 0) < 1)
 		throw new MonitoringError(
