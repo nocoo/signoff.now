@@ -104,7 +104,7 @@ export function Sidebar({
 			<SidebarHeader className="gap-3 overflow-hidden px-5">
 				<img
 					src="/logo-64.png"
-					alt="SignOff"
+					alt="signoff.now"
 					width={28}
 					height={28}
 					className="h-7 w-7 shrink-0 object-contain"
@@ -113,7 +113,7 @@ export function Sidebar({
 					<div className="flex min-w-0 flex-1 items-center justify-between gap-2">
 						<div className="flex min-w-0 items-center gap-3">
 							<span className="truncate text-lg font-semibold tracking-tight text-basalt-foreground">
-								SignOff
+								signoff
 							</span>
 							<Badge
 								variant="secondary"

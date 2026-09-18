@@ -123,7 +123,7 @@ function CollectedAt({
 	return (
 		<time
 			dateTime={new Date(timestamp * 1000).toISOString()}
-			title={`SignOff data collection: ${new Date(timestamp * 1000).toLocaleString()}`}
+			title={`signoff.now data collection: ${new Date(timestamp * 1000).toLocaleString()}`}
 		>
 			{relativeAge(timestamp, now)}
 		</time>

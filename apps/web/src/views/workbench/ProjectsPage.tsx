@@ -431,8 +431,8 @@ export function ProjectsPage() {
 					<AlertDialogHeader>
 						<AlertDialogTitle>Remove project?</AlertDialogTitle>
 						<AlertDialogDescription className="break-words">
-							Remove {removing?.name} and its saved PR snapshots from SignOff.
-							The source project is unaffected.
+							Remove {removing?.name} and its saved PR snapshots from
+							signoff.now. The source project is unaffected.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{vm.mutationError ? (

@@ -103,7 +103,7 @@ export function AppShell() {
 					>
 						<SheetTitle className="sr-only">Navigation</SheetTitle>
 						<SheetDescription className="sr-only">
-							Choose a page in SignOff.
+							Choose a page in signoff.now.
 						</SheetDescription>
 						<Sidebar
 							collapsed={false}

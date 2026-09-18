@@ -44,7 +44,7 @@ export function HexlyLink() {
 					rel="noopener noreferrer"
 				>
 					<span className="sr-only">
-						SignOff on hexly.ai (opens in a new tab)
+						signoff.now on hexly.ai (opens in a new tab)
 					</span>
 					<svg
 						className="size-[18px]"
