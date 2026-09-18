@@ -55,6 +55,8 @@ signoff pr get 59382 \
 
 完整 URL 中的仓库段先按稳定 ID 匹配，再解析唯一名称或保留别名。ADO GUID 格式始终作为 ID，即使目录为空也不能落到同名仓库；GUID 格式的仓库名称应改用它自己的真实 ID 引用。查找仓库身份先于 PR number 和 active 筛选，因此某个编号未缓存 / 未关注时，不会误用另一仓库的同编号记录。HTTP `repositoryId` 参数只接受 ID 语义，名称 / 别名筛选使用 `repo=<完整仓库 URL>`。
 
+输出中的已解析 ADO repository / PR / observation URL 统一使用 provider repository ID，名称仅作显示；将输出 URL 直接用于 lookup、watch add 或 refresh 必须指向同一身份。旧观察记录里保存的名称 URL 在读取时规范化，不修改其持久 identity / generation。未解析的配置继续保留名称引用；GitHub URL 继续使用 owner / repository name。
+
 仓库目录和覆盖信息也按保留别名解析配置范围，改名后仍只有一条已解析仓库；只有真正未解析的配置才显示为缺少发现结果。旧关注项后续刷新时，其保存的 ref 不覆盖目录新名称；成功发布的当前 PR 事实可以更新目录名称，失败和迟到结果保留已有信息。
 
 `watch remove` 接受相同引用语法，先调用只读 observation lookup 取得该 PR 唯一记录的 ID / generation，再发送带版本的删除。查到同代次已停止是幂等成功；从未观察返回 `NOT_FOUND`；两步之间发生重新加入则返回冲突，不自动重试删除新代次。查询可以利用本地仓库目录或停止记录内保留的自足 ref；项目删除后也可找到停止记录。别名有歧义时返回 `REFERENCE_AMBIGUOUS`，要求使用带仓库 GUID 的引用，不能猜测。
@@ -123,10 +125,10 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
       "repository": {
         "id": "example-repository",
         "name": "whiteboard-app",
-        "url": "https://dev.azure.com/intentional/intent/_git/whiteboard-app"
+        "url": "https://dev.azure.com/intentional/intent/_git/example-repository"
       },
       "number": 59382,
-      "url": "https://dev.azure.com/intentional/intent/_git/whiteboard-app/pullrequest/59382",
+      "url": "https://dev.azure.com/intentional/intent/_git/example-repository/pullrequest/59382",
       "title": "Example pull request",
       "state": "open",
       "updatedAt": "2026-09-18T01:50:00Z",

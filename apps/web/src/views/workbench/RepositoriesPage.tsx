@@ -302,7 +302,7 @@ export function RepositoryOverview({
 													{project ? (
 														<a
 															{...SOURCE_LINK}
-															href={repositoryUrl(project, repository.name)}
+															href={repositoryUrl(project, repository)}
 															title="Open repository (new tab)"
 														>
 															{repository.name}

@@ -24,6 +24,7 @@ import {
 	pullReadiness,
 	pullRequestSchema,
 	pullRequirements,
+	pullUrl,
 	readinessPriority,
 	repositoryUrl,
 } from "@signoff/domain/workbench";
@@ -53,6 +54,7 @@ export function iso(seconds: number | null | undefined): string | null {
 }
 export const publicObservation = (o: Observation) => ({
 	...o,
+	ref: { ...o.ref, url: pullUrl(o.ref, o.ref) },
 	source: publicSource(o.source),
 	addedAt: iso(o.addedAt),
 	stoppedAt: iso(o.stoppedAt),
@@ -881,7 +883,7 @@ async function readRepositoryPage(
 				repository: {
 					id,
 					name,
-					url: repositoryUrl(project, name),
+					url: repositoryUrl(project, { id, name }),
 					projectExternalId: stored?.project_external_id ?? null,
 				},
 				identityResolved: id !== null,

@@ -45,6 +45,8 @@ Default source is Live; Sample requires explicit `--source sample`. Never substi
 
 stdout is one JSON document (`schemaVersion: 1`); errors go to stderr and nonzero exit codes. Check exit status before replacing a consumer snapshot. Preserve full provider, org, project, repository ID, PR number, URL and observation generation; PR number alone is not unique. Assess `freshness.listObservedAt`, `checksObservedAt`, `checksValidity` and coverage before reporting readiness. `generatedAt` is query time, not collection time.
 
+Use the emitted URLs directly. Resolved ADO repository/PR URLs use the provider repository ID so that a renamed or reused repository name cannot point a command at another identity; do not rebuild them from display names. Unresolved references retain their configured names, and GitHub uses owner/repository URLs.
+
 Consumers choose their own query cadence. `--all` reads all cached pages; it does not fetch from ADO. For large results use `--limit` / `--cursor`; `SNAPSHOT_CHANGED` means restart the paginated read rather than append mismatched pages. The built-in `--all` retries the complete read at most twice and otherwise fails without partial stdout.
 
 ## Explicit changes
@@ -66,7 +68,7 @@ Registration does not discover or watch. Unresolved repository identity requires
 
 Discovery includes all states: first/full discovery covers accessible history, later discovery uses a successful overlapping creation-time boundary. Older unwatched PRs can retain older states until full discovery; watched PRs refresh independently. A queued receipt is not completion. Use `job get` for progress; authentication expiry is a daemon state, not a reason for the query consumer to run `az login`.
 
-Removal uses the observed generation. A conflict must not silently delete a newly re-added watch. Batch failures retain successful items and return structured per-item results with a nonzero exit. Live GitHub workbench collection is not implemented; do not replace it with the separate `pulse` CLI's direct GitHub queries.
+Removal uses the observed generation. A conflict must not silently delete a newly re-added watch. Batch item failures retain ordered results and continue independent targets with a nonzero exit. A fatal service/transport error stops later removal requests but preserves confirmed prefix receipts; verify the unacknowledged current item before retrying. Live GitHub workbench collection is not implemented; do not replace it with the separate `pulse` CLI's direct GitHub queries.
 
 ## Detailed contract
 

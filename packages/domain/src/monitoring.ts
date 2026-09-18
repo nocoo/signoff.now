@@ -4,6 +4,7 @@ import {
 	type PullRequest,
 	projectUrl,
 	providerSchema,
+	pullUrl,
 	repositoryNameSchema,
 	repositoryUrl,
 } from "./workbench.js";
@@ -175,7 +176,7 @@ export function makeWatchRef(
 		projectKey: project.projectKey,
 		repository,
 		number,
-		url: `${repositoryUrl(project, repository.name)}/${project.provider === "ado" ? "pullrequest" : "pull"}/${number}`,
+		url: pullUrl(project, { repository, number }),
 	});
 }
 
@@ -215,7 +216,7 @@ export function referenceLinks(ref: WatchRef) {
 		},
 		repository: {
 			...ref.repository,
-			url: repositoryUrl(project, ref.repository.name),
+			url: repositoryUrl(project, ref.repository),
 		},
 	};
 }

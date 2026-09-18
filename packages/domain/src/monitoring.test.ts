@@ -60,7 +60,7 @@ describe("provider-neutral observation identity", () => {
 			7,
 		);
 		expect(referenceLinks(ref).repository.url).toBe(
-			"https://dev.azure.com/My%20Org/My%20Project/_git/My%20Repo",
+			"https://dev.azure.com/My%20Org/My%20Project/_git/repo-guid",
 		);
 		const github = makeWatchRef(
 			{

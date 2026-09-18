@@ -150,7 +150,7 @@ it("calculates only on request, uses uncapped saved totals, and links the reposi
 	expect(within(table).getByText("3 min ago")).toBeTruthy();
 	const source = within(table).getByRole("link", { name: "web app" });
 	expect(source.getAttribute("href")).toBe(
-		"https://dev.azure.com/example-org/Core%20Platform/_git/web%20app",
+		"https://dev.azure.com/example-org/Core%20Platform/_git/repo-guid",
 	);
 	expect(source.getAttribute("target")).toBe("_blank");
 	expect(source.getAttribute("rel")).toBe("noopener noreferrer");

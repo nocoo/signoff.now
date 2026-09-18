@@ -966,11 +966,20 @@ export function projectUrl(
 
 export function repositoryUrl(
 	project: Pick<Project, "provider" | "organization" | "projectKey">,
-	repository: string,
+	repository: string | { id: string | null; name: string },
 ): string {
-	return `${projectUrl(project)}/${project.provider === "ado" ? "_git/" : ""}${encodeURIComponent(repository)}`;
+	const reference =
+		typeof repository === "string"
+			? repository
+			: project.provider === "ado"
+				? (repository.id ?? repository.name)
+				: repository.name;
+	return `${projectUrl(project)}/${project.provider === "ado" ? "_git/" : ""}${encodeURIComponent(reference)}`;
 }
 
-export function pullUrl(project: Project, pr: PullRequest): string {
-	return `${repositoryUrl(project, pr.repository.name)}/${project.provider === "ado" ? "pullrequest" : "pull"}/${pr.number}`;
+export function pullUrl(
+	project: Pick<Project, "provider" | "organization" | "projectKey">,
+	pr: Pick<PullRequest, "repository" | "number">,
+): string {
+	return `${repositoryUrl(project, pr.repository)}/${project.provider === "ado" ? "pullrequest" : "pull"}/${pr.number}`;
 }

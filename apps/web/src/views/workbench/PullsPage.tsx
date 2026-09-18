@@ -130,7 +130,16 @@ export function PullsPage() {
 							{scopeProject ? (
 								<RepositoryScopeLinks
 									project={scopeProject}
-									repository={repository?.name}
+									repository={
+										repository
+											? {
+													id: repository.identityResolved
+														? repository.id
+														: null,
+													name: repository.name,
+												}
+											: undefined
+									}
 									organizationOnly={!scopedProject && !repository}
 								/>
 							) : (
@@ -768,7 +777,7 @@ function PullTableRow({
 					<span>
 						<RepositoryScopeLinks
 							project={project}
-							repository={pull.repository.name}
+							repository={pull.repository}
 						/>
 					</span>
 				</div>

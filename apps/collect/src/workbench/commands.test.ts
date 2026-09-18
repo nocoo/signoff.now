@@ -399,12 +399,13 @@ test("invalid options fail before requests, including ambiguous scope and unsafe
 });
 test("repo registration creates and extends scopes without discovery; aliases queue explicitly", async () => {
 	let projects: (typeof projectDto)[] = [];
-	reply = (url, _body, _method) => {
+	reply = (url, body, _method) => {
 		if (url.pathname.endsWith("repos"))
 			return Response.json({ ...catalog, projects });
 		if (url.pathname.includes("projects")) {
-			projects = [projectDto];
-			return Response.json(project);
+			const saved = { ...project, ...body };
+			projects = [{ ...projectDto, repositories: saved.repositories }];
+			return Response.json(saved);
 		}
 		return Response.json({ jobs: [] });
 	};

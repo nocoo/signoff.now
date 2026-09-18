@@ -211,7 +211,10 @@ describe("normalized PR contract", () => {
 		);
 		expect(
 			pullUrl(ado, { ...ready, repository: { id: "repo", name: repo } }),
-		).toBe(`${repositoryUrl(ado, repo)}/pullrequest/${ready.number}`);
+		).toBe(`${repositoryUrl(ado, "repo")}/pullrequest/${ready.number}`);
+		expect(repositoryUrl(ado, { id: null, name: repo })).toBe(
+			repositoryUrl(ado, repo),
+		);
 		const github = {
 			...project,
 			provider: "github" as const,

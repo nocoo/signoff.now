@@ -61,14 +61,7 @@ export function RepositoryFilters({ vm }: { vm: WorkbenchViewModel }) {
 				<div className="col-span-2 lg:col-span-1">
 					<ScopeField
 						label="Repository"
-						href={
-							selectedRepository
-								? repositoryUrl(
-										selectedRepository.project,
-										selectedRepository.name,
-									)
-								: undefined
-						}
+						href={selectedRepository ? selectedRepository.url : undefined}
 					>
 						<SelectControl
 							value={vm.selectedRepository?.key ?? ""}
@@ -131,7 +124,7 @@ export function RepositoryScopeLinks({
 	organizationOnly = false,
 }: {
 	project: Project;
-	repository?: string;
+	repository?: { id: string | null; name: string };
 	organizationOnly?: boolean;
 }) {
 	const links = [
@@ -140,7 +133,7 @@ export function RepositoryScopeLinks({
 			? [["project", project.projectKey, projectUrl(project)]]
 			: []),
 		...(repository
-			? [["repository", repository, repositoryUrl(project, repository)]]
+			? [["repository", repository.name, repositoryUrl(project, repository)]]
 			: []),
 	];
 	return links.map(([kind, label, href], index) => (

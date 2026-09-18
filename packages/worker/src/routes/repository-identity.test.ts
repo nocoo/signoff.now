@@ -1,4 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { parsePullReference } from "@signoff/domain/monitoring";
+import {
+	batchCommandSchema,
+	observationListSchema,
+	pullDetailSchema,
+	repoListSchema,
+} from "@signoff/domain/query";
 import app from "../index";
 import {
 	addObservation,
@@ -49,6 +56,85 @@ async function fixture(id: string) {
 	const url = `https://dev.azure.com/test-org/Platform/_git/${id}`;
 	return { project, pull, collision, watch, url };
 }
+
+test.each([
+	"guid-name",
+	"retained-alias",
+])("emitted ADO URLs preserve identity through lookups and watch commands (%s)", async (collision) => {
+	seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite, { repository: { id: providerId, name: "renamed" } });
+	const name = collision === "guid-name" ? providerId : "shared";
+	const pull = seedPull(sqlite, {
+		id: "target",
+		number: 2,
+		externalId: "2",
+		repository: { id: collisionId, name },
+	});
+	if (collision === "retained-alias")
+		sqlite.raw
+			.query(
+				"UPDATE workbench_repositories SET aliases_json=? WHERE repository_id=?",
+			)
+			.run(JSON.stringify(["shared", "renamed"]), providerId);
+	const cached = pullDetailSchema.parse(
+		await (await request(`/api/query/v1/prs/${pull.id}`)).json(),
+	).data;
+	const catalog = repoListSchema.parse(
+		await (await request("/api/query/v1/repos")).json(),
+	);
+	const repository = catalog.data.find(
+		(item) => item.repository.id === collisionId,
+	)!;
+	const parsed = parsePullReference(cached.url);
+	expect(parsed.repository).toBe(collisionId);
+	expect(cached.repository.url).toBe(parsed.repositoryUrl);
+	expect(repository.repository.url).toBe(parsed.repositoryUrl);
+	const lookup = await request(
+		`/api/query/v1/prs/lookup?${new URLSearchParams({ repositoryUrl: parsed.repositoryUrl, number: String(parsed.number) })}`,
+	);
+	expect(lookup.status).toBe(200);
+	expect(pullDetailSchema.parse(await lookup.json()).data.id).toBe(pull.id);
+	const added = batchCommandSchema.parse(
+		await (
+			await request("/api/commands/v1/observations", "POST", {
+				refs: [{ url: cached.url }],
+			})
+		).json(),
+	);
+	expect(added.results[0]?.observation).toMatchObject({
+		pullId: pull.id,
+		ref: { repository: { id: collisionId } },
+	});
+	expect(
+		sqlite.raw
+			.query(
+				"SELECT json_extract(ref_json,'$.repository.id') repository_id,json_extract(ref_json,'$.number') pr_number FROM pr_observations WHERE active=1",
+			)
+			.all(),
+	).toEqual([{ repository_id: collisionId, pr_number: 2 }]);
+	// Upgrades may retain an older, name-based URL in an otherwise complete ref.
+	const observation = added.results[0]!.observation!;
+	const legacyRef = {
+		...observation.ref,
+		url: `https://dev.azure.com/test-org/Platform/_git/${name}/pullrequest/2`,
+	};
+	sqlite.raw
+		.query("UPDATE pr_observations SET ref_json=? WHERE id=?")
+		.run(JSON.stringify(legacyRef), observation.id);
+	const watches = observationListSchema.parse(
+		await (await request("/api/query/v1/observations")).json(),
+	);
+	expect(watches.data[0]?.ref.url).toBe(cached.url);
+	expect(
+		JSON.parse(
+			(
+				sqlite.raw
+					.query("SELECT ref_json FROM pr_observations WHERE id=?")
+					.get(observation.id) as { ref_json: string }
+			).ref_json,
+		).url,
+	).toBe(legacyRef.url);
+});
 
 test.each([
 	providerId,
