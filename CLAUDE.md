@@ -82,7 +82,7 @@ Never bypass commit/push hooks, force-push, or use autofix in checks. Documentat
 
 ## Resources / Isolation
 
-Dev: web 7042, local Worker 37042, optional trusted `https://signoff.dev.hexly.ai`. `SIGNOFF_DATA_DIR` controls collector artifacts; default is `.data`. The legacy shell E2E requires a running disposable loopback Worker (`SIGNOFF_PORT`) and resets named fixture rows in default local state; do not run it against daily data. The new `scripts/test-e2e.ts` uses per-run `--local --persist-to`, separate SQLite, `NODE_ENV=test`, checked markers and ownership guards. No remote test provisioning.
+Dev: web 7042, local Worker 37042. Always open the development UI through the Caddy HTTPS domain `https://signoff.dev.hexly.ai`; do not use localhost URLs for browser access. `SIGNOFF_DATA_DIR` controls collector artifacts; default is `.data`. The legacy shell E2E requires a running disposable loopback Worker (`SIGNOFF_PORT`) and resets named fixture rows in default local state; do not run it against daily data. The new `scripts/test-e2e.ts` uses per-run `--local --persist-to`, separate SQLite, `NODE_ENV=test`, checked markers and ownership guards. No remote test provisioning.
 
 `dev:worker` applies local migrations before starting. Migration 0019 preserves cached PRs, cancels legacy work and creates zero watches. 0020 resolves Unicode project/repository scope through stable IDs; 0021 adds explicit-discovery cursors. 0022 adds an independent status lane and bounded clock-aware publication; 0023 gives shared repository names their own fact time. These forward migrations preserve existing watches, snapshots and cooldown settings without creating work.
 
