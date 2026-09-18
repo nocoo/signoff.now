@@ -56,11 +56,17 @@ function FactNode({ data, selected }: NodeProps<MachineNode>) {
 		<div
 			className={cn(
 				"machine-node h-full rounded-xl border bg-basalt-card p-3 text-basalt-foreground shadow-sm",
+				data.category === "gate" &&
+					!data.status &&
+					"border-dashed text-basalt-muted-foreground",
 				selected &&
 					"ring-2 ring-basalt-primary ring-offset-2 ring-offset-basalt-background",
 			)}
 			style={{
-				borderColor: data.active ? MACHINE_COLORS[data.color] : undefined,
+				borderColor:
+					data.active || data.category === "gate"
+						? MACHINE_COLORS[data.color]
+						: undefined,
 			}}
 			title={data.detail}
 		>

@@ -218,7 +218,7 @@ function addModelFacts(
 		addNode(graph, `gate:${gate.gateId}`, `Gates · ${gate.group}`, {
 			label: gate.label,
 			detail: fact ? fact.state : "No evidence on this PR",
-			color: fact ? (gateColors[fact.state] ?? "gray") : gate.color,
+			color: fact ? (gateColors[fact.state] ?? "gray") : "gray",
 			category: "gate",
 			entityId: gate.gateId,
 			active: Boolean(fact),
@@ -231,6 +231,7 @@ function addModelFacts(
 			Boolean(fact && selected?.lifecycle === "open"),
 			undefined,
 			fact ? gateColors[fact.state] : "gray",
+			!fact,
 		);
 		addEdge(
 			graph,
@@ -239,6 +240,7 @@ function addModelFacts(
 			Boolean(fact),
 			undefined,
 			fact ? gateColors[fact.state] : "gray",
+			!fact,
 		);
 	}
 	addEdge(graph, "source:open", "evaluate", false, "Lifecycle + coverage");

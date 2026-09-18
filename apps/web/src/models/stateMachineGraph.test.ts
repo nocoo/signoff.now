@@ -150,6 +150,7 @@ it("draws AND/OR condition paths, disabled rules and readiness protection withou
 it("labels missing gate evidence and draft/terminal lifecycle independently of gate filtering", () => {
 	const page = machineFixture();
 	const selected = page.evaluations[0]!;
+	page.config.gates[0]!.color = "red";
 	selected.readiness = {
 		...selected.readiness,
 		kind: "draft",
@@ -166,7 +167,18 @@ it("labels missing gate evidence and draft/terminal lifecycle independently of g
 	expect(
 		graph.nodes
 			.filter((n) => n.data.category === "gate")
-			.every((n) => n.data.detail === "No evidence on this PR"),
+			.every(
+				(n) =>
+					n.data.detail === "No evidence on this PR" && n.data.color === "gray",
+			),
+	).toBe(true);
+	expect(
+		graph.edges
+			.filter(
+				(edge) =>
+					edge.source.startsWith("gate:") || edge.target.startsWith("gate:"),
+			)
+			.every((edge) => edge.style?.strokeDasharray === "5 5" && !edge.animated),
 	).toBe(true);
 	const without = machineGraph(page.config, [], undefined, [], "model");
 	expect(
