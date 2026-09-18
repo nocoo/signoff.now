@@ -327,6 +327,18 @@ export const collectorQuerySchema = z.object({
 	sampleCommandsEnabled: z.boolean().default(false),
 	detailCooldownSeconds: z.number(),
 	statusCooldownSeconds: z.number().optional(),
+	scheduling: z
+		.object({
+			strategy: z.literal("per_pr"),
+			checksConcurrency: z.number(),
+			statusConcurrency: z.number(),
+			nextCheckDueAt: nullableIso,
+			overdueChecks: z.number(),
+			oldestChecksAgeSeconds: z.number().nullable(),
+			oldestSummaryAgeSeconds: z.number().nullable(),
+			missingChecks: z.number(),
+		})
+		.optional(),
 	discovery: z.literal("on_demand"),
 	jobs: z.array(jobQuerySchema),
 	rounds: z.array(

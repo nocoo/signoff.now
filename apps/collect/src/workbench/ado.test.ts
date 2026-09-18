@@ -778,6 +778,9 @@ describe("collectProjectPulls", () => {
 		expect(result.pulls[0]?.coverage).toBe("partial");
 		expect(result.pulls[0]?.collectionIssues).toBeDefined();
 		expect(result.pulls[0]?.collectionIssues?.[0]).toContain("policy");
+		expect(result.message).toContain("#202:");
+		expect(result.message).toContain("policy");
+		expect(result.message).toContain("Collected 1 PR with partial coverage.");
 	});
 
 	test("handles pagination with continuationToken", async () => {

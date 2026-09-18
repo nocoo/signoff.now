@@ -51,7 +51,7 @@ ADO 真实采集已接入。GitHub 使用同一规范身份与 Sample 数据，�
 | 共享监控清单 | `pr_observations`；完整 ref、active、generation、启停时间与原因 |
 | 任务与仓库回执 | `collection_jobs`、`collection_job_repositories`；状态探测的终结回执保留 24 小时，检查 / 发现回执不受此期限影响 |
 | 暂存与发布绑定 | `collection_staging`、`collection_claim_bindings` |
-| 周期、项目轮次与连接状态 | `collection_refresh`、`collection_project_rounds`、`collector_heartbeat` |
+| 每 PR 冷却、任务尝试与连接状态 | `collection_refresh`、`collection_jobs`、`collector_heartbeat`；`collection_project_rounds` 仅保留历史兼容数据 |
 | 手动贡献计算 | `pr_stat_snapshots`，使用合并日期口径 |
 | 原 Activity artifacts | `SIGNOFF_DATA_DIR`，默认 `.data`；不是 PR 查询缓存 |
 | Azure 凭据 | Azure CLI 缓存与执行器内存；不存入查询 DTO |

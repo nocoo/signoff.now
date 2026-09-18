@@ -839,6 +839,30 @@ function indexPullSummaries(
 	return summaries;
 }
 
+function collectionMessage(
+	pulls: PullRequest[],
+	issues: string[],
+	listOnly: boolean,
+	partial: boolean,
+) {
+	if (listOnly && !partial)
+		return `Refreshed ${pulls.length} PR summaries. Add PRs to the watch list to collect their checks.`;
+	if (!partial) return `Collected ${pulls.length} PRs completely.`;
+	const reasons = [
+		...new Set([
+			...issues,
+			...pulls.flatMap((pull) =>
+				(pull.collectionIssues ?? []).map(
+					(issue) => `#${pull.number}: ${issue}`,
+				),
+			),
+		]),
+	]
+		.join(" ")
+		.slice(0, 900);
+	return `Collected ${pulls.length} PR${pulls.length === 1 ? "" : "s"} with partial coverage. ${reasons}`.trim();
+}
+
 export async function collectProjectPulls(opts: {
 	project: Project;
 	client: AdoPagedClient;
@@ -1089,12 +1113,12 @@ export async function collectProjectPulls(opts: {
 	normalizedPulls.sort((a, b) => b.number - a.number);
 
 	const state = hasPartialDetails ? "partial" : "complete";
-	const message =
-		listOnly && !hasPartialDetails
-			? `Refreshed ${normalizedPulls.length} PR summaries. Add PRs to the watch list to collect their checks.`
-			: hasPartialDetails
-				? `Collected ${normalizedPulls.length} PRs with partial coverage. ${globalIssues.join(" ")}`.trim()
-				: `Collected ${normalizedPulls.length} PRs completely.`;
+	const message = collectionMessage(
+		normalizedPulls,
+		globalIssues,
+		listOnly,
+		hasPartialDetails,
+	);
 
 	return {
 		pulls: normalizedPulls,

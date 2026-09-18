@@ -237,7 +237,7 @@ it.each([
 	[30, "Next check in <1 min", true],
 	[-10, "Next check due", true],
 	[180, "Next check in 3 min", false],
-] as const)("uses source-wide watched rounds despite PR filters and legacy enabled flags (%s seconds, %s, enabled %s)", (seconds, label, enabled) => {
+] as const)("uses source-wide per-PR due times despite PR filters and legacy enabled flags (%s seconds, %s, enabled %s)", (seconds, label, enabled) => {
 	const repo = queryFixture().catalog.data[0]!;
 	const repositories = [
 		{
@@ -266,20 +266,16 @@ it.each([
 	];
 	vm.filter.organization = "another-organization";
 	vm.collector!.watching = 2;
-	vm.collector!.rounds = [
-		{
-			projectId: "unwatched-project",
-			roundId: null,
-			lastCompletedAt: null,
-			nextDueAt: iso(Date.now() / 1000 - 120),
-		},
-		{
-			projectId: fixtureProject.id,
-			roundId: null,
-			lastCompletedAt: null,
-			nextDueAt: iso(Math.floor(Date.now() / 1000) + Number(seconds)),
-		},
-	];
+	vm.collector!.scheduling = {
+		strategy: "per_pr",
+		checksConcurrency: 2,
+		statusConcurrency: 2,
+		nextCheckDueAt: iso(Math.floor(Date.now() / 1000) + Number(seconds)),
+		overdueChecks: Number(seconds) <= 0 ? 1 : 0,
+		oldestChecksAgeSeconds: 420,
+		oldestSummaryAgeSeconds: 20,
+		missingChecks: 0,
+	};
 	renderSidebar();
 	expect(within(panel()).getByText(label)).toBeTruthy();
 });

@@ -122,23 +122,15 @@ ADO [Pull Requests API](https://learn.microsoft.com/en-us/rest/api/azure/devops/
 取消未终结任务时，配置 CAS / 取消事务立即将其置为 canceled，优先于尚未结算的 partial / failed；不等待在途请求结束。已成功或失败的仓库结果保留原 state，未结束的仓库标 canceled。先前已发布的仓库结果不因任务取消回滚，但项目删除 / 来源替换本身仍按其数据删除语义生效。迟到结果被 lease / revision / 终态条件拒绝；已经终结的任务不被后来的配置操作改写。
 
 ```text
-roundCompletedAt = 本轮剩余有效目标全部结束后的最晚完成时间
-nextDueAt        = roundCompletedAt + cooldownSeconds
+checksDueAt = 该 PR 当前 observation generation 的最近 checks 尝试完成时间 + cooldownSeconds
+statusDueAt = 该 PR 当前 observation generation 的最近 status 尝试完成时间 + 30 秒
 ```
 
-每轮开始固定观察项及 generation。新加入项获得单独的首次刷新资格，不无限扩充正在运行的轮次；移除 / 淘汰会取消该代次未开始的工作并从待完成目标中结算。任务较慢时不会按固定 interval 叠加下一轮。
+每个 PR 独立到期，调度不再等待项目整轮完成。重复 schedule 复用同代次、同通道的 queued / running / auth_required 工作，不堆叠过期轮次。新增 watch 立即获得首次检查资格；移除、终态或代次改变取消对应工作。失败和 partial 都保留观察项，在自己的冷却后重试。
 
-后台观察项不受网页 20 条页大小限制，按单 PR 任务和已有上传字节限制分批执行。显式发现与完整检查共用 checks 通道，同项目顺序执行；status 有独立租约和执行位置。PR 按等待次序推进，不使用网页可见性或页面租约控制采集。30 秒是状态冷却而非延迟上限，排队、网络和认证仍可能延迟实际读取。
+后台按单 PR 任务执行，不受网页 20 条页大小限制。checks 与 status 各有两个执行位置，同项目每通道最多两个 running 租约；该上限在原子 claim 中执行。显式发现独占项目的 checks 通道，并优先于之后排队的检查，避免饿死；status 继续独立运行。网页是否打开不参与调度。
 
-| 情况 | 规则 |
-| --- | --- |
-| 首次 / 重启 | 读取持久观察项和任务；已到期开始一轮，不补跑每个错过的时间点 |
-| 重复 schedule | 不建立第二轮或重复的同代次 PR 工作 |
-| 重复 refresh 命令 | 复用 queued / running / auth_required 的同代次 checks 工作；不以 status 回执冒充完整检查 |
-| 自动检查冷却改为 0 | 停止新自动 checks 轮次；status 仍检查 active 项的生命周期，明确的手动完整刷新仍可执行 |
-| 一项失败 / partial | 结束该次尝试，保留旧快照，其他目标继续；失败不等于退出观察 |
-| auth_required | 对应项目等待有界认证恢复；其他项目独立运行，观察项不删除 |
-| 提前刷新 | 可以越过自动冷却，仍受去重、租约和 provider 退避限制；不重置无关轮次的完成时间 |
+自动检查冷却设为 0 只停止新的周期 checks 工作，status 与显式刷新仍可执行。认证错误按原有项目退避恢复，不删除观察项。提前手动刷新只影响该 PR 的下次到期时间。`collector.scheduling` 提供下次独立检查到期时间、到期数量、最旧摘要/检查的实际年龄与缺失检查数；旧 `rounds` 字段保留为空数组。冷却不是延迟上限，排队、网络、provider 限流与认证仍可能影响真实读取间隔。
 
 ## 5. 自动淘汰与在途竞争
 

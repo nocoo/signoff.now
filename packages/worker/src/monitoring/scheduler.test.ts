@@ -105,10 +105,11 @@ describe("observation scheduler", () => {
 		const status = (await claimJob(sqlite.db, 100, { lane: "status" }))!;
 		expect(status.job.lane).toBe("status");
 		expect(status.observation?.active).toBe(true);
-		expect(await claimJob(sqlite.db, 101, { lane: "status" })).toBeNull();
+		const second = (await claimJob(sqlite.db, 101, { lane: "status" }))!;
+		expect(second.observation?.id).not.toBe(status.observation?.id);
+		expect(await claimJob(sqlite.db, 102, { lane: "status" })).toBeNull();
 		expect(checks.job.id).not.toBe(status.job.id);
 		finish(status.job.id, 110);
-		const second = (await claimJob(sqlite.db, 111, { lane: "status" }))!;
 		finish(second.job.id, 112);
 		await scheduleSummaries(sqlite.db, 139);
 		expect(await claimJob(sqlite.db, 139, { lane: "status" })).toBeNull();
@@ -116,6 +117,9 @@ describe("observation scheduler", () => {
 		expect(
 			(await claimJob(sqlite.db, 140, { lane: "status" }))?.observation?.id,
 		).toBe(status.observation?.id);
+		expect((await claimJob(sqlite.db, 140))?.observation?.id).not.toBe(
+			checks.observation?.id,
+		);
 		expect(await claimJob(sqlite.db, 140)).toBeNull();
 		expect(
 			sqlite.raw
@@ -168,48 +172,42 @@ describe("observation scheduler", () => {
 		}
 		expect(activeCount()).toBe(0);
 	});
-	test("a project round cools down after its final PR ends, including removals", async () => {
+	test("each PR becomes due independently of slow neighbors, with two bounded slots", async () => {
 		seedProject(sqlite, { repositories: [] });
 		const a = await watch(1);
 		const b = await watch(2);
 		await scheduleObservations(sqlite.db, 100);
 		await scheduleObservations(sqlite.db, 101);
 		expect(activeCount()).toBe(2);
-		const first = await claimJob(sqlite.db, 100);
-		expect(first?.job.id).toBe(a.job?.id);
-		await scheduleObservations(sqlite.db, 1000);
-		expect(activeCount()).toBe(2);
-		finish(a.job!.id, 1000);
-		await removeObservation(sqlite.db, "cli", b.observation.id, 1, 1050);
-		await scheduleObservations(sqlite.db, 1100);
-		expect(activeCount()).toBe(0);
-		expect(
-			sqlite.raw
-				.query("SELECT last_completed_at FROM collection_project_rounds")
-				.get(),
-		).toEqual({ last_completed_at: 1050 });
-		await scheduleObservations(sqlite.db, 1349);
-		expect(activeCount()).toBe(0);
-		await scheduleObservations(sqlite.db, 1350);
+		const first = (await claimJob(sqlite.db, 100))!;
+		const slow = (await claimJob(sqlite.db, 101))!;
+		expect(first.observation?.id).toBe(a.observation.id);
+		expect(slow.observation?.id).toBe(b.observation.id);
+		finish(first.job.id, 110);
+		await renewJob(sqlite.db, slow.job.id, slow.leaseToken, 200);
+		await renewJob(sqlite.db, slow.job.id, slow.leaseToken, 300);
+		await scheduleObservations(sqlite.db, 409);
 		expect(activeCount()).toBe(1);
-		expect((await claimJob(sqlite.db, 1350))?.observation?.id).toBe(
+		await scheduleObservations(sqlite.db, 410);
+		await scheduleObservations(sqlite.db, 410);
+		expect(activeCount()).toBe(2);
+		expect((await claimJob(sqlite.db, 410))?.observation?.id).toBe(
 			a.observation.id,
 		);
+		await watch(3);
+		expect(await claimJob(sqlite.db, 410)).toBeNull();
+		await removeObservation(sqlite.db, "cli", b.observation.id, 1, 411);
+		expect((await claimJob(sqlite.db, 411))?.observation?.id).not.toBe(
+			b.observation.id,
+		);
 	});
-	test("new additions do not extend a fixed round; off disables periodic jobs only", async () => {
+	test("new watches start immediately; manual mode disables only future periodic checks", async () => {
 		seedProject(sqlite, { repositories: [] });
 		const a = await watch(1);
 		await scheduleObservations(sqlite.db, 100);
 		const b = await watch(2);
 		finish(a.job!.id, 120);
 		await scheduleObservations(sqlite.db, 121);
-		expect(
-			sqlite.raw
-				.query(
-					"SELECT last_completed_at,round_id FROM collection_project_rounds",
-				)
-				.get(),
-		).toEqual({ last_completed_at: 120, round_id: null });
 		expect((await claimJob(sqlite.db, 121))?.observation?.id).toBe(
 			b.observation.id,
 		);
@@ -324,6 +322,38 @@ describe("observation scheduler", () => {
 			expect(claims.filter(Boolean)).toHaveLength(1);
 		} finally {
 			c.close();
+		}
+	});
+	test("independent claimers cannot exceed the two available project slots", async () => {
+		const connections = createConcurrentSqliteD1(3);
+		try {
+			const fixture = { ...sqlite, raw: connections.raw };
+			seedProject(fixture, { repositories: [] });
+			for (let number = 1; number <= 3; number++) {
+				const pull = seedPull(fixture, {
+					id: `pr-${number}`,
+					number,
+					externalId: String(number),
+				});
+				await addObservation(
+					connections.connections[0]!,
+					"cli",
+					{ pullId: pull.id },
+					100,
+				);
+			}
+			connections.barrierBeforeBatch("SET state='running'", 3);
+			const claims = await Promise.all(
+				connections.connections.map((db) => claimJob(db, 100)),
+			);
+			expect(connections.barrierArrivals()).toBe(3);
+			expect(claims.filter(Boolean)).toHaveLength(2);
+			expect(
+				new Set(claims.filter(Boolean).map((claim) => claim?.observation?.id))
+					.size,
+			).toBe(2);
+		} finally {
+			connections.close();
 		}
 	});
 });

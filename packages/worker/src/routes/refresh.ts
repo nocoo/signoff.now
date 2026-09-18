@@ -16,11 +16,11 @@ import {
 import type { AppEnv } from "../types.js";
 
 export const REFRESH_QUEUES_SQL = `SELECT q.kind,q.cooldown_seconds,
- (SELECT MAX(last_completed_at) FROM collection_project_rounds) AS last_completed_at,
- CASE WHEN q.kind='details' THEN (SELECT MIN(round_id) FROM collection_project_rounds WHERE round_id IS NOT NULL) ELSE NULL END AS round_id,
+ (SELECT MAX(completed_at) FROM collection_jobs WHERE kind=q.kind AND summary_only=0) AS last_completed_at,
+ NULL AS round_id,
  0 AS refresh_requested,9007199254740991 AS foreground_until,
- (SELECT COUNT(*) FROM collection_jobs j WHERE j.kind=q.kind AND j.summary_only=0 AND (j.state IN ('queued','running','auth_required') OR j.round_id IN (SELECT round_id FROM collection_project_rounds WHERE round_id IS NOT NULL))) AS total_jobs,
- (SELECT COUNT(*) FROM collection_jobs j WHERE j.kind=q.kind AND j.round_id IN (SELECT round_id FROM collection_project_rounds WHERE round_id IS NOT NULL) AND j.state NOT IN ('queued','running','auth_required')) AS completed_jobs
+ (SELECT COUNT(*) FROM collection_jobs j WHERE j.kind=q.kind AND j.summary_only=0 AND j.state IN ('queued','running','auth_required')) AS total_jobs,
+ 0 AS completed_jobs
  FROM collection_refresh q ORDER BY q.kind DESC`;
 type QueueRow = {
 	kind: RefreshQueue["kind"];

@@ -48,7 +48,7 @@ function operationLabel(
 	if (collector.queue.queued > 0) return "Waiting to start";
 	if (!collector.watching) return "Ready to watch";
 	if (!vm.detailCooldownSeconds) return "Manual checks";
-	if (untilNext === null) return "Waiting for next round";
+	if (untilNext === null) return "Waiting for next check";
 	if (untilNext <= 0) return "Next check due";
 	if (untilNext < 60) return "Next check in <1 min";
 	return `Next check in ${Math.ceil(untilNext / 60)} min`;
@@ -100,19 +100,9 @@ export function CollectionStatus({
 			: jobs.find((job) => job.state === "auth_required")?.message ||
 				recentFailure?.message);
 	const watching = collector?.watching ?? 0;
-	const watchedProjects = new Set(
-		vm.projects
-			.flatMap((project) => project.repositories)
-			.filter((repo) => repo.metrics.watching > 0)
-			.map((repo) => repo.project.id),
-	);
-	const nextDue = collector?.rounds
-		.flatMap((round) =>
-			watchedProjects.has(round.projectId) && round.nextDueAt
-				? [Date.parse(round.nextDueAt) / 1000]
-				: [],
-		)
-		.sort((a, b) => a - b)[0];
+	const nextDue = collector?.scheduling?.nextCheckDueAt
+		? Date.parse(collector.scheduling.nextCheckDueAt) / 1000
+		: undefined;
 	const untilNext = nextDue === undefined ? null : nextDue - now;
 	const operation = operationLabel(vm, available, Boolean(problem), untilNext);
 	let context: string | undefined;
@@ -218,6 +208,7 @@ export function CollectionStatus({
 					</div>
 				))}
 			</dl>
+			<OldestChecks collector={collector} now={now} />
 			<div className="min-h-4">
 				<p
 					role="status"
@@ -302,14 +293,14 @@ function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
 		<div className="mt-2" aria-busy={saving}>
 			<div
 				className="flex items-center justify-between gap-2"
-				title="Refresh the shared watch list after each project's entire round finishes. Continues without an open webpage."
+				title="Each watched PR becomes due independently after its last check attempt. Two checks and two status probes can run per project. Continues without an open webpage."
 			>
 				<div>
 					<Label htmlFor={intervalId} className="text-[10px] font-medium">
 						Checks
 					</Label>
 					<p className="text-[9px] text-basalt-muted-foreground">
-						Cooldown after round
+						Cooldown per PR
 					</p>
 				</div>
 				<SelectControl
@@ -345,5 +336,28 @@ function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
 				</p>
 			) : null}
 		</div>
+	);
+}
+
+function OldestChecks({
+	collector,
+	now,
+}: {
+	collector: WorkbenchViewModel["collector"];
+	now: number;
+}) {
+	if (!collector?.scheduling || !collector.watching) return null;
+	const { oldestChecksAgeSeconds, missingChecks } = collector.scheduling;
+	return (
+		<p
+			className="mb-2 text-[10px] text-basalt-muted-foreground"
+			title="Age of the oldest successfully collected checks among active watches"
+		>
+			Oldest checks:{" "}
+			{oldestChecksAgeSeconds === null
+				? "not collected"
+				: relativeTime(now - oldestChecksAgeSeconds, now)}
+			{missingChecks > 0 ? ` · ${missingChecks} missing` : ""}
+		</p>
 	);
 }

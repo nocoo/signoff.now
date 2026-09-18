@@ -944,11 +944,11 @@ describe("v1 cache queries", () => {
 			message: "az login required",
 		});
 		sqlite.raw.exec(
-			"UPDATE collection_jobs SET state='canceled'; INSERT INTO collection_project_rounds(project_id,last_completed_at) VALUES('live-project',100)",
+			"UPDATE collection_jobs SET state='canceled',completed_at=100",
 		);
 		expect(
-			(await queryCollector(sqlite.db, "cli", PR_TEST_NOW)).rounds[0]
-				?.nextDueAt,
+			(await queryCollector(sqlite.db, "cli", PR_TEST_NOW)).scheduling
+				.nextCheckDueAt,
 		).toBe(new Date(400000).toISOString());
 		expect(
 			(await queryCollector(sqlite.db, "cli", PR_TEST_NOW + 66)).connection

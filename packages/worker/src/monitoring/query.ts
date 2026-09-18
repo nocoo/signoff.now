@@ -1227,7 +1227,12 @@ export async function queryCollector(
 			.bind(source),
 		db
 			.prepare(
-				"SELECT q.* FROM collection_project_rounds q JOIN projects p ON p.id=q.project_id WHERE p.source=?",
+				`SELECT o.id,o.project_id,o.pull_id,
+        (SELECT MAX(completed_at) FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0) last_completed_at,
+        EXISTS(SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0 AND j.state IN ('queued','running','auth_required')) busy,
+        COALESCE(json_extract(pr.snapshot,'$.summaryObservedAt'),json_extract(pr.snapshot,'$.observedAt')) summary_observed_at,
+        CASE WHEN json_type(pr.snapshot,'$.checksObservedAt') IS NULL THEN json_extract(pr.snapshot,'$.observedAt') ELSE json_extract(pr.snapshot,'$.checksObservedAt') END checks_observed_at
+        FROM pr_observations o LEFT JOIN pull_requests pr ON pr.id=o.pull_id WHERE o.source=? AND o.active=1 ORDER BY o.id`,
 			)
 			.bind(source),
 		db.prepare(
@@ -1263,6 +1268,32 @@ export async function queryCollector(
 		.cooldown_seconds;
 	const auth = results[6]?.results[0] as { message: string } | undefined;
 	const offline = !heartbeat || timestamp - heartbeat.last_seen_at > 65;
+	const cadence = (results[3]?.results ?? []) as {
+		id: string;
+		project_id: string;
+		pull_id: string | null;
+		last_completed_at: number | null;
+		busy: number;
+		summary_observed_at: number | null;
+		checks_observed_at: number | null;
+	}[];
+	const due = cadence.flatMap((item) =>
+		cooldown && !item.busy
+			? [
+					item.last_completed_at === null
+						? timestamp
+						: item.last_completed_at + cooldown,
+				]
+			: [],
+	);
+	const oldest = (field: "summary_observed_at" | "checks_observed_at") => {
+		const ages = cadence.flatMap((item) =>
+			item[field] === null
+				? []
+				: [Math.max(0, timestamp - Math.floor(item[field]))],
+		);
+		return ages.length ? Math.max(...ages) : null;
+	};
 	return {
 		queue: results[5]?.results[0] as {
 			running: number;
@@ -1292,20 +1323,18 @@ export async function queryCollector(
 		statusCooldownSeconds: 30,
 		discovery: "on_demand" as const,
 		jobs: jobs.map((j) => publicJob(j, [])),
-		rounds: (
-			(results[3]?.results ?? []) as {
-				project_id: string;
-				round_id: string | null;
-				last_completed_at: number | null;
-			}[]
-		).map((r) => ({
-			projectId: r.project_id,
-			roundId: r.round_id,
-			lastCompletedAt: iso(r.last_completed_at),
-			nextDueAt:
-				r.round_id || !cooldown || r.last_completed_at === null
-					? null
-					: iso(r.last_completed_at + cooldown),
-		})),
+		// Retained as an empty compatibility field for older v1 clients.
+		rounds: [],
+		scheduling: {
+			strategy: "per_pr" as const,
+			checksConcurrency: 2,
+			statusConcurrency: 2,
+			nextCheckDueAt: due.length ? iso(Math.min(...due)) : null,
+			overdueChecks: due.filter((at) => at <= timestamp).length,
+			oldestChecksAgeSeconds: oldest("checks_observed_at"),
+			oldestSummaryAgeSeconds: oldest("summary_observed_at"),
+			missingChecks: cadence.filter((item) => item.checks_observed_at === null)
+				.length,
+		},
 	};
 }

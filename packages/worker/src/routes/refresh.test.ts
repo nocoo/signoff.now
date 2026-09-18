@@ -90,7 +90,7 @@ test("scheduler follows active watches even when the browser is absent", async (
 	).json()) as { kind: string; roundId: string | null; totalJobs: number }[];
 	expect(queues.find((q) => q.kind === "details")).toMatchObject({
 		totalJobs: 1,
-		roundId: expect.any(String),
+		roundId: null,
 	});
 	expect(
 		(await request("collector/schedule", "POST", { kind: "unknown" })).status,

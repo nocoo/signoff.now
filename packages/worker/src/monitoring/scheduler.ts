@@ -19,6 +19,7 @@ import {
 } from "./store.js";
 
 export const STATUS_COOLDOWN_SECONDS = 30;
+export const LANE_CONCURRENCY = 2;
 
 /** A separately leased lane keeps slow policy/build work out of lifecycle polling. */
 export async function scheduleSummaries(
@@ -59,7 +60,6 @@ export async function scheduleObservations(
 	timestamp: number,
 	source?: DataSource,
 ) {
-	const round = crypto.randomUUID();
 	await db.batch([
 		db
 			.prepare(`UPDATE collection_jobs SET state='canceled',cancel_reason='scope_changed',updated_at=?,completed_at=?,lease_token=NULL,lease_expires_at=NULL
@@ -67,32 +67,24 @@ export async function scheduleObservations(
       OR (kind='details' AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=collection_jobs.observation_id AND o.generation=collection_jobs.observation_generation AND o.active=1)))`)
 			.bind(timestamp, timestamp),
 		db
-			.prepare(`INSERT INTO collection_project_rounds(project_id) SELECT DISTINCT o.project_id FROM pr_observations o JOIN projects p ON p.id=o.project_id
-      WHERE o.active=1 AND (? IS NULL OR o.source=?) ON CONFLICT(project_id) DO NOTHING`)
-			.bind(source ?? null, source ?? null),
-		db
-			.prepare(`UPDATE collection_project_rounds SET last_completed_at=COALESCE((SELECT MAX(completed_at) FROM collection_jobs j WHERE j.round_id=collection_project_rounds.round_id AND j.project_id=collection_project_rounds.project_id),?),round_id=NULL
-      WHERE round_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.round_id=collection_project_rounds.round_id AND j.project_id=collection_project_rounds.project_id AND j.state IN (${ACTIVE_JOBS}))`)
-			.bind(timestamp),
-		db
-			.prepare(`UPDATE collection_project_rounds SET round_id=?||':'||project_id WHERE round_id IS NULL
-      AND EXISTS (SELECT 1 FROM collection_refresh s WHERE s.kind='details' AND s.cooldown_seconds>0 AND (collection_project_rounds.last_completed_at IS NULL OR collection_project_rounds.last_completed_at+s.cooldown_seconds<=?))
-      AND EXISTS (SELECT 1 FROM pr_observations o WHERE o.project_id=collection_project_rounds.project_id AND o.active=1 AND (? IS NULL OR o.source=?))`)
-			.bind(round, timestamp, source ?? null, source ?? null),
-		db
-			.prepare(`UPDATE collection_jobs SET round_id=(SELECT q.round_id FROM collection_project_rounds q WHERE q.project_id=collection_jobs.project_id)
-      WHERE kind='details' AND summary_only=0 AND round_id IS NULL AND state IN (${ACTIVE_JOBS}) AND EXISTS (SELECT 1 FROM collection_project_rounds q WHERE q.project_id=collection_jobs.project_id AND q.round_id=?||':'||q.project_id)`)
-			.bind(round),
-		db
-			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,round_id,message)
+			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,message)
       SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,json_object('id',p.id,'provider',p.provider,'organization',p.organization,'projectKey',p.project_key,'name',p.name),
       'queued',?,?,?,'details',json_array(COALESCE(o.pull_id,p.provider||':'||p.id||':'||json_extract(o.ref_json,'$.repository.id')||':'||json_extract(o.ref_json,'$.number'))),
-      json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,q.round_id,'Waiting to refresh watched PR'
-      FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source JOIN collection_project_rounds q ON q.project_id=p.id
-      WHERE o.active=1 AND q.round_id=?||':'||q.project_id
-      AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0 AND j.state IN (${ACTIVE_JOBS}))
+      json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,'Waiting to refresh watched PR'
+      FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source
+      JOIN collection_refresh settings ON settings.kind='details' AND settings.cooldown_seconds>0
+      WHERE o.active=1 AND (? IS NULL OR o.source=?)
+      AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0
+        AND (j.state IN (${ACTIVE_JOBS}) OR j.completed_at> ?-settings.cooldown_seconds))
       ORDER BY o.added_at,o.id`)
-			.bind(timestamp, timestamp, timestamp, round),
+			.bind(
+				timestamp,
+				timestamp,
+				timestamp,
+				source ?? null,
+				source ?? null,
+				timestamp,
+			),
 	]);
 }
 
@@ -120,7 +112,10 @@ export async function claimJob(
       WHERE j.state IN ('queued','auth_required') AND j.not_before<=? AND j.kind<>'full'
         AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?) AND j.summary_only=?
         AND (j.kind='list' OR EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=j.observation_id AND o.generation=j.observation_generation AND o.active=1))
-        AND NOT EXISTS (SELECT 1 FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.summary_only=j.summary_only AND busy.state='running')
+        AND (SELECT COUNT(*) FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.summary_only=j.summary_only AND busy.state='running')<${LANE_CONCURRENCY}
+        AND NOT EXISTS (SELECT 1 FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.summary_only=j.summary_only AND busy.state='running' AND (j.kind='list' OR busy.kind='list'))
+        AND NOT EXISTS (SELECT 1 FROM collection_jobs discovery WHERE discovery.project_id=j.project_id AND discovery.kind='list' AND discovery.state='queued'
+          AND j.kind='details' AND j.summary_only=0 AND discovery.requested_at<j.requested_at)
         AND NOT EXISTS (SELECT 1 FROM collection_jobs auth WHERE auth.project_id=j.project_id AND auth.state='auth_required' AND auth.not_before>?)
       ORDER BY j.requested_at,j.rowid LIMIT 1)`)
 			.bind(
