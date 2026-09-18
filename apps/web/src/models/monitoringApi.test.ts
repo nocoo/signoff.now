@@ -76,6 +76,20 @@ test("filters use server paging and exclude drafts by default", () => {
 	).toBe("false");
 });
 
+test("pending watches have independent page navigation", async () => {
+	const fixture = queryFixture();
+	vi.mocked(apiFetch).mockResolvedValue({
+		...fixture.envelope,
+		data: [],
+		page: { ...fixture.page, total: 21 },
+	});
+	await loadPending("cli", new AbortController().signal, undefined, 2);
+	expect(apiFetch).toHaveBeenCalledWith(
+		"/api/query/v1/observations?source=live&pending=true&limit=20&page=2",
+		expect.anything(),
+	);
+});
+
 test("independent query endpoints validate responses and do not issue commands", async () => {
 	const fixture = queryFixture();
 	const signal = new AbortController().signal;

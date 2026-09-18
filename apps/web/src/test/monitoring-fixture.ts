@@ -190,6 +190,7 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 		queue: { running: 0, queued: 0, authRequired: 0 },
 		watching: 0,
 		pendingFirstResult: 0,
+		sampleCommandsEnabled: true,
 		detailCooldownSeconds: 300,
 		discovery: "on_demand",
 		jobs: [],

@@ -3,6 +3,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api";
 import * as api from "@/models/monitoringApi";
 import { PULL_FILTER_STORAGE_KEY } from "@/models/workbench";
 import {
@@ -193,10 +194,33 @@ describe("independent cached blocks", () => {
 		});
 		act(() => result.current.vm.selectPull(null));
 		expect(result.current.vm.selected).toBeNull();
-		vi.mocked(api.loadPull).mockRejectedValue(new Error("PR is not cached"));
+		vi.mocked(api.loadPull).mockRejectedValue(
+			new ApiError("PR is not cached", 404, { error: { code: "CACHE_MISS" } }),
+		);
 		act(() => result.current.vm.selectPull("missing"));
 		await waitFor(() => expect(result.current.vm.missingSelection).toBe(true));
 		expect(result.current.vm.detailError).toBe("PR is not cached");
+	});
+	it("a first detail request failure remains a retryable error, independent of the list", async () => {
+		vi.mocked(api.loadPull).mockRejectedValueOnce(
+			new ApiError("Detail unavailable", 503),
+		);
+		const { result } = render("/?pr=off-page");
+		await loaded(result);
+		await waitFor(() =>
+			expect(result.current.vm.detailError).toBe("Detail unavailable"),
+		);
+		expect(result.current.vm.missingSelection).toBe(false);
+		expect(result.current.vm.selected).toBeNull();
+		const listReads = vi.mocked(api.loadPulls).mock.calls.length;
+		await act(() => result.current.vm.reloadDetail());
+		expect(result.current.vm.selected?.pull.id).toBe("off-page");
+		expect(result.current.vm.detailError).toBeNull();
+		expect(api.loadPulls).toHaveBeenCalledTimes(listReads);
+		vi.mocked(api.loadPull).mockRejectedValueOnce(new Error("Connection lost"));
+		await act(() => result.current.vm.reloadDetail());
+		expect(result.current.vm.selected?.pull.description).toBe("Full detail");
+		expect(result.current.vm.detailError).toBe("Connection lost");
 	});
 	it("changing routes stops the PR page query while preserving global source and catalog", async () => {
 		const { result } = render("/projects");
@@ -322,6 +346,10 @@ describe("filters, server pages and temporary selection", () => {
 		expect(result.current.vm.selectedCount).toBe(0);
 		act(() => result.current.vm.toggleSelection(pull.id, true));
 		act(() => result.current.vm.setFilter({ query: "different" }));
+		await loaded(result);
+		expect(result.current.vm.selectedCount).toBe(0);
+		act(() => result.current.vm.setFilter({ query: "" }));
+		await loaded(result);
 		expect(result.current.vm.selectedCount).toBe(0);
 	});
 });
@@ -458,6 +486,81 @@ describe("shared watch mutations", () => {
 			expect(result.current.vm.mutationError).not.toBeNull();
 		}
 	});
+	it("pending errors are visible and retried independently while retaining the last good page", async () => {
+		const response = {
+			...fixture.envelope,
+			data: [
+				{
+					...publicPull(pull, project, fixtureObservation()).observation!,
+					pull: null,
+					pullId: null,
+				},
+			],
+			page: { ...fixture.page, total: 1 },
+		};
+		vi.mocked(api.loadPending)
+			.mockRejectedValueOnce(new ApiError("Pending unavailable", 503))
+			.mockResolvedValue(response);
+		const { result } = render("/?watching=watching");
+		await loaded(result);
+		await waitFor(() =>
+			expect(result.current.vm.pendingError).toBe("Pending unavailable"),
+		);
+		expect(result.current.vm.pendingLoading).toBe(false);
+		expect(result.current.vm.pendingObservations).toEqual([]);
+		const listReads = vi.mocked(api.loadPulls).mock.calls.length;
+		await act(() => result.current.vm.reloadPending());
+		expect(result.current.vm.pendingTotal).toBe(1);
+		expect(result.current.vm.pendingError).toBeNull();
+		expect(api.loadPulls).toHaveBeenCalledTimes(listReads);
+		vi.mocked(api.loadPending).mockRejectedValueOnce(new Error("Network lost"));
+		await act(() => result.current.vm.reloadPending());
+		expect(result.current.vm.pendingError).toBe("Network lost");
+		expect(result.current.vm.pendingObservations).toEqual(response.data);
+	});
+	it("all 21 pending watches are reachable, and removing the last page or changing scope resets its page", async () => {
+		let items = Array.from({ length: 21 }, (_, i) => ({
+			...publicPull(pull, project, fixtureObservation()).observation!,
+			id: `pending-${i}`,
+			pull: null,
+			pullId: null,
+		}));
+		vi.mocked(api.loadPending).mockImplementation(
+			async (_source, _signal, _scope, page = 1) => ({
+				...fixture.envelope,
+				data: items.slice((page - 1) * 20, page * 20),
+				page: { ...fixture.page, total: items.length },
+			}),
+		);
+		const { result } = render("/?watching=watching");
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.pendingTotal).toBe(21));
+		expect(result.current.vm.pendingObservations).toHaveLength(20);
+		act(() => result.current.vm.setPendingPage(2));
+		await waitFor(() =>
+			expect(result.current.vm.pendingObservations[0]?.id).toBe("pending-20"),
+		);
+		vi.mocked(api.removeWatches).mockImplementation(async (_source, refs) => {
+			items = items.filter((item) => item.id !== refs[0]?.id);
+			return { results: [{ status: "removed" }] };
+		});
+		await act(() =>
+			result.current.vm.removePending(
+				result.current.vm.pendingObservations[0]!,
+			),
+		);
+		await waitFor(() => expect(result.current.vm.pendingPage).toBe(1));
+		await waitFor(() =>
+			expect(result.current.vm.pendingObservations).toHaveLength(20),
+		);
+		act(() => result.current.vm.setPendingPage(2));
+		act(() => result.current.vm.setFilter({ repository: "another" }));
+		await loaded(result);
+		expect(result.current.vm.pendingPage).toBe(1);
+		act(() => result.current.vm.setFilter({ repository: "" }));
+		await loaded(result);
+		expect(result.current.vm.pendingPage).toBe(1);
+	});
 	it("retains failed selections and clears errors explicitly", async () => {
 		const { result } = render();
 		await loaded(result);
@@ -472,6 +575,29 @@ describe("shared watch mutations", () => {
 });
 
 describe("project settings and explicit discovery", () => {
+	it("Sample discovery uses server capability in built assets and denies writes when the server disables it", async () => {
+		vi.stubEnv("DEV", false);
+		try {
+			vi.mocked(api.loadCollector).mockResolvedValue({
+				...queryFixture("demo").collector,
+				sampleCommandsEnabled: true,
+			});
+			const { result } = render("/?source=demo");
+			await loaded(result);
+			const sample = { ...project, source: "demo" as const };
+			expect(result.current.vm.canScan(sample)).toBe(true);
+			expect(result.current.vm.data?.demoMode).toBe(true);
+			vi.mocked(api.loadCollector).mockResolvedValue({
+				...queryFixture("demo").collector,
+				sampleCommandsEnabled: false,
+			});
+			await act(() => result.current.vm.reload());
+			expect(result.current.vm.canScan(sample)).toBe(false);
+			expect(result.current.vm.data?.demoMode).toBe(false);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
 	it("saves project CRUD and readiness without collecting, using captured revisions", async () => {
 		const { result } = render();
 		await loaded(result);

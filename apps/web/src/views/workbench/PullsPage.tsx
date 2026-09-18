@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link } from "react-router";
+import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
@@ -478,6 +479,8 @@ export function PullsPage() {
 				onToggleWatch={() => void vm.toggleWatch()}
 				loading={vm.detailLoading}
 				error={vm.detailError}
+				onRetry={() => void vm.reloadDetail()}
+				refreshing={vm.detailRefreshing}
 				busy={Boolean(vm.busy)}
 			/>
 			{readinessProject ? (
@@ -805,15 +808,41 @@ function PullTableRow({
 }
 
 function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
-	if (vm.filter.watching !== "watching" || vm.pendingTotal === 0) return null;
+	if (
+		vm.filter.watching !== "watching" ||
+		(!vm.pendingLoading && !vm.pendingError && vm.pendingTotal === 0)
+	)
+		return null;
 	return (
-		<LayerCard padding="none">
-			<LayerCard.Header>
+		<LayerCard padding="none" role="region" aria-label="Pending watches">
+			<LayerCard.Header className="justify-between gap-3">
 				<span className="text-sm font-medium">
-					{vm.pendingTotal} watched PRs awaiting their first result
+					{vm.pendingTotal
+						? `${vm.pendingTotal} watched PRs awaiting their first result`
+						: "Watched PRs awaiting their first result"}
 				</span>
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={vm.pendingRefreshing}
+					aria-label="Retry pending watches"
+					onClick={() => void vm.reloadPending()}
+				>
+					{vm.pendingError ? "Retry" : "Refresh"}
+				</Button>
 			</LayerCard.Header>
 			<LayerCard.Body className="space-y-2">
+				{vm.pendingError ? (
+					<AlertBanner variant="error">
+						{vm.pendingError}
+						{vm.pendingObservations.length
+							? " Showing the last available watch list."
+							: ""}
+					</AlertBanner>
+				) : null}
+				{vm.pendingLoading ? (
+					<LayerCard.Loading label="Loading pending watches" />
+				) : null}
 				{vm.pendingObservations.map((item) => (
 					<div
 						key={item.id}
@@ -838,12 +867,41 @@ function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 						</Button>
 					</div>
 				))}
-				{vm.pendingTotal > vm.pendingObservations.length ? (
-					<p className="text-xs text-basalt-muted-foreground">
-						Showing the first {vm.pendingObservations.length} pending PRs.
-					</p>
-				) : null}
 			</LayerCard.Body>
+			{vm.pendingPageCount > 1 ? (
+				<LayerCard.Footer className="justify-between gap-3">
+					<p className="text-xs text-basalt-muted-foreground">
+						{vm.pendingTotal} pending watches
+					</p>
+					<div className="flex items-center gap-2">
+						<Button
+							size="icon"
+							variant="outline"
+							className="h-7 w-7"
+							aria-label="Previous pending page"
+							disabled={vm.pendingPage <= 1 || vm.pendingRefreshing}
+							onClick={() => vm.setPendingPage(vm.pendingPage - 1)}
+						>
+							<ChevronLeft className="h-4 w-4" aria-hidden />
+						</Button>
+						<span className="text-xs tabular-nums">
+							{vm.pendingPage} / {vm.pendingPageCount}
+						</span>
+						<Button
+							size="icon"
+							variant="outline"
+							className="h-7 w-7"
+							aria-label="Next pending page"
+							disabled={
+								vm.pendingPage >= vm.pendingPageCount || vm.pendingRefreshing
+							}
+							onClick={() => vm.setPendingPage(vm.pendingPage + 1)}
+						>
+							<ChevronRight className="h-4 w-4" aria-hidden />
+						</Button>
+					</div>
+				</LayerCard.Footer>
+			) : null}
 		</LayerCard>
 	);
 }

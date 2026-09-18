@@ -61,6 +61,8 @@ export function PullDetailSheet({
 	onToggleWatch,
 	loading = false,
 	error,
+	onRetry,
+	refreshing = false,
 }: {
 	row: PullRow | null;
 	missing: boolean;
@@ -72,10 +74,12 @@ export function PullDetailSheet({
 	onToggleWatch?: () => void;
 	loading?: boolean;
 	error?: string | null;
+	onRetry?: () => void;
+	refreshing?: boolean;
 }) {
 	return (
 		<Sheet
-			open={Boolean(row) || missing || loading}
+			open={Boolean(row) || missing || loading || Boolean(error)}
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
@@ -100,12 +104,33 @@ export function PullDetailSheet({
 						onToggleWatch={onToggleWatch}
 						loading={loading}
 						error={error}
+						onRetry={onRetry}
+						refreshing={refreshing}
 					/>
 				) : loading ? (
 					<div className="p-6">
 						<SheetTitle>Loading PR details</SheetTitle>
 						<SheetDescription>Reading the saved snapshot.</SheetDescription>
 						<LayerCard.Loading label="Loading PR details" />
+					</div>
+				) : error && !missing ? (
+					<div className="px-5 py-6 sm:px-6">
+						<SheetTitle>Unable to load PR details</SheetTitle>
+						<SheetDescription className="mt-2">
+							The saved PR could not be read. Retry to load its details.
+						</SheetDescription>
+						<AlertBanner variant="error" className="mt-6">
+							{error}
+						</AlertBanner>
+						<Button
+							className="mt-4"
+							variant="outline"
+							disabled={refreshing}
+							onClick={onRetry}
+							aria-label="Retry PR details"
+						>
+							Try again
+						</Button>
 					</div>
 				) : (
 					<div className="px-5 py-6 sm:px-6">
@@ -139,6 +164,8 @@ function PullDetail({
 	onToggleWatch,
 	loading,
 	error,
+	onRetry,
+	refreshing,
 }: {
 	row: PullRow;
 	onScan: () => void;
@@ -147,6 +174,8 @@ function PullDetail({
 	onToggleWatch?: () => void;
 	loading?: boolean;
 	error?: string | null;
+	onRetry?: () => void;
+	refreshing?: boolean;
 }) {
 	const { pull, project, readiness, progress } = row;
 	const checksAt =
@@ -158,6 +187,16 @@ function PullDetail({
 			{error ? (
 				<AlertBanner variant="error">
 					{error} Showing the last available PR data.
+					<Button
+						className="ml-2"
+						variant="outline"
+						size="sm"
+						disabled={refreshing}
+						onClick={onRetry}
+						aria-label="Retry PR details"
+					>
+						Retry
+					</Button>
 				</AlertBanner>
 			) : null}
 			<div className="space-y-4 border-b border-basalt-border px-5 py-5 sm:px-6">

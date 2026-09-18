@@ -123,12 +123,14 @@ export async function loadPending(
 	source: PullFilter["source"],
 	signal: AbortSignal,
 	scope?: Pick<PullFilter, "organization" | "projectId" | "repository">,
+	page = 1,
 ) {
 	const params = new URLSearchParams({
 		source: publicSource(source),
 		pending: "true",
 		limit: "20",
 	});
+	if (page > 1) params.set("page", String(page));
 	if (scope?.organization) params.set("org", scope.organization);
 	if (scope?.projectId) params.set("projectId", scope.projectId);
 	if (scope?.repository) params.set("repositoryId", scope.repository);

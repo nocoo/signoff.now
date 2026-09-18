@@ -118,19 +118,45 @@ export function useWorkbenchViewModel() {
 		(signal) => loadPull(filter.source, selectedId ?? "", signal),
 		15000,
 	);
+	const pendingScope = JSON.stringify([
+		filter.source,
+		filter.organization,
+		filter.projectId,
+		filter.repository,
+		filter.watching,
+	]);
+	const [pendingPagination, setPendingPagination] = useState({
+		key: pendingScope,
+		page: 1,
+	});
+	const pendingPage =
+		pendingPagination.key === pendingScope ? pendingPagination.page : 1;
+	useEffect(() => {
+		setPendingPagination((previous) =>
+			previous.key === pendingScope ? previous : { key: pendingScope, page: 1 },
+		);
+	}, [pendingScope]);
 	const pending = useQueryBlock(
 		filter.watching === "watching"
-			? JSON.stringify([
-					"pending",
-					filter.source,
-					filter.organization,
-					filter.projectId,
-					filter.repository,
-				])
+			? `pending:${pendingScope}:${pendingPage}`
 			: null,
-		(signal) => loadPending(filter.source, signal, filter),
+		(signal) => loadPending(filter.source, signal, filter, pendingPage),
 		15000,
 	);
+	const pendingPageCount = Math.max(
+		1,
+		Math.ceil((pending.data?.page.total ?? 0) / PAGE_SIZE),
+	);
+	useEffect(() => {
+		if (pending.data && !pending.loading && pendingPage > pendingPageCount)
+			setPendingPagination({ key: pendingScope, page: pendingPageCount });
+	}, [
+		pending.data,
+		pending.loading,
+		pendingPage,
+		pendingPageCount,
+		pendingScope,
+	]);
 	const pageRows = useMemo(
 		() => pulls.data?.data.map(queryRow) ?? [],
 		[pulls.data],
@@ -240,7 +266,7 @@ export function useWorkbenchViewModel() {
 							advancedStages: 0,
 							message: j.message,
 						})),
-					demoMode: import.meta.env.DEV,
+					demoMode: collector.data?.sampleCommandsEnabled ?? false,
 					fetchedAt:
 						seconds(pulls.data?.generatedAt ?? catalog.data?.generatedAt) ??
 						Date.now() / 1000,
@@ -362,6 +388,13 @@ export function useWorkbenchViewModel() {
 		key: string;
 		items: Selection[];
 	}>({ key: "", items: [] });
+	useEffect(() => {
+		setSelection((previous) =>
+			previous.key === selectionKey
+				? previous
+				: { key: selectionKey, items: [] },
+		);
+	}, [selectionKey]);
 	const selectionItems =
 		selection.key === selectionKey
 			? selection.items.filter((item) =>
@@ -435,7 +468,7 @@ export function useWorkbenchViewModel() {
 		});
 	const canScan = (project: Project) =>
 		(project.source === "demo"
-			? import.meta.env.DEV
+			? collector.data?.sampleCommandsEnabled === true
 			: project.provider === "ado") &&
 		!jobs.some(
 			(job) =>
@@ -474,9 +507,15 @@ export function useWorkbenchViewModel() {
 		busy,
 		collectionError: collector.error,
 		detailLoading: Boolean(selectedId) && detail.loading,
+		detailRefreshing: detail.refreshing,
 		detailError: detail.error,
+		reloadDetail: detail.reload,
 		selected,
-		missingSelection: Boolean(selectedId) && !detail.loading && !selected,
+		missingSelection:
+			Boolean(selectedId) &&
+			!detail.loading &&
+			!selected &&
+			detail.errorCode === "CACHE_MISS",
 		listCooldownSeconds: 0,
 		detailCooldownSeconds: collector.data?.detailCooldownSeconds ?? 300,
 		setRefreshCooldown: async (kind: RefreshQueueKind, value: number) =>
@@ -534,6 +573,14 @@ export function useWorkbenchViewModel() {
 				: Promise.resolve(false),
 		pendingObservations: pending.data?.data ?? [],
 		pendingTotal: pending.data?.page.total ?? 0,
+		pendingError: pending.error,
+		pendingLoading: pending.loading,
+		pendingRefreshing: pending.refreshing,
+		reloadPending: pending.reload,
+		pendingPage,
+		pendingPageCount,
+		setPendingPage: (value: number) =>
+			setPendingPagination({ key: pendingScope, page: Math.max(1, value) }),
 		removePending: (observation: { id: string; generation: number }) =>
 			mutate("watch", async () => {
 				const result = await removeWatches(filter.source, [observation]);

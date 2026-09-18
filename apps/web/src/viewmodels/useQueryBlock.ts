@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError } from "@/lib/api";
 
 /** One independent cache query. Provider work is never triggered by reads. */
 export function useQueryBlock<T>(
@@ -12,9 +13,17 @@ export function useQueryBlock<T>(
 		key: string | null;
 		data: T | null;
 		error: string | null;
+		errorCode: string | null;
 		loaded: boolean;
 		refreshing: boolean;
-	}>({ key, data: null, error: null, loaded: false, refreshing: false });
+	}>({
+		key,
+		data: null,
+		error: null,
+		errorCode: null,
+		loaded: false,
+		refreshing: false,
+	});
 	const execute = useRef<() => Promise<unknown>>(() => Promise.resolve());
 	useEffect(() => {
 		let active = true;
@@ -33,6 +42,7 @@ export function useQueryBlock<T>(
 				key,
 				data: previous.key === key ? previous.data : null,
 				error: previous.key === key ? previous.error : null,
+				errorCode: previous.key === key ? previous.errorCode : null,
 				loaded: previous.key === key && previous.loaded,
 				refreshing: true,
 			}));
@@ -49,6 +59,7 @@ export function useQueryBlock<T>(
 							key,
 							data,
 							error: null,
+							errorCode: null,
 							loaded: true,
 							refreshing: false,
 						});
@@ -65,6 +76,11 @@ export function useQueryBlock<T>(
 								error instanceof Error
 									? error.message
 									: "Unable to read cached data",
+							errorCode:
+								error instanceof ApiError
+									? ((error.body as { error?: { code?: string } } | undefined)
+											?.error?.code ?? null)
+									: null,
 						}));
 					}
 				})
@@ -102,10 +118,17 @@ export function useQueryBlock<T>(
 	const current =
 		state.key === key
 			? state
-			: { data: null, error: null, loaded: false, refreshing: false };
+			: {
+					data: null,
+					error: null,
+					errorCode: null,
+					loaded: false,
+					refreshing: false,
+				};
 	return {
 		data: current.data,
 		error: current.error,
+		errorCode: current.errorCode,
 		loading: key !== null && !current.loaded,
 		refreshing: current.refreshing,
 		reload,
