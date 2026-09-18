@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { makeWatchRef } from "@signoff/domain/monitoring";
+import {
+	canonicalObservationKey,
+	makeWatchRef,
+} from "@signoff/domain/monitoring";
 import {
 	observationListSchema,
 	pullDetailSchema,
@@ -49,6 +52,298 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test("watch pages hydrate only selected snapshots even with substantial stopped history", async () => {
+		const { project, pull } = seed();
+		const insert = sqlite.raw.query(`INSERT INTO pr_observations
+      (id,identity,activation_token,source,project_id,ref_json,pull_id,generation,active,added_at,stopped_at,stop_reason)
+      VALUES(?,?,?,'cli',?,?,?,1,?,?,?,?)`);
+		sqlite.raw.transaction(() => {
+			for (let number = 1; number <= 1500; number++) {
+				const active = number <= 25;
+				const cached = seedPull(sqlite, {
+					...pull,
+					id: `watched-${number}`,
+					number,
+					externalId: String(number),
+					state: active ? "open" : "merged",
+				});
+				const ref = makeWatchRef(project, cached.repository, number);
+				insert.run(
+					`watch-${number}`,
+					canonicalObservationKey("cli", ref),
+					`token-${number}`,
+					project.id,
+					JSON.stringify(ref),
+					cached.id,
+					Number(active),
+					PR_TEST_NOW - 100,
+					active ? null : PR_TEST_NOW,
+					active ? null : "completed",
+				);
+			}
+		})();
+		let snapshotsRead = 0;
+		const db = {
+			prepare: sqlite.db.prepare.bind(sqlite.db),
+			batch: async <T>(statements: D1PreparedStatement[]) => {
+				const result = await sqlite.db.batch<T>(statements);
+				snapshotsRead += result
+					.flatMap((r) => r.results)
+					.filter(
+						(r) =>
+							typeof r === "object" &&
+							r !== null &&
+							"snapshot" in r &&
+							r.snapshot !== null,
+					).length;
+				return result;
+			},
+		};
+		for (const [query, total, hydrated] of [
+			["pending=true&limit=20", 0, 0],
+			["limit=20", 25, 20],
+			["limit=20&page=2", 25, 5],
+			["includeStopped=true&limit=20&page=2", 1500, 20],
+		] as const) {
+			snapshotsRead = 0;
+			const response = await queryObservations(
+				db,
+				"cli",
+				parseQuery(new URLSearchParams(query)),
+				PR_TEST_NOW,
+			);
+			expect(observationListSchema.parse(response).page.total).toBe(total);
+			expect(snapshotsRead).toBe(hydrated);
+		}
+		snapshotsRead = 0;
+		const lookup = await queryObservations(
+			db,
+			"cli",
+			parseQuery(new URLSearchParams()),
+			PR_TEST_NOW,
+			{ pullId: "watched-1500" },
+		);
+		expect(lookup.data).toMatchObject({ id: "watch-1500", active: false });
+		expect(snapshotsRead).toBe(1);
+	});
+	test("Unicode project and repository references agree across discovery, watches, lookup and scope filters", async () => {
+		seedProject(sqlite, {
+			organization: "test-org",
+			projectKey: "Équipe",
+			repositories: ["Éditeur"],
+		});
+		const pull = seedPull(sqlite, {
+			draft: true,
+			repository: { id: "repo-1", name: "Éditeur" },
+		});
+		sqlite.raw
+			.query("UPDATE workbench_repositories SET aliases_json=?")
+			.run(JSON.stringify(["Παλαιό"]));
+		for (const name of ["Éditeur", "éditeur", "ÉDITEUR", "παλαιό", "repo-1"]) {
+			const repositoryUrl = `https://dev.azure.com/TEST-ORG/${encodeURIComponent("ÉQUIPE")}/_git/${encodeURIComponent(name)}`;
+			const url = `${repositoryUrl}/pullrequest/${pull.number}`;
+			expect(
+				(
+					await request("/api/commands/v1/discover", "POST", {
+						source: "live",
+						repositoryUrl,
+					})
+				).status,
+			).toBe(202);
+			const added = await request("/api/commands/v1/observations", "POST", {
+				source: "live",
+				refs: [{ url }],
+			});
+			expect(await added.json()).toMatchObject({
+				results: [
+					{
+						status: name === "Éditeur" ? "added" : "already_observed",
+						observation: { pullId: pull.id },
+					},
+				],
+			});
+			for (const target of [{ url }, { repositoryUrl }])
+				expect(
+					(
+						await request("/api/commands/v1/refresh", "POST", {
+							source: "live",
+							target,
+						})
+					).status,
+				).toBe(202);
+			const lookup = new URLSearchParams({
+				repositoryUrl,
+				number: String(pull.number),
+			});
+			for (const path of ["prs", "observations"])
+				expect(
+					(await request(`/api/query/v1/${path}/lookup?${lookup}`)).status,
+				).toBe(200);
+			const scopes: Record<string, string>[] = [
+				{ repo: repositoryUrl },
+				{ project: "équipe" },
+				{ project: "ÉQUIPE" },
+				{ repositoryId: name },
+			];
+			for (const scope of scopes) {
+				const filters = new URLSearchParams({ draft: "include", ...scope });
+				const response = await request(`/api/query/v1/prs?${filters}`);
+				expect(
+					pullListSchema.parse(await response.json()).data.map((p) => p.id),
+				).toEqual([pull.id]);
+				expect(
+					repoListSchema.parse(
+						await (await request(`/api/query/v1/repos?${filters}`)).json(),
+					).data,
+				).toHaveLength(1);
+				expect(
+					observationListSchema.parse(
+						await (
+							await request(`/api/query/v1/observations?${filters}`)
+						).json(),
+					).data,
+				).toHaveLength(1);
+			}
+		}
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) total FROM pr_observations").get(),
+		).toEqual({ total: 1 });
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) total FROM collection_jobs").get(),
+		).toEqual({ total: 2 });
+		// Metadata-only command/query handling never starts the queued provider work.
+		expect(
+			sqlite.raw
+				.query(
+					"SELECT COUNT(*) total FROM collection_jobs WHERE state<>'queued'",
+				)
+				.get(),
+		).toEqual({ total: 0 });
+	});
+	test("watch pages retry concurrent retirement, while existing cursors reject a changed revision", async () => {
+		const { pull } = seed();
+		await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);
+		const other = seedPull(sqlite, {
+			...pull,
+			id: "other",
+			number: 2,
+			externalId: "2",
+		});
+		await addObservation(sqlite.db, "cli", { pullId: other.id }, PR_TEST_NOW);
+		const first = observationListSchema.parse(
+			await queryObservations(
+				sqlite.db,
+				"cli",
+				parseQuery(new URLSearchParams("limit=1")),
+				PR_TEST_NOW,
+			),
+		);
+		sqlite.beforeBatch("WITH selected_observations", () => {
+			sqlite.raw
+				.query(
+					"UPDATE pr_observations SET active=0,stopped_at=?,stop_reason='completed' WHERE pull_id=?",
+				)
+				.run(PR_TEST_NOW, other.id);
+		});
+		await expect(
+			queryObservations(
+				sqlite.db,
+				"cli",
+				parseQuery(
+					new URLSearchParams({ limit: "1", cursor: first.page.nextCursor! }),
+				),
+				PR_TEST_NOW,
+			),
+		).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
+		sqlite.beforeBatch("WITH selected_observations", () => {
+			sqlite.raw
+				.query(
+					"UPDATE pr_observations SET active=0,stopped_at=?,stop_reason='manual' WHERE pull_id=?",
+				)
+				.run(PR_TEST_NOW, pull.id);
+		});
+		const current = observationListSchema.parse(
+			await queryObservations(
+				sqlite.db,
+				"cli",
+				parseQuery(new URLSearchParams()),
+				PR_TEST_NOW,
+			),
+		);
+		expect(current.data).toEqual([]);
+		expect(current.page.total).toBe(0);
+		expect(current.dataRevision).not.toBe(first.dataRevision);
+	});
+	test("Unicode aliases that resolve to multiple watched repository identities are rejected", async () => {
+		const { project, pull } = seed();
+		const other = seedPull(sqlite, {
+			...pull,
+			id: "other",
+			repository: { id: "repo-2", name: "other" },
+		});
+		for (const p of [pull, other])
+			await addObservation(sqlite.db, "cli", { pullId: p.id }, PR_TEST_NOW);
+		sqlite.raw
+			.query("UPDATE workbench_repositories SET aliases_json=?")
+			.run(JSON.stringify(["Éditeur"]));
+		const params = new URLSearchParams({
+			repositoryUrl: `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/%C3%A9diteur`,
+			number: "1",
+		});
+		for (const path of ["prs", "observations"]) {
+			const response = await request(`/api/query/v1/${path}/lookup?${params}`);
+			expect(response.status).toBe(409);
+			expect(await response.json()).toMatchObject({
+				error: { code: "REFERENCE_AMBIGUOUS" },
+			});
+		}
+	});
+	test("Unicode project scope changes are revision-fenced before PR and repository results are returned", async () => {
+		seedProject(sqlite, { projectKey: "Équipe", repositories: [] });
+		seedPull(sqlite);
+		for (const path of ["prs", "repos"]) {
+			sqlite.raw
+				.query(
+					"UPDATE projects SET project_key='Équipe',revision=revision+1 WHERE id='live-project'",
+				)
+				.run();
+			seedPull(sqlite);
+			sqlite.beforeBatch("SELECT pr.id,pr.project_id", () => {
+				sqlite.raw
+					.query(
+						"UPDATE projects SET project_key='Replacement',revision=revision+1 WHERE id='live-project'",
+					)
+					.run();
+			});
+			const response = await request(
+				`/api/query/v1/${path}?project=${encodeURIComponent("équipe")}`,
+			);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({
+				data: [],
+				page: { total: 0 },
+			});
+		}
+	});
+	test("PR URL lookup cannot return a replacement project's facts after concurrent identity changes", async () => {
+		const { project, pull } = seed();
+		const repositoryUrl = `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.name}`;
+		sqlite.beforeBatch("SELECT pr.id,pr.project_id", () => {
+			sqlite.raw
+				.query(
+					"UPDATE projects SET organization='replacement',revision=revision+1 WHERE id=?",
+				)
+				.run(project.id);
+			seedPull(sqlite, pull);
+		});
+		const response = await request(
+			`/api/query/v1/prs/lookup?${new URLSearchParams({ repositoryUrl, number: String(pull.number) })}`,
+		);
+		expect(response.status).toBe(404);
+		expect(await response.json()).toMatchObject({
+			error: { code: "CACHE_MISS" },
+		});
+	});
 	test("Sample command capability reflects local server configuration rather than frontend build mode", async () => {
 		const routes = new Hono<AppEnv>().route("/query", queryRoutes);
 		for (const [host, mode, enabled] of [

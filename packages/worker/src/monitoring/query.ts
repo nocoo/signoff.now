@@ -32,6 +32,7 @@ import {
 	MonitoringError,
 	mapObservation,
 	mapProject,
+	matchesAlias,
 	type ObservationRow,
 	type ProjectRow,
 	type RepositoryRow,
@@ -141,45 +142,73 @@ type RepositoryCounts = {
 	merged: number;
 	closed: number;
 };
-function pullScopeSql(source: DataSource, filters?: QueryFilters) {
+type ScopeSnapshot = {
+	projects: Project[];
+	repositories: RepositoryRow[];
+	revision: string;
+};
+async function readScope(
+	db: QueryDatabase,
+	source: DataSource,
+): Promise<ScopeSnapshot> {
+	const results = await db.batch([
+		db
+			.prepare("SELECT * FROM projects WHERE source=? ORDER BY id")
+			.bind(source),
+		db
+			.prepare(
+				"SELECT r.* FROM workbench_repositories r JOIN projects p ON p.id=r.project_id WHERE p.source=? ORDER BY r.project_id,r.repository_id",
+			)
+			.bind(source),
+		db
+			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
+			.bind(source),
+	]);
+	return {
+		projects: ((results[0]?.results ?? []) as ProjectRow[]).map(mapProject),
+		repositories: (results[1]?.results ?? []) as RepositoryRow[],
+		revision: String((results[2]?.results[0] as { revision: number }).revision),
+	};
+}
+function pullScopeSql(
+	source: DataSource,
+	filters?: QueryFilters,
+	scope?: ScopeSnapshot,
+) {
 	const where = ["p.source=?"];
 	const values: (string | number)[] = [source];
 	if (filters) {
 		for (const [sql, value] of [
 			["p.provider=?", filters.provider],
-			["lower(p.organization)=?", filters.org],
-			[
-				"(lower(p.project_key)=? OR lower(p.id)=?)",
-				filters.project.toLowerCase(),
-			],
 			["p.id=?", filters.projectId],
-			[
-				"(lower(pr.repository_id)=? OR lower(json_extract(pr.snapshot,'$.repository.name'))=?)",
-				filters.repositoryId.toLowerCase(),
-			],
 		] as const)
 			if (value) {
 				where.push(sql);
 				values.push(value);
-				if (sql.includes(" OR ")) values.push(value);
 			}
-		if (filters.repo.length) {
-			where.push(`EXISTS (SELECT 1 FROM json_each(?) f WHERE json_extract(f.value,'$.provider')=p.provider
-        AND json_extract(f.value,'$.organization')=lower(p.organization) AND json_extract(f.value,'$.projectKey')=lower(p.project_key)
-        AND json_extract(f.value,'$.repository') IN (lower(pr.repository_id),lower(json_extract(pr.snapshot,'$.repository.name'))))`);
-			values.push(
-				JSON.stringify(
-					filters.repo.map((url) => {
-						const ref = parseRepositoryReference(url);
-						return {
-							provider: ref.provider,
-							organization: ref.organization.toLowerCase(),
-							projectKey: ref.projectKey.toLowerCase(),
-							repository: ref.repository.toLowerCase(),
-						};
-					}),
-				),
+		if (scope) {
+			const projects = new Map(scope.projects.map((p) => [p.id, p]));
+			const pairs = scope.repositories
+				.filter((r) => {
+					const project = projects.get(r.project_id);
+					return (
+						project &&
+						scopeMatches(
+							project,
+							{
+								id: r.repository_id,
+								name: r.name,
+								aliases: JSON.parse(r.aliases_json) as string[],
+							},
+							filters,
+						)
+					);
+				})
+				.map((r) => [r.project_id, r.repository_id]);
+			where.push(
+				"json_array(pr.project_id,pr.repository_id) IN (SELECT value FROM json_each(?))",
 			);
+			values.push(JSON.stringify(pairs));
 		}
 	}
 	return { where, values };
@@ -191,24 +220,27 @@ async function readSnapshot(
 	source: DataSource,
 	options: {
 		detailId?: string;
-		observedOnly?: boolean;
 		catalog?: boolean;
 		openOnly?: boolean;
 		filters?: QueryFilters;
 	} = {},
 ) {
 	const { detailId, filters } = options;
-	const { where, values } = pullScopeSql(source, filters);
-	const searchScope = pullScopeSql(source, filters);
+	const scope =
+		filters &&
+		(filters.org ||
+			filters.project ||
+			filters.repositoryId ||
+			filters.repo.length)
+			? await readScope(db, source)
+			: undefined;
+	const { where, values } = pullScopeSql(source, filters, scope);
+	const searchScope = pullScopeSql(source, filters, scope);
 	const searching = options.openOnly && Boolean(filters?.q);
 	if (detailId) {
 		where.push("pr.id=?");
 		values.push(detailId);
 	}
-	if (options.observedOnly)
-		where.push(
-			"EXISTS (SELECT 1 FROM pr_observations o WHERE o.pull_id=pr.id AND o.source=p.source)",
-		);
 	if (options.catalog)
 		where.push("pr.state='open' AND json_extract(pr.snapshot,'$.draft')=0");
 	else if (options.openOnly) where.push("pr.state='open'");
@@ -259,6 +291,15 @@ async function readSnapshot(
 				]
 			: []),
 	]);
+	const revision = String(
+		(results[4]?.results[0] as { revision: number }).revision,
+	);
+	if (scope && scope.revision !== revision)
+		throw new MonitoringError(
+			"SNAPSHOT_CHANGED",
+			"Repository scope changed during the query; retry the query",
+			409,
+		);
 	const pulls = ((results[1]?.results ?? []) as SnapshotRow[]).map(
 		(stored) => ({
 			stored,
@@ -281,7 +322,7 @@ async function readSnapshot(
 			mapObservation,
 		),
 		repositories: (results[3]?.results ?? []) as RepositoryRow[],
-		revision: String((results[4]?.results[0] as { revision: number }).revision),
+		revision,
 		counts: (options.catalog
 			? (results[5]?.results ?? [])
 			: []) as RepositoryCounts[],
@@ -472,22 +513,22 @@ function page<T>(
 }
 
 function scopeMatches(
-	project: Project,
-	repo: { id: string | null; name: string },
+	project: Pick<Project, "id" | "provider" | "organization" | "projectKey">,
+	repo: { id: string | null; name: string; aliases?: string[] },
 	f: QueryFilters,
 ) {
+	const names = [repo.id, repo.name, ...(repo.aliases ?? [])].map((s) =>
+		s?.toLowerCase(),
+	);
 	return (
 		(!f.provider || f.provider === project.provider) &&
 		(!f.org || f.org === project.organization.toLowerCase()) &&
 		(!f.project ||
-			[project.projectKey.toLowerCase(), project.id].includes(
+			[project.projectKey.toLowerCase(), project.id.toLowerCase()].includes(
 				f.project.toLowerCase(),
 			)) &&
 		(!f.projectId || f.projectId === project.id) &&
-		(!f.repositoryId ||
-			[repo.id?.toLowerCase(), repo.name.toLowerCase()].includes(
-				f.repositoryId.toLowerCase(),
-			)) &&
+		(!f.repositoryId || names.includes(f.repositoryId.toLowerCase())) &&
 		(!f.repo.length ||
 			f.repo.some((url) => {
 				const r = parseRepositoryReference(url);
@@ -495,9 +536,7 @@ function scopeMatches(
 					r.provider === project.provider &&
 					r.organization.toLowerCase() === project.organization.toLowerCase() &&
 					r.projectKey.toLowerCase() === project.projectKey.toLowerCase() &&
-					[repo.id?.toLowerCase(), repo.name.toLowerCase()].includes(
-						r.repository.toLowerCase(),
-					)
+					names.includes(r.repository.toLowerCase())
 				);
 			}))
 	);
@@ -546,7 +585,7 @@ async function readPullPage(
 				.includes(filters.q),
 		)
 		.map((row) => row.id);
-	const { where, values } = pullScopeSql(source, filters);
+	const { where, values } = pullScopeSql(source, filters, snapshot);
 	if (filters.watching !== undefined)
 		where.push(`${filters.watching === "false" ? "NOT " : ""}EXISTS (
       SELECT 1 FROM pr_observations o WHERE o.project_id=pr.project_id AND o.source=p.source AND o.active=1
@@ -664,15 +703,13 @@ async function readPullPage(
 	};
 }
 
-export async function queryPulls(
-	db: QueryDatabase,
-	source: DataSource,
-	filters: QueryFilters,
-	timestamp: number,
+async function retrySnapshot<T>(
+	filters: Pick<QueryFilters, "cursor">,
+	read: () => Promise<T>,
 ) {
 	for (let attempt = 0; ; attempt++) {
 		try {
-			return await readPullPage(db, source, filters, timestamp);
+			return await read();
 		} catch (error) {
 			if (
 				filters.cursor ||
@@ -683,6 +720,17 @@ export async function queryPulls(
 				throw error;
 		}
 	}
+}
+
+export async function queryPulls(
+	db: QueryDatabase,
+	source: DataSource,
+	filters: QueryFilters,
+	timestamp: number,
+) {
+	return retrySnapshot(filters, () =>
+		readPullPage(db, source, filters, timestamp),
+	);
 }
 
 export async function queryPull(
@@ -707,34 +755,71 @@ export async function lookupPull(
 	number: number,
 	timestamp: number,
 ) {
+	return retrySnapshot({}, () =>
+		readPullLookup(db, source, url, number, timestamp),
+	);
+}
+async function readPullLookup(
+	db: QueryDatabase,
+	source: DataSource,
+	url: string,
+	number: number,
+	timestamp: number,
+) {
 	const ref = parseRepositoryReference(url);
 	const row = await db
-		.prepare(`SELECT pr.id FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN workbench_repositories r ON r.project_id=p.id AND r.repository_id=pr.repository_id
-    WHERE p.source=? AND p.provider=? AND lower(p.organization)=? AND lower(p.project_key)=? AND pr.external_id=?
-    AND (lower(pr.repository_id)=? OR lower(json_extract(pr.snapshot,'$.repository.name'))=? OR EXISTS (SELECT 1 FROM json_each(r.aliases_json) a WHERE lower(a.value)=?))`)
-		.bind(
-			source,
-			ref.provider,
-			ref.organization.toLowerCase(),
-			ref.projectKey.toLowerCase(),
-			String(number),
-			ref.repository.toLowerCase(),
-			ref.repository.toLowerCase(),
-			ref.repository.toLowerCase(),
-		)
-		.all<{ id: string }>();
-	if (row.results.length > 1)
+		.prepare(`SELECT pr.id,p.organization,p.project_key,pr.repository_id,json_extract(pr.snapshot,'$.repository.name') name,r.aliases_json,
+    (SELECT revision FROM workbench_revisions WHERE source=p.source) data_revision
+    FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN workbench_repositories r ON r.project_id=p.id AND r.repository_id=pr.repository_id
+    WHERE p.source=? AND p.provider=? AND pr.external_id=?`)
+		.bind(source, ref.provider, String(number))
+		.all<{
+			id: string;
+			organization: string;
+			project_key: string;
+			repository_id: string;
+			name: string;
+			aliases_json: string | null;
+			data_revision: number;
+		}>();
+	const matches = row.results.filter(
+		(r) =>
+			r.organization.toLowerCase() === ref.organization.toLowerCase() &&
+			r.project_key.toLowerCase() === ref.projectKey.toLowerCase() &&
+			matchesAlias(
+				{ ...r, aliases_json: r.aliases_json ?? "[]" },
+				ref.repository,
+			),
+	);
+	if (matches.length > 1)
 		throw new MonitoringError(
 			"REFERENCE_AMBIGUOUS",
 			"Repository alias is ambiguous",
 			409,
 		);
-	if (!row.results[0])
+	if (!matches[0])
 		throw new MonitoringError("CACHE_MISS", "PR is not in the cache", 404);
-	return queryPull(db, source, row.results[0].id, timestamp);
+	const result = await queryPull(db, source, matches[0].id, timestamp);
+	if (result.dataRevision !== String(matches[0].data_revision))
+		throw new MonitoringError(
+			"SNAPSHOT_CHANGED",
+			"PR reference changed during lookup; retry the query",
+			409,
+		);
+	return result;
 }
 
 export async function queryRepos(
+	db: QueryDatabase,
+	source: DataSource,
+	filters: QueryFilters,
+	timestamp: number,
+) {
+	return retrySnapshot(filters, () =>
+		readRepositoryPage(db, source, filters, timestamp),
+	);
+}
+async function readRepositoryPage(
 	db: QueryDatabase,
 	source: DataSource,
 	filters: QueryFilters,
@@ -758,7 +843,18 @@ export async function queryRepos(
 			)
 				items.push([null, name, undefined]);
 		for (const [id, name, stored] of items) {
-			if (!scopeMatches(project, { id, name }, filters)) continue;
+			if (
+				!scopeMatches(
+					project,
+					{
+						id,
+						name,
+						aliases: JSON.parse(stored?.aliases_json ?? "[]") as string[],
+					},
+					filters,
+				)
+			)
+				continue;
 			const ref = makeWatchRef(project, { id: id ?? name, name }, 1);
 			const prs = snapshot.pulls
 				.filter(
@@ -843,72 +939,194 @@ export async function queryRepos(
 		projects: snapshot.projects.map(publicProject),
 	};
 }
+type ObservationLookup =
+	| { pullId: string }
+	| { repositoryUrl: string; number: number };
 export async function queryObservations(
 	db: QueryDatabase,
 	source: DataSource,
 	filters: QueryFilters,
 	timestamp: number,
-	lookup?: { pullId: string } | { repositoryUrl: string; number: number },
+	lookup?: ObservationLookup,
 ) {
-	const snapshot = await readSnapshot(db, source, { observedOnly: true });
-	let rows = snapshot.observations.filter(
-		(o) =>
-			(lookup || filters.includeStopped === "true" || o.active) &&
-			(lookup || filters.pending !== "true" || o.pullId === null),
+	return retrySnapshot(
+		lookup ? { ...filters, cursor: undefined } : filters,
+		() => readObservationPage(db, source, filters, timestamp, lookup),
 	);
+}
+
+async function readObservationPage(
+	db: QueryDatabase,
+	source: DataSource,
+	filters: QueryFilters,
+	timestamp: number,
+	lookup?: ObservationLookup,
+) {
+	const scope = await readScope(db, source);
+	const where = ["o.source=?"];
+	const values: (string | number)[] = [source];
+	const ref =
+		lookup && "repositoryUrl" in lookup
+			? parseRepositoryReference(lookup.repositoryUrl)
+			: null;
 	if (lookup) {
-		if ("pullId" in lookup)
-			rows = rows.filter((o) => o.pullId === lookup.pullId);
-		else {
-			const ref = parseRepositoryReference(lookup.repositoryUrl);
-			rows = rows.filter(
-				(o) =>
-					o.ref.provider === ref.provider &&
-					o.ref.organization.toLowerCase() === ref.organization.toLowerCase() &&
-					o.ref.projectKey.toLowerCase() === ref.projectKey.toLowerCase() &&
-					o.ref.number === lookup.number &&
-					[
-						o.ref.repository.id,
-						o.ref.repository.name,
-						...(JSON.parse(
-							snapshot.repositories.find(
-								(r) =>
-									r.project_id === o.ref.projectId &&
-									r.repository_id === o.ref.repository.id,
-							)?.aliases_json ?? "[]",
-						) as string[]),
-					].some((s) => s.toLowerCase() === ref.repository.toLowerCase()),
+		if ("pullId" in lookup) {
+			where.push("o.pull_id=?");
+			values.push(lookup.pullId);
+		} else if (ref) {
+			where.push(
+				"json_extract(o.identity,'$[1]')=? AND json_extract(o.identity,'$[2]')=? AND json_extract(o.identity,'$[3]')=? AND json_extract(o.identity,'$[5]')=?",
+			);
+			values.push(
+				ref.provider,
+				ref.organization.toLowerCase(),
+				ref.projectKey.toLowerCase(),
+				lookup.number,
 			);
 		}
-		if (rows.length > 1)
-			throw new MonitoringError(
-				"REFERENCE_AMBIGUOUS",
-				"PR alias matches multiple observations",
-				409,
-			);
-		if (!rows[0])
-			throw new MonitoringError("NOT_FOUND", "PR has not been watched", 404);
-	} else
-		rows = rows.filter((o) =>
-			scopeMatches(
-				{
-					provider: o.ref.provider,
-					organization: o.ref.organization,
-					projectKey: o.ref.projectKey,
-					id: o.ref.projectId,
-				} as Project,
-				o.ref.repository,
-				filters,
-			),
+	} else {
+		if (filters.includeStopped !== "true") where.push("o.active=1");
+		if (filters.pending === "true") where.push("o.pull_id IS NULL");
+	}
+	if (
+		ref ||
+		(!lookup &&
+			(filters.provider ||
+				filters.org ||
+				filters.project ||
+				filters.projectId ||
+				filters.repositoryId ||
+				filters.repo.length))
+	) {
+		// Resolve only distinct repository identities, including stopped watches whose projects were removed.
+		const identities = await db
+			.prepare(`SELECT DISTINCT json_remove(o.identity,'$[5]') scope_key,
+      json_remove(o.ref_json,'$.number','$.url') ref_json FROM pr_observations o WHERE ${where.join(" AND ")}`)
+			.bind(...values)
+			.all<{ scope_key: string; ref_json: string }>();
+		const matching = identities.results
+			.filter((row) => {
+				const identity = JSON.parse(row.ref_json) as Omit<
+					Observation["ref"],
+					"number" | "url"
+				>;
+				const repository = scope.repositories.find(
+					(r) =>
+						r.project_id === identity.projectId &&
+						r.repository_id === identity.repository.id,
+				);
+				const aliases = JSON.parse(
+					repository?.aliases_json ?? "[]",
+				) as string[];
+				return ref
+					? matchesAlias(
+							{
+								repository_id: identity.repository.id,
+								name: identity.repository.name,
+								aliases_json: repository?.aliases_json ?? "[]",
+							},
+							ref.repository,
+						)
+					: scopeMatches(
+							{ ...identity, id: identity.projectId },
+							{ ...identity.repository, aliases },
+							filters,
+						);
+			})
+			.map((row) => row.scope_key);
+		where.push(
+			"json_remove(o.identity,'$[5]') IN (SELECT value FROM json_each(?))",
 		);
-	const selected = page(
-		rows,
-		lookup ? { ...filters, cursor: undefined, page: 1 } : filters,
-		snapshot.revision,
+		values.push(JSON.stringify([...new Set(matching)]));
+	}
+	const selectedFilters = lookup
+		? { ...filters, cursor: undefined, page: 1 }
+		: filters;
+	const position = pagePosition(
+		selectedFilters,
+		scope.revision,
 		"observations",
 	);
-	const output = selected.data.map((o) => {
-		const row = snapshot.pulls.find((r) => r.pull.id === o.pullId);
+	// Page observations in SQL before joining snapshot JSON; pending reads transfer no PR facts.
+	const results = await db.batch([
+		db
+			.prepare(`WITH selected_observations AS MATERIALIZED (
+      SELECT o.* FROM pr_observations o WHERE ${where.join(" AND ")} ORDER BY o.identity LIMIT ? OFFSET ?
+    ) SELECT o.*,pr.id cached_id,pr.project_id cached_project_id,pr.repository_id cached_repository_id,pr.external_id cached_external_id,pr.version,pr.published_at,
+      CASE WHEN pr.id IS NOT NULL THEN json_set(pr.snapshot,'$.description','','$.activity',json('[]')) END AS snapshot
+    FROM selected_observations o LEFT JOIN pull_requests pr ON pr.id=o.pull_id
+      AND EXISTS (SELECT 1 FROM projects p WHERE p.id=pr.project_id AND p.source=?) ORDER BY o.identity`)
+			.bind(...values, lookup ? 1 : filters.limit, position.offset, source),
+		db
+			.prepare(
+				`SELECT COUNT(*) total FROM pr_observations o WHERE ${where.join(" AND ")}`,
+			)
+			.bind(...values),
+		db
+			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
+			.bind(source),
+	]);
+	if (
+		String((results[2]?.results[0] as { revision: number }).revision) !==
+		scope.revision
+	)
+		throw new MonitoringError(
+			"SNAPSHOT_CHANGED",
+			"Data changed while preparing the watch page; retry the query",
+			409,
+		);
+	const total = (results[1]?.results[0] as { total: number }).total;
+	if (lookup && total > 1)
+		throw new MonitoringError(
+			"REFERENCE_AMBIGUOUS",
+			"PR alias matches multiple observations",
+			409,
+		);
+	if (lookup && total === 0)
+		throw new MonitoringError("NOT_FOUND", "PR has not been watched", 404);
+	const rows = (results[0]?.results ?? []) as (ObservationRow & {
+		cached_id: string;
+		cached_project_id: string;
+		cached_repository_id: string;
+		cached_external_id: string;
+		snapshot: string | null;
+		published_at: number | null;
+		version: number;
+	})[];
+	const pulls = rows.flatMap((row) =>
+		row.snapshot
+			? [
+					{
+						stored: {
+							id: row.cached_id,
+							project_id: row.cached_project_id,
+							repository_id: row.cached_repository_id,
+							external_id: row.cached_external_id,
+							snapshot: row.snapshot,
+							published_at: row.published_at,
+							version: row.version,
+						},
+						pull: pullRequestSchema.parse(JSON.parse(row.snapshot)),
+					},
+				]
+			: [],
+	);
+	const snapshot: Snapshot = {
+		...scope,
+		pulls,
+		observations: rows.map(mapObservation),
+		counts: [],
+		searchRows: [],
+		projects: scope.projects.map((p) => ({
+			...p,
+			mergeRequirements: projectMergeRequirements(
+				p,
+				pulls.map((r) => r.pull),
+			),
+		})),
+	};
+	const output = snapshot.observations.map((o) => {
+		const row = pulls.find((r) => r.pull.id === o.pullId);
 		return {
 			...publicObservation(o),
 			pull: row ? pullOutput(snapshot, row, timestamp) : null,
@@ -919,7 +1137,11 @@ export async function queryObservations(
 				...envelope(snapshot, source, timestamp),
 				data: observationItemSchema.parse(output[0]),
 			}
-		: { ...envelope(snapshot, source, timestamp), ...selected, data: output };
+		: {
+				...envelope(snapshot, source, timestamp),
+				data: output,
+				page: pageMetadata(total, filters, snapshot.revision, position),
+			};
 }
 
 export function publicJob(row: JobRow, repositories: JobRepositoryRow[]) {

@@ -204,9 +204,9 @@ discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；�
 
 首版使用**每个 source 一个持久 `dataRevision` 计数器**，接受保守的 source 范围失效，不另建每种筛选的版本系统。PR 快照、仓库目录 / 覆盖、项目范围 / 元数据 / Readiness、观察项发生实际变化时，在同一写事务中推进版本；一次事务只需推进一次。失败、幂等无变化、任务心跳和普通查询不推进。另一个仓库或一条未显示的观察变化，也会使该 source 的游标失效；Live 与 Sample 互不影响。
 
-PR、repos 与 observations 的列表 / 单项 / lookup 均返回 `dataRevision`。同一响应的记录、数量与版本保持一致：仓库、详情和观察项在同一 batch 读取；PR 列表先读取 open PR 事实与配置，再以 SQL 筛选、排序、分页和计数，并验证第二个 batch 的 source 版本与第一个完全相同。版本改变时丢弃整次结果；无游标查询最多重试两次，带游标直接返回 `SNAPSHOT_CHANGED`。游标包含 source、规范化过滤 / 排序、版本与下一页位置，不能跨查询复用。16 中防止旧事实发布的单 PR 快照版本是独立的条件写版本，不用 source 计数器拒绝无关仓库的发布。Collector / job 的运行状态使用各自 updatedAt，不宣称与数据块共享冻结版本；Directory 和保存的统计继续使用自己的 revision / calculatedAt。
+PR、repos 与 observations 的列表 / 单项 / lookup 均返回 `dataRevision`。同一响应的记录、数量与版本保持一致：详情在同一 batch 读取；PR 列表先读取 open PR 事实与配置，再以 SQL 筛选、排序、分页和计数。名称范围查询先从紧凑目录解析稳定 ID；观察查询先读取目录，再在 SQL 内筛选、计数和分页，并只关联选中页的 PR 快照。各阶段均校验同一 source 版本。版本改变时丢弃整次结果；无游标查询最多重试两次，带游标直接返回 `SNAPSHOT_CHANGED`。游标包含 source、规范化过滤 / 排序、版本与下一页位置，不能跨查询复用。16 中防止旧事实发布的单 PR 快照版本是独立的条件写版本，不用 source 计数器拒绝无关仓库的发布。Collector / job 的运行状态使用各自 updatedAt，不宣称与数据块共享冻结版本；Directory 和保存的统计继续使用自己的 revision / calculatedAt。
 
-终态历史仅加载请求页的快照，不整库解析描述、build 或 stage。全文筛选只额外读取紧凑的搜索文本，在 JavaScript 中对文本和搜索词执行一致的 Unicode 大小写转换，再把匹配 ID 交给 SQL 分页；非英文作者和标题也可匹配。open PR 的 readiness 仍按请求计算，极大 open 集合是后续需要度量的资源边界。
+终态历史和观察清单（含全部保留的停止记录）仅加载请求页的快照，不整库解析描述、build 或 stage。单项 observation lookup 只关联目标快照；pending-only 读取不加载 PR 快照。项目、仓库名称和旧别名在命令、查询与筛选中使用一致的 Unicode 大小写转换；规范 identity 中的稳定 provider repository ID 仍作为去重依据。全文筛选只额外读取紧凑的搜索文本，在 JavaScript 中对文本和搜索词执行一致的 Unicode 大小写转换，再把匹配 ID 交给 SQL 分页；非英文作者和标题也可匹配。open PR 的 readiness 仍按请求计算，极大 open 集合是后续需要度量的资源边界。
 
 这意味着仅 observation 增删 / 淘汰也会让同 source 的 PR、repos、observations **后续分页**收到 `SNAPSHOT_CHANGED`，即使 PR 查询未启用 watching 筛选。没有游标的独立读取直接返回当时版本；GET observations 比先前 PR 列表版本新是正常情况，客户端不能据此使全页报错或循环重载所有块。includeStopped 与范围筛选属于 observation 游标签名；停止、重加或项目级停用同样按事务推进版本。
 
