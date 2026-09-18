@@ -141,30 +141,9 @@ type RepositoryCounts = {
 	merged: number;
 	closed: number;
 };
-/** All statements here are SELECTs in one consistency batch. Queries never change collection state. */
-async function readSnapshot(
-	db: Pick<D1Database, "prepare" | "batch">,
-	source: DataSource,
-	options: {
-		detailId?: string;
-		observedOnly?: boolean;
-		catalog?: boolean;
-		filters?: QueryFilters;
-	} = {},
-) {
-	const { detailId, filters } = options;
+function pullScopeSql(source: DataSource, filters?: QueryFilters) {
 	const where = ["p.source=?"];
 	const values: (string | number)[] = [source];
-	if (detailId) {
-		where.push("pr.id=?");
-		values.push(detailId);
-	}
-	if (options.observedOnly)
-		where.push(
-			"EXISTS (SELECT 1 FROM pr_observations o WHERE o.pull_id=pr.id AND o.source=p.source)",
-		);
-	if (options.catalog)
-		where.push("pr.state='open' AND json_extract(pr.snapshot,'$.draft')=0");
 	if (filters) {
 		for (const [sql, value] of [
 			["p.provider=?", filters.provider],
@@ -203,6 +182,37 @@ async function readSnapshot(
 			);
 		}
 	}
+	return { where, values };
+}
+
+/** All statements here are SELECTs in one consistency batch. Queries never change collection state. */
+async function readSnapshot(
+	db: Pick<D1Database, "prepare" | "batch">,
+	source: DataSource,
+	options: {
+		detailId?: string;
+		observedOnly?: boolean;
+		catalog?: boolean;
+		openOnly?: boolean;
+		filters?: QueryFilters;
+	} = {},
+) {
+	const { detailId, filters } = options;
+	const { where, values } = pullScopeSql(source, filters);
+	const searchScope = pullScopeSql(source, filters);
+	const searching = options.openOnly && Boolean(filters?.q);
+	if (detailId) {
+		where.push("pr.id=?");
+		values.push(detailId);
+	}
+	if (options.observedOnly)
+		where.push(
+			"EXISTS (SELECT 1 FROM pr_observations o WHERE o.pull_id=pr.id AND o.source=p.source)",
+		);
+	if (options.catalog)
+		where.push("pr.state='open' AND json_extract(pr.snapshot,'$.draft')=0");
+	else if (options.openOnly) where.push("pr.state='open'");
+
 	const results = await db.batch([
 		db
 			.prepare("SELECT * FROM projects WHERE source=? ORDER BY id")
@@ -236,6 +246,18 @@ async function readSnapshot(
 						.bind(source),
 				]
 			: []),
+		...(searching
+			? [
+					db
+						.prepare(`SELECT pr.id,
+      json_extract(pr.snapshot,'$.title')||' #'||pr.external_id||' '||json_extract(pr.snapshot,'$.author.name')||' '||
+      json_extract(pr.snapshot,'$.repository.name')||' '||p.name||' '||p.organization||' '||p.project_key||' '||
+      CASE pr.state WHEN 'merged' THEN p.owner||' Merged into '||json_extract(pr.snapshot,'$.targetBranch')
+      WHEN 'closed' THEN json_extract(pr.snapshot,'$.author.name')||' Closed without merging' ELSE '' END AS text
+      FROM pull_requests pr JOIN projects p ON p.id=pr.project_id WHERE ${searchScope.where.join(" AND ")}`)
+						.bind(...searchScope.values),
+				]
+			: []),
 	]);
 	const pulls = ((results[1]?.results ?? []) as SnapshotRow[]).map(
 		(stored) => ({
@@ -260,7 +282,12 @@ async function readSnapshot(
 		),
 		repositories: (results[3]?.results ?? []) as RepositoryRow[],
 		revision: String((results[4]?.results[0] as { revision: number }).revision),
-		counts: (results[5]?.results ?? []) as RepositoryCounts[],
+		counts: (options.catalog
+			? (results[5]?.results ?? [])
+			: []) as RepositoryCounts[],
+		searchRows: (searching
+			? (results[options.catalog ? 6 : 5]?.results ?? [])
+			: []) as { id: string; text: string }[],
 	};
 }
 type Snapshot = Awaited<ReturnType<typeof readSnapshot>>;
@@ -374,12 +401,7 @@ function envelope(data: Snapshot, source: DataSource, timestamp: number) {
 		coverage: coverage(data),
 	};
 }
-function page<T>(
-	items: T[],
-	filters: QueryFilters,
-	revision: string,
-	kind: string,
-) {
+function pagePosition(filters: QueryFilters, revision: string, kind: string) {
 	const { cursor, ...query } = filters;
 	const signature = JSON.stringify([kind, query]);
 	let offset = (filters.page - 1) * filters.limit;
@@ -409,23 +431,46 @@ function page<T>(
 			);
 		offset = decoded.offset;
 	}
-	const next = offset + filters.limit;
+	return { offset, signature };
+}
+
+function pageMetadata(
+	total: number,
+	filters: QueryFilters,
+	revision: string,
+	position: { offset: number; signature: string },
+) {
+	const next = position.offset + filters.limit;
 	return {
-		data: items.slice(offset, next),
-		page: {
-			limit: filters.limit,
-			total: items.length,
-			nextCursor:
-				next < items.length
-					? btoa(
-							encodeURIComponent(
-								JSON.stringify({ signature, revision, offset: next }),
-							),
-						)
-					: null,
-		},
+		limit: filters.limit,
+		total,
+		nextCursor:
+			next < total
+				? btoa(
+						encodeURIComponent(
+							JSON.stringify({
+								signature: position.signature,
+								revision,
+								offset: next,
+							}),
+						),
+					)
+				: null,
 	};
 }
+function page<T>(
+	items: T[],
+	filters: QueryFilters,
+	revision: string,
+	kind: string,
+) {
+	const position = pagePosition(filters, revision, kind);
+	return {
+		data: items.slice(position.offset, position.offset + filters.limit),
+		page: pageMetadata(items.length, filters, revision, position),
+	};
+}
+
 function scopeMatches(
 	project: Project,
 	repo: { id: string | null; name: string },
@@ -458,130 +503,186 @@ function scopeMatches(
 	);
 }
 
+/** Readiness needs open PR facts; terminal history stays in SQLite until its page is selected. */
+async function readPullPage(
+	db: QueryDatabase,
+	source: DataSource,
+	filters: QueryFilters,
+	timestamp: number,
+) {
+	const snapshot = await readSnapshot(db, source, { filters, openOnly: true });
+	const projects = new Map(snapshot.projects.map((p) => [p.id, p]));
+	// ponytail: open-set readiness is evaluated per query; materialize facts if large open sets exceed the CPU budget.
+	const facts = snapshot.pulls.map(({ pull }) => {
+		const project = projects.get(pull.projectId);
+		if (!project) throw new Error("Cached PR has no project");
+		const readiness = pullReadiness(pull, project);
+		const progress = pullProgress(pull);
+		return {
+			id: pull.id,
+			kind: readiness.kind,
+			rank: readinessPriority(readiness, project),
+			action: readiness.action,
+			owner: readiness.owner,
+			completion:
+				pull.coverage === "partial" ||
+				pull.checksObservedAt === null ||
+				pull.checksInvalidated
+					? -1
+					: progress.checksTotal
+						? progress.checksPassed / progress.checksTotal
+						: 1,
+		};
+	});
+	const position = pagePosition(filters, snapshot.revision, "prs");
+	// SQLite lower() folds ASCII only. Transfer compact search text, never historical snapshots.
+	const openActions = new Map(
+		facts.map((fact) => [fact.id, `${fact.owner} ${fact.action}`]),
+	);
+	const searchIds = snapshot.searchRows
+		.filter((row) =>
+			`${row.text} ${openActions.get(row.id) ?? ""}`
+				.toLowerCase()
+				.includes(filters.q),
+		)
+		.map((row) => row.id);
+	const { where, values } = pullScopeSql(source, filters);
+	if (filters.watching !== undefined)
+		where.push(`${filters.watching === "false" ? "NOT " : ""}EXISTS (
+      SELECT 1 FROM pr_observations o WHERE o.project_id=pr.project_id AND o.source=p.source AND o.active=1
+      AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id)
+      AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER))`);
+	// Only progress sorting requires historical check arrays, and SQLite reduces them to a scalar.
+	const historyCompletion =
+		filters.sort === "progress"
+			? `CASE WHEN json_extract(pr.snapshot,'$.coverage')='partial'
+      OR json_type(pr.snapshot,'$.checksObservedAt')='null' OR json_extract(pr.snapshot,'$.checksInvalidated')=1 THEN -1
+      ELSE COALESCE((SELECT AVG(CASE WHEN json_extract(value,'$.state')='passed' THEN 1.0 ELSE 0.0 END)
+        FROM (SELECT value FROM json_each(pr.snapshot,'$.policies') UNION ALL SELECT value FROM json_each(pr.snapshot,'$.builds'))
+        WHERE json_extract(value,'$.required')=1),1) END`
+			: "0";
+	const cte = `WITH open_facts AS MATERIALIZED (
+      SELECT json_extract(value,'$.id') id,json_extract(value,'$.kind') kind,json_extract(value,'$.rank') rank,
+        json_extract(value,'$.action') action,json_extract(value,'$.owner') owner,json_extract(value,'$.completion') completion FROM json_each(?)
+    ), scoped AS (
+      SELECT pr.*,p.provider,p.organization,p.project_key,p.name project_name,
+        json_extract(pr.snapshot,'$.draft') draft,json_extract(pr.snapshot,'$.author.name') author_name,
+        json_array(p.provider,lower(p.organization),json_extract(pr.snapshot,'$.author.id')) author_key,
+        COALESCE(f.kind,pr.state) readiness_kind,
+        COALESCE(f.rank,CASE pr.state WHEN 'merged' THEN 4 ELSE 5 END) readiness_rank,
+        COALESCE(f.action,CASE pr.state WHEN 'merged' THEN 'Merged into '||json_extract(pr.snapshot,'$.targetBranch') ELSE 'Closed without merging' END) next_action,
+        COALESCE(f.owner,CASE pr.state WHEN 'merged' THEN p.owner ELSE json_extract(pr.snapshot,'$.author.name') END) next_owner,
+        COALESCE(f.completion,${historyCompletion}) completion
+      FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN open_facts f ON f.id=pr.id
+      WHERE ${where.join(" AND ")} AND (SELECT revision FROM workbench_revisions WHERE source=?)=?
+    ), searched AS (
+      SELECT * FROM scoped WHERE ?='' OR id IN (SELECT value FROM json_each(?))
+    ), filtered AS (
+      SELECT * FROM searched WHERE (?='include' OR draft=?) AND (json_array_length(?)=0 OR author_key IN (SELECT value FROM json_each(?)))
+    ), matched AS (
+      SELECT * FROM filtered WHERE (?='all' OR state=?) AND (?='all' OR readiness_kind=? OR (?='attention' AND readiness_kind IN ('blocked','approval','review','unknown')))
+    )`;
+	const binds = [
+		JSON.stringify(facts),
+		...values,
+		source,
+		Number(snapshot.revision),
+		filters.q,
+		JSON.stringify(searchIds),
+		filters.draft,
+		Number(filters.draft === "only"),
+		JSON.stringify(filters.author),
+		JSON.stringify(filters.author),
+		filters.state,
+		filters.state,
+		filters.status,
+		filters.status,
+		filters.status,
+	];
+	const sort = {
+		identity: "id",
+		readiness: "readiness_rank",
+		title: "json_extract(snapshot,'$.title') COLLATE NOCASE",
+		progress: "completion",
+		action: "next_action COLLATE NOCASE",
+		updated: "updated_at",
+		oldest: "json_extract(snapshot,'$.createdAt')",
+	}[filters.sort];
+	const results = await db.batch([
+		db
+			.prepare(`${cte} SELECT id,project_id,repository_id,external_id,version,published_at,
+      json_set(snapshot,'$.description','','$.activity',json('[]')) snapshot FROM matched ORDER BY ${sort} ${filters.direction},id ASC LIMIT ? OFFSET ?`)
+			.bind(...binds, filters.limit, position.offset),
+		db.prepare(`${cte} SELECT COUNT(*) total FROM matched`).bind(...binds),
+		db
+			.prepare(`${cte} SELECT COALESCE(SUM(state='open'),0) open,
+      COALESCE(SUM(state='open' AND readiness_kind IN ('blocked','approval','review','unknown')),0) attention,
+      COALESCE(SUM(state='open' AND readiness_kind='running'),0) running,COALESCE(SUM(state='open' AND readiness_kind='ready'),0) ready,
+      COALESCE(SUM(state='open' AND draft=1),0) draft,COALESCE(SUM(state='merged'),0) merged,COALESCE(SUM(state='closed'),0) closed FROM filtered`)
+			.bind(...binds),
+		db
+			.prepare(
+				`${cte} SELECT author_key id,MAX(author_name) name,provider FROM searched GROUP BY author_key,provider ORDER BY name COLLATE NOCASE,id`,
+			)
+			.bind(...binds),
+		db
+			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
+			.bind(source),
+	]);
+	if (
+		String((results[4]?.results[0] as { revision: number }).revision) !==
+		snapshot.revision
+	)
+		throw new MonitoringError(
+			"SNAPSHOT_CHANGED",
+			"Data changed while preparing the page; retry the query",
+			409,
+		);
+	const rows = ((results[0]?.results ?? []) as SnapshotRow[]).map((stored) => ({
+		stored,
+		pull: pullRequestSchema.parse(JSON.parse(stored.snapshot)),
+	}));
+	const total = (results[1]?.results[0] as { total: number }).total;
+	return {
+		...envelope(snapshot, source, timestamp),
+		data: rows.map((row) => pullOutput(snapshot, row, timestamp)),
+		page: pageMetadata(total, filters, snapshot.revision, position),
+		metrics: results[2]?.results[0] as {
+			open: number;
+			attention: number;
+			running: number;
+			ready: number;
+			draft: number;
+			merged: number;
+			closed: number;
+		},
+		authors: (results[3]?.results ?? []) as {
+			id: string;
+			name: string;
+			provider: Project["provider"];
+		}[],
+	};
+}
+
 export async function queryPulls(
 	db: QueryDatabase,
 	source: DataSource,
 	filters: QueryFilters,
 	timestamp: number,
 ) {
-	const snapshot = await readSnapshot(db, source, { filters });
-	const projects = new Map(snapshot.projects.map((p) => [p.id, p]));
-	// ponytail: readiness sorting evaluates cached facts in the Worker; materialize ranks if large open sets exceed the CPU budget.
-	const scoped = snapshot.pulls.flatMap((row) => {
-		const p = projects.get(row.pull.projectId);
-		if (!p) throw new Error("Cached PR has no project");
-		const pr = row.pull;
-		if (!scopeMatches(p, pr.repository, filters)) return [];
-		const readiness = pullReadiness(pr, p);
-		const observation = observationFor(snapshot, pr);
-		if (
-			filters.watching !== undefined &&
-			(observation?.active ?? false) !== (filters.watching === "true")
-		)
-			return [];
-		if (
-			filters.q &&
-			![
-				pr.title,
-				`#${pr.number}`,
-				pr.author.name,
-				pr.repository.name,
-				p.name,
-				p.organization,
-				p.projectKey,
-				readiness.owner,
-				readiness.action,
-			]
-				.join(" ")
-				.toLowerCase()
-				.includes(filters.q)
-		)
-			return [];
-		return [{ ...row, project: p, readiness, progress: pullProgress(pr) }];
-	});
-	const authors = [
-		...new Map(
-			scoped.map((row) => [
-				authorKey(row.project, row.pull),
-				{
-					id: authorKey(row.project, row.pull),
-					name: row.pull.author.name,
-					provider: row.project.provider,
-				},
-			]),
-		).values(),
-	].sort((a, b) => a.name.localeCompare(b.name));
-	const base = scoped.filter(
-		(row) =>
-			(filters.draft === "include" ||
-				row.pull.draft === (filters.draft === "only")) &&
-			(!filters.author.length ||
-				filters.author.includes(authorKey(row.project, row.pull))),
-	);
-	const open = base.filter((row) => row.pull.state === "open");
-	const attention = new Set(["blocked", "approval", "review", "unknown"]);
-	const metrics = {
-		open: open.length,
-		attention: open.filter((r) => attention.has(r.readiness.kind)).length,
-		running: open.filter((r) => r.readiness.kind === "running").length,
-		ready: open.filter((r) => r.readiness.kind === "ready").length,
-		draft: open.filter((r) => r.pull.draft).length,
-		merged: base.filter((r) => r.pull.state === "merged").length,
-		closed: base.filter((r) => r.pull.state === "closed").length,
-	};
-	const rows = base.filter(
-		(row) =>
-			(filters.state === "all" || row.pull.state === filters.state) &&
-			(filters.status === "all" ||
-				(filters.status === "attention"
-					? attention.has(row.readiness.kind)
-					: row.readiness.kind === filters.status)),
-	);
-	const completion = (r: (typeof rows)[number]) =>
-		r.pull.coverage === "partial" || r.pull.checksObservedAt === null
-			? -1
-			: r.progress.checksTotal
-				? r.progress.checksPassed / r.progress.checksTotal
-				: 1;
-	rows.sort((a, b) => {
-		let compare = 0;
-		switch (filters.sort) {
-			case "readiness":
-				compare =
-					readinessPriority(a.readiness, a.project) -
-					readinessPriority(b.readiness, b.project);
-				break;
-			case "title":
-				compare = a.pull.title.localeCompare(b.pull.title);
-				break;
-			case "progress":
-				compare = completion(a) - completion(b);
-				break;
-			case "action":
-				compare = a.readiness.action.localeCompare(b.readiness.action);
-				break;
-			case "updated":
-				compare = a.pull.updatedAt - b.pull.updatedAt;
-				break;
-			case "oldest":
-				compare = a.pull.createdAt - b.pull.createdAt;
-				break;
-			default:
-				compare = a.pull.id.localeCompare(b.pull.id);
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await readPullPage(db, source, filters, timestamp);
+		} catch (error) {
+			if (
+				filters.cursor ||
+				attempt === 2 ||
+				!(error instanceof MonitoringError) ||
+				error.code !== "SNAPSHOT_CHANGED"
+			)
+				throw error;
 		}
-		return (
-			compare * (filters.direction === "desc" ? -1 : 1) ||
-			a.pull.id.localeCompare(b.pull.id)
-		);
-	});
-	const selected = page(rows, filters, snapshot.revision, "prs");
-	return {
-		...envelope(snapshot, source, timestamp),
-		...selected,
-		data: selected.data.map((row) => pullOutput(snapshot, row, timestamp)),
-		metrics,
-		authors,
-	};
+	}
 }
 
 export async function queryPull(

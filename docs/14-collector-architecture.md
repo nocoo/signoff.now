@@ -32,7 +32,7 @@ ADO 真实采集已接入。GitHub 使用同一规范身份与 Sample 数据，�
 | 清单命令 | `packages/worker/src/monitoring/observations.ts` | 引用解析、幂等加入、generation 删除、显式发现和刷新 |
 | 调度 | `packages/worker/src/monitoring/scheduler.ts` | 项目轮次、完成后冷却、租约、认证退避、跨项目并发 |
 | 发布 | `packages/worker/src/monitoring/publication.ts` | 暂存、数量和版本检查、仓库原子发布、终态淘汰 |
-| 查询 | `packages/worker/src/monitoring/query.ts` | SELECT 一致性批次、服务端过滤 / 排序 / 分页、共享 readiness |
+| 查询 | `packages/worker/src/monitoring/query.ts` | SELECT 批次与 source 版本校验、服务端过滤 / 排序 / 分页、共享 readiness |
 | HTTP | `packages/worker/src/routes/query.ts`、`commands.ts`、`collection.ts` | 输入校验与薄适配器；不访问 ADO |
 | CLI | `apps/collect/src/workbench/commands.ts`、`query-client.ts`、`run.ts` | 短命查询 / 命令客户端与常驻执行器 |
 | 网页 | `monitoringApi.ts`、`useQueryBlock.ts`、`useWorkbenchViewModel.ts` | 独立请求生命周期、临时多选与持久清单操作 |

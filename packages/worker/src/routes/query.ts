@@ -1,6 +1,7 @@
 import { storageSource } from "@signoff/domain/monitoring";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { isLocalhost } from "../middleware/entry-control.js";
 import {
 	lookupPull,
 	parseQuery,
@@ -93,7 +94,12 @@ queryRoutes.get("/observations/lookup", async (c) => {
 	);
 });
 queryRoutes.get("/collector", async (c) =>
-	c.json(await queryCollector(c.env.DB, scope(c), now())),
+	c.json({
+		...(await queryCollector(c.env.DB, scope(c), now())),
+		sampleCommandsEnabled:
+			c.env.SIGNOFF_DEMO_MODE === "1" &&
+			isLocalhost(c.req.header("host") ?? ""),
+	}),
 );
 queryRoutes.get("/jobs/:id", async (c) =>
 	c.json(await queryJob(c.env.DB, scope(c), c.req.param("id"))),

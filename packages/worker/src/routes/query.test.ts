@@ -6,6 +6,7 @@ import {
 	pullListSchema,
 	repoListSchema,
 } from "@signoff/domain/query";
+import { Hono } from "hono";
 import app from "../index";
 import { addObservation, removeObservation } from "../monitoring/observations";
 import {
@@ -17,6 +18,8 @@ import {
 } from "../monitoring/query";
 import { PR_TEST_NOW, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
+import type { AppEnv } from "../types";
+import { queryRoutes } from "./query";
 
 let sqlite: SqliteD1;
 beforeEach(() => {
@@ -46,6 +49,161 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test("Sample command capability reflects local server configuration rather than frontend build mode", async () => {
+		const routes = new Hono<AppEnv>().route("/query", queryRoutes);
+		for (const [host, mode, enabled] of [
+			["localhost", "1", true],
+			["localhost", undefined, false],
+			["signoff.now", "1", false],
+		] as const) {
+			const response = await routes.request(
+				`http://${host}/query/collector`,
+				{ headers: { host } },
+				{ DB: sqlite.db, SIGNOFF_DEMO_MODE: mode },
+			);
+			expect(await response.json()).toMatchObject({
+				sampleCommandsEnabled: enabled,
+			});
+		}
+	});
+	test("case-insensitive search finds Unicode author names in open and historical PRs", async () => {
+		const { pull } = seed();
+		for (const [index, state] of (
+			["open", "merged", "closed"] as const
+		).entries())
+			seedPull(sqlite, {
+				...pull,
+				id: `unicode-${state}`,
+				number: index + 2,
+				externalId: String(index + 2),
+				state,
+				title: "Καλημέρα",
+				author: { ...pull.author, id: "unicode", name: "Élodie" },
+			});
+		for (const q of [
+			"Élodie",
+			"ÉLODIE",
+			"élodie",
+			"lodie",
+			"ΚΑΛΗΜΈΡΑ",
+			"καλημέρα",
+		])
+			expect(
+				(
+					await queryPulls(
+						sqlite.db,
+						"cli",
+						parseQuery(new URLSearchParams({ q, state: "all" })),
+						PR_TEST_NOW,
+					)
+				).page.total,
+			).toBe(3);
+	});
+	test("PR pages transfer only open facts and the requested history page, never all historical snapshots", async () => {
+		seedProject(sqlite, { repositories: [] });
+		for (let number = 1; number <= 1200; number++)
+			seedPull(sqlite, {
+				id: `history-${String(number).padStart(4, "0")}`,
+				number,
+				externalId: String(number),
+				state: "merged",
+			});
+		let snapshotsRead = 0;
+		const db = {
+			prepare: sqlite.db.prepare.bind(sqlite.db),
+			batch: async <T>(statements: D1PreparedStatement[]) => {
+				const results = await sqlite.db.batch<T>(statements);
+				snapshotsRead += results
+					.flatMap((r) => r.results ?? [])
+					.filter(
+						(r) =>
+							typeof r === "object" &&
+							r !== null &&
+							Object.hasOwn(r, "snapshot"),
+					).length;
+				return results;
+			},
+		};
+		const open = await queryPulls(
+			db,
+			"cli",
+			parseQuery(new URLSearchParams("state=open&limit=20")),
+			PR_TEST_NOW,
+		);
+		expect(open.data).toEqual([]);
+		expect(open.metrics.merged).toBe(1200);
+		expect(open.authors).toHaveLength(1);
+		expect(snapshotsRead).toBe(0);
+		const history = await queryPulls(
+			db,
+			"cli",
+			parseQuery(new URLSearchParams("state=all&limit=20")),
+			PR_TEST_NOW,
+		);
+		expect(history.page.total).toBe(1200);
+		expect(history.data).toHaveLength(20);
+		expect(snapshotsRead).toBe(20);
+	});
+	test("facts and SQL pagination retry as one revision when a publication races the query", async () => {
+		const { pull } = seed();
+		sqlite.beforeBatch("WITH open_facts", () => {
+			sqlite.raw
+				.query(
+					"UPDATE pull_requests SET state='merged',snapshot=json_set(snapshot,'$.state','merged') WHERE id=?",
+				)
+				.run(pull.id);
+		});
+		const result = await queryPulls(
+			sqlite.db,
+			"cli",
+			parseQuery(new URLSearchParams()),
+			PR_TEST_NOW,
+		);
+		expect(result.data).toEqual([]);
+		expect(result.page.total).toBe(0);
+		expect(result.metrics).toMatchObject({ open: 0, merged: 1 });
+	});
+	test("a cursor never silently crosses a revision, and continuously changing first pages stop retrying", async () => {
+		const { pull } = seed();
+		seedPull(sqlite, { ...pull, id: "second", number: 2, externalId: "2" });
+		const first = await queryPulls(
+			sqlite.db,
+			"cli",
+			parseQuery(new URLSearchParams("limit=1")),
+			PR_TEST_NOW,
+		);
+		let changes = 0;
+		const change = () => {
+			changes++;
+			sqlite.raw
+				.query(
+					"UPDATE pull_requests SET snapshot=json_set(snapshot,'$.title',?) WHERE id=?",
+				)
+				.run(`Revision ${changes}`, pull.id);
+			sqlite.beforeBatch("WITH open_facts", change);
+		};
+		sqlite.beforeBatch("WITH open_facts", change);
+		await expect(
+			queryPulls(
+				sqlite.db,
+				"cli",
+				parseQuery(
+					new URLSearchParams({ limit: "1", cursor: first.page.nextCursor! }),
+				),
+				PR_TEST_NOW,
+			),
+		).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
+		expect(changes).toBe(1);
+		await expect(
+			queryPulls(
+				sqlite.db,
+				"cli",
+				parseQuery(new URLSearchParams()),
+				PR_TEST_NOW,
+			),
+		).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
+		expect(changes).toBe(4);
+	});
 	test("server sort, status, freshness and missing-reference queries reflect cached PR facts", async () => {
 		seedProject(sqlite, { repositories: [] });
 		const common = {

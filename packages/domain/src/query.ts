@@ -238,6 +238,7 @@ export const collectorQuerySchema = z.object({
 	}),
 	watching: z.number(),
 	pendingFirstResult: z.number(),
+	sampleCommandsEnabled: z.boolean().default(false),
 	detailCooldownSeconds: z.number(),
 	discovery: z.literal("on_demand"),
 	jobs: z.array(jobQuerySchema),
