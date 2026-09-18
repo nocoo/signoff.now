@@ -32,4 +32,5 @@
 | 路径 | 说明 |
 | --- | --- |
 | [cli/](cli/README.md) | 当前 signoff 采集入口、gitinfo / pulse 辅助工具，以及Query CLI 的使用入口 |
+| [signoff-cli skill](../skills/signoff-cli/SKILL.md) | 供其他项目 / agent 使用的本地 CLI 路径、缓存查询与共享关注清单操作 |
 | [archive/](archive/README.md) | 已退役的 Electron 架构、旧 CLI 草稿与桌面 PR UI；正文只作历史参考 |

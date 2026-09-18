@@ -1,6 +1,6 @@
 # 18 — CLI 查询、观察与命令契约
 
-> 当前实现，2026-09-18。网页和 CLI 共用一份关注清单；升级默认空清单，发现仅按需执行。
+> 当前实现，2026-09-18。网页和 CLI 共用一份关注清单；首次启用时清单为空，后续升级保留已有关注项；发现仅按需执行。
 > 当前可用采集命令见 [11](11-真实PR采集与本地工作台.md)，辅助工具见 [cli/](cli/README.md)。架构见 [14](14-collector-architecture.md)，观察生命周期见 [16](16-scheduler-state-machine.md)。
 
 ## 1. 给其他项目的保证
@@ -200,9 +200,9 @@ added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false
 
 discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefore }]` 和零目标时的说明。收到 202 仅表示任务已保存，不表示刷新成功。消费者稍后用 `job get` 查询；登录过期作为任务状态返回，不能触发查询 CLI 自己登录。
 
-一次 discover 对应一个项目内固定的仓库范围；只有相同 revision、相同规范范围的未结束任务才去重。网页通过 projectId 提交项目范围；仓库计划解析后固定，重领沿用同一计划。发现没有自动冷却或重复运行。
+一次 discover 对应一个项目内固定的仓库范围；只有相同 revision、相同规范范围与 full 模式的未结束任务才去重。网页通过 projectId 提交项目范围；仓库计划解析后固定，重领沿用同一计划。发现没有自动冷却或重复运行。
 
-项目级发现与仓库 URL 发现采用相同的别名唯一性校验。名称复用导致多个稳定 ID 匹配时，返回 HTTP 409 / `REFERENCE_AMBIGUOUS`，不入队；可通过仓库 ID 消除歧义。固定范围内的 provider ID 不能由另一个仓库的名称替代。
+项目级发现与仓库 URL 发现采用相同的别名唯一性校验。名称复用导致多个稳定 ID 匹配时，返回 HTTP 409 / `REFERENCE_AMBIGUOUS`，不入队；可通过仓库 ID 消除歧义。固定范围内的 provider ID 不能由另一个仓库的名称替代。`repo add` 遇到 Unicode 大小写等价的多个项目注册时，也以 exit 3 / `REFERENCE_AMBIGUOUS` 拒绝，不任意编辑其中一个项目。
 
 `job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消后续任务为 observation_retired。任务摘要在项目删除后仍保留。
 
@@ -241,7 +241,64 @@ v1 不保留多份历史读版本：后续页若发现版本改变，返回 `409
 
 ## 6. 其他项目接入示例
 
-以下流程可用于当前实现。开发期可用 `bun run --cwd /path/to/signoff.now signoff …` 调用同一入口；正式命令名为 `signoff`，运行时仍需要 Bun。
+### 开发环境：不发布，直接调用
+
+CLI 是本仓库的 Bun / TypeScript 入口，不需要发布 npm 包、部署网页或全局安装 `signoff`。其他 App 可在任意工作目录运行它；依赖从 SignOff checkout 的 `node_modules` 解析。
+
+| 内容 | 当前本机路径 |
+| --- | --- |
+| 仓库根目录 | `/Users/nocoo/workspace/personal/signoff.now` |
+| CLI 入口 | `/Users/nocoo/workspace/personal/signoff.now/apps/collect/src/main.ts` |
+| Bun 可执行文件 | `/opt/homebrew/bin/bun`；其他机器用 `command -v bun` 确认 |
+| 完整 CLI / HTTP 文档 | `/Users/nocoo/workspace/personal/signoff.now/docs/18-cli-query-contract.md` |
+| 随仓库维护的 agent skill | `/Users/nocoo/workspace/personal/signoff.now/skills/signoff-cli/SKILL.md` |
+| 本机 skill 入口 | `~/.codex/skills/signoff-cli/SKILL.md`，链接到上面的仓库版本 |
+
+`apps/collect/package.json` 的 `bin.signoff` 也指向 `./src/main.ts`。仓库移动后修改消费者配置的入口路径；不要依赖消费者自己的当前目录或猜测一个已安装的全局命令。
+
+```bash
+# 任意目录均可执行；这两个变量只是调用方的路径配置
+SIGNOFF_REPO=/Users/nocoo/workspace/personal/signoff.now
+SIGNOFF_CLI="$SIGNOFF_REPO/apps/collect/src/main.ts"
+test -f "$SIGNOFF_CLI"
+git -C "$SIGNOFF_REPO" rev-parse --show-toplevel
+command -v bun
+
+bun "$SIGNOFF_CLI" --help
+bun "$SIGNOFF_CLI" status --pretty
+# 完整关注清单，包括 Draft 和尚未拿到首次快照的项
+bun "$SIGNOFF_CLI" watch list --all
+# 只读取已有快照的关注 PR；明确包含 Draft
+bun "$SIGNOFF_CLI" pr list --watching --draft include --all
+bun "$SIGNOFF_CLI" pr get '<完整 PR URL 或 SignOff PR id>'
+```
+
+若 shell / cron / App 的 PATH 中没有 Bun，使用上表中的绝对 Bun 路径。`SIGNOFF_CLI` / `SIGNOFF_REPO` 不是 CLI 内置选项，只供调用方定位文件；`SIGNOFF_QUERY_API_BASE` 才是 CLI 自身读取的服务配置。
+
+本机需已有运行中的 Worker，默认 `http://127.0.0.1:37042`。维护者在 SignOff 根目录执行一次 `bun install --frozen-lockfile`，并在独立终端运行 `bun run dev:worker`；它应用本地迁移、使用原来的 Wrangler SQLite。要处理发现任务或持续刷新关注清单，再运行 `bun "$SIGNOFF_CLI" daemon`。复用已启动的服务，每个消费 App 无需另开 daemon。网页无需打开，daemon 停止后仍可查询已有缓存；查询和清单命令都不要求 Azure / GitHub 登录，只有执行采集任务的 daemon 使用 Azure CLI。
+
+Node.js 消费者可直接调用同一入口，以参数数组传递引用：
+
+```js
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const cli = "/Users/nocoo/workspace/personal/signoff.now/apps/collect/src/main.ts";
+const { stdout } = await run(
+  "/opt/homebrew/bin/bun",
+  [cli, "watch", "list", "--all"],
+  { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
+);
+const snapshot = JSON.parse(stdout);
+// snapshot.data: 关注身份与可空的 pull 快照；同时检查时间和完整性。
+```
+
+消费端自行安排 Query 周期、进程超时和输出上限；数据量大时使用 `--limit` / `--cursor` 分页。命令失败时 `execFile` 拒绝，保留消费者上次成功快照，不把错误解析成空清单。也可直接使用本章第 4 节的 HTTP 接口；这与 CLI 读取同一份数据。
+
+### 明确配置与观察
+
+以下用 `signoff` 简写入口；开发环境可定义 shell 函数 `signoff() { bun "$SIGNOFF_CLI" "$@"; }`，或替换为上述绝对路径调用。
 
 ```bash
 # 管理者配置一次；两个仓库分别保留 org / project / repo 身份
@@ -258,7 +315,7 @@ signoff watch add '<PR URL>'
 signoff watch list --pretty
 
 # 消费项目按自己的周期读缓存
-signoff pr list --watching --all
+signoff pr list --watching --draft include --all
 signoff pr get '<PR URL>'
 
 # 提前更新、主动退出；命令本身均不访问 ADO
@@ -267,6 +324,10 @@ signoff watch remove '<PR URL>'
 ```
 
 消费项目写本地文件时先完整写临时文件、成功后原子替换；连接失败继续保留自己的上一版。终态自动淘汰后若需要记录合并 / 放弃事件，应读普通缓存列表的 `--state all` 或 `watch list --include-stopped`，不要只看 active 集合并把消失误解为删除。
+
+### Agent skill
+
+[signoff-cli skill](../skills/signoff-cli/SKILL.md) 随 CLI 代码在同一仓库维护，包含路径定位、缓存查询、清单操作、增量 / full 发现与错误处理。当前本机通过 `~/.codex/skills/signoff-cli` 链接到仓库的 `skills/signoff-cli`；支持该技能目录的 agent 可在新会话发现它，也可以直接读取上表中的绝对 `SKILL.md` 路径。其他机器可把此技能目录链接到自己的技能目录，保留对实际 checkout 的路径配置。
 
 ## 7. 测试与交付清单
 

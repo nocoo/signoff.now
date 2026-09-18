@@ -22,7 +22,7 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 
 仓库原有的 Activity / Score API 及 ADO 活动采集 CLI 仍然保留。它们与新 PR 工作台、成员目录和贡献统计的数据契约分开；`pulse` 已有的 GitHub 查询能力也尚未连接到工作台。
 
-网页和外部 CLI 共用持久关注清单，通过 API 显式加入 / 移出 PR。查询只读已发布缓存，后台独立刷新关注项，确认 merged / closed 后自动停止刷新。升级保留已有 PR 缓存，关注清单从空开始；启动服务、打开页面和查询均不产生源站采集。详见[采集、关注清单与缓存查询架构](docs/14-collector-architecture.md)。
+网页和外部 CLI 共用持久关注清单，通过 API 显式加入 / 移出 PR。查询只读已发布缓存，后台独立刷新关注项，确认 merged / closed 后自动停止刷新。首次启用该架构时关注清单为空，后续升级保留已有关注项与 PR 缓存；打开页面和查询均不产生源站采集，daemon 只执行已保存任务与关注刷新。详见[采集、关注清单与缓存查询架构](docs/14-collector-architecture.md)。
 
 ## 功能
 
@@ -30,7 +30,7 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 - **跨项目 PR 队列**：按 Organization → Project → Repository 筛选，默认排除 Draft，作者可多选。表头可排序，默认按项目的 Readiness 顺序将最就绪的 PR 放在前面；筛选和排序方向保存在 URL 与 localStorage，每页 20 个 PR。
 - **明确合并条件**：冲突、必需检查失败、评审意见、部署审批、未知检查分别显示；可选检查失败不会误挡合并。
 - **构建阶段详情**：每个 PR 可展开多个 build，逐项查看 stage 状态、时长、说明和负责人。
-- **共享关注清单**：标题前独立的眼睛按钮可切换单个 PR 的关注状态；复选框支持当前页多选、批量加入 / 移出，快捷筛选已关注和未关注 PR。网页与 CLI 操作同一份清单，完整身份区分 provider、组织、项目、仓库与 PR 编号；Draft 也可以关注。
+- **共享关注清单**：标题前独立的眼睛按钮可切换单个 PR 的关注状态；复选框支持当前页多选、批量加入 / 移出，快捷筛选已关注和未关注 PR。点击后立即反馈，后台提交，失败只回滚相应项，不阻塞其他行或整表刷新。网页与 CLI 操作同一份清单，完整身份区分 provider、组织、项目、仓库与 PR 编号；Draft 也可以关注。
 - **独立后台刷新**：首次发现包含全部可访问 PR 历史与状态，后续从上次成功边界增量发现新 PR；`discover --full` 可重新核对旧历史，发现不会自动关注。daemon 只刷新 active 关注项，项目整轮结束后默认冷却 5 分钟，关闭网页仍继续。确认终态才自动淘汰；失败、登录过期或列表缺失均保留关注和旧缓存。侧栏底部、头像上方显示任务进度；收起侧栏时保留状态图标。
 - **PR 阅读与操作**：描述支持 Markdown、表格和任务清单；PR 编号和真实 PR 标题旁的链接可在新标签页打开源 PR。人名前显示圆形双字母头像。
 - **项目 Readiness**：从实际 Policy 和 PR 快照读取全部合并要求，拖动或用键盘箭头定义处理顺序、颜色和名称。第一个未完成要求决定主要卡点，只剩靠后条件的 PR 排在前面；PoP 无内置特例。设置保存在项目数据库中。
@@ -62,6 +62,8 @@ bun run signoff pr get 'https://dev.azure.com/acme/Platform/_git/web-app/pullreq
 ```
 
 短命 CLI 无需源站认证，只连接回环地址上的本地 Worker；daemon 执行任务时才使用 `az`。两者不读取 Activity 管线的生产写入令牌。`workbench watch` 是 `daemon` 的兼容入口；`workbench sync` 只入队按需发现。外部消费者接入见 [CLI / HTTP 契约](docs/18-cli-query-contract.md)，启动和恢复见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)。
+
+开发期无需发布 CLI，其他 App 可直接调用 `bun /Users/nocoo/workspace/personal/signoff.now/apps/collect/src/main.ts watch list --all`。完整路径和进程调用示例见 [CLI 接入说明](docs/18-cli-query-contract.md#6-其他项目接入示例)，agent 可使用随仓库维护的 [signoff-cli skill](skills/signoff-cli/SKILL.md)。
 
 以下运维命令用于既有 Activity / Score 管线。生产站点仍使用 Cloudflare Access；这次本地预览没有部署到线上。既有管线先建立 Developer 和 Repo 绑定，再配置 Settings，不会读取新 `projects` 表作为采集范围。
 
