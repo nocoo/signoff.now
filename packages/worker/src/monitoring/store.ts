@@ -68,6 +68,17 @@ export const matchesAlias = (
 		row.repository_id,
 		...(JSON.parse(row.aliases_json) as string[]),
 	].some((value) => value.toLowerCase() === alias.toLowerCase());
+export const inProjectScope = (
+	project: Pick<Project, "repositories">,
+	repository: { id: string; name: string },
+	aliases: string[] = [],
+) =>
+	!project.repositories?.length ||
+	project.repositories.some((value) =>
+		[repository.id, repository.name, ...aliases].some(
+			(key) => key.toLowerCase() === value.toLowerCase(),
+		),
+	);
 export type JobRow = {
 	id: string;
 	project_id: string;

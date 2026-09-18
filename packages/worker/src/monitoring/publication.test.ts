@@ -9,6 +9,7 @@ import {
 	enqueueDiscovery,
 	removeObservation,
 	resolveObservation,
+	resolveRepository,
 } from "./observations";
 import {
 	completeJob,
@@ -66,6 +67,78 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test("discovery follows a renamed repository by its frozen provider ID and retains its old alias", async () => {
+		const project = seedProject(sqlite, { repositories: ["old-name"] });
+		const pull = seedPull(sqlite, {
+			id: adoPullId(project.id, "repo-1", "1"),
+			repository: { id: "repo-1", name: "old-name" },
+		});
+		const resolved = await resolveRepository(
+			sqlite.db,
+			"cli",
+			"https://dev.azure.com/test-org/Platform/_git/old-name",
+		);
+		const receipt = await enqueueDiscovery(
+			sqlite.db,
+			project,
+			[resolved.repository!.repository_id],
+			now,
+		);
+		const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
+		const repository = { id: "repo-1", name: "new-name" };
+		await expect(
+			registerJobRepositories(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				[{ ...repository, id: "different-id" }],
+				now + 1,
+			),
+		).rejects.toMatchObject({ code: "INVALID_SCOPE" });
+		await registerJobRepositories(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[repository],
+			now + 1,
+		);
+		await stagePulls(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[{ ...pull, repository }],
+			now + 1,
+		);
+		await publishRepository(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			repository.id,
+			1,
+			"complete",
+			"Renamed repository discovered",
+			now + 1,
+		);
+		await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now + 1);
+		for (const name of ["old-name", "new-name", "repo-1"]) {
+			const url = `https://dev.azure.com/test-org/Platform/_git/${name}`;
+			expect(
+				(await resolveRepository(sqlite.db, "cli", url)).repository
+					?.repository_id,
+			).toBe(repository.id);
+			const watched = await addObservation(
+				sqlite.db,
+				"cli",
+				{ url: `${url}/pullrequest/1` },
+				now + 2,
+			);
+			expect(watched.observation.ref.repository).toEqual(repository);
+		}
+		expect(
+			(await addObservation(sqlite.db, "cli", { pullId: pull.id }, now + 2))
+				.status,
+		).toBe("already_observed");
+	});
 	test.each([
 		false,
 		true,

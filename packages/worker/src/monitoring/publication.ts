@@ -15,6 +15,7 @@ import {
 	type JobRow,
 	LEASE_SECONDS,
 	MonitoringError,
+	type RepositoryRow,
 	RUNNING_JOB,
 	readJob,
 	readProject,
@@ -52,9 +53,22 @@ export async function registerJobRepositories(
 ) {
 	const { job, project } = await activeJob(db, id, token, timestamp);
 	const scope = JSON.parse(job.scope_json) as string[];
+	const known = (
+		await db
+			.prepare("SELECT * FROM workbench_repositories WHERE project_id=?")
+			.bind(project.id)
+			.all<RepositoryRow>()
+	).results;
 	const names = (repo: RepositoryIdentity) => [
 		repo.id.toLowerCase(),
 		repo.name.toLowerCase(),
+		...(
+			JSON.parse(
+				known.find(
+					(r) => r.repository_id.toLowerCase() === repo.id.toLowerCase(),
+				)?.aliases_json ?? "[]",
+			) as string[]
+		).map((s) => s.toLowerCase()),
 	];
 	if (
 		new Set(repositories.map((r) => r.id.toLowerCase())).size !==

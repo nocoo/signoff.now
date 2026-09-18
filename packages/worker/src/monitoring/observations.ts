@@ -11,6 +11,7 @@ import {
 import { type Project, pullRequestSchema } from "@signoff/domain/workbench";
 import {
 	ACTIVE_JOBS,
+	inProjectScope,
 	type JobReceipt,
 	type JobRow,
 	jobReceipt,
@@ -36,13 +37,6 @@ function supported(project: Project) {
 			"Live GitHub collection is not available yet",
 		);
 }
-const inScope = (project: Project, repository: { id: string; name: string }) =>
-	!project.repositories?.length ||
-	project.repositories.some((value) =>
-		[repository.id, repository.name].some(
-			(key) => key.toLowerCase() === value.toLowerCase(),
-		),
-	);
 
 export async function resolveRepository(
 	db: D1Database,
@@ -89,10 +83,14 @@ export async function resolveRepository(
 		);
 	const repository = matches[0];
 	if (
-		!inScope(project, {
-			id: repository?.repository_id ?? ref.repository,
-			name: repository?.name ?? ref.repository,
-		})
+		!inProjectScope(
+			project,
+			{
+				id: repository?.repository_id ?? ref.repository,
+				name: repository?.name ?? ref.repository,
+			},
+			JSON.parse(repository?.aliases_json ?? "[]") as string[],
+		)
 	)
 		throw new MonitoringError(
 			"REPOSITORY_NOT_TRACKED",
@@ -115,10 +113,10 @@ export async function resolvePull(
 	if ("pullId" in input) {
 		const row = await db
 			.prepare(
-				"SELECT pr.snapshot,p.* FROM pull_requests pr JOIN projects p ON p.id=pr.project_id WHERE pr.id=? AND p.source=?",
+				"SELECT pr.snapshot,p.*,r.aliases_json FROM pull_requests pr JOIN projects p ON p.id=pr.project_id LEFT JOIN workbench_repositories r ON r.project_id=p.id AND r.repository_id=pr.repository_id WHERE pr.id=? AND p.source=?",
 			)
 			.bind(input.pullId, source)
-			.first<ProjectRow & { snapshot: string }>();
+			.first<ProjectRow & { snapshot: string; aliases_json: string | null }>();
 		if (!row)
 			throw new MonitoringError(
 				"CACHE_MISS",
@@ -134,7 +132,13 @@ export async function resolvePull(
 				"Project was removed",
 				404,
 			);
-		if (!inScope(project, pull.repository))
+		if (
+			!inProjectScope(
+				project,
+				pull.repository,
+				JSON.parse(row.aliases_json ?? "[]") as string[],
+			)
+		)
 			throw new MonitoringError(
 				"REPOSITORY_NOT_TRACKED",
 				"PR is outside the registered scope",
