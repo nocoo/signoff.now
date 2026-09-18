@@ -7,6 +7,7 @@ import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 import {
 	addObservation,
 	enqueueDiscovery,
+	refreshObserved,
 	removeObservation,
 	resolveObservation,
 	resolveRepository,
@@ -18,7 +19,7 @@ import {
 	rejectRepository,
 	stagePulls,
 } from "./publication";
-import { claimJob, scheduleObservations } from "./scheduler";
+import { claimJob, failJob, scheduleObservations } from "./scheduler";
 import { readJob, readProject } from "./store";
 
 let sqlite: SqliteD1;
@@ -67,6 +68,186 @@ async function watching() {
 }
 
 describe("guarded snapshot publication and retirement", () => {
+	test.each([
+		"success",
+		"failed",
+		"removed",
+	])("refreshing a pre-rename watch preserves catalog metadata until guarded publication: %s", async (outcome) => {
+		const project = seedProject(sqlite, { repositories: ["old-name"] });
+		const pull = seedPull(sqlite, {
+			id: adoPullId(project.id, "repo-1", "1"),
+			repository: { id: "repo-1", name: "old-name" },
+		});
+		const added = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			now,
+		);
+		const first = (await claimJob(sqlite.db, now, { jobId: added.job!.id }))!;
+		await registerJobRepositories(
+			sqlite.db,
+			first.job.id,
+			first.leaseToken,
+			[pull.repository],
+			now,
+		);
+		await stagePulls(sqlite.db, first.job.id, first.leaseToken, [pull], now);
+		await publishRepository(
+			sqlite.db,
+			first.job.id,
+			first.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Initial watch",
+			now,
+		);
+		const discovery = await enqueueDiscovery(
+			sqlite.db,
+			project,
+			[pull.repository.id],
+			now + 1,
+		);
+		const rename = (await claimJob(sqlite.db, now + 1, {
+			jobId: discovery.id,
+		}))!;
+		const renamed = {
+			...pull,
+			repository: { ...pull.repository, name: "new-name" },
+			observedAt: now + 1,
+		};
+		await registerJobRepositories(
+			sqlite.db,
+			rename.job.id,
+			rename.leaseToken,
+			[renamed.repository],
+			now + 1,
+		);
+		await stagePulls(
+			sqlite.db,
+			rename.job.id,
+			rename.leaseToken,
+			[renamed],
+			now + 1,
+		);
+		await publishRepository(
+			sqlite.db,
+			rename.job.id,
+			rename.leaseToken,
+			pull.repository.id,
+			1,
+			"complete",
+			"Provider renamed repository",
+			now + 1,
+		);
+		await completeJob(sqlite.db, rename.job.id, rename.leaseToken, now + 1);
+		const refresh = await refreshObserved(
+			sqlite.db,
+			"cli",
+			{ all: true },
+			now + 2,
+		);
+		const claim = (await claimJob(sqlite.db, now + 2, {
+			jobId: refresh.jobs[0]!.id,
+		}))!;
+		expect(claim.observation!.ref.repository.name).toBe("old-name");
+		await registerJobRepositories(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[claim.observation!.ref.repository],
+			now + 2,
+		);
+		const metadata = () =>
+			sqlite.raw
+				.query(
+					"SELECT name,aliases_json FROM workbench_repositories WHERE project_id=? AND repository_id=?",
+				)
+				.get(project.id, pull.repository.id) as {
+				name: string;
+				aliases_json: string;
+			};
+		expect(metadata().name).toBe("new-name");
+		const before = metadata();
+		if (outcome === "failed") {
+			await failJob(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				"unavailable",
+				"Provider failed before returning fresh metadata",
+				now + 3,
+			);
+		} else {
+			const fresh = {
+				...renamed,
+				repository: { ...renamed.repository, name: "latest-name" },
+				observedAt: now + 3,
+			};
+			await stagePulls(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				[fresh],
+				now + 3,
+			);
+			expect(metadata()).toEqual(before);
+			if (outcome === "removed") {
+				await removeObservation(
+					sqlite.db,
+					"cli",
+					added.observation.id,
+					added.observation.generation,
+					now + 3,
+				);
+				await expect(
+					publishRepository(
+						sqlite.db,
+						claim.job.id,
+						claim.leaseToken,
+						pull.repository.id,
+						1,
+						"complete",
+						"Late metadata",
+						now + 4,
+					),
+				).rejects.toMatchObject({ code: "LEASE_LOST" });
+			} else {
+				await publishRepository(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					pull.repository.id,
+					1,
+					"complete",
+					"Fresh provider metadata",
+					now + 4,
+				);
+			}
+		}
+		expect(metadata().name).toBe(
+			outcome === "success" ? "latest-name" : "new-name",
+		);
+		expect(cached(pull.id).repository.name).toBe(metadata().name);
+		if (outcome !== "success") expect(metadata()).toEqual(before);
+		for (const name of [
+			"old-name",
+			"new-name",
+			...(outcome === "success" ? ["latest-name"] : []),
+		]) {
+			expect(JSON.parse(metadata().aliases_json)).toContain(name);
+			expect(
+				(
+					await resolveRepository(
+						sqlite.db,
+						"cli",
+						`https://dev.azure.com/test-org/Platform/_git/${name}`,
+					)
+				).repository?.repository_id,
+			).toBe(pull.repository.id);
+		}
+	});
 	test("a repository name cannot impersonate the frozen provider repository ID", async () => {
 		const { project, pull } = setup();
 		const receipt = await enqueueDiscovery(

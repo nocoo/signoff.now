@@ -139,7 +139,7 @@ export async function registerJobRepositories(
 		db
 			.prepare(`INSERT INTO workbench_repositories(project_id,repository_id,name,project_external_id,aliases_json)
       SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),json_array(json_extract(value,'$.id'),json_extract(value,'$.name'))
-      FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=?
+      FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=? AND ?='list'
       ON CONFLICT(project_id,repository_id) DO UPDATE SET name=excluded.name,project_external_id=COALESCE(excluded.project_external_id,workbench_repositories.project_external_id),
       aliases_json=(SELECT json_group_array(value) FROM (SELECT value FROM json_each(workbench_repositories.aliases_json) UNION SELECT excluded.name UNION SELECT excluded.repository_id))`)
 			.bind(
@@ -152,6 +152,7 @@ export async function registerJobRepositories(
 				JSON.stringify(
 					repositories.map((r) => r.id).sort((a, b) => a.localeCompare(b)),
 				),
+				job.kind,
 			),
 	]);
 	if ((results[0]?.meta.changes ?? 0) < 1)
@@ -354,6 +355,20 @@ export async function publishRepository(
 				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_state='complete',discovery_message=NULL WHERE project_id=? AND repository_id=? AND ?='list' AND ${receipt}`,
 			)
 			.bind(timestamp, project.id, repositoryId, job.kind, ...receiptBinds),
+		// A saved watch ref is a target, not a new provider observation. Publish
+		// refreshed metadata only alongside the validated PR snapshot and receipt.
+		db
+			.prepare(`UPDATE workbench_repositories SET name=?,
+      aliases_json=(SELECT json_group_array(value) FROM (SELECT value FROM json_each(workbench_repositories.aliases_json) UNION SELECT workbench_repositories.name UNION SELECT ?))
+      WHERE project_id=? AND repository_id=? AND ?='details' AND ${receipt}`)
+			.bind(
+				staged[0]?.repository.name ?? "",
+				staged[0]?.repository.name ?? "",
+				project.id,
+				repositoryId,
+				job.kind,
+				...receiptBinds,
+			),
 		db
 			.prepare(
 				`UPDATE projects SET merge_requirements_json=? WHERE id=? AND ?='details' AND ${receipt}`,
