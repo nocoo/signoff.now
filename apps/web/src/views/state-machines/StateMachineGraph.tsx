@@ -25,10 +25,10 @@ import {
 	Layers3,
 	Network,
 	Route,
-	Scan,
 	ShieldCheck,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { HeaderTooltip } from "@/components/layout/header-links";
 import { cn } from "@/lib/utils";
 import {
 	MACHINE_COLORS,
@@ -178,6 +178,7 @@ export function StateMachineGraph({
 	showAllGates,
 	storageKey,
 	onSelect,
+	toolbar,
 }: {
 	config: StateMachine;
 	evaluations: MachinePage["evaluations"];
@@ -187,6 +188,7 @@ export function StateMachineGraph({
 	showAllGates: boolean;
 	storageKey: string;
 	onSelect: (selection: MachineSelection) => void;
+	toolbar: ReactNode;
 }) {
 	const { theme } = useTheme();
 	const graph = useMemo(
@@ -290,76 +292,10 @@ export function StateMachineGraph({
 	return (
 		<section
 			ref={canvas}
-			className="machine-canvas relative h-[650px] min-h-[460px] w-full overflow-hidden bg-basalt-background"
+			className="machine-canvas relative min-h-0 w-full flex-1 overflow-hidden bg-basalt-background"
 			aria-label="State machine graph"
 		>
-			<div className="absolute left-4 top-4 z-10 flex gap-2">
-				<Button
-					size="sm"
-					variant="outline"
-					className="bg-basalt-card/95 shadow-sm"
-					onClick={() => {
-						try {
-							localStorage.removeItem(storageKey);
-						} catch {
-							/* Layout works without persistence. */
-						}
-						setReset((n) => n + 1);
-					}}
-				>
-					<Network className="h-3.5 w-3.5" aria-hidden />
-					Auto layout
-				</Button>
-				<Button
-					size="icon"
-					variant="outline"
-					className="h-8 w-8 bg-basalt-card/95 shadow-sm"
-					aria-label="Fit entire graph"
-					onClick={() =>
-						void instance.current?.fitView({ padding: 0.08, duration: 250 })
-					}
-				>
-					<Scan className="h-4 w-4" aria-hidden />
-				</Button>
-				<Button
-					size="sm"
-					variant="outline"
-					className="bg-basalt-card/95 shadow-sm"
-					disabled={!selected}
-					onClick={() => {
-						const gateId = selected?.readiness.primaryRequirementId;
-						const id =
-							mode === "model" && gateId
-								? `gate:${gateId}`
-								: `state:${selected?.readiness.stateId ?? selected?.readiness.kind}`;
-						void instance.current?.fitView({
-							nodes: [{ id }],
-							padding: 0.8,
-							maxZoom: 1.1,
-							duration: 250,
-						});
-					}}
-				>
-					<Crosshair size={14} aria-hidden />
-					Focus PR
-				</Button>
-				<Button
-					size="icon"
-					variant="outline"
-					className="h-8 w-8 bg-basalt-card/95 shadow-sm"
-					aria-label="Toggle graph fullscreen"
-					onClick={() => {
-						const action = document.fullscreenElement
-							? document.exitFullscreen()
-							: canvas.current?.requestFullscreen();
-						void action?.catch(() =>
-							setLayoutError("Fullscreen is unavailable in this browser."),
-						);
-					}}
-				>
-					<Expand size={14} aria-hidden />
-				</Button>
-			</div>
+			<div className="absolute left-2 top-2 z-10">{toolbar}</div>
 			{layoutError ? (
 				<p
 					role="alert"
@@ -408,6 +344,7 @@ export function StateMachineGraph({
 				}}
 				minZoom={0.12}
 				maxZoom={1.6}
+				ariaLabelConfig={{ "controls.fitView.ariaLabel": "Fit entire graph" }}
 				fitView
 				nodesConnectable={false}
 				deleteKeyCode={null}
@@ -425,8 +362,74 @@ export function StateMachineGraph({
 					size={1}
 					color="var(--machine-grid-color)"
 				/>
-				<Controls showInteractive={false} />
+				<Controls
+					showInteractive={false}
+					orientation="horizontal"
+					fitViewOptions={{ padding: 0.08, duration: 250 }}
+				>
+					<HeaderTooltip label="Auto layout">
+						<Button
+							size="icon"
+							variant="ghost"
+							className="machine-control text-sky-500"
+							aria-label="Auto layout"
+							onClick={() => {
+								try {
+									localStorage.removeItem(storageKey);
+								} catch {
+									/* Layout works without persistence. */
+								}
+								setReset((n) => n + 1);
+							}}
+						>
+							<Network size={14} aria-hidden />
+						</Button>
+					</HeaderTooltip>
+					<HeaderTooltip label="Focus PR">
+						<Button
+							size="icon"
+							variant="ghost"
+							className="machine-control text-teal-500"
+							aria-label="Focus PR"
+							disabled={!selected}
+							onClick={() => {
+								const gateId = selected?.readiness.primaryRequirementId;
+								const id =
+									mode === "model" && gateId
+										? `gate:${gateId}`
+										: `state:${selected?.readiness.stateId ?? selected?.readiness.kind}`;
+								void instance.current?.fitView({
+									nodes: [{ id }],
+									padding: 0.8,
+									maxZoom: 1.1,
+									duration: 250,
+								});
+							}}
+						>
+							<Crosshair size={14} aria-hidden />
+						</Button>
+					</HeaderTooltip>
+					<HeaderTooltip label="Toggle graph fullscreen">
+						<Button
+							size="icon"
+							variant="ghost"
+							className="machine-control text-violet-500"
+							aria-label="Toggle graph fullscreen"
+							onClick={() => {
+								const action = document.fullscreenElement
+									? document.exitFullscreen()
+									: canvas.current?.requestFullscreen();
+								void action?.catch(() =>
+									setLayoutError("Fullscreen is unavailable in this browser."),
+								);
+							}}
+						>
+							<Expand size={14} aria-hidden />
+						</Button>
+					</HeaderTooltip>
+				</Controls>
 				<MiniMap
+					style={{ width: 140, height: 90 }}
 					pannable
 					zoomable
 					nodeColor={(node) =>

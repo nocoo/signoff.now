@@ -35,3 +35,5 @@ All `/api/state-machines/:projectId` routes require the same browser/Access boun
 | GET `/versions/:revision` | Load the selected scope from an earlier version into a draft |
 
 Graph layout is a local view preference. Moving graph nodes changes no mapping or priority; edits in the inspector and priority editor are previewed and explicitly saved.
+
+The graph fills the remaining viewport below two compact scope/PR toolbars. Graph modes and navigation controls float inside the canvas; freshness and replay coverage share a single status line. The inspector starts collapsed unless a tab is linked explicitly. Selecting a node or an inspector tab opens it; closing it retains the draft. On narrow screens the inspector overlays the graph, with its own scroll area and pinned preview/save actions.

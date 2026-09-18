@@ -958,6 +958,21 @@ test("state machines preview, save and restore scoped rules without changing fac
 	await expect(
 		page.getByRole("tab", { name: "Priority", exact: true }),
 	).toHaveAttribute("aria-selected", "true");
+	const canvas = page.getByRole("region", { name: "State machine graph" });
+	const expandedCanvas = (await canvas.boundingBox())!;
+	const viewport = page.viewportSize()!;
+	expect(expandedCanvas.y).toBeLessThan(180);
+	expect(expandedCanvas.height).toBeGreaterThan(viewport.height * 0.7);
+	expect(expandedCanvas.y + expandedCanvas.height).toBeLessThanOrEqual(
+		viewport.height,
+	);
+	await page
+		.getByRole("button", { name: "Hide inspector", exact: true })
+		.click();
+	await expect(page.getByRole("tabpanel")).toHaveCount(0);
+	expect((await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(
+		expandedCanvas.width,
+	);
 	const watchedFilter = page.getByRole("button", {
 		name: "Watched",
 		exact: true,
@@ -1007,6 +1022,12 @@ test("state machines preview, save and restore scoped rules without changing fac
 	});
 	await label.locator("xpath=ancestor::details").locator("summary").click();
 	await label.fill("Needs action");
+	await page
+		.getByRole("button", { name: "Hide inspector", exact: true })
+		.click();
+	await page.getByRole("tab", { name: "States", exact: true }).click();
+	await label.locator("xpath=ancestor::details").locator("summary").click();
+	await expect(label).toHaveValue("Needs action");
 	await expect(
 		page.getByRole("button", { name: "Save rules", exact: true }),
 	).toBeDisabled();
@@ -1091,8 +1112,11 @@ test("state machines preview, save and restore scoped rules without changing fac
 		.getByRole("button", { name: "Observed transitions", exact: true })
 		.click();
 	await expect(
-		page.getByText("Edges = retained observations for the selected PR"),
-	).toBeVisible();
+		page.getByRole("button", { name: "Observed transitions", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(
+		page.getByRole("checkbox", { name: "All collected gates" }),
+	).toBeDisabled();
 	await page.screenshot({
 		path: test.info().outputPath("state-machine-history.png"),
 		fullPage: true,
@@ -1100,6 +1124,9 @@ test("state machines preview, save and restore scoped rules without changing fac
 	await page.evaluate(() => localStorage.setItem("signoff-theme", "dark"));
 	await page.reload();
 	await expect(page.locator(".machine-canvas .react-flow")).toHaveClass(/dark/);
+	await page
+		.getByRole("button", { name: "Hide inspector", exact: true })
+		.click();
 	await page.setViewportSize({ width: 390, height: 844 });
 	await picker.click();
 	await expect(choices.getByRole("option")).toHaveCount(1);
@@ -1116,6 +1143,30 @@ test("state machines preview, save and restore scoped rules without changing fac
 		fullPage: true,
 	});
 	await page.keyboard.press("Escape");
+	await page.getByRole("tab", { name: "Inspect", exact: true }).click();
+	const mobileInspector = (await page.getByRole("tabpanel").boundingBox())!;
+	expect(mobileInspector.x).toBeGreaterThanOrEqual(0);
+	expect(mobileInspector.x + mobileInspector.width).toBeLessThanOrEqual(390);
+	expect(mobileInspector.y + mobileInspector.height).toBeLessThanOrEqual(844);
+	await page
+		.getByRole("button", { name: "Hide inspector", exact: true })
+		.focus();
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("tabpanel")).toHaveCount(0);
+	await expect(
+		page.getByRole("tab", { name: "Inspect", exact: true }),
+	).toBeFocused();
+	await page.keyboard.press("ArrowDown");
+	await expect(
+		page.getByRole("tabpanel", { name: "Priority", exact: true }),
+	).toBeVisible();
+	await page.getByRole("tabpanel").getByRole("combobox").first().click();
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("listbox")).toHaveCount(0);
+	await expect(page.getByRole("tabpanel")).toHaveCount(1);
+	await page.getByRole("tab", { name: "Priority", exact: true }).focus();
+	await page.keyboard.press("Escape");
+	await expect(page.getByRole("tabpanel")).toHaveCount(0);
 	expect(errors).toEqual([]);
 	await cli("watch", "remove", pull.id);
 });

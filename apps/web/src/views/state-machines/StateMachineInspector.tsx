@@ -8,7 +8,6 @@ import {
 	History,
 	LockKeyhole,
 	RotateCcw,
-	ShieldCheck,
 } from "lucide-react";
 import {
 	MACHINE_COLORS,
@@ -44,19 +43,7 @@ export function EvidenceInspector({
 				b.definitionId === catalogGate.definitionId,
 		) ?? [];
 	return (
-		<div className="space-y-4 text-xs">
-			<div className="rounded-xl border border-basalt-primary/20 bg-basalt-primary/5 p-3">
-				<ShieldCheck
-					size={17}
-					className="mb-2 text-basalt-primary"
-					aria-hidden
-				/>
-				<p className="font-medium">Provider facts → rules → display</p>
-				<p className="mt-1 leading-5 text-basalt-muted-foreground">
-					Build, review, compliance and PoP can block at the same time.
-					Completed and abandoned PRs stop automatic observation.
-				</p>
-			</div>
+		<div className="space-y-3 text-xs">
 			{evaluation ? (
 				<div className="space-y-2">
 					<p className="font-semibold">

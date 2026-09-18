@@ -1,3 +1,6 @@
+.machine-graph-card {
+	container-type: inline-size;
+}
 .machine-canvas {
 	--machine-label-background: #fafbfc;
 	--machine-grid-color: #d7dfe8;
@@ -24,7 +27,8 @@
 	background: transparent;
 }
 .machine-canvas:fullscreen {
-	height: 100vh;
+	height: 100dvh;
+	width: 100vw;
 }
 .machine-node {
 	border-color: #cdd6e1;
@@ -36,11 +40,42 @@
 .machine-canvas .react-flow__controls {
 	overflow: hidden;
 	border-radius: 10px;
+	border: 1px solid var(--machine-grid-color);
+	background: var(--machine-label-background);
+}
+.machine-canvas .react-flow__controls-button,
+.machine-canvas .machine-control {
+	width: 30px;
+	height: 30px;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+.machine-canvas .machine-control {
+	border-left: 1px solid var(--machine-grid-color);
 }
 .machine-canvas .react-flow__minimap {
 	overflow: hidden;
 	border-radius: 12px;
 	border: 1px solid var(--machine-grid-color);
+}
+@media (width < 1280px) {
+	.machine-inspector-panel {
+		position: absolute;
+		inset: 0 44px 0 auto;
+		max-width: calc(100% - 44px);
+		box-shadow: -8px 0 24px #00000014;
+	}
+}
+@container (width < 500px) {
+	.machine-pull-search {
+		width: 5rem;
+	}
+	.machine-watched-label,
+	.machine-gates-label,
+	.machine-canvas .react-flow__minimap {
+		display: none;
+	}
 }
 @media (prefers-reduced-motion: reduce) {
 	.machine-canvas .react-flow__edge.animated path {

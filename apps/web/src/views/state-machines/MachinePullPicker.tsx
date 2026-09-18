@@ -35,18 +35,18 @@ export function MachinePullPicker({
 			? selectedPull
 			: vm.items.find((pr) => pr.id === pullId);
 	return (
-		<div className="space-y-2 border-b border-basalt-border bg-basalt-muted/15 p-3">
-			<div className="flex flex-wrap items-center gap-2">
-				<div className="relative w-36 shrink-0">
+		<div className="shrink-0 space-y-2 border-b border-basalt-border px-3 py-1.5">
+			<div className="flex min-w-0 items-center gap-2">
+				<div className="machine-pull-search relative w-28 shrink-0">
 					<Search
 						size={13}
-						className="absolute left-2.5 top-3 text-basalt-muted-foreground"
+						className="absolute left-2.5 top-1/2 -translate-y-1/2 text-basalt-muted-foreground"
 						aria-hidden
 					/>
 					<Input
 						aria-label="Search cached PRs"
 						placeholder="Find a PR…"
-						className="h-9 pl-8"
+						className="h-8 pl-8 text-xs"
 						value={search}
 						maxLength={1000}
 						onChange={(event) => setSearch(event.target.value)}
@@ -61,7 +61,7 @@ export function MachinePullPicker({
 				>
 					<SelectTrigger
 						aria-label="Trace pull request"
-						className="min-w-40 flex-1 gap-2 [&>span]:truncate [&>svg]:shrink-0"
+						className="h-8 w-0 min-w-0 flex-1 gap-2 px-2 text-xs [&>span]:truncate [&>svg]:shrink-0"
 					>
 						<SelectValue
 							placeholder={watchedOnly ? "Select a watched PR" : "Select a PR"}
@@ -149,11 +149,17 @@ export function MachinePullPicker({
 				<Button
 					size="sm"
 					variant={watchedOnly ? "secondary" : "ghost"}
+					className="h-8 shrink-0 px-2 text-xs"
+					aria-label="Watched"
 					aria-pressed={watchedOnly}
 					onClick={() => setWatchedOnly((value) => !value)}
 				>
-					<Eye size={14} aria-hidden />
-					Watched
+					<Eye
+						size={14}
+						className={watchedOnly ? "text-teal-500" : ""}
+						aria-hidden
+					/>
+					<span className="machine-watched-label">Watched</span>
 				</Button>
 			</div>
 			{vm.error ? (
