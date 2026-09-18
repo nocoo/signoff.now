@@ -52,6 +52,114 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test.each([
+		{ projectKey: "Zulu" },
+		{ organization: "zulu-org" },
+	])("PR output matches the complete current observation identity after %j", async (changes) => {
+		const project = seedProject(sqlite, {
+			organization: "alpha-org",
+			projectKey: "Alpha",
+			repositories: [],
+		});
+		const pull = seedPull(sqlite);
+		const original = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			PR_TEST_NOW,
+		);
+		expect(
+			(
+				await request(`/api/projects/${project.id}`, "PATCH", {
+					revision: project.revision,
+					...changes,
+				})
+			).status,
+		).toBe(200);
+		// The stable repo/PR IDs can recur when discovery fills the new project scope.
+		seedPull(sqlite, pull);
+		const detail = async () =>
+			pullDetailSchema.parse(
+				await (await request(`/api/query/v1/prs/${pull.id}`)).json(),
+			).data;
+		const list = async (watching: boolean) =>
+			pullListSchema.parse(
+				await (await request(`/api/query/v1/prs?watching=${watching}`)).json(),
+			);
+		expect((await detail()).observation).toBeNull();
+		expect((await list(false)).data[0]?.observation).toBeNull();
+		expect((await list(true)).page.total).toBe(0);
+		const current = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			PR_TEST_NOW + 1,
+		);
+		expect(current.observation.id).not.toBe(original.observation.id);
+		for (const item of [await detail(), ...(await list(true)).data])
+			expect(item.observation).toMatchObject({
+				id: current.observation.id,
+				active: true,
+				ref: changes,
+			});
+		expect((await list(true)).page.total).toBe(1);
+		await removeObservation(
+			sqlite.db,
+			"cli",
+			current.observation.id,
+			current.observation.generation,
+			PR_TEST_NOW + 2,
+		);
+		expect((await detail()).observation).toMatchObject({
+			id: current.observation.id,
+			active: false,
+			stopReason: "manual",
+		});
+	});
+	test.each([
+		false,
+		true,
+	])("catalog aliases resolve configured scopes without hiding genuinely unresolved repositories (%s)", async (includeUnresolved) => {
+		seedProject(sqlite, {
+			repositories: ["Éditeur", ...(includeUnresolved ? ["unresolved"] : [])],
+		});
+		const pull = seedPull(sqlite, {
+			repository: { id: "repo-1", name: "new-name" },
+		});
+		sqlite.raw
+			.query(
+				"UPDATE workbench_repositories SET aliases_json=?,discovery_state='complete'",
+			)
+			.run(JSON.stringify(["repo-1", "éditeur", "new-name"]));
+		const response = repoListSchema.parse(
+			await (await request("/api/query/v1/repos")).json(),
+		);
+		expect(response.page.total).toBe(includeUnresolved ? 2 : 1);
+		expect(response.data.filter((repo) => repo.identityResolved)).toHaveLength(
+			1,
+		);
+		expect(response.coverage.state).toBe(
+			includeUnresolved ? "partial" : "complete",
+		);
+		if (includeUnresolved)
+			expect(
+				response.data.find((repo) => !repo.identityResolved),
+			).toMatchObject({
+				repository: { id: null, name: "unresolved" },
+			});
+		const filtered = repoListSchema.parse(
+			await (
+				await request("/api/query/v1/repos?repositoryId=%C3%89DITEUR")
+			).json(),
+		);
+		expect(filtered.data.map((repo) => repo.repository.id)).toEqual(["repo-1"]);
+		expect(filtered.data[0]?.counts.open).toBe(1);
+		expect(
+			pullDetailSchema.parse(
+				await (await request(`/api/query/v1/prs/${pull.id}`)).json(),
+			).coverage.state,
+		).toBe(includeUnresolved ? "partial" : "complete");
+	});
 	test("internal project filters isolate retained watches after deleting and re-registering an external project", async () => {
 		const { project, pull } = seed();
 		await addObservation(sqlite.db, "cli", { pullId: pull.id }, PR_TEST_NOW);

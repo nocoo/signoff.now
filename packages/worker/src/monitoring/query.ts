@@ -1,10 +1,12 @@
 import {
+	canonicalObservationKey,
 	type DataSource,
 	makeWatchRef,
 	type Observation,
 	parseRepositoryReference,
 	publicSource,
 	referenceLinks,
+	type WatchRef,
 } from "@signoff/domain/monitoring";
 import {
 	observationItemSchema,
@@ -334,13 +336,13 @@ async function readSnapshot(
 type Snapshot = Awaited<ReturnType<typeof readSnapshot>>;
 const authorKey = (p: Project, pr: PullRequest) =>
 	JSON.stringify([p.provider, p.organization.toLowerCase(), pr.author.id]);
-function observationFor(data: Snapshot, pr: PullRequest) {
+function observationFor(data: Snapshot, project: Project, ref: WatchRef) {
+	const identity = canonicalObservationKey(project.source, ref);
 	return (
 		data.observations.find(
 			(o) =>
-				o.ref.projectId === pr.projectId &&
-				o.ref.repository.id.toLowerCase() === pr.repository.id.toLowerCase() &&
-				o.ref.number === pr.number,
+				o.ref.projectId === project.id &&
+				canonicalObservationKey(o.source, o.ref) === identity,
 		) ?? null
 	);
 }
@@ -356,7 +358,7 @@ function pullOutput(
 	const ref = makeWatchRef(project, pr.repository, pr.number);
 	const links = referenceLinks(ref);
 	const readiness = pullReadiness(pr, project);
-	const observation = observationFor(data, pr);
+	const observation = observationFor(data, project, ref);
 	const checks =
 		pr.checksObservedAt === undefined ? pr.observedAt : pr.checksObservedAt;
 	return pullQuerySchema.parse({
@@ -407,12 +409,7 @@ function coverage(data: Snapshot) {
 		if (
 			!repos.length ||
 			project.repositories?.some(
-				(name) =>
-					!repos.some((r) =>
-						[r.name.toLowerCase(), r.repository_id.toLowerCase()].includes(
-							name.toLowerCase(),
-						),
-					),
+				(name) => !repos.some((r) => matchesAlias(r, name)),
 			)
 		)
 			missing.push(
@@ -834,13 +831,7 @@ async function readRepositoryPage(
 		const items: [string | null, string, RepositoryRow | undefined][] =
 			known.map((r) => [r.repository_id, r.name, r]);
 		for (const name of project.repositories ?? [])
-			if (
-				!known.some((r) =>
-					[r.repository_id.toLowerCase(), r.name.toLowerCase()].includes(
-						name.toLowerCase(),
-					),
-				)
-			)
+			if (!known.some((r) => matchesAlias(r, name)))
 				items.push([null, name, undefined]);
 		for (const [id, name, stored] of items) {
 			if (
