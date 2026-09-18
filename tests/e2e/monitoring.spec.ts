@@ -210,8 +210,33 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect(all.data.some((pr) => pr.state === "closed")).toBe(true);
 	expect((await watchList()).data).toEqual([]);
 	const before = providerRequests;
-	await page.reload();
+	let releaseList!: () => void;
+	const listGate = new Promise<void>((resolve) => {
+		releaseList = resolve;
+	});
+	await page.route("**/api/query/v1/prs?**", async (route) => {
+		await listGate;
+		await route.continue();
+	});
+	await page.reload({ waitUntil: "domcontentloaded" });
+	const loadingTable = page.getByRole("table", { name: "Pull requests" });
+	await expect(loadingTable).toHaveAttribute("aria-busy", "true");
+	await expect(
+		loadingTable.getByRole("columnheader", { name: "Target branch" }),
+	).toBeVisible();
+	await expect(loadingTable.getByRole("checkbox")).toBeDisabled();
+	const skeletonTable = await loadingTable.elementHandle();
+	await page.screenshot({
+		path: test.info().outputPath("pull-loading.png"),
+		fullPage: true,
+	});
+	releaseList();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(20);
+	await expect(loadingTable).toHaveAttribute("aria-busy", "false");
+	expect(await skeletonTable!.evaluate((element) => element.isConnected)).toBe(
+		true,
+	);
+	await page.unroute("**/api/query/v1/prs?**");
 	const filters = page.getByRole("region", { name: "PR filters", exact: true });
 	const results = page.getByRole("region", { name: "PR results", exact: true });
 	await expect(
@@ -263,6 +288,48 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		await rows.nth(1).getAttribute("data-pull-id"),
 	];
 	const toggle = rows.nth(0).getByRole("button", { name: /^Watch PR/ });
+	const targetBranch = rows
+		.nth(0)
+		.getByRole("link", { name: /^Open target branch main/ });
+	await expect(targetBranch).toHaveAttribute(
+		"href",
+		/\/_git\/repository-(one|two)\?version=GBmain$/,
+	);
+	await expect(targetBranch).toHaveAttribute("target", "_blank");
+	const rowBox = (await rows.nth(0).boundingBox())!;
+	for (const control of [rows.nth(0).getByRole("checkbox"), toggle]) {
+		const box = (await control.boundingBox())!;
+		expect(
+			Math.abs(box.y + box.height / 2 - (rowBox.y + rowBox.height / 2)),
+		).toBeLessThan(1.5);
+	}
+	const originalViewport = page.viewportSize()!;
+	const titleColumn = page.getByRole("columnheader", {
+		name: "Sort by Pull request",
+	});
+	const checksColumn = page.getByRole("columnheader", {
+		name: "Sort by Checks & stages",
+	});
+	const actionColumn = page.getByRole("columnheader", {
+		name: "Sort by Next action",
+	});
+	for (const width of [1920, 2560]) {
+		await page.setViewportSize({ width, height: 1080 });
+		const titleWidth = (await titleColumn.boundingBox())!.width;
+		expect(titleWidth).toBeGreaterThanOrEqual(239);
+		expect(titleWidth).toBeLessThanOrEqual(401);
+		expect(
+			Math.abs(
+				(await checksColumn.boundingBox())!.width -
+					(await actionColumn.boundingBox())!.width,
+			),
+		).toBeLessThan(2);
+		await page.screenshot({
+			path: test.info().outputPath(`pull-wide-layout-${width}.png`),
+			fullPage: true,
+		});
+	}
+	await page.setViewportSize(originalViewport);
 	await rows.nth(1).getByRole("checkbox").check();
 	await expect(toggle).toHaveAttribute("aria-pressed", "false");
 	const table = page.getByRole("table", { name: "Pull requests" });

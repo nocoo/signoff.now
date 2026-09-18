@@ -97,6 +97,36 @@ const loaded = async (result: ReturnType<typeof render>["result"]) =>
 		expect(result.current.vm.loading).toBe(false);
 		expect(result.current.vm.collector).not.toBeNull();
 	});
+it("keeps PR columns mounted during loading and links the target branch after the snapshot arrives", async () => {
+	const pending = deferred<typeof fixture.pulls>();
+	vi.mocked(api.loadPulls).mockReturnValue(pending.promise);
+	renderView(
+		<MemoryRouter>
+			<WorkbenchProvider>
+				<PullsPage />
+			</WorkbenchProvider>
+		</MemoryRouter>,
+	);
+	const table = screen.getByRole("table", { name: "Pull requests" });
+	expect(table.getAttribute("aria-busy")).toBe("true");
+	expect(
+		within(table).getByRole("columnheader", { name: "Target branch" }),
+	).toBeTruthy();
+	expect(within(table).getByRole("checkbox")).toHaveProperty("disabled", true);
+	expect(screen.queryByText("No matching pull requests")).toBeNull();
+	await act(async () => pending.resolve(fixture.pulls));
+	await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
+	expect(screen.getByRole("table", { name: "Pull requests" })).toBe(table);
+	const link = within(table).getByRole("link", {
+		name: `Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`,
+	});
+	expect(link.getAttribute("href")).toBe(
+		`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.id}?version=GB${encodeURIComponent(pull.targetBranch)}`,
+	);
+	expect(link.getAttribute("target")).toBe("_blank");
+	expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+});
+
 it("a failed second pending page keeps Previous available and returns to the working first page", async () => {
 	const items = Array.from({ length: 21 }, (_, i) => ({
 		...publicPull(pull, project, fixtureObservation()).observation!,

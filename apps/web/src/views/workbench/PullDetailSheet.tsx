@@ -40,6 +40,7 @@ import type { RefObject } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
+import { Skeleton } from "@/components/Skeleton";
 import { duration, type PullRow, relativeTime } from "@/models/workbench";
 import { PullDescription } from "./PullDescription";
 import {
@@ -108,11 +109,7 @@ export function PullDetailSheet({
 						refreshing={refreshing}
 					/>
 				) : loading ? (
-					<div className="p-6">
-						<SheetTitle>Loading PR details</SheetTitle>
-						<SheetDescription>Reading the saved snapshot.</SheetDescription>
-						<LayerCard.Loading label="Loading PR details" />
-					</div>
+					<PullDetailSkeleton />
 				) : error && !missing ? (
 					<div className="px-5 py-6 sm:px-6">
 						<SheetTitle>Unable to load PR details</SheetTitle>
@@ -153,6 +150,76 @@ export function PullDetailSheet({
 				)}
 			</SheetContent>
 		</Sheet>
+	);
+}
+
+function PullDetailSkeleton() {
+	return (
+		<>
+			<div className="space-y-4 border-b border-basalt-border px-5 py-5 sm:px-6">
+				<SheetTitle className="sr-only">Loading PR details</SheetTitle>
+				<SheetDescription className="sr-only">
+					Reading the saved snapshot.
+				</SheetDescription>
+				<div className="flex items-center justify-between gap-3">
+					<div className="flex items-center gap-2">
+						<Skeleton className="h-4 w-14" />
+						<Skeleton className="h-5 w-24" />
+					</div>
+					<SheetClose asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="h-8 w-8"
+							aria-label="Close pull request details"
+						>
+							<X className="h-4 w-4" aria-hidden />
+						</Button>
+					</SheetClose>
+				</div>
+				<Skeleton className="h-6 w-5/6" />
+				<Skeleton className="h-3 w-2/3" />
+				<div className="flex items-center justify-between gap-4">
+					<div className="flex items-center gap-2">
+						<Skeleton className="h-7 w-7 overflow-hidden rounded-full" />
+						<Skeleton className="h-3 w-28" />
+					</div>
+					<Skeleton className="h-8 w-32" />
+				</div>
+				<Skeleton className="h-3 w-3/5" />
+			</div>
+			<div
+				className="flex gap-6 border-b border-basalt-border px-5 py-3 sm:px-6"
+				aria-hidden="true"
+			>
+				<Skeleton className="h-4 w-16" />
+				<Skeleton className="h-4 w-28" />
+				<Skeleton className="h-4 w-16" />
+			</div>
+			<div
+				role="status"
+				aria-label="Loading PR details"
+				className="space-y-6 overflow-hidden px-5 py-6 sm:px-6"
+			>
+				<div className="space-y-4 rounded-md border border-basalt-border p-4">
+					<Skeleton className="h-4 w-32" />
+					<Skeleton className="h-3 w-5/6" />
+					<Skeleton className="h-3 w-2/3" />
+					<Skeleton className="h-7 w-28" />
+				</div>
+				<div className="space-y-3">
+					<Skeleton className="h-4 w-28" />
+					<Skeleton className="h-2 w-full" />
+					<Skeleton className="h-3 w-1/3" />
+				</div>
+				<div className="space-y-3">
+					<Skeleton className="h-4 w-32" />
+					<Skeleton className="h-3 w-full" />
+					<Skeleton className="h-3 w-full" />
+					<Skeleton className="h-3 w-3/4" />
+				</div>
+			</div>
+		</>
 	);
 }
 
@@ -416,17 +483,21 @@ function PullDetail({
 						<section>
 							<h3 className="mb-3 text-sm font-semibold">About this change</h3>
 							{loading ? (
-								<p
+								<div
 									role="status"
-									className="mb-2 text-xs text-basalt-muted-foreground"
+									aria-label="Loading the full description"
+									className="space-y-2.5 py-1"
 								>
-									Loading the full description…
-								</p>
-							) : null}
-							<PullDescription
-								description={pull.description}
-								sourceUrl={pullUrl(project, pull)}
-							/>
+									<Skeleton className="h-3 w-full" />
+									<Skeleton className="h-3 w-11/12" />
+									<Skeleton className="h-3 w-3/4" />
+								</div>
+							) : (
+								<PullDescription
+									description={pull.description}
+									sourceUrl={pullUrl(project, pull)}
+								/>
+							)}
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{pull.labels.map((label) => (
 									<Badge key={label} variant="secondary">

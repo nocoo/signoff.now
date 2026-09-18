@@ -10,6 +10,7 @@ import {
 	pullReadiness,
 	pullRequestSchema,
 	pullUrl,
+	repositoryBranchUrl,
 	repositoryUrl,
 	workbenchSchema,
 } from "./workbench.js";
@@ -232,6 +233,36 @@ describe("normalized PR contract", () => {
 				repository: { id: "repo", name: "signoff.now" },
 			}),
 		).toBe(`${repositoryUrl(github, "signoff.now")}/pull/${ready.number}`);
+	});
+	test.each([
+		"main",
+		"master",
+		"release/2026.09",
+		"feature/修复?x=1#code",
+	])("links target branch %s using provider repository identity and an encoded ref", (branch) => {
+		const repository = { id: "stable-repository-guid", name: "web app" };
+		const ado = {
+			...project,
+			organization: "org",
+			projectKey: "Shared Platform",
+		};
+		const adoUrl = new URL(repositoryBranchUrl(ado, repository, branch));
+		expect(adoUrl.origin).toBe("https://dev.azure.com");
+		expect(adoUrl.pathname).toBe(
+			"/org/Shared%20Platform/_git/stable-repository-guid",
+		);
+		expect(adoUrl.searchParams.get("version")).toBe(`GB${branch}`);
+		expect([...adoUrl.searchParams.keys()]).toEqual(["version"]);
+		expect(adoUrl.hash).toBe("");
+		const github = {
+			...ado,
+			provider: "github" as const,
+			organization: "github.com",
+			projectKey: "nocoo",
+		};
+		expect(repositoryBranchUrl(github, repository, branch)).toBe(
+			`https://github.com/nocoo/web%20app/tree/${encodeURIComponent(branch)}`,
+		);
 	});
 	test("validates ADO configuration without accepting URLs or unsupported connectors", () => {
 		const body = {

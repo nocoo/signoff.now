@@ -11,7 +11,7 @@ import {
 import { PullDetailSheet } from "./PullDetailSheet";
 
 afterEach(cleanup);
-function show(row: PullRow) {
+function show(row: PullRow | null, loading = false) {
 	const onToggleWatch = vi.fn();
 	render(
 		<PullDetailSheet
@@ -22,11 +22,37 @@ function show(row: PullRow) {
 			onScan={vi.fn()}
 			canScan={false}
 			busy={false}
+			loading={loading}
 			onToggleWatch={onToggleWatch}
 		/>,
 	);
 	return onToggleWatch;
 }
+
+it("keeps loading details accessible and dismissible before a snapshot arrives", () => {
+	show(null, true);
+	expect(
+		screen.getByRole("dialog", { name: "Loading PR details" }),
+	).toBeTruthy();
+	expect(
+		screen.getByRole("status", { name: "Loading PR details" }),
+	).toBeTruthy();
+	expect(
+		screen.getByRole("button", { name: "Close pull request details" }),
+	).toHaveProperty("disabled", false);
+	expect(screen.queryByText("Pull request unavailable")).toBeNull();
+});
+
+it("loads the full description without obscuring an available summary", () => {
+	show(queryRow(publicPull(fixturePull)), true);
+	expect(screen.getByRole("heading", { name: fixturePull.title })).toBeTruthy();
+	expect(
+		screen.getByRole("status", { name: "Loading the full description" }),
+	).toBeTruthy();
+	expect(
+		screen.queryByRole("status", { name: "Loading PR details" }),
+	).toBeNull();
+});
 
 it("shows expired build evidence and its next action despite a generic saved Build label", () => {
 	const pull = {

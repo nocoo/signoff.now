@@ -1015,3 +1015,12 @@ export function pullUrl(
 ): string {
 	return `${repositoryUrl(project, pr.repository)}/${project.provider === "ado" ? "pullrequest" : "pull"}/${pr.number}`;
 }
+
+export function repositoryBranchUrl(
+	project: Pick<Project, "provider" | "organization" | "projectKey">,
+	repository: string | { id: string | null; name: string },
+	branch: string,
+): string {
+	const ref = encodeURIComponent(branch);
+	return `${repositoryUrl(project, repository)}${project.provider === "ado" ? `?version=GB${ref}` : `/tree/${ref}`}`;
+}

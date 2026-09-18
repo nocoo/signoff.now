@@ -18,7 +18,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { type Project, pullUrl } from "@signoff/domain/workbench";
+import {
+	type Project,
+	pullUrl,
+	repositoryBranchUrl,
+} from "@signoff/domain/workbench";
 import {
 	ArrowDown,
 	ArrowRight,
@@ -30,6 +34,7 @@ import {
 	ExternalLink,
 	Eye,
 	EyeOff,
+	GitBranch,
 	GitPullRequest,
 	ListOrdered,
 	LoaderCircle,
@@ -43,6 +48,7 @@ import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
+import { Skeleton } from "@/components/Skeleton";
 import { cn } from "@/lib/utils";
 import { relativeAge } from "@/models/freshness";
 import {
@@ -282,7 +288,7 @@ export function PullsPage() {
 										/>
 										{label}
 										<span className="font-mono text-xs font-semibold tabular-nums text-basalt-foreground">
-											{vm.loading ? "—" : value.toLocaleString()}
+											{vm.pullsLoaded ? value.toLocaleString() : "—"}
 										</span>
 									</Button>
 								);
@@ -299,9 +305,16 @@ export function PullsPage() {
 								})
 							}
 							options={[
-								{ value: "open", label: `Open ${vm.metrics.open}` },
-								{ value: "merged", label: `Merged ${vm.metrics.merged}` },
-								{ value: "closed", label: `Closed ${vm.metrics.closed}` },
+								...(
+									[
+										["open", "Open"],
+										["merged", "Merged"],
+										["closed", "Closed"],
+									] as const
+								).map(([state, label]) => ({
+									value: state,
+									label: `${label} ${vm.pullsLoaded ? vm.metrics[state] : "—"}`,
+								})),
 								{ value: "all", label: "All" },
 							]}
 						/>
@@ -350,10 +363,13 @@ export function PullsPage() {
 				<LayerCard padding="none" role="region" aria-label="PR results">
 					<LayerCard.Header className="px-3 py-0.5">
 						<WatchToolbar vm={vm} />
+						{vm.loading ? (
+							<span role="status" className="sr-only">
+								Loading pull requests
+							</span>
+						) : null}
 					</LayerCard.Header>
-					{vm.loading ? (
-						<LayerCard.Loading label="Loading pull requests" />
-					) : !vm.pullsLoaded ? (
+					{!vm.loading && !vm.pullsLoaded ? (
 						<EmptyState
 							icon={GitPullRequest}
 							title="Unable to load pull requests"
@@ -364,7 +380,7 @@ export function PullsPage() {
 								</Button>
 							}
 						/>
-					) : vm.total === 0 ? (
+					) : !vm.loading && vm.total === 0 ? (
 						<EmptyState
 							icon={GitPullRequest}
 							title={
@@ -404,24 +420,37 @@ export function PullsPage() {
 						<div className="overflow-x-auto">
 							<Table
 								aria-label="Pull requests"
-								className="min-w-[960px] table-fixed"
+								aria-busy={vm.loading}
+								className="min-w-[1100px] table-fixed"
 							>
 								<TableHeader>
 									<TableRow>
-										<TableHead className="w-10">
-											<PageSelectionCheckbox vm={vm} />
+										<TableHead className="w-10 px-2 text-center">
+											<div className="flex items-center justify-center">
+												<PageSelectionCheckbox vm={vm} />
+											</div>
 										</TableHead>
 										<TableHead className="w-12 px-1 text-center">
 											<span className="sr-only">Watch list</span>
 											<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
 										</TableHead>
+										<SortableHead
+											sort="title"
+											label="Pull request"
+											className="w-[clamp(240px,20vw,400px)]"
+											filter={vm.filter}
+											disabled={vm.loading}
+											onSort={() =>
+												vm.setFilter(nextPullSort(vm.filter, "title"))
+											}
+										/>
+										<TableHead className="w-32">Target branch</TableHead>
 										{(
 											[
-												["title", "Pull request", "w-[32%]"],
-												["readiness", "Readiness", "w-[15%]"],
-												["progress", "Checks & stages", "w-[18%]"],
-												["action", "Next action", "w-[21%]"],
-												["updated", "PR updated", "w-[14%] text-right"],
+												["readiness", "Readiness", "w-40"],
+												["progress", "Checks & stages", ""],
+												["action", "Next action", ""],
+												["updated", "PR updated", "w-28 text-right"],
 											] as const
 										).map(([sort, label, className]) => (
 											<SortableHead
@@ -430,6 +459,7 @@ export function PullsPage() {
 												label={label}
 												className={className}
 												filter={vm.filter}
+												disabled={vm.loading}
 												onSort={() =>
 													vm.setFilter(nextPullSort(vm.filter, sort))
 												}
@@ -438,18 +468,22 @@ export function PullsPage() {
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{vm.pageRows.map((row) => (
-										<PullTableRow
-											key={row.pull.id}
-											row={row}
-											vm={vm}
-											now={now}
-											onOpen={(element) => {
-												opener.current = element;
-												vm.selectPull(row.pull.id);
-											}}
-										/>
-									))}
+									{vm.loading ? (
+										<PullTableSkeleton />
+									) : (
+										vm.pageRows.map((row) => (
+											<PullTableRow
+												key={row.pull.id}
+												row={row}
+												vm={vm}
+												now={now}
+												onOpen={(element) => {
+													opener.current = element;
+													vm.selectPull(row.pull.id);
+												}}
+											/>
+										))
+									)}
 								</TableBody>
 							</Table>
 						</div>
@@ -497,17 +531,70 @@ export function PullsPage() {
 	);
 }
 
+function PullTableSkeleton() {
+	return [1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
+		<TableRow key={row} aria-hidden="true" className="pointer-events-none">
+			<TableCell className="px-2 py-3.5 align-middle">
+				<Skeleton className="mx-auto h-4 w-4" />
+			</TableCell>
+			<TableCell className="px-1 py-3.5 align-middle">
+				<Skeleton className="mx-auto h-5 w-5" />
+			</TableCell>
+			<TableCell className="py-3.5">
+				<div className="space-y-2">
+					<Skeleton
+						className={cn("h-4", row % 3 === 0 ? "w-3/5" : "w-11/12")}
+					/>
+					<Skeleton className="h-2.5 w-3/4" />
+					<div className="flex items-center gap-1.5">
+						<Skeleton className="h-4 w-4 overflow-hidden rounded-full" />
+						<Skeleton className="h-2.5 w-20" />
+					</div>
+				</div>
+			</TableCell>
+			<TableCell className="align-middle">
+				<Skeleton className="h-3 w-20" />
+			</TableCell>
+			<TableCell className="py-3.5 align-top">
+				<Skeleton className="h-5 w-24" />
+				<Skeleton className="mt-2 h-2.5 w-16" />
+			</TableCell>
+			<TableCell className="py-3.5 align-top">
+				<Skeleton className="mb-3 h-3 w-20" />
+				<div className="grid grid-cols-6 gap-1">
+					{[1, 2, 3, 4, 5, 6].map((stage) => (
+						<Skeleton key={stage} className="h-1.5" />
+					))}
+				</div>
+				<Skeleton className="mt-2 h-2.5 w-24" />
+			</TableCell>
+			<TableCell className="py-3.5 align-top">
+				<Skeleton className="h-3 w-full" />
+				<Skeleton className="mt-2 h-3 w-2/3" />
+				<Skeleton className="mt-2 h-2.5 w-20" />
+			</TableCell>
+			<TableCell className="space-y-2 py-3.5 align-top">
+				<Skeleton className="ml-auto h-2.5 w-12" />
+				<Skeleton className="ml-auto h-2.5 w-16" />
+				<Skeleton className="ml-auto h-2.5 w-20" />
+			</TableCell>
+		</TableRow>
+	));
+}
+
 function SortableHead({
 	sort,
 	label,
 	className,
 	filter,
+	disabled,
 	onSort,
 }: {
 	sort: PullFilter["sort"];
 	label: string;
 	className: string;
 	filter: PullFilter;
+	disabled: boolean;
 	onSort: () => void;
 }) {
 	const active = filter.sort === sort;
@@ -531,6 +618,7 @@ function SortableHead({
 				variant="ghost"
 				size="sm"
 				aria-label={`Sort by ${label}`}
+				disabled={disabled}
 				onClick={onSort}
 				className={cn(
 					"h-8 gap-1 px-0 text-xs hover:bg-transparent",
@@ -693,6 +781,11 @@ function PullTableRow({
 }) {
 	const { pull, project, readiness, progress, observation } = row;
 	const watching = row.watching ?? Boolean(observation?.active);
+	const stateAt = pull.summaryObservedAt ?? pull.observedAt;
+	const checksAt =
+		pull.checksObservedAt === null
+			? null
+			: (pull.checksObservedAt ?? pull.observedAt);
 	return (
 		<TableRow
 			data-pull-id={pull.id}
@@ -701,53 +794,58 @@ function PullTableRow({
 				vm.selectedIds.has(pull.id) && "bg-basalt-primary/4",
 			)}
 		>
-			<TableCell className="w-10 py-4 align-top">
-				<Checkbox
-					aria-label={`Select PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
-					checked={vm.selectedIds.has(pull.id)}
-					disabled={
-						(pull.state !== "open" && !observation?.active) || Boolean(vm.busy)
-					}
-					onCheckedChange={(checked) =>
-						vm.toggleSelection(pull.id, checked === true)
-					}
-				/>
+			<TableCell className="w-10 px-2 py-3.5 align-middle">
+				<div className="flex items-center justify-center">
+					<Checkbox
+						aria-label={`Select PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
+						checked={vm.selectedIds.has(pull.id)}
+						disabled={
+							(pull.state !== "open" && !observation?.active) ||
+							Boolean(vm.busy)
+						}
+						onCheckedChange={(checked) =>
+							vm.toggleSelection(pull.id, checked === true)
+						}
+					/>
+				</div>
 			</TableCell>
-			<TableCell className="w-12 px-1 py-3 align-top text-center">
-				<Button
-					variant="ghost"
-					size="icon"
-					className={cn(
-						"h-8 w-8",
-						watching
-							? "bg-basalt-primary/10 text-basalt-primary hover:bg-basalt-primary/15 hover:text-basalt-primary"
-							: "text-basalt-muted-foreground hover:bg-basalt-muted hover:text-basalt-foreground",
-					)}
-					aria-label={`Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
-					aria-pressed={watching}
-					aria-busy={Boolean(row.watchPending)}
-					title={
-						row.watchPending
-							? "Saving watch list change…"
-							: watching
-								? "In watch list · Click to remove"
-								: pull.state === "open"
-									? "Not in watch list · Click to watch"
-									: "Completed PRs are no longer watched"
-					}
-					disabled={
-						Boolean(vm.busy) ||
-						row.watchPending ||
-						(pull.state !== "open" && !observation?.active)
-					}
-					onClick={() => void vm.toggleWatch(pull.id)}
-				>
-					{watching ? (
-						<Eye aria-hidden className="h-4 w-4" />
-					) : (
-						<EyeOff aria-hidden className="h-4 w-4" />
-					)}
-				</Button>
+			<TableCell className="w-12 px-1 py-3.5 align-middle">
+				<div className="flex items-center justify-center">
+					<Button
+						variant="ghost"
+						size="icon"
+						className={cn(
+							"h-8 w-8",
+							watching
+								? "bg-basalt-primary/10 text-basalt-primary hover:bg-basalt-primary/15 hover:text-basalt-primary"
+								: "text-basalt-muted-foreground hover:bg-basalt-muted hover:text-basalt-foreground",
+						)}
+						aria-label={`Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
+						aria-pressed={watching}
+						aria-busy={Boolean(row.watchPending)}
+						title={
+							row.watchPending
+								? "Saving watch list change…"
+								: watching
+									? "In watch list · Click to remove"
+									: pull.state === "open"
+										? "Not in watch list · Click to watch"
+										: "Completed PRs are no longer watched"
+						}
+						disabled={
+							Boolean(vm.busy) ||
+							row.watchPending ||
+							(pull.state !== "open" && !observation?.active)
+						}
+						onClick={() => void vm.toggleWatch(pull.id)}
+					>
+						{watching ? (
+							<Eye aria-hidden className="h-4 w-4" />
+						) : (
+							<EyeOff aria-hidden className="h-4 w-4" />
+						)}
+					</Button>
+				</div>
 			</TableCell>
 			<TableCell className="py-3.5 align-top">
 				<div className="flex items-start gap-1.5">
@@ -794,6 +892,23 @@ function PullTableRow({
 					) : null}
 				</div>
 			</TableCell>
+			<TableCell className="py-3.5 align-middle">
+				<a
+					href={repositoryBranchUrl(
+						project,
+						pull.repository,
+						pull.targetBranch,
+					)}
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label={`Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`}
+					title={`Target branch: ${pull.targetBranch} · Open in a new tab`}
+					className="flex min-w-0 items-center gap-1.5 rounded-sm font-mono text-[11px] text-basalt-muted-foreground underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
+				>
+					<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
+					<span className="truncate">{pull.targetBranch}</span>
+				</a>
+			</TableCell>
 			<TableCell className="py-3.5 align-top">
 				<ReadinessBadge readiness={readiness} project={project} />
 				{readiness.issues.length > 1 ? (
@@ -826,19 +941,6 @@ function PullTableRow({
 								? ` · ${progress.optionalFailures} advisory`
 								: ""}
 						</p>
-						{typeof pull.checksObservedAt === "number" ? (
-							<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-								Checks synced{" "}
-								<time
-									dateTime={new Date(
-										pull.checksObservedAt * 1000,
-									).toISOString()}
-									title={`SignOff collected checks: ${new Date(pull.checksObservedAt * 1000).toLocaleString()}`}
-								>
-									{relativeAge(pull.checksObservedAt, now)}
-								</time>
-							</p>
-						) : null}
 					</>
 				)}
 			</TableCell>
@@ -858,13 +960,34 @@ function PullTableRow({
 					{relativeAge(pull.updatedAt, now)}
 				</time>
 				<p className="mt-1.5">
-					Synced{" "}
+					State{" "}
 					<time
-						dateTime={new Date(pull.observedAt * 1000).toISOString()}
-						title={`SignOff collected PR data: ${new Date(pull.observedAt * 1000).toLocaleString()}`}
+						dateTime={new Date(stateAt * 1000).toISOString()}
+						title={`PR state checked: ${new Date(stateAt * 1000).toLocaleString()}`}
 					>
-						{relativeAge(pull.observedAt, now)}
+						{relativeAge(stateAt, now)}
 					</time>
+				</p>
+				<p
+					className="mt-0.5"
+					title="Policies, builds and stages have an independent refresh interval."
+				>
+					Checks{" "}
+					{checksAt === null ? (
+						<abbr
+							title="Checks have not been collected"
+							className="no-underline"
+						>
+							—
+						</abbr>
+					) : (
+						<time
+							dateTime={new Date(checksAt * 1000).toISOString()}
+							title={`Checks collected: ${new Date(checksAt * 1000).toLocaleString()}${pull.checksInvalidated ? " · PR changed; checks need refreshing" : ""}`}
+						>
+							{pull.checksInvalidated ? "outdated" : relativeAge(checksAt, now)}
+						</time>
+					)}
 				</p>
 			</TableCell>
 		</TableRow>
@@ -1033,7 +1156,7 @@ function PageSelectionCheckbox({
 						? "indeterminate"
 						: false
 			}
-			disabled={!vm.selectableCount || Boolean(vm.busy)}
+			disabled={vm.loading || !vm.selectableCount || Boolean(vm.busy)}
 			onCheckedChange={(checked) => vm.selectPage(checked === true)}
 		/>
 	);
