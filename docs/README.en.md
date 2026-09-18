@@ -18,27 +18,35 @@ The existing Activity / Score APIs and ADO activity CLI remain available separat
 
 ## Features
 
-- **Manage projects:** add, edit, pause, resume, and remove ADO projects across organizations, with saved scan history.
+- **Manage projects:** add, edit, and remove ADO projects across organizations, with repository scopes and saved task history.
 - **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
 - **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
 - **Inspect builds:** expand each build to see all stages, durations, results, and owners.
-- **Observe progress:** independent list and current-page check queues cool down for 2 and 5 minutes after each complete round. Lists continue in the background; queued checks pause while the page is hidden. Both cooldowns are configurable; interrupted scans preserve previous data.
+- **Share a watch list:** select rows or the current page, add/remove watches in batches, and filter watched/unwatched candidates. The web and CLI share persistent identities scoped by provider, organization, project, repository ID and PR number. Drafts can be watched.
+- **Observe progress:** explicit discovery reads all accessible PR history and states without adding watches. The daemon refreshes only active watches, with a configurable five-minute cooldown after each project round. It keeps running when the browser closes and retires watches only after a confirmed terminal snapshot. Errors preserve watches and cached data.
 - **Manage contributors:** follow observed PR authors, explicitly link provider accounts, and maintain teams and tags separately for Live and Sample.
-- **Compare contributions:** Repos and Insights use normalized PR records, with date, repository, member, team, tag, and state filters. Each chart module calculates only on request; calculation age turns yellow after 24 hours and red after 72 hours. Drafts are excluded by default. See [Directory and contributions](13-成员目录与PR贡献统计.md).
+- **Compare contributions:** Repos and Insights use normalized PR records, using PR merge dates, with repository, member, team, and tag filters. Only PRs merged in the selected date range contribute. Each chart module calculates only on request; calculation age turns yellow after 24 hours and red after 72 hours. Drafts are excluded by default. See [Directory and contributions](13-成员目录与PR贡献统计.md).
 
 ## Usage
 
-Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. With a valid Azure CLI session, run `bun run dev:collector`. List discovery and current-page checks have independent cooldowns persisted in D1 and localStorage. Each cooldown begins after its whole round finishes. Manual **Scan** collects the full project. Live is the default source when real projects exist; the global switch also offers Sample.
+Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. Start `bun run dev:collector`, click **Discover PRs**, then select candidates and choose **Add to watch list**. Upgrades preserve cached PRs but start with zero watches. Starting services, registering a repository, opening pages and reading queries never invoke Azure.
 
 ```bash
-# Only needed when the existing Azure session is unavailable or expired:
+# Needed only when the existing Azure session is unavailable or expired:
 az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
 bun run dev:collector
-# Alternatively, register a repository and collect once:
-bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
+# In another terminal, register and discover candidates explicitly:
+bun run signoff repo add 'https://dev.azure.com/acme/Platform/_git/web-app'
+bun run signoff discover --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
+# After discovery completes:
+bun run signoff pr list --state all --draft include --all
+bun run signoff watch add 'https://dev.azure.com/acme/Platform/_git/web-app/pullrequest/123'
+bun run signoff watch list --all
 ```
 
-PR discovery reads all active PRs plus up to 20 recently merged and 10 closed PRs per repository. `workbench watch` drives both refresh lanes every three seconds. Lists discover new and completed PRs in the background. Checks cover at most 20 PRs on the current page, pause when hidden, and resume or start a due round on return. The foreground workbench reads collection progress every three seconds. A bottom-right toast shows progress. The collector refreshes tokens when possible and shows a tenant-specific login command when interactive authentication is needed. PR collection writes only to the local Worker and does not use production pipeline credentials. See [live PR collection](11-真实PR采集与本地工作台.md) for the contract and recovery behavior.
+Discovery includes Draft, Merged and Closed PRs across all accessible history. The daemon executes queued work and refreshes active watches independently of browser visibility. **Refresh watched** only enqueues watched PRs. A bottom-right toast shows task progress. Expired authentication is reported without erasing previous data; after the indicated `az login`, the daemon resumes.
+
+The short-lived CLI reads the local Worker cache without Azure authentication or provider calls. Commands return queue receipts; they do not wait for collection. PR collection uses loopback only and does not borrow Activity pipeline credentials. `workbench watch` remains an alias for `daemon`; `workbench sync` enqueues explicit discovery. See the [CLI/HTTP contract](18-cli-query-contract.md) and [local collection guide](11-真实PR采集与本地工作台.md).
 
 Filters follow Organization → Project → Repository, exclude drafts by default, and support multiple authors. Filters and column sort directions persist in localStorage and shareable URLs; pages contain 20 PRs. PR numbers and the link beside live PR titles open the source in a new tab. People have circular avatars with two initials. Descriptions render Markdown, tables, and task lists.
 
@@ -131,7 +139,7 @@ bun run dev
 
 Open `http://localhost:7042`. Vite proxies `/api` to the local Worker on `37042`. The dev script includes the local upstream and demo flag. If you already have a trusted HTTPS reverse proxy, `https://signoff.dev.hexly.ai` is supported.
 
-Local data lives in `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`. The seed command resets only the five named demo projects and their PR / scan rows; other projects and existing analytics are preserved. It has no remote option. Migrations `0011_pr_workbench.sql`, `0012_live_collection.sql`, and `0013_visible_pr_collection.sql` define the workbench schema, collection queue, and visible-PR scope.
+Local data lives in `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`. The seed command resets only the five named demo projects and their PR / scan rows; other projects and existing analytics are preserved. It has no remote option. Migrations under `packages/db/migrations/` define the schema; `0019_observed_pull_requests.sql` adds the shared watch list, repository catalog, leases and snapshot versions, and cancels legacy page-scoped work.
 
 Loopback addresses and `*.dev.hexly.ai` use the development authentication path without production Access or pipeline credentials. `.env.example` is prefilled with the production machine endpoint; copy and configure it only when connecting to an existing deployment.
 
@@ -160,6 +168,8 @@ bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 The first two values are the Access Application's AUD and full team domain, such as `example.cloudflareaccess.com`, without a protocol. Protected APIs return `500` if either is missing; `/api/live` and machine pipeline endpoints follow their own access rules. An optional `SIGNOFF_PIPELINE_READ_TOKEN` provides read-only pipeline access; reads use the write token when it is unset. The current configuration keeps `workers.dev` enabled as a fallback.
 
 ## Tests
+
+`bun run test:e2e` runs the browser, real Worker HTTP and CLI subprocesses against owned temporary Wrangler D1 state. It injects the provider, requires Chrome or Playwright Chromium, and never touches daily data or Azure.
 
 | Layer | Command | Prerequisites |
 | --- | --- | --- |

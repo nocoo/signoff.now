@@ -22,20 +22,21 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 
 仓库原有的 Activity / Score API 及 ADO 活动采集 CLI 仍然保留。它们与新 PR 工作台、成员目录和贡献统计的数据契约分开；`pulse` 已有的 GitHub 查询能力也尚未连接到工作台。
 
-📝 **下一阶段待评审**：[采集、观察列表与缓存查询架构](docs/14-collector-architecture.md)。拟将网页和外部 CLI 统一为缓存消费者，通过 API 显式添加 / 移除观察 PR，确认终态后自动停止刷新。14–18 是设计稿，新命令与观察功能尚未实现。
+网页和外部 CLI 共用持久关注清单，通过 API 显式加入 / 移出 PR。查询只读已发布缓存，后台独立刷新关注项，确认 merged / closed 后自动停止刷新。升级保留已有 PR 缓存，关注清单从空开始；启动服务、打开页面和查询均不产生源站采集。详见[采集、关注清单与缓存查询架构](docs/14-collector-architecture.md)。
 
 ## 功能
 
-- **项目管理**：添加、编辑、删除多个 organization 下的 ADO 项目，暂停或恢复监控，查看扫描历史。
+- **项目管理**：添加、编辑、删除多个 organization 下的 ADO 项目，配置仓库范围，查看任务历史。
 - **跨项目 PR 队列**：按 Organization → Project → Repository 筛选，默认排除 Draft，作者可多选。表头可排序，默认按项目的 Readiness 顺序将最就绪的 PR 放在前面；筛选和排序方向保存在 URL 与 localStorage，每页 20 个 PR。
 - **明确合并条件**：冲突、必需检查失败、评审意见、部署审批、未知检查分别显示；可选检查失败不会误挡合并。
 - **构建阶段详情**：每个 PR 可展开多个 build，逐项查看 stage 状态、时长、说明和负责人。
-- **持续采集**：List 和 Checks 两组独立队列，整轮完成后分别冷却 2 / 5 分钟，可单独配置。List 在后台继续发现新 PR 和状态变化；Checks 只覆盖当前页最多 20 个 PR，页面隐藏时暂停，回来后恢复或开始到期轮次。右下角显示动画与进度；登录过期或失败时保留旧数据。
+- **共享关注清单**：复选框支持多选、当前页全选、批量加入 / 移出，快捷筛选已关注和未关注 PR。网页与 CLI 操作同一份清单，完整身份区分 provider、组织、项目、仓库与 PR 编号；Draft 也可以关注。
+- **独立后台刷新**：按需发现全部可访问 PR 历史，包括 Draft、Merged 和 Closed；发现不会自动关注。daemon 只刷新 active 关注项，项目整轮结束后默认冷却 5 分钟，关闭网页仍继续。确认终态才自动淘汰；失败、登录过期或列表缺失均保留关注和旧缓存。右下角显示任务进度。
 - **PR 阅读与操作**：描述支持 Markdown、表格和任务清单；PR 编号和真实 PR 标题旁的链接可在新标签页打开源 PR。人名前显示圆形双字母头像。
 - **项目 Readiness**：从实际 Policy 和 PR 快照读取全部合并要求，拖动或用键盘箭头定义处理顺序、颜色和名称。第一个未完成要求决定主要卡点，只剩靠后条件的 PR 排在前面；PoP 无内置特例。设置保存在项目数据库中。
 - **页面结构**：统一主标题、次标题和顶栏面包屑；PR 页以仓库路径作为次标题，筛选结果的状态统计集中展示。
 - **成员与团队**：从 PR 作者发现并关注成员，显式关联跨组织账号，维护团队及标签，Live / Sample 完全隔离。
-- **仓库与贡献统计**：Repos 汇总仓库 PR；Insights 按创建日期、成员、团队、标签、仓库和当前 PR 状态筛选。每个模块独立手动计算，超过 24 / 72 小时分别标黄 / 红。默认不含 Draft。详见 [成员目录与贡献统计](docs/13-成员目录与PR贡献统计.md)。
+- **仓库与贡献统计**：Repos 汇总仓库 PR；Insights 按合并日期、成员、团队、标签和仓库筛选；仅合并时间落在所选区间的 PR 计入贡献。每个模块独立手动计算，超过 24 / 72 小时分别标黄 / 红。默认不含 Draft。详见 [成员目录与贡献统计](docs/13-成员目录与PR贡献统计.md)。
 
 ## 使用
 
@@ -46,17 +47,21 @@ az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
 bun run dev:collector
 ```
 
-已有有效 Azure CLI 登录时直接启动即可。List 默认整轮结束后冷却 2 分钟，Checks 默认冷却 5 分钟；两组独立排队。List 不依赖浏览器前台状态，Checks 在离开前台时暂停待执行任务。手动 **Scan** 仍执行完整扫描。采集器每 3 秒驱动队列；Web 在前台每 3 秒读取工作台快照和进度。登录过期会先尝试静默续期；需要交互登录时，按页面或 CLI 提示重新运行 `az login`，采集器随后恢复。
+已有有效 Azure CLI 登录时直接启动即可。先在网页点击 **Discover PRs**，再勾选候选 PR 并点击 **Add to watch list**。关注清单默认为空，添加关注后才持续拉取检查；**Refresh watched** 只对关注项入队。登录过期会先尝试静默续期；需要交互登录时，按页面或 CLI 提示重新运行 `az login`，采集器随后恢复。
 
-也可一次性添加并采集仓库（示例地址请替换为自己的仓库）：
+同一流程也可通过 CLI 完成（示例地址和 PR 编号请替换为自己的仓库）：
 
 ```bash
-bun run signoff workbench sync --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
-bun run signoff workbench sync
-bun run signoff workbench watch
+bun run signoff repo add 'https://dev.azure.com/acme/Platform/_git/web-app'
+bun run signoff discover --repo 'https://dev.azure.com/acme/Platform/_git/web-app'
+# 等 discovery 任务完成后读取候选；查询命令不调用 ADO
+bun run signoff pr list --state all --draft include --all
+bun run signoff watch add 'https://dev.azure.com/acme/Platform/_git/web-app/pullrequest/123'
+bun run signoff watch list --all
+bun run signoff pr get 'https://dev.azure.com/acme/Platform/_git/web-app/pullrequest/123'
 ```
 
-列表发现覆盖全部开放 PR，并保留每个仓库最近最多 20 条已合并和 10 条已关闭 PR；未收集的检查明确标为未知。`watch` 驱动两组刷新队列，并处理显式的手动扫描。PR 采集命令只写回环地址上的本地 Worker，不读取既有 Activity 管线的生产写入令牌。详细契约、恢复行为与验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)。
+短命 CLI 无需源站认证，只连接回环地址上的本地 Worker；daemon 执行任务时才使用 `az`。两者不读取 Activity 管线的生产写入令牌。`workbench watch` 是 `daemon` 的兼容入口；`workbench sync` 只入队按需发现。外部消费者接入见 [CLI / HTTP 契约](docs/18-cli-query-contract.md)，启动和恢复见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)。
 
 以下运维命令用于既有 Activity / Score 管线。生产站点仍使用 Cloudflare Access；这次本地预览没有部署到线上。既有管线先建立 Developer 和 Repo 绑定，再配置 Settings，不会读取新 `projects` 表作为采集范围。
 
@@ -143,7 +148,7 @@ bun run dev
 
 打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。开发脚本已包含 `--local-upstream localhost` 和本地 Demo 开关。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
 
-数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 5 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 migrations `0011_pr_workbench.sql`、`0012_live_collection.sql`、`0013_visible_pr_collection.sql`。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
+数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 5 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 `packages/db/migrations/`；`0019_observed_pull_requests.sql` 引入共享关注清单、仓库目录、任务租约和快照版本，并取消旧页面采集任务。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
 
 本地回环地址与 `*.dev.hexly.ai` 使用开发认证分支，无须生产 Access 或 pipeline 凭据。`.env.example` 预填生产机器域名，只在需要连接已有部署时复制并填写。
 
@@ -178,9 +183,10 @@ bunx wrangler secret put SIGNOFF_PIPELINE_WRITE_TOKEN
 | 单元与 API handler | `bun run test` | 已安装依赖；各 workspace 使用 Bun test 或 Vitest |
 | 覆盖率 | `bun run test:coverage` | 同上 |
 | Git 子进程集成 | `bun run --cwd apps/gitinfo test:integration` | 本机可运行 Git |
-| 本地采集管线 fixture | `PATH="$PWD/packages/worker/node_modules/.bin:$PATH" bash scripts/e2e-06-local.sh` | 新的默认本地 D1，且 Worker 已运行 |
+| 浏览器 + Worker + CLI E2E | `bun run test:e2e` | Chrome 或 Playwright Chromium；自动分配临时 D1、端口与 fixture，无需 Azure 登录 |
+| 旧 Activity 管线 fixture | `PATH="$PWD/packages/worker/node_modules/.bin:$PATH" bash scripts/e2e-06-local.sh` | 新的默认本地 D1，且 Worker 已运行 |
 
-PR 工作台的模型、HTTP 契约、ViewModel、CLI 认证、采集归一化和 SQLite 并发写入测试包含在上述测试中。真实数据验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)，示例预览见 [10 — PR 工作台与 Mock 预览](docs/10-PR工作台与Mock预览.md)。
+PR 工作台的模型、HTTP 契约、ViewModel、CLI 认证、采集归一化和 SQLite 并发写入测试包含在上述测试中。浏览器 E2E 使用真实 Worker HTTP、独立 Wrangler D1 和 CLI 子进程，仅 provider 边界使用 fixture；不会访问 Azure 或改动日常数据库。真实数据验收见 [11 — 真实 PR 采集](docs/11-真实PR采集与本地工作台.md)，示例预览见 [10 — PR 工作台与 Mock 预览](docs/10-PR工作台与Mock预览.md)。
 
 管线 fixture 测试请使用独立测试副本，先执行 `bun run build:web`，再在另一终端运行 `bun run --cwd packages/worker dev --local-upstream localhost`。测试命令的 PATH 让原脚本使用 workspace 已安装的 Wrangler。脚本会应用本地 migrations、种入测试实体、写入 `.data/` 并验证 ingest、热力图和时间线；它要求初始 Settings（配置版本 `1`），会改写该副本的本地数据。
 
@@ -200,8 +206,8 @@ PR 工作台的模型、HTTP 契约、ViewModel、CLI 认证、采集归一化�
 
 ## 文档
 
-- [文档索引](docs/README.md) · [下一阶段架构评审入口](docs/14-collector-architecture.md)。
-- 评审分册：[网页与多选观察](docs/15-web-query-contract.md) · [刷新状态机与淘汰](docs/16-scheduler-state-machine.md) · [Query 周期](docs/17-query-cadence.md) · [CLI 对外契约](docs/18-cli-query-contract.md)。
+- [文档索引](docs/README.md) · [当前关注与查询架构](docs/14-collector-architecture.md)。
+- 实现契约：[网页与多选观察](docs/15-web-query-contract.md) · [刷新状态机与淘汰](docs/16-scheduler-state-machine.md) · [Query 周期](docs/17-query-cadence.md) · [CLI 对外契约](docs/18-cli-query-contract.md)。
 - 当前实现：[真实 PR 工作台](docs/11-真实PR采集与本地工作台.md) · [成员与贡献统计](docs/13-成员目录与PR贡献统计.md) · [Mock 场景](docs/10-PR工作台与Mock预览.md)。
 - [采集命令、落盘与游标](docs/07-CLI命令矩阵与ADO落盘.md) · [Activity 与 Score 规则](docs/06-Activity重建与Score算法.md)。
 - [上线与 Dashboard 统计](docs/08-真实数据上线与Dashboard统计.md)：部署、查询和对账说明。

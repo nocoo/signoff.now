@@ -2,7 +2,7 @@
 
 [返回文档索引](../README.md) · [根目录使用说明](../../README.md)
 
-SignOff 当前有三个 CLI 包。工作台采集与辅助工具的数据来源不同，新设计的缓存消费者不能与 `pulse` 的直接 GitHub 查询混淆。
+SignOff 当前有三个 CLI 包。工作台采集与辅助工具的数据来源不同，工作台缓存消费者不能与 `pulse` 的直接 GitHub 查询混淆。
 
 | 工具 | 当前用途 | 当前说明 |
 | --- | --- | --- |
@@ -10,9 +10,9 @@ SignOff 当前有三个 CLI 包。工作台采集与辅助工具的数据来源�
 | `gitinfo` / `@signoff/gitinfo` | 本地 Git 仓库、分支、工作区和提交分析 | [gitinfo 使用文档](gitinfo.md) |
 | `pulse` / `@signoff/pulse` | 通过本机 GitHub CLI 查询 PR、详情、diff、搜索和仓库，需要有效 GitHub 访问权限 | [pulse 使用文档](pulse.md) |
 
-## 下一阶段待 Review
+## 共享监控清单与缓存查询
 
-[18 — CLI 查询、观察与命令契约](../18-cli-query-contract.md) 定义新的 `signoff pr`、`watch list / add / remove`、`discover`、`refresh` 和 `daemon`。这些命令尚未实现；设计中短命消费者只读本机 Worker / D1 的已发布缓存，无需 Azure / GitHub 登录，增删观察与刷新命令通过 API 交给后台模块。
+[18 — CLI 查询、观察与命令契约](../18-cli-query-contract.md) 定义新的 `signoff pr`、`watch list / add / remove`、`discover`、`refresh` 和 `daemon`。这些命令已实现；短命消费者只读本机 Worker / D1 的已发布缓存，无需 Azure / GitHub 登录，增删观察与刷新命令通过 API 交给后台模块。
 
 架构入口见 [14](../14-collector-architecture.md)，调度和自动淘汰见 [16](../16-scheduler-state-machine.md)，消费者自己的 Query 周期见 [17](../17-query-cadence.md)。
 
@@ -27,7 +27,7 @@ bun run gitinfo --help
 bun run pulse --help
 ```
 
-`gitinfo` / `pulse` 使用 JSON 输出，`--pretty` 用于缩进显示；当前 `signoff workbench` 是采集与进度日志入口，还不是上述待评审的机器查询契约。运行时为 Bun，类型与静态检查沿用根目录命令；各包实际测试 runner 和门禁见 [CLAUDE.md](../../CLAUDE.md)。
+`gitinfo` / `pulse` 使用 JSON 输出，`--pretty` 用于缩进显示；`signoff` 查询默认输出 JSON，进度与错误写 stderr；`workbench watch` 是 daemon 别名，`workbench sync` 只排入显式发现任务。运行时为 Bun，类型与静态检查沿用根目录命令；各包实际测试 runner 和门禁见 [CLAUDE.md](../../CLAUDE.md)。
 
 ## 历史记录
 

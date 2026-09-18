@@ -1,6 +1,6 @@
 # 18 — CLI 查询、观察与命令契约
 
-> 状态：待 Review，2026-09-18，尚未实现。**本文所有新增命令和 `/api/query/v1`、`/api/commands/v1` 路径都是目标接口，当前不能直接使用。**
+> 当前实现，2026-09-18。网页和 CLI 共用一份关注清单；升级默认空清单，发现仅按需执行。
 > 当前可用采集命令见 [11](11-真实PR采集与本地工作台.md)，辅助工具见 [cli/](cli/README.md)。架构见 [14](14-collector-architecture.md)，观察生命周期见 [16](16-scheduler-state-machine.md)。
 
 ## 1. 给其他项目的保证
@@ -17,10 +17,10 @@
 
 | 命令 | 用途 | 是否访问 ADO |
 | --- | --- | --- |
-| `signoff daemon` | 运行观察刷新与任务执行；装配独立的外围发现控制器 | 执行收到的采集任务时会 |
+| `signoff daemon` | 运行观察刷新与已保存任务 | 执行收到的采集任务时会 |
 | `signoff status` | 缓存服务、执行器、队列、观察数量与已知错误 | 否 |
 | `signoff repo list` | 已注册的组织 / 项目 / 仓库与最近发现情况 | 否 |
-| `signoff repo add <repo-url...>` | 显式注册仓库范围，复用现有项目注册规则 | 否；外围控制器之后可按项目设置提交发现 |
+| `signoff repo add <repo-url...>` | 显式注册仓库范围，复用现有项目注册规则 | 否；之后需要显式 discover |
 | `signoff pr list` | 查询已发现 / 已缓存的 PR，支持范围、状态与观察筛选 | 否 |
 | `signoff pr get <pr-ref>` | 返回单条已缓存 PR 的状态与检查详情 | 否 |
 | `signoff watch list` | 查询 active 观察列表及每项已有快照；包括 Draft 和待首次结果项 | 否 |
@@ -48,7 +48,7 @@ signoff pr get 59382 \
 
 对 `pr get`，未缓存引用返回 `CACHE_MISS`，不能先调用源站补齐。对 `watch add`，本地仓库目录已能解析 provider repository ID 时，PR 本身可以尚无缓存，保存规范引用并等待首次刷新。未注册范围返回 `REPOSITORY_NOT_TRACKED`；已注册但仓库身份尚未知返回 `REFERENCE_UNRESOLVED`，调用者先显式 discover。目录也保存零 PR 仓库身份；不建立临时 URL 观察项。归一规则与唯一键见 16。
 
-上述仓库目录是本次拟新增能力。对首次使用且身份未解析的仓库，必须先完成 `repo add`，再等待 discover 回执对应仓库成功、目录可解析后，才允许 URL / number 形式的 watch add；仅拿到 discover 的 202 不足以添加。已有可解析目录的仓库不必每次重复发现。
+仓库目录由迁移 0019 引入。对首次使用且身份未解析的仓库，必须先完成 `repo add`，再等待 discover 回执对应仓库成功、目录可解析后，才允许 URL / number 形式的 watch add；仅拿到 discover 的 202 不足以添加。已有可解析目录的仓库不必每次重复发现。
 
 `watch remove` 接受相同引用语法，先调用只读 observation lookup 取得该 PR 唯一记录的 ID / generation，再发送带版本的删除。查到同代次已停止是幂等成功；从未观察返回 `NOT_FOUND`；两步之间发生重新加入则返回冲突，不自动重试删除新代次。查询可以利用本地仓库目录或停止记录内保留的自足 ref；项目删除后也可找到停止记录。别名有歧义时返回 `REFERENCE_AMBIGUOUS`，要求使用带仓库 GUID 的引用，不能猜测。
 
@@ -153,8 +153,8 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 - `id` 是 SignOff 内部不透明身份；`number` 是源 PR 编号；`project.id` 是 SignOff 项目 ID；`repository.id` 是 provider 的仓库身份。消费者不要解析内部 `id` 的拼接格式。
 - ADO 的组织 / 项目 / 仓库为 `msdata / Vienna / online-meetings` 等三级结构；GitHub Sample 按 `github.com / nocoo / signoff.now` 表达，项目 key 对应 owner。
 - 列表还返回作者身份、分支 / SHA、检查完成摘要与内容完整性。`pr get` 的 `data` 为一个对象，补全描述、全部 merge requirements、reviewers、policies、builds / stages、下一步和缺失原因。
-- requirements 包含稳定 ID、种类、名称、required、状态、来源 ID 和源链接；PoP 只是其中一项，readiness 与网页共用领域规则和项目配置。
-- `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示取得了仓库全部历史。保留目前“全部开放、近期终态和已知开放对账”的历史范围说明。
+- requirements 包含逻辑 ID、种类、名称、required、state、sourceIds、links、配置 label / color；只列此 PR 上有事实依据的阻塞要求，其他仓库的策略不混入，links 指向源 PR；PoP 只是其中一项，readiness 与网页共用领域规则和项目配置。
+- `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示取得了仓库全部历史。新的完整发现覆盖全部可访问历史与所有状态；迁移保留的旧缓存仍明确标记为旧的有限历史覆盖，不能冒充完整发现。
 - `watch list` 每项返回观察元数据、完整 `ref`、可空的 `pullId` 和可空的 `pull` 摘要，首次采集前不会伪造一个 PR 快照。
 - 每个规范 PR 只保留一条观察记录；inactive 首版不自动清理。`--include-stopped` 返回所有保留行的当前 generation，不按“最近 N 天 / N 条”截断，也不是每次增删的事件日志。重新加入覆盖该行启停字段并推进 generation；lookup 始终取当前一代，不查历史代次。`stopReason` 为 null、manual、completed、abandoned、project_deleted 或 scope_changed。项目删除后停止记录仍保留，`pull` 可为空。
 - 无匹配结果是 `data: []`；未采集范围另标 `not_collected`。缺失检查 / 计数 / 时间使用 null 或明确 unknown；不能填 0 / passed。
@@ -182,7 +182,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 | `POST /api/commands/v1/discover` | `{ source, repositoryUrl }` 或 `{ source, projectId }`，二选一；前者仅该注册仓库，后者固定该项目当前已配置范围与 revision；返回 HTTP 202 |
 | `POST /api/commands/v1/refresh` | `{ source, target }`，target 为 `{ pullId }`、`{ url }`、`{ repositoryUrl }` 或 `{ all: true }` 之一；只覆盖 active 观察项，返回 HTTP 202 |
 
-`repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；暂停 enabled 仅停止外围自动发现，详见 16。
+`repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；旧 enabled 字段不控制关注清单或显式发现，详见 16。
 
 批量观察操作逐项原子，不因一项已终态而撤销其他成功添加项；批量结果 HTTP 200，CLI 在任一项失败时返回非零并保留结构化逐项结果。顶层格式无效则整次 400，零写入。移除客户端先只读取得当前 observation ID / generation，再发送带版本的命令；冲突不自动重试删除新一代。
 
@@ -190,15 +190,15 @@ added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false
 
 discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefore }]` 和零目标时的说明。收到 202 仅表示任务已保存，不表示刷新成功。消费者稍后用 `job get` 查询；登录过期作为任务状态返回，不能触发查询 CLI 自己登录。
 
-一次 discover 对应一个项目内固定的仓库范围；只有相同 revision、相同规范范围的未结束任务才去重。外围控制器通过 projectId 形式提交项目任务，冷却从这个任务的全部仓库结束后计算；手动单仓库命令不会重置不同范围任务的冷却。
+一次 discover 对应一个项目内固定的仓库范围；只有相同 revision、相同规范范围的未结束任务才去重。网页通过 projectId 提交项目范围；仓库计划解析后固定，重领沿用同一计划。发现没有自动冷却或重复运行。
 
-`job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消后续任务为 observation_retired。保留这些任务摘要需要迁移当前的删除处理，不能先把记录删掉再承诺查询得到 canceled。
+`job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消后续任务为 observation_retired。任务摘要在项目删除后仍保留。
 
 discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；单仓库成功可原子发布，失败仓库保留旧数据，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
 
 对未终结任务，取消事务立即令整体 state=canceled，优先于未结算的 partial / failed，不等待在途请求。已结束的 repositories 项保留 succeeded / failed，尚未结束的项变成 canceled；所以“一个仓库已成功，另一个被取消”返回 canceled 和逐仓库结果。先前发布不因取消而回滚，项目删除 / 来源替换仍可按配置操作的语义删除缓存；旧任务摘要保留。迟到响应不得再发布。若任务先已终结，则后来的配置操作不改写其历史结果。
 
-这些服务复用 Worker。本期有意信任可访问本机端口的进程，Query 与观察 / 入队 / 仓库配置命令共用无认证的本机边界；实现须验证监听地址、Host 和重定向确实受回环限制。这里记录的是目标验收要求。生产网页继续由现有 Access 契约保护，命令和查询都不扩展 Activity pipeline token 的路由白名单。
+这些服务复用 Worker。本期有意信任可访问本机端口的进程，Query 与观察 / 入队 / 仓库配置命令共用无认证的本机边界；本机 Worker 绑定回环地址，CLI 校验目标 origin、拒绝带凭据 URL 与重定向，HTTP 路由保留 Host 校验。生产网页继续由现有 Access 契约保护，命令和查询都不扩展 Activity pipeline token 的路由白名单。
 
 ## 5. 分页、并发发布与错误
 
@@ -225,7 +225,7 @@ v1 不保留多份历史读版本：后续页若发现版本改变，返回 `409
 
 ## 6. 其他项目接入示例
 
-以下流程在实现后执行。开发期可用 `bun run --cwd /path/to/signoff.now signoff …` 调用同一入口；正式命令名为 `signoff`，运行时仍需要 Bun。
+以下流程可用于当前实现。开发期可用 `bun run --cwd /path/to/signoff.now signoff …` 调用同一入口；正式命令名为 `signoff`，运行时仍需要 Bun。
 
 ```bash
 # 管理者配置一次；两个仓库分别保留 org / project / repo 身份
@@ -254,17 +254,17 @@ signoff watch remove '<PR URL>'
 
 ## 7. 测试与交付清单
 
-- 查询模块仅注入 reader，命令模块仅注入观察 / 队列写入端口；依赖测试拒绝它们导入 provider 执行路径。CLI 解析查询后不能初始化 ADO 客户端。
+- Worker Query 只使用 D1 SELECT；Command 只修改观察 / 队列。SQL 只读断言、空清单执行器测试和缺少 az 的真实 CLI 子进程验证查询 / 入队不调用 provider；provider 仅在 claim 到任务后延迟初始化。
 - 子进程环境移除 Azure / GitHub 凭据，令 `az` / `gh` 不可用；query、watch 增删、discover / refresh 回执仍能完成，provider 哨兵调用次数为零。
 - 阻塞 / 失败的 provider、过期认证和停止的 daemon 不影响有数据的缓存查询；Worker 关闭返回明确连接错误。
 - 网页与 CLI 用 URL / 内部 ID 添加同一 PR 幂等；首个 job 与观察同事务，任务写入失败不能留下 active 项，重复 add 返回复用 / null 回执；批量部分失败不丢成功项；已知仓库下未缓存 PR 可添加，未解析仓库零写入；Draft 和终态拒绝有覆盖。
 - remove lookup 包含 active、stopped、从未观察、项目已删除和别名歧义；lookup 后发生重加时旧 generation 删除必须失败，不能自动重试。
 - PR 终态自动淘汰之后，watch active 列表不再包含它、普通 PR 查询仍能得到最终状态；不再产生后续 refresh。
-- stdout 是单个可解析 JSON，stderr 分离；每个命令 / 参数 / 错误码由真实 CLI 子进程验证，包含帮助命令零副作用。
+- stdout 是单个可解析 JSON，stderr 分离；命令和参数由 UT 覆盖，主要流程与错误码另由真实 CLI 子进程验证，包含帮助命令零副作用。
 - 超过 1,000 条 PR、多页、并发版本变化、两次重启读取仍失败、错误游标与混合 source 全部测试；不静默返回半份结果。逐类验证数据写入与 revision 同事务，失败 / 无变化不推进、无关同 source 变更也失效，记录 / 计数 / 版本不能混读。
 - 多仓库发现的固定范围、去重、逐仓库部分成功、部分发布与取消竞争、项目完成后冷却，以及项目删除后仍可查 canceled 任务和全部停止观察记录，由真实 HTTP 测试锁定。
 - 无认证读写只在本机边界生效；错误 Host、非回环 origin 与跨主机重定向拒绝，生产 Access 与 Activity token 路由回归保持。
 - 源项目与仓库同名、跨组织 PR number 相同、GitHub Sample 身份和未知字段的前向兼容有合成 fixture。
 - daemon 与短命客户端共同做一次隔离系统验收：注册 → 发现 → 添加观察 → 首次结果 → 查询 → completed / abandoned 淘汰 → 最终快照查询，以及主动移除路径。
 
-测试与文档、CLI help 同步交付；完整 6DQ 计划和原子提交顺序见 [14](14-collector-architecture.md)。本稿没有实现新命令或迁移数据。
+测试与文档、CLI help 同步交付；分层测试入口见 [14](14-collector-architecture.md)，既有完整 6DQ 门禁差距见 [CLAUDE.md](../CLAUDE.md)。

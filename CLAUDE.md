@@ -12,7 +12,7 @@ This file is the quality contract; hooks, CI and config are enforcement. Close i
 |---|---|
 | Product / live collection | [README.md](README.md), [PR workbench](docs/10-PR工作台与Mock预览.md), [local collection](docs/11-真实PR采集与本地工作台.md) |
 | Directory / PR contributions | [members, relationships and manual statistics](docs/13-成员目录与PR贡献统计.md) |
-| Proposed observation / query architecture | [review entry and documents 14–18](docs/14-collector-architecture.md); planned, review before implementation |
+| Watch list / query architecture | [implementation and contracts 14–18](docs/14-collector-architecture.md); shared persisted watches, explicit discovery, cache-only reads |
 | Access / identity | [access contract](docs/12-agent-access.md), `packages/worker/src/middleware` |
 | Runtime / versions | root, Worker and web `package.json`; keep those service versions aligned |
 | Tests / enforcement | package Vitest and `bunfig.toml` configs, `.husky`, `scripts/run-security.ts`, CI |
@@ -23,11 +23,13 @@ This file is the quality contract; hooks, CI and config are enforcement. Close i
 
 - ADO PR collection is live locally; GitHub workbench collection is planned despite existing GitHub samples and pulse queries. Keep normalized provider contracts and sample/live separation.
 - PR snapshots/jobs/staging are separate from Activity/Score ingest. Workbench collection writes only a loopback Worker and must not borrow the production pipeline token.
+- Watch lists start empty. Registration, page loads, queries and an idle daemon must never invoke providers/auth or implicitly add watches. Discovery is explicit and includes all accessible states/history; confirmed terminal snapshots retire observations atomically.
+- Scope identities by source, provider, organization, project, repository ID and PR number. Guard writes with project revisions, leases, snapshot versions and observation generations; a late result must not recreate removed watches.
 - Browser Access and pipeline-token routes remain disjoint. Machine credentials may bootstrap/ingest/recompute/live/me, never entity CRUD or identity roster creation.
 - CRUD automation needs an Access service token plus a Service Auth policy; identify service JWTs by `common_name` and mark `service: true`. Never assume email/sub.
 - D1 is the product store. Use TDD; do not reintroduce Electron or local better-sqlite3/Drizzle product storage. Keep credentials in ignored `.env` (0600) and preserve its tracked example.
 - Activity artifacts bind to the target environment IDs/config version: recollect after environment changes, retain idempotent chunks and run only one ingest at a time.
-- Directory accounts link by exact provider/organization/actor identity. PR statistics calculate only on explicit module refresh; keep saved calculations and Live/Sample data separate. Demo writes remain restricted to local demo mode.
+- Directory accounts link by exact provider/organization/actor identity. PR statistics use merge dates and calculate only on explicit module refresh; keep saved calculations and Live/Sample data separate. Demo writes remain restricted to local demo mode.
 
 ## Stack / Layout
 
@@ -51,6 +53,7 @@ bun run lint
 bun run typecheck
 bun run build:web
 bun run test:coverage
+bun run test:e2e
 bun run security
 bun run gitinfo -- --help
 bun run pulse -- --help
@@ -66,11 +69,11 @@ G1 requires check-only strict analysis/formatting with zero errors/warnings. G2 
 | Dimension | Status | Required proof and current evidence/gap |
 |---|---|---|
 | L1 TypeScript | planned | Vitest gates web four metrics at 95%, gitinfo branches at 88%, pulse at 90%; Bun packages lack branch coverage and collect functions is 93%. Exclusions also leave full 95% incomplete. |
-| L2 Worker / CLI | planned | Unit suites include real SQLite behind an in-process D1 adapter. `scripts/e2e-06-local.sh` sends real local HTTP but is not hooked/CI-wired and shares dev state; require isolated 100% route/command proof. |
-| L3 browser / CLI | manual | Verify PR queues/details/policies/readiness, sample/live separation and CLI output/workflows using disposable data. No complete browser/system gate is configured. |
+| L2 Worker / CLI | planned | Unit suites include real SQLite and independent concurrent connections behind a D1 adapter. Monitoring adds HTTP contract tests and real CLI subprocess workflows. Full 100% route/command proof across legacy APIs is still incomplete. |
+| L3 browser / CLI | manual | `bun run test:e2e` runs Playwright against a disposable Wrangler Worker/D1 plus real CLI subprocesses, with an injected provider. Covers discovery, watch add/remove, terminal retirement, concurrency and Live/Sample separation. Not yet wired to CI; legacy flows remain outside this lane. |
 | G1 TypeScript | planned | CI uses full Biome with errors on warnings and typecheck. Local pre-commit uses autofixing lint-staged; index check-only behavior is incomplete. |
 | G2 | enforced | `security` runs OSV and gitleaks in parallel, failing on missing tools/findings; CI shares the security gate. Existing ignores must stay explicit and reviewed. |
-| D1 | planned | Unit harnesses use memory/temp SQLite, but shell E2E mutates default local D1 and fixed `.data` fixtures without per-run state or marker/cleanup guards. |
+| D1 | planned | Monitoring unit/system harnesses use memory/temp SQLite and per-run D1/ports/process groups with marker/ownership cleanup guards. The legacy Activity shell E2E still uses default local D1 and fixed `.data` fixtures; run it only in a disposable copy. |
 
 Pre-commit runs coverage, lint-staged and typecheck. Pre-push runs G2 only; the Electron-era L2 was removed. Secret scope is upstream..HEAD (or full history without upstream), not every stdin push ref. CI adds quality/security, not L2/L3.
 
@@ -79,9 +82,9 @@ Never bypass commit/push hooks, force-push, or use autofix in checks. Documentat
 
 ## Resources / Isolation
 
-Dev: web 7042, local Worker 37042, optional trusted `https://signoff.dev.hexly.ai`. `SIGNOFF_DATA_DIR` controls collector artifacts; default is `.data`. The legacy shell E2E requires a running disposable loopback Worker (`SIGNOFF_PORT`) and resets named fixture rows in default local state; do not run it against daily data. Required direction: per-run `--local --persist-to`, separate SQLite, `NODE_ENV=test`, checked marker and ownership guards. No remote test provisioning.
+Dev: web 7042, local Worker 37042, optional trusted `https://signoff.dev.hexly.ai`. `SIGNOFF_DATA_DIR` controls collector artifacts; default is `.data`. The legacy shell E2E requires a running disposable loopback Worker (`SIGNOFF_PORT`) and resets named fixture rows in default local state; do not run it against daily data. The new `scripts/test-e2e.ts` uses per-run `--local --persist-to`, separate SQLite, `NODE_ENV=test`, checked markers and ownership guards. No remote test provisioning.
 
-`dev:worker` applies local migrations before starting. The collector has independent list (default 2 minutes) and current-page checks (default 5 minutes) queues, with cooldowns starting after each completed round. Checks pause without a foreground page; list discovery continues.
+`dev:worker` applies local migrations before starting. Migration 0019 preserves cached PRs, cancels legacy work and creates zero watches. `signoff daemon` claims explicit discovery and active-watch jobs; project refresh rounds cool down for 300 seconds after completion, independent of browser visibility. No periodic discovery is enabled. Web cache queries use independent blocks: PR/detail/pending 15 seconds, collector 3 seconds, catalog 30 seconds after request completion; hidden pages pause queries only.
 
 ## Operations / Release
 
