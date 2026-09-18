@@ -37,7 +37,7 @@ import { relativeTime } from "@/models/workbench";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ProjectDialog } from "./ProjectDialog";
 import { ReadinessDialog } from "./ReadinessDialog";
-import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
+import { WorkbenchFeedback } from "./WorkbenchControls";
 
 export function ProjectsPage() {
 	const vm = useWorkbench();
@@ -77,7 +77,6 @@ export function ProjectsPage() {
 					</>
 				}
 			/>
-			<WorkbenchConnection vm={vm} />
 			<WorkbenchFeedback vm={vm} />
 			{vm.loading ? (
 				<LayerCard>

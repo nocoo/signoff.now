@@ -9,6 +9,7 @@ import {
 } from "@nocoo/basalt";
 import { MultiSelect } from "@nocoo/basalt/components/multi-select";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import { SectionRule } from "@nocoo/basalt/components/section-rule";
 import {
 	Table,
 	TableBody,
@@ -55,7 +56,7 @@ import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { ReadinessDialog } from "./ReadinessDialog";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
-import { WorkbenchConnection, WorkbenchFeedback } from "./WorkbenchControls";
+import { WorkbenchFeedback } from "./WorkbenchControls";
 import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
@@ -117,78 +118,41 @@ export function PullsPage() {
 		<div className="space-y-2">
 			<PageHeader
 				title="Pull requests"
-				description={
-					<span className="break-words">
-						{scopeProject ? (
-							<RepositoryScopeLinks
-								project={scopeProject}
-								repository={repository?.name}
-								organizationOnly={!scopedProject && !repository}
-							/>
-						) : (
-							vm.filter.organization ||
-							`Across ${vm.repositories.length} repositories · Checks, blockers, and next steps`
-						)}
-					</span>
-				}
-				actions={<WorkbenchConnection vm={vm} compact />}
+				description="Track review progress, checks, and merge blockers."
 			/>
 			<WorkbenchFeedback vm={vm} />
-			<RepositoryFilters vm={vm} />
-			{vm.catalogError ? (
-				<p role="alert" className="px-1 text-xs text-basalt-warning">
-					Repository filters could not refresh. PR results remain available.
-				</p>
-			) : null}
-			<PendingWatchList vm={vm} />
-
-			<LayerCard padding="none">
-				<LayerCard.Header className="flex-col gap-2 p-3">
-					<section
-						className="grid w-full grid-cols-2 gap-2 xl:grid-cols-4"
-						aria-label="Pull request overview"
-					>
-						{metrics.map(({ key, label, value, detail, Icon, color }) => {
-							const selected =
-								vm.filter.state === "open" && vm.filter.status === key;
-							return (
-								<LayerCard
-									padding="none"
-									key={key}
-									className={cn(
-										"border border-transparent transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-basalt-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-basalt-card",
-										selected && "border-basalt-primary/40",
-									)}
-								>
-									<Button
-										variant="ghost"
-										aria-pressed={selected}
-										className={cn(
-											"h-full w-full flex-col items-start justify-start gap-1 whitespace-normal rounded-none px-3 py-2 text-left text-basalt-foreground hover:bg-basalt-primary/3 hover:text-basalt-foreground focus-visible:ring-0 focus-visible:ring-offset-0",
-											selected &&
-												"bg-basalt-primary/5 hover:bg-basalt-primary/5",
-										)}
-										onClick={() => vm.setFilter({ state: "open", status: key })}
-									>
-										<span className="flex w-full items-center gap-2 text-xs font-medium text-basalt-muted-foreground">
-											<Icon
-												className={cn("h-4 w-4 shrink-0", color)}
-												aria-hidden
-												strokeWidth={1.6}
-											/>
-											{label}
-											<span className="ml-auto text-xl font-semibold tabular-nums leading-none tracking-tight text-basalt-foreground">
-												{vm.loading ? "—" : value.toLocaleString()}
-											</span>
-										</span>
-										<span className="text-[11px] font-normal text-basalt-muted-foreground">
-											{detail}
-										</span>
-									</Button>
-								</LayerCard>
-							);
-						})}
-					</section>
+			<SectionRule
+				title="Filters"
+				className="space-y-2"
+				actions={
+					<>
+						<span className="max-w-full truncate text-xs text-basalt-muted-foreground">
+							{scopeProject ? (
+								<RepositoryScopeLinks
+									project={scopeProject}
+									repository={repository?.name}
+									organizationOnly={!scopedProject && !repository}
+								/>
+							) : (
+								`${vm.repositories.length} repositories`
+							)}
+						</span>
+						<WatchFilter vm={vm} />
+					</>
+				}
+			>
+				<LayerCard
+					padding="sm"
+					role="region"
+					aria-label="PR filters"
+					className="space-y-2.5"
+				>
+					<RepositoryFilters vm={vm} />
+					{vm.catalogError ? (
+						<p role="alert" className="text-xs text-basalt-warning">
+							Repository filters could not refresh. PR results remain available.
+						</p>
+					) : null}
 					<search
 						aria-label="Filter pull requests"
 						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_1fr_170px_1.2fr]"
@@ -280,8 +244,41 @@ export function PullsPage() {
 							) : null}
 						</div>
 					</search>
-					<WatchToolbar vm={vm} />
-					<div className="flex w-full flex-wrap items-end justify-between gap-3">
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<section
+							aria-label="Pull request overview"
+							className="flex min-w-0 flex-1 flex-wrap gap-1"
+						>
+							{metrics.map(({ key, label, value, detail, Icon, color }) => {
+								const selected =
+									vm.filter.state === "open" && vm.filter.status === key;
+								return (
+									<Button
+										key={key}
+										variant="ghost"
+										size="sm"
+										aria-pressed={selected}
+										title={detail}
+										className={cn(
+											"h-8 gap-1.5 border border-transparent px-2 text-[11px] text-basalt-muted-foreground hover:bg-basalt-primary/5 hover:text-basalt-foreground",
+											selected &&
+												"border-basalt-primary/30 bg-basalt-primary/5 text-basalt-foreground",
+										)}
+										onClick={() => vm.setFilter({ state: "open", status: key })}
+									>
+										<Icon
+											aria-hidden
+											strokeWidth={1.6}
+											className={cn("h-3.5 w-3.5 shrink-0", color)}
+										/>
+										{label}
+										<span className="font-mono text-xs font-semibold tabular-nums text-basalt-foreground">
+											{vm.loading ? "—" : value.toLocaleString()}
+										</span>
+									</Button>
+								);
+							})}
+						</section>
 						<SegmentControl
 							legend="PR state"
 							className="[&>legend]:sr-only [&_[data-slot=segment-control-viewport]]:pb-0"
@@ -299,141 +296,158 @@ export function PullsPage() {
 								{ value: "all", label: "All" },
 							]}
 						/>
-						<div className="flex items-center gap-3 text-xs">
-							<span aria-live="polite" className="tabular-nums">
-								{vm.pullsLoaded
-									? `${vm.total} results`
-									: vm.loading
-										? "Loading…"
-										: "Results unavailable"}
-							</span>
-							{scopedProject ? (
-								<Button
-									variant="ghost"
-									size="sm"
-									onClick={(event) => {
-										opener.current = event.currentTarget;
-										vm.clearMutationError();
-										setReadinessProject(scopedProject);
-									}}
-								>
+					</div>
+				</LayerCard>
+			</SectionRule>
+			<SectionRule
+				title={
+					<span aria-live="polite" className="tabular-nums">
+						{vm.pullsLoaded
+							? `${vm.total} results`
+							: vm.loading
+								? "Loading…"
+								: "Results unavailable"}
+					</span>
+				}
+				className="space-y-2"
+				actions={
+					<>
+						{scopedProject ? (
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={(event) => {
+									opener.current = event.currentTarget;
+									vm.clearMutationError();
+									setReadinessProject(scopedProject);
+								}}
+							>
+								<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+								Readiness order
+							</Button>
+						) : (
+							<Button asChild variant="ghost" size="sm">
+								<Link to="/projects">
 									<ListOrdered className="h-3.5 w-3.5" aria-hidden />
 									Readiness order
-								</Button>
-							) : (
-								<Button asChild variant="ghost" size="sm">
-									<Link to="/projects">
-										<ListOrdered className="h-3.5 w-3.5" aria-hidden />
-										Readiness order
-									</Link>
-								</Button>
-							)}
-						</div>
-					</div>
-				</LayerCard.Header>
-				{vm.loading ? (
-					<LayerCard.Loading label="Loading pull requests" />
-				) : !vm.pullsLoaded ? (
-					<EmptyState
-						icon={GitPullRequest}
-						title="Unable to load pull requests"
-						description="Your project data could not be loaded."
-						action={
-							<Button variant="outline" onClick={() => void vm.reload()}>
-								Try again
+								</Link>
 							</Button>
-						}
-					/>
-				) : vm.total === 0 ? (
-					<EmptyState
-						icon={GitPullRequest}
-						title={
-							vm.projects.length
-								? "No matching pull requests"
-								: "Your review queue starts here"
-						}
-						description={
-							vm.projects.length
-								? "Change your filters, or use Discover PRs to load candidates. Select the PRs you want to watch."
-								: "Add an Azure DevOps project, then use Discover PRs to load candidates."
-						}
-						action={
-							vm.projects.length ? (
-								<Button
-									variant="outline"
-									onClick={() =>
-										vm.setFilter({
-											...DEFAULT_PULL_FILTER,
-											source: vm.filter.source,
-										})
-									}
-								>
-									Clear filters
+						)}
+						<CollectionActions vm={vm} />
+					</>
+				}
+			>
+				<PendingWatchList vm={vm} />
+				<LayerCard padding="none" role="region" aria-label="PR results">
+					<LayerCard.Header className="px-3 py-0.5">
+						<WatchToolbar vm={vm} />
+					</LayerCard.Header>
+					{vm.loading ? (
+						<LayerCard.Loading label="Loading pull requests" />
+					) : !vm.pullsLoaded ? (
+						<EmptyState
+							icon={GitPullRequest}
+							title="Unable to load pull requests"
+							description="Your project data could not be loaded."
+							action={
+								<Button variant="outline" onClick={() => void vm.reload()}>
+									Try again
 								</Button>
-							) : (
-								<Button asChild>
-									<Link to="/projects">
-										Manage projects
-										<ArrowRight className="h-4 w-4" aria-hidden />
-									</Link>
-								</Button>
-							)
-						}
-					/>
-				) : (
-					<div className="overflow-x-auto">
-						<Table
-							aria-label="Pull requests"
-							className="min-w-[960px] table-fixed"
-						>
-							<TableHeader>
-								<TableRow>
-									<TableHead className="w-10">
-										<PageSelectionCheckbox vm={vm} />
-									</TableHead>
-									<TableHead className="w-12 px-1 text-center">
-										<span className="sr-only">Watch list</span>
-										<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
-									</TableHead>
-									{(
-										[
-											["title", "Pull request", "w-[32%]"],
-											["readiness", "Readiness", "w-[15%]"],
-											["progress", "Checks & stages", "w-[18%]"],
-											["action", "Next action", "w-[21%]"],
-											["updated", "PR updated", "w-[14%] text-right"],
-										] as const
-									).map(([sort, label, className]) => (
-										<SortableHead
-											key={sort}
-											sort={sort}
-											label={label}
-											className={className}
-											filter={vm.filter}
-											onSort={() => vm.setFilter(nextPullSort(vm.filter, sort))}
+							}
+						/>
+					) : vm.total === 0 ? (
+						<EmptyState
+							icon={GitPullRequest}
+							title={
+								vm.projects.length
+									? "No matching pull requests"
+									: "Your review queue starts here"
+							}
+							description={
+								vm.projects.length
+									? "Change your filters, or use Discover PRs to load candidates. Select the PRs you want to watch."
+									: "Add an Azure DevOps project, then use Discover PRs to load candidates."
+							}
+							action={
+								vm.projects.length ? (
+									<Button
+										variant="outline"
+										onClick={() =>
+											vm.setFilter({
+												...DEFAULT_PULL_FILTER,
+												source: vm.filter.source,
+											})
+										}
+									>
+										Clear filters
+									</Button>
+								) : (
+									<Button asChild>
+										<Link to="/projects">
+											Manage projects
+											<ArrowRight className="h-4 w-4" aria-hidden />
+										</Link>
+									</Button>
+								)
+							}
+						/>
+					) : (
+						<div className="overflow-x-auto">
+							<Table
+								aria-label="Pull requests"
+								className="min-w-[960px] table-fixed"
+							>
+								<TableHeader>
+									<TableRow>
+										<TableHead className="w-10">
+											<PageSelectionCheckbox vm={vm} />
+										</TableHead>
+										<TableHead className="w-12 px-1 text-center">
+											<span className="sr-only">Watch list</span>
+											<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
+										</TableHead>
+										{(
+											[
+												["title", "Pull request", "w-[32%]"],
+												["readiness", "Readiness", "w-[15%]"],
+												["progress", "Checks & stages", "w-[18%]"],
+												["action", "Next action", "w-[21%]"],
+												["updated", "PR updated", "w-[14%] text-right"],
+											] as const
+										).map(([sort, label, className]) => (
+											<SortableHead
+												key={sort}
+												sort={sort}
+												label={label}
+												className={className}
+												filter={vm.filter}
+												onSort={() =>
+													vm.setFilter(nextPullSort(vm.filter, sort))
+												}
+											/>
+										))}
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{vm.pageRows.map((row) => (
+										<PullTableRow
+											key={row.pull.id}
+											row={row}
+											vm={vm}
+											now={now}
+											onOpen={(element) => {
+												opener.current = element;
+												vm.selectPull(row.pull.id);
+											}}
 										/>
 									))}
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{vm.pageRows.map((row) => (
-									<PullTableRow
-										key={row.pull.id}
-										row={row}
-										vm={vm}
-										now={now}
-										onOpen={(element) => {
-											opener.current = element;
-											vm.selectPull(row.pull.id);
-										}}
-									/>
-								))}
-							</TableBody>
-						</Table>
-					</div>
-				)}
-				<PullPagination vm={vm} />
-			</LayerCard>
+								</TableBody>
+							</Table>
+						</div>
+					)}
+					<PullPagination vm={vm} />
+				</LayerCard>
+			</SectionRule>
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<StageLegend />
 				<p className="text-xs text-basalt-muted-foreground">
@@ -543,24 +557,56 @@ function PullSourceLink({ pull, project }: Pick<PullRow, "pull" | "project">) {
 	);
 }
 
+function WatchFilter({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
+	return (
+		<SelectControl
+			aria-label="Watch list filter"
+			value={vm.filter.watching}
+			onChange={(watching) =>
+				vm.setFilter({ watching: watching as PullFilter["watching"] })
+			}
+			className="h-8 w-40 text-xs"
+			contentClassName="[&_[role=option]]:text-xs"
+		>
+			<option value="all">All candidates</option>
+			<option value="watching">Watching ({vm.collector?.watching ?? 0})</option>
+			<option value="unwatched">Not watching</option>
+		</SelectControl>
+	);
+}
+
+function CollectionActions({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
+	return (
+		<div className="flex items-center gap-1">
+			<Button
+				variant="ghost"
+				size="sm"
+				disabled={Boolean(vm.busy) || !vm.collector?.watching}
+				onClick={() => void vm.refreshPull()}
+			>
+				Refresh watched
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={Boolean(vm.busy) || !vm.projects.length}
+				onClick={() =>
+					void (vm.selectedRepository
+						? vm.discoverRepo()
+						: vm.scan(vm.filter.projectId || undefined))
+				}
+			>
+				<ScanLine aria-hidden className="h-3.5 w-3.5" />
+				Discover PRs
+			</Button>
+		</div>
+	);
+}
+
 function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 	return (
-		<div className="flex w-full flex-wrap items-center justify-between gap-2 border-t border-basalt-border/60 pt-2">
+		<div className="flex min-h-6 w-full flex-wrap items-center gap-2">
 			<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-				<SelectControl
-					aria-label="Watch list filter"
-					value={vm.filter.watching}
-					onChange={(watching) =>
-						vm.setFilter({ watching: watching as PullFilter["watching"] })
-					}
-					className="h-8 w-40 text-xs"
-				>
-					<option value="all">All candidates</option>
-					<option value="watching">
-						Watching ({vm.collector?.watching ?? 0})
-					</option>
-					<option value="unwatched">Not watching</option>
-				</SelectControl>
 				<span className="text-xs tabular-nums text-basalt-muted-foreground">
 					{vm.selectedCount
 						? `${vm.selectedCount} selected`
@@ -570,6 +616,7 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 					<>
 						<Button
 							size="sm"
+							className="h-6 px-2 text-[11px]"
 							disabled={
 								Boolean(vm.busy) ||
 								!vm.selectionItems.some(
@@ -585,6 +632,7 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 						<Button
 							size="sm"
 							variant="outline"
+							className="h-6 px-2 text-[11px]"
 							disabled={
 								Boolean(vm.busy) ||
 								!vm.selectionItems.some(
@@ -618,29 +666,6 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 						? [vm.mutationError, vm.notice].filter(Boolean).join(" ")
 						: null}
 				</span>
-			</div>
-			<div className="flex items-center gap-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					disabled={Boolean(vm.busy) || !vm.collector?.watching}
-					onClick={() => void vm.refreshPull()}
-				>
-					Refresh watched
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={Boolean(vm.busy) || !vm.projects.length}
-					onClick={() =>
-						void (vm.selectedRepository
-							? vm.discoverRepo()
-							: vm.scan(vm.filter.projectId || undefined))
-					}
-				>
-					<ScanLine aria-hidden className="h-3.5 w-3.5" />
-					Discover PRs
-				</Button>
 			</div>
 		</div>
 	);

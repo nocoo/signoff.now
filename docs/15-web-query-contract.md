@@ -70,7 +70,7 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 - 每个 key 同时最多一个自动读取请求；下一次轮询从本次响应结束后计时。组件卸载和 key 变化取消请求，同时以实例生命周期和取消信号拒绝迟到结果。
 - 网络错误使用有上限的重试退避；手动 Retry 只重试读取。用户选择的筛选和未保存草稿独立于查询缓存。
 - `Refresh watched` 只提交观察项的状态刷新，`Discover PRs` 首次发现完整历史、后续增量发现候选，仍包含所有状态；收到回执就结束提交态。需要重查旧的未关注 PR 时，CLI / API 提供显式 full 发现，见 18。
-- 采集进度位于 sidebar 底部、头像上方，不覆盖页面右下角；折叠时显示状态图标，点击展开任务信息。空闲时不占卡片空间，错误和 Dismiss 仍可操作。
+- Connector 连接状态、关注 / 运行 / 排队数量、当前任务与真实进度、刷新冷却配置统一位于 sidebar 底部、头像上方，与导航融为一体，不另套卡片。空闲时保留紧凑状态区；在线用绿色，离线 / 登录过期 / 错误用红色，同时保留文字标识。按有关注项的项目显示下次到期时间；采集暂停时保留缓存数量，不继续播放运行进度。PR 和 Projects 页不重复放连接块或冷却控件，也不覆盖页面右下角。间隔菜单与触发器等宽、字号一致，选项不换行。折叠时保留状态图标与 tooltip，点击展开详情；动画尊重减少动态效果设置。
 - 采集成功只使相关 PR / 仓库块下次读取新版本，不触发 Directory 重载或 Insights 重算。
 - 初次打开、翻页和筛选都只读缓存，不再发送 `usePageCollection` 的页面范围 / 可见性心跳。移除这个隐式采集入口。
 - 添加使用本地可解析的规范引用，不等待 provider；不同页面和 CLI 添加同一 PR 是幂等操作。删除使用查询取得的 observation ID / generation，迟到的删除不能移除后来重新添加的一代，也不自动重试冲突。
@@ -82,6 +82,7 @@ PR 查询参数与返回身份共享 [18](18-cli-query-contract.md) 的规范。
 - 全局 Live / Sample、Organization → Project → Repository、默认不含 Draft、作者多选、localStorage 筛选，以及 URL 明确参数优先。
 - Sample 发现能力来自 Collector 查询的 `sampleCommandsEnabled`，由服务端本地 demo 配置判定，与网页是否为开发构建无关。
 - PR 页默认 20 条，表头排序；项目自定义全部 merge requirements 的次序与颜色，最就绪在前；无 PoP 内置特例。
+- PR 页用 Basalt 分区线划分筛选与结果：Org / Project / Repo、搜索、作者、Draft、Readiness 和状态收进独立筛选卡片，表格与批量操作使用独立结果卡片。分区线右侧放范围链接 / 关注筛选，以及 Readiness order / Refresh watched / Discover PRs，避免另外占一排；副标题简述页面用途，不重复当前范围。
 - 共享领域规则决定网页和 CLI 的 readiness。未知检查、SHA 变化与 partial 不得产生假的“可合并”。
 - PR 编号、源 PR、组织、项目、仓库和 build 外链；Markdown 描述；姓名头像。
 - `PR updated` 是源 PR 时间，`Synced` 和 `Checks synced` 是各自采集时间，按分钟更新显示。

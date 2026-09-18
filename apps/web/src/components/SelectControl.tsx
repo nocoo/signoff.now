@@ -11,6 +11,7 @@ import {
 	isValidElement,
 	type ReactNode,
 } from "react";
+import { cn } from "@/lib/utils";
 
 const EMPTY_VALUE = "__signoff_empty__";
 
@@ -27,6 +28,7 @@ export function SelectControl({
 	children,
 	disabled,
 	className,
+	contentClassName,
 	"aria-label": ariaLabel,
 	"aria-labelledby": ariaLabelledBy,
 	"aria-describedby": ariaDescribedBy,
@@ -39,6 +41,7 @@ export function SelectControl({
 	children: ReactNode;
 	disabled?: boolean;
 	className?: string;
+	contentClassName?: string;
 	"aria-label"?: string;
 	"aria-labelledby"?: AriaAttributes["aria-labelledby"];
 	"aria-describedby"?: AriaAttributes["aria-describedby"];
@@ -65,7 +68,10 @@ export function SelectControl({
 			<SelectTrigger
 				id={id}
 				disabled={disabled}
-				className={className}
+				className={cn(
+					"gap-2 whitespace-nowrap [&>span]:truncate [&>svg]:shrink-0",
+					className,
+				)}
 				aria-label={ariaLabel}
 				aria-labelledby={ariaLabelledBy}
 				aria-describedby={ariaDescribedBy}
@@ -74,12 +80,18 @@ export function SelectControl({
 			>
 				<SelectValue />
 			</SelectTrigger>
-			<SelectContent>
+			<SelectContent
+				className={cn(
+					"w-max min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]",
+					contentClassName,
+				)}
+			>
 				{options.map((option) => (
 					<SelectItem
 						key={option.value || EMPTY_VALUE}
 						value={option.value || EMPTY_VALUE}
 						disabled={option.disabled}
+						className="whitespace-nowrap [&>span:first-child]:truncate"
 					>
 						{option.label}
 					</SelectItem>

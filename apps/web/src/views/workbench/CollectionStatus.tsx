@@ -1,8 +1,54 @@
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@nocoo/basalt";
-import { CircleAlert, LoaderCircle, X } from "lucide-react";
-import { useState } from "react";
+import {
+	Button,
+	Label,
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@nocoo/basalt";
+import { Activity, CircleAlert, Radio } from "lucide-react";
+import { useId } from "react";
+import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
+import { REFRESH_INTERVALS, relativeTime } from "@/models/workbench";
+import { useMinuteNow } from "@/viewmodels/useMinuteNow";
+import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
+
+const connectionStyles = {
+	ready: { label: "Online", color: "text-basalt-heatmap-green-4" },
+	offline: { label: "Offline", color: "text-basalt-destructive" },
+	auth_required: {
+		label: "Sign-in required",
+		color: "text-basalt-destructive",
+	},
+	error: { label: "Error", color: "text-basalt-destructive" },
+	unavailable: { label: "Unavailable", color: "text-basalt-destructive" },
+	connecting: { label: "Connecting", color: "text-basalt-muted-foreground" },
+};
+
+function operationLabel(
+	vm: WorkbenchViewModel,
+	state: keyof typeof connectionStyles,
+	problem: boolean,
+	untilNext: number | null,
+) {
+	const collector = vm.collector;
+	if (!collector) return "Reading status";
+	if (state !== "ready") return "Collection paused";
+	if (collector.queue.running > 0)
+		return collector.jobs.find((job) => job.state === "running")?.kind ===
+			"discover"
+			? "Discovering PRs"
+			: "Refreshing PR checks";
+	if (problem) return "Needs attention";
+	if (collector.queue.queued > 0) return "Waiting to start";
+	if (!collector.watching) return "Ready to watch";
+	if (!vm.detailCooldownSeconds) return "Manual checks";
+	if (untilNext === null) return "Waiting for next round";
+	if (untilNext <= 0) return "Next check due";
+	if (untilNext < 60) return "Next check in <1 min";
+	return `Next check in ${Math.ceil(untilNext / 60)} min`;
+}
 
 export function CollectionStatus({
 	collapsed = false,
@@ -12,127 +58,242 @@ export function CollectionStatus({
 	onExpand?: () => void;
 }) {
 	const vm = useWorkbench();
-	const [dismissed, setDismissed] = useState("");
-	const jobs = vm.collector?.jobs ?? [];
-	const active = jobs.filter((job) =>
-		["queued", "running", "auth_required"].includes(job.state),
-	);
-	const errors = jobs.filter(
+	const now = useMinuteNow();
+	const intervalId = useId();
+	const collector = vm.collector;
+	const state = vm.collectionError
+		? "unavailable"
+		: collector
+			? vm.connection.state
+			: "connecting";
+	const connection = connectionStyles[state];
+	const jobs = collector?.jobs ?? [];
+	const running = state === "ready" && (collector?.queue.running ?? 0) > 0;
+	const currentJob = running
+		? jobs.find((job) => job.state === "running")
+		: undefined;
+	const recentFailure = jobs.find(
 		(job) =>
 			["failed", "partial"].includes(job.state) &&
-			Date.now() - Date.parse(job.updatedAt) < 300000 &&
+			now - Date.parse(job.updatedAt) / 1000 < 300 &&
 			!jobs.some(
 				(other) =>
 					other.id !== job.id &&
 					other.projectId === job.projectId &&
 					other.kind === job.kind &&
+					other.observation?.id === job.observation?.id &&
+					other.scope.join("\0") === job.scope.join("\0") &&
 					other.requestedAt > job.requestedAt,
 			),
 	);
-	const signature = `${vm.filter.source}:${active.map((j) => `${j.id}:${j.state}`).join(",")}:${errors.map((j) => j.id).join(",")}:${vm.collectionError ?? ""}`;
-	if (
-		(!active.length && !errors.length && !vm.collectionError) ||
-		dismissed === signature
-	)
-		return null;
 	const problem =
 		vm.collectionError ||
-		active.find((j) => j.state === "auth_required")?.message ||
-		errors[0]?.message;
-	const title = problem ? "Collection needs attention" : "Collecting PR data";
-	const icon = problem ? (
-		<CircleAlert aria-hidden className="h-4 w-4 shrink-0 text-basalt-warning" />
-	) : (
-		<LoaderCircle
+		(state !== "ready" && state !== "connecting"
+			? vm.connection.message
+			: jobs.find((job) => job.state === "auth_required")?.message ||
+				recentFailure?.message);
+	const watching = collector?.watching ?? 0;
+	const watchedProjects = new Set(
+		vm.repositories
+			.filter((repo) => repo.project.enabled && repo.metrics.watching > 0)
+			.map((repo) => repo.project.id),
+	);
+	const nextDue = collector?.rounds
+		.flatMap((round) =>
+			watchedProjects.has(round.projectId) && round.nextDueAt
+				? [Date.parse(round.nextDueAt) / 1000]
+				: [],
+		)
+		.sort((a, b) => a - b)[0];
+	const untilNext = nextDue === undefined ? null : nextDue - now;
+	const operation = operationLabel(vm, state, Boolean(problem), untilNext);
+	let context: string | undefined;
+	if (currentJob)
+		context = vm.projects.find(
+			({ project }) => project.id === currentJob.projectId,
+		)?.project.name;
+	else if (collector?.pendingFirstResult)
+		context = `${collector.pendingFirstResult} awaiting first result`;
+	else if (!watching && state === "ready")
+		context = "Add PRs to start monitoring";
+	const Icon = problem ? CircleAlert : running ? Activity : Radio;
+	const icon = (
+		<Icon
 			aria-hidden
-			className="h-4 w-4 shrink-0 text-basalt-primary motion-safe:animate-spin"
+			strokeWidth={1.5}
+			className={cn(
+				"h-4 w-4 shrink-0",
+				problem ? "text-basalt-destructive" : connection.color,
+				running && !problem && "motion-safe:animate-pulse",
+			)}
 		/>
 	);
+	const summary = `Connector ${connection.label.toLowerCase()}. ${operation}. ${watching} watching`;
 	if (collapsed)
 		return (
 			<section
-				aria-label="Collection progress"
-				className="flex justify-center pb-2"
+				aria-label="Connector status"
+				className="flex justify-center pb-3"
 			>
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
 							variant="ghost"
 							size="icon"
+							className="rounded-basalt-md"
 							onClick={onExpand}
-							aria-label={`${title}. Expand sidebar for details`}
+							aria-label={`${summary}. Expand sidebar for details`}
 						>
 							{icon}
 						</Button>
 					</TooltipTrigger>
-					<TooltipContent side="right">{title}</TooltipContent>
+					<TooltipContent side="right" className="max-w-64">
+						{summary}
+						{problem ? <p className="mt-1">{problem}</p> : null}
+					</TooltipContent>
 				</Tooltip>
 			</section>
 		);
+	const progress = currentJob?.progress;
 	return (
 		<section
-			aria-label="Collection progress"
-			className="mb-2 min-w-0 rounded-basalt-lg border border-basalt-border bg-basalt-card/60 p-3"
+			aria-label="Connector status"
+			className="mb-3 min-w-0 border-t border-basalt-border/70 pt-3"
 		>
-			<div className="flex items-center gap-2.5">
+			<div className="flex items-center gap-2">
 				{icon}
-				<span className="flex-1 text-xs font-semibold">{title}</span>
-				<Button
-					variant="ghost"
-					size="icon"
-					className="-my-1 -mr-1 h-6 w-6"
-					aria-label="Dismiss collection progress"
-					onClick={() => setDismissed(signature)}
+				<span className="flex-1 text-[11px] font-semibold">Connector</span>
+				<span
+					className={cn(
+						"flex items-center gap-1.5 whitespace-nowrap text-[10px] font-medium",
+						connection.color,
+					)}
+					title={vm.connection.message}
 				>
-					<X aria-hidden className="h-3.5 w-3.5" />
-				</Button>
+					<span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+					{connection.label}
+				</span>
 			</div>
-			<div
-				role="status"
-				aria-live="polite"
-				className="mt-2 max-h-36 space-y-2 overflow-y-auto text-[11px] text-basalt-muted-foreground"
-			>
-				{active.length ? (
-					<p>
-						{vm.collector?.queue.running ?? 0} running ·{" "}
-						{vm.collector?.queue.queued ?? 0} queued ·{" "}
-						{vm.collector?.watching ?? 0} watched PRs
+			<div className="mt-1 flex items-center justify-between gap-2 font-mono text-[9px] text-basalt-muted-foreground">
+				<span className="uppercase tracking-wider">
+					{vm.filter.source === "cli" ? "Live" : "Sample"}
+				</span>
+				{collector?.connection.lastSeenAt ? (
+					<span
+						className="whitespace-nowrap"
+						title={`Last contact: ${new Date(collector.connection.lastSeenAt).toLocaleString()}`}
+					>
+						Contact{" "}
+						{relativeTime(
+							Date.parse(collector.connection.lastSeenAt) / 1000,
+							now,
+						)}
+					</span>
+				) : null}
+			</div>
+			<dl className="my-2 flex items-center justify-between gap-2">
+				{[
+					["Watching", collector?.watching],
+					["Running", collector?.queue.running],
+					["Queued", collector?.queue.queued],
+				].map(([label, count]) => (
+					<div key={label} className="flex min-w-0 items-baseline gap-1">
+						<dt className="text-[10px] text-basalt-muted-foreground">
+							{label}
+						</dt>
+						<dd className="order-first font-mono text-xs font-medium tabular-nums">
+							{count ?? "—"}
+						</dd>
+					</div>
+				))}
+			</dl>
+			<div className="min-h-4">
+				<p
+					role="status"
+					className={cn(
+						"text-[11px] font-medium",
+						problem && "text-basalt-destructive",
+					)}
+				>
+					{operation}
+				</p>
+				{context ? (
+					<p
+						className="mt-0.5 truncate text-[10px] text-basalt-muted-foreground"
+						title={context}
+					>
+						{context}
 					</p>
 				) : null}
-				{active
-					.filter((job) => job.state === "running")
-					.map((job) => (
-						<div key={job.id} className="space-y-1">
-							<p>
-								{job.kind === "discover"
-									? "Discovering PRs"
-									: "Refreshing watched PR"}{" "}
-								· {job.progress.completed}
-								{job.progress.total === null
-									? " collected"
-									: ` / ${job.progress.total}`}
-							</p>
-							<div className="h-1 overflow-hidden rounded-full bg-basalt-muted">
-								<div
-									className={cn(
-										"h-full rounded-full bg-basalt-primary",
-										job.progress.total === null &&
-											"w-1/3 motion-safe:animate-pulse",
-									)}
-									style={
-										job.progress.total === null
-											? undefined
-											: {
-													width: `${Math.min(100, (100 * job.progress.completed) / Math.max(1, job.progress.total))}%`,
-												}
-									}
-								/>
-							</div>
+				{progress ? (
+					<div className="mt-1.5 flex items-center gap-2">
+						<div
+							role="progressbar"
+							aria-label={operation}
+							aria-valuemin={0}
+							aria-valuemax={progress.total ?? undefined}
+							aria-valuenow={
+								progress.total === null
+									? undefined
+									: Math.min(progress.completed, progress.total)
+							}
+							className="h-1 flex-1 overflow-hidden rounded-full bg-basalt-muted"
+						>
+							<div
+								className={cn(
+									"h-full rounded-full bg-basalt-heatmap-green-3 transition-[width] motion-reduce:transition-none",
+									progress.total === null && "w-1/3 motion-safe:animate-pulse",
+								)}
+								style={
+									progress.total === null
+										? undefined
+										: {
+												width: `${Math.min(100, (100 * progress.completed) / Math.max(1, progress.total))}%`,
+											}
+								}
+							/>
 						</div>
-					))}
-				{problem ? (
-					<p className="break-words text-basalt-warning">{problem}</p>
+						<p className="shrink-0 whitespace-nowrap font-mono text-[9px] tabular-nums text-basalt-muted-foreground">
+							{progress.completed}
+							{progress.total === null ? " collected" : ` / ${progress.total}`}
+						</p>
+					</div>
 				) : null}
+				{problem ? (
+					<p className="mt-1 max-h-16 overflow-y-auto break-words text-[10px] leading-relaxed text-basalt-destructive">
+						{problem}
+					</p>
+				) : null}
+			</div>
+			<div
+				className="mt-2 flex items-center justify-between gap-2"
+				title="Refresh the shared watch list after each project's entire round finishes. Continues without an open webpage."
+			>
+				<div>
+					<Label htmlFor={intervalId} className="text-[10px] font-medium">
+						Checks
+					</Label>
+					<p className="text-[9px] text-basalt-muted-foreground">
+						Cooldown after round
+					</p>
+				</div>
+				<SelectControl
+					id={intervalId}
+					aria-label="Watched PR refresh cooldown"
+					value={String(vm.detailCooldownSeconds)}
+					disabled={Boolean(vm.busy) || !collector}
+					onChange={(value) =>
+						void vm.setRefreshCooldown("details", Number(value))
+					}
+					className="h-6 w-[100px] shrink-0 whitespace-nowrap px-2 text-[11px] [&>svg]:h-3 [&>svg]:w-3"
+					contentClassName="w-[var(--radix-select-trigger-width)] [&_[role=option]]:py-1 [&_[role=option]]:text-[11px]"
+				>
+					{REFRESH_INTERVALS.map((seconds) => (
+						<option key={seconds} value={seconds}>
+							{seconds === 0 ? "Manual" : `${seconds / 60} min`}
+						</option>
+					))}
+				</SelectControl>
 			</div>
 		</section>
 	);

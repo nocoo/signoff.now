@@ -211,6 +211,20 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	const before = providerRequests;
 	await page.reload();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(20);
+	const filters = page.getByRole("region", { name: "PR filters", exact: true });
+	const results = page.getByRole("region", { name: "PR results", exact: true });
+	await expect(
+		filters.getByRole("combobox", { name: "Organization" }),
+	).toBeVisible();
+	await expect(
+		filters.getByRole("textbox", { name: "Search PRs" }),
+	).toBeVisible();
+	await expect(
+		results.getByRole("table", { name: "Pull requests" }),
+	).toBeVisible();
+	expect(
+		(await filters.boundingBox())!.y + (await filters.boundingBox())!.height,
+	).toBeLessThan((await results.boundingBox())!.y);
 	const selectAll = page.getByRole("checkbox", {
 		name: "Select all eligible PRs on this page",
 	});
@@ -280,7 +294,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect((await watchList()).data.map((watch) => watch.pullId)).toEqual([
 		ids[0],
 	]);
-	const collection = page.getByRole("region", { name: "Collection progress" });
+	const collection = page.getByRole("region", { name: "Connector status" });
 	await expect(collection).toBeVisible();
 	expect(
 		await collection.evaluate(
@@ -1129,4 +1143,118 @@ test("incremental discovery retries from its last success and full discovery rec
 	await expect(
 		page.locator("tr[data-pull-id]").getByRole("button", { name: /^Watch PR/ }),
 	).toHaveAttribute("aria-pressed", "false");
+});
+
+test("sidebar connector stays compact and its interval menu fits in expanded, collapsed and mobile navigation", async ({
+	page,
+}) => {
+	await page.clock.install();
+	const current = collectorQuerySchema.parse(await cli("status"));
+	const updatedAt = new Date().toISOString();
+	const status = {
+		...current,
+		connection: { state: "ready", lastSeenAt: updatedAt, message: "Connected" },
+		watching: 16,
+		queue: { running: 1, queued: 3, authRequired: 0 },
+		jobs: [
+			{
+				id: "connector-ui-job",
+				source: "live",
+				kind: "discover",
+				state: "running",
+				projectId: "connector-ui-project",
+				projectRevision: 1,
+				scope: [],
+				reason: null,
+				error: null,
+				message: "Discovering",
+				requestedAt: updatedAt,
+				startedAt: updatedAt,
+				updatedAt,
+				completedAt: null,
+				notBefore: updatedAt,
+				progress: { completed: 12, total: 40 },
+				observation: null,
+				repositories: [],
+			},
+		],
+	};
+	await page.route("**/api/query/v1/collector?**", (route) =>
+		route.fulfill({ json: status }),
+	);
+	await page.goto("/?source=cli");
+	const panel = page.getByRole("region", { name: "Connector status" });
+	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
+	await expect(panel.getByRole("progressbar")).toHaveAttribute(
+		"aria-valuenow",
+		"12",
+	);
+	await expect(
+		page.locator("aside").getByRole("region", { name: "Connector status" }),
+	).toHaveCount(1);
+	await expect(
+		page.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
+	).toHaveCount(1);
+	expect((await panel.boundingBox())!.height).toBeLessThan(180);
+	const interval = panel.getByRole("combobox", {
+		name: "Watched PR refresh cooldown",
+	});
+	const intervalWidth = (await interval.boundingBox())!.width;
+	await interval.click();
+	const menu = page.getByRole("listbox");
+	await expect(menu).toBeVisible();
+	expect(
+		Math.abs((await menu.boundingBox())!.width - intervalWidth),
+	).toBeLessThanOrEqual(1);
+	const options = await page.getByRole("option").evaluateAll((items) =>
+		items.map((item) => ({
+			font: getComputedStyle(item).fontSize,
+			wrap: getComputedStyle(item).whiteSpace,
+			overflow: item.scrollWidth > item.clientWidth,
+		})),
+	);
+	expect(options).toHaveLength(5);
+	expect(
+		options.every(
+			(option) =>
+				option.font === "11px" && option.wrap === "nowrap" && !option.overflow,
+		),
+	).toBe(true);
+	await page.screenshot({ path: test.info().outputPath("connector-menu.png") });
+	await page.keyboard.press("Escape");
+	status.connection = {
+		state: "offline",
+		lastSeenAt: updatedAt,
+		message: "Start signoff daemon to collect watched PRs",
+	};
+	await page.clock.runFor(3100);
+	await expect(panel.getByText("Offline", { exact: true })).toBeVisible();
+	await expect(panel.getByRole("progressbar")).toHaveCount(0);
+	await expect(panel.getByText("Offline", { exact: true })).toHaveClass(
+		/text-basalt-destructive/,
+	);
+	await page.screenshot({
+		path: test.info().outputPath("connector-offline.png"),
+	});
+	await page.getByRole("button", { name: "Collapse sidebar" }).click();
+	await expect(
+		panel.getByRole("button", { name: /Connector offline.*Expand sidebar/ }),
+	).toBeVisible();
+	await panel
+		.getByRole("button", { name: /Connector offline.*Expand sidebar/ })
+		.click();
+	await expect(interval).toBeVisible();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole("button", { name: "Open navigation" }).click();
+	await expect(panel).toBeVisible();
+	await panel
+		.getByRole("combobox", { name: "Watched PR refresh cooldown" })
+		.click();
+	await expect(menu).toBeVisible();
+	expect(
+		(await menu.boundingBox())!.x + (await menu.boundingBox())!.width,
+	).toBeLessThanOrEqual(390);
+	await page.screenshot({
+		path: test.info().outputPath("connector-mobile.png"),
+	});
 });
