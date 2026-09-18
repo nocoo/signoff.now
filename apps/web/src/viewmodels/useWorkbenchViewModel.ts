@@ -1,4 +1,8 @@
-import type { Observation } from "@signoff/domain/monitoring";
+import {
+	matchesRepositoryReference,
+	type Observation,
+	parseRepositoryReference,
+} from "@signoff/domain/monitoring";
 import {
 	type CollectionJob,
 	type Project,
@@ -190,7 +194,8 @@ export function useWorkbenchViewModel() {
 					.filter((r) => r.project.id === project.id)
 					.map((r) => ({
 						key: r.key,
-						id: r.repository.id ?? r.repository.name,
+						id: r.repository.id ?? r.repository.url,
+						identityResolved: r.identityResolved,
 						name: r.repository.name,
 						project,
 						metrics: { ...emptyMetrics, ...r.counts },
@@ -240,8 +245,56 @@ export function useWorkbenchViewModel() {
 			({ project }) => !filter.projectId || project.id === filter.projectId,
 		)
 		.flatMap((p) => p.repositories);
+	const repositoryReference = useMemo(() => {
+		if (!filter.repository.startsWith("https://")) return null;
+		try {
+			return parseRepositoryReference(filter.repository);
+		} catch {
+			return null;
+		}
+	}, [filter.repository]);
+	const referenceRepositories = repositoryReference
+		? repositories.filter(
+				(r) =>
+					r.project.provider === repositoryReference.provider &&
+					r.project.organization.toLowerCase() ===
+						repositoryReference.organization.toLowerCase() &&
+					r.project.projectKey.toLowerCase() ===
+						repositoryReference.projectKey.toLowerCase(),
+			)
+		: repositories;
+	const repositoryIds = referenceRepositories
+		.filter((r) => r.identityResolved)
+		.map((r) => r.id);
 	const selectedRepository =
-		repositories.find((r) => matchesRepository(r, filter.repository)) ?? null;
+		referenceRepositories.find((r) =>
+			repositoryReference
+				? r.identityResolved
+					? matchesRepositoryReference(
+							r,
+							repositoryReference.repository,
+							r.project.provider,
+							repositoryIds,
+						)
+					: r.url === filter.repository
+				: matchesRepository(r, filter.repository),
+		) ?? null;
+	const resolvedRepositoryId = selectedRepository?.id;
+	useEffect(() => {
+		if (
+			filter.repository.startsWith("https://") &&
+			resolvedRepositoryId &&
+			!resolvedRepositoryId.startsWith("https://")
+		)
+			setParams(
+				(previous) =>
+					writePullFilter(
+						{ ...filter, repository: resolvedRepositoryId },
+						previous,
+					),
+				{ replace: true },
+			);
+	}, [filter, resolvedRepositoryId, setParams]);
 	const total = pulls.data?.page.total ?? 0;
 	const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 	const loading = location.pathname === "/" ? pulls.loading : catalog.loading;

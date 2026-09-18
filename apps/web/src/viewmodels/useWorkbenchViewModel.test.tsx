@@ -371,6 +371,53 @@ describe("filters, server pages and temporary selection", () => {
 		act(() => result.current.vm.setFilter({ source: "demo" }));
 		expect(result.current.vm.filter.authors).toEqual([]);
 	});
+	it("selects an unresolved repository by URL and preserves its scope after discovery", async () => {
+		const repo = fixture.catalog.data[0]!;
+		let discovered = false;
+		vi.mocked(api.loadCatalog).mockImplementation(async () =>
+			discovered
+				? fixture.catalog
+				: {
+						...fixture.catalog,
+						data: [
+							{
+								...repo,
+								key: "unresolved",
+								repository: { ...repo.repository, id: null },
+								identityResolved: false,
+							},
+						],
+					},
+		);
+		vi.mocked(api.loadPulls).mockImplementation(async (query) => {
+			const scope = new URLSearchParams(query);
+			return discovered &&
+				(scope.get("repositoryId") === repo.repository.id ||
+					scope.get("repo") === repo.repository.url)
+				? fixture.pulls
+				: { ...fixture.pulls, data: [], page: { ...fixture.page, total: 0 } };
+		});
+		vi.mocked(api.discover).mockImplementation(async () => {
+			discovered = true;
+			return { jobs: [] };
+		});
+		const { result } = render();
+		await loaded(result);
+		act(() => result.current.vm.selectRepository("unresolved"));
+		expect(result.current.vm.selectedRepository?.name).toBe(
+			repo.repository.name,
+		);
+		expect(result.current.vm.filter.repository).toBe(repo.repository.url);
+		await act(() => result.current.vm.discoverRepo());
+		await waitFor(() => expect(result.current.vm.total).toBe(1));
+		expect(result.current.vm.selectedRepository?.id).toBe(repo.repository.id);
+		expect(result.current.vm.filter.repository).toBe(repo.repository.id);
+		expect(
+			new URLSearchParams(localStorage.getItem(PULL_FILTER_STORAGE_KEY)!).get(
+				"repo",
+			),
+		).toBe(repo.repository.id);
+	});
 	it("uses server totals, clamps removed pages and validates malformed page numbers", async () => {
 		vi.mocked(api.loadPulls).mockResolvedValue({
 			...fixture.pulls,

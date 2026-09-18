@@ -756,7 +756,29 @@ test("repository IDs remain scoped across cold discovery, mixed watch batches, C
 		).toBe("complete");
 	};
 	await cli("repo", "add", repositoryUrl);
-	await executeDiscovery(await cli("discover", "--repo", repositoryUrl));
+	await page.goto(
+		`/?${new URLSearchParams({ source: "cli", org: organization, draft: "include" })}`,
+	);
+	const repoSelector = page.getByRole("combobox", {
+		name: "Repository",
+		exact: true,
+	});
+	await repoSelector.click();
+	await page.getByRole("option", { name: id, exact: false }).click();
+	await expect(repoSelector).toContainText(id);
+	const discoveryResponse = page.waitForResponse(
+		(response) =>
+			response.url().endsWith("/api/commands/v1/discover") &&
+			response.request().method() === "POST",
+	);
+	await page.getByRole("button", { name: "Discover PRs", exact: true }).click();
+	await executeDiscovery(await (await discoveryResponse).json());
+	await page.reload();
+	await expect(repoSelector).toHaveText("main-repository");
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(2);
+	await expect
+		.poll(() => new URL(page.url()).searchParams.get("repo"))
+		.toBe(id);
 	const initial = repoListSchema.parse(await cli("repo", "list", "--all"));
 	const project = initial.projects.find(
 		(p) => p.organization === organization,

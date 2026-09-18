@@ -77,7 +77,6 @@ export function pullQueryParams(filter: PullFilter, page: number) {
 		q: filter.query,
 		org: filter.organization,
 		projectId: filter.projectId,
-		repositoryId: filter.repository,
 		state: filter.state,
 		draft: filter.draft,
 		status: filter.status,
@@ -86,6 +85,10 @@ export function pullQueryParams(filter: PullFilter, page: number) {
 		limit: "20",
 		page: String(page),
 	});
+	params.set(
+		filter.repository.startsWith("https://") ? "repo" : "repositoryId",
+		filter.repository,
+	);
 	for (const author of filter.authors) params.append("author", author);
 	if (filter.watching !== "all")
 		params.set("watching", String(filter.watching === "watching"));
@@ -133,7 +136,11 @@ export async function loadPending(
 	if (page > 1) params.set("page", String(page));
 	if (scope?.organization) params.set("org", scope.organization);
 	if (scope?.projectId) params.set("projectId", scope.projectId);
-	if (scope?.repository) params.set("repositoryId", scope.repository);
+	if (scope?.repository)
+		params.set(
+			scope.repository.startsWith("https://") ? "repo" : "repositoryId",
+			scope.repository,
+		);
 	return observationListSchema.parse(
 		await apiFetch(`/api/query/v1/observations?${params}`, init(signal)),
 	);

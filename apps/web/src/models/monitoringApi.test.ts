@@ -89,6 +89,26 @@ test("pending watches have independent page navigation", async () => {
 		expect.anything(),
 	);
 });
+test("unresolved repository URLs are never sent as stable provider IDs", async () => {
+	const fixture = queryFixture();
+	const repository = fixture.catalog.data[0]!.repository.url;
+	const filter = { ...readPullFilter(new URLSearchParams(), true), repository };
+	const params = new URLSearchParams(pullQueryParams(filter, 1));
+	expect(params.get("repo")).toBe(repository);
+	expect(params.has("repositoryId")).toBe(false);
+	vi.mocked(apiFetch).mockResolvedValue({
+		...fixture.envelope,
+		data: [],
+		page: { ...fixture.page, total: 0 },
+	});
+	await loadPending("cli", new AbortController().signal, filter);
+	const pending = new URL(
+		String(vi.mocked(apiFetch).mock.calls[0]?.[0]),
+		"http://localhost",
+	).searchParams;
+	expect(pending.get("repo")).toBe(repository);
+	expect(pending.has("repositoryId")).toBe(false);
+});
 
 test("independent query endpoints validate responses and do not issue commands", async () => {
 	const fixture = queryFixture();
