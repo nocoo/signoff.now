@@ -143,6 +143,9 @@ async function execute(merged = false) {
 		log: silent,
 		collect: async (options) => {
 			const target = options.targets![0]!;
+			const repository = repos.find(
+				(repo) => repo.id === target.repository.id,
+			)!;
 			const template = demoWorkspace(now).pullRequests[0]!;
 			return {
 				state: "complete",
@@ -151,16 +154,17 @@ async function execute(merged = false) {
 					{
 						...template,
 						...target,
+						repository: { id: repository.id, name: repository.name },
 						projectId: options.project.id,
 						externalId: String(target.number),
-						title: `${target.repository.name} change ${target.number}`,
+						title: `${repository.name} change ${target.number}`,
 						draft: target.number === 2,
 						state: merged ? "merged" : "open",
 						createdAt: now - 86400,
 						updatedAt: now - 1,
-						observedAt: now,
-						checksObservedAt: now,
-						mergedAt: merged ? now - 1 : null,
+						observedAt: options.now,
+						checksObservedAt: options.now,
+						mergedAt: merged ? options.now - 1 : null,
 						headSha: "head",
 						targetSha: "target",
 						coverage: "complete",
@@ -414,9 +418,35 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect(repoListSchema.parse(await cli("repo", "list")).data).toHaveLength(2);
 	// Provider renames keep old URLs usable and cannot create a second watch identity.
 	const previousRepoUrl = repoUrl(repos[1]!);
+	const retainedUrl = `${previousRepoUrl}/pullrequest/5`;
+	await cli("watch", "add", retainedUrl);
+	expect((await execute()).state).toBe("complete");
+	const retainedWatch = (await watchList()).data[0]!;
 	repos[1]!.name = "Éditeur-renamed";
 	await cli("discover", "--repo", previousRepoUrl);
 	expect((await execute()).state).toBe("complete");
+	const catalogAfterRename = repoListSchema.parse(await cli("repo", "list"));
+	expect(catalogAfterRename.page.total).toBe(2);
+	expect(catalogAfterRename.coverage.state).toBe("complete");
+	await cli("refresh", "--pr", retainedUrl);
+	expect((await execute()).state).toBe("complete");
+	const catalogAfterRefresh = repoListSchema.parse(await cli("repo", "list"));
+	expect(
+		catalogAfterRefresh.data.find((repo) => repo.repository.id === repos[1]!.id)
+			?.repository.name,
+	).toBe("Éditeur-renamed");
+	expect(catalogAfterRefresh.page.total).toBe(2);
+	expect(catalogAfterRefresh.coverage.state).toBe("complete");
+	expect((await watchList()).data[0]).toMatchObject({
+		id: retainedWatch.id,
+		generation: retainedWatch.generation,
+		active: true,
+	});
+	await page.reload();
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
+	await expect(
+		page.getByText("Éditeur-renamed change 5", { exact: true }),
+	).toBeVisible();
 	const renamedPull = pullDetailSchema.parse(await cli("pr", "get", draftUrl));
 	expect(renamedPull.data.repository).toMatchObject({
 		id: "repository-two",
@@ -425,7 +455,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	const renamedUrl = `${repoUrl(repos[1]!)}/pullrequest/2`;
 	await cli("watch", "add", draftUrl, renamedUrl, renamedPull.data.id);
 	const renamedWatch = (await watchList()).data;
-	expect(renamedWatch).toHaveLength(1);
+	expect(renamedWatch).toHaveLength(2);
 	expect(renamedWatch[0]!.ref.repository).toEqual({
 		id: "repository-two",
 		name: "Éditeur-renamed",
@@ -440,7 +470,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		active: true,
 		pullId: renamedPull.data.id,
 	});
-	await cli("watch", "remove", renamedUrl);
+	await cli("watch", "remove", renamedUrl, retainedUrl);
 	expect((await watchList()).data).toEqual([]);
 	// Real collector + HTTP staging validates observation time across slow authentication and summary reads.
 	const slowUrl = `${repoUrl(repos[0]!)}/pullrequest/26`;
@@ -493,6 +523,48 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		active: false,
 		stopReason: "completed",
 	});
+	// Reusing stable PR IDs after an external project edit must not attach its old stopped watch.
+	const oldProjectUrl = `${repoUrl(repos[0]!)}/pullrequest/1`;
+	await cli("watch", "add", oldProjectUrl);
+	const projectBeforeMove = repoListSchema
+		.parse(await cli("repo", "list"))
+		.projects.find((project) => project.organization === repos[0]!.org)!;
+	const moved = await page.request.patch(
+		`${base}/api/projects/${projectBeforeMove.id}`,
+		{
+			data: { revision: projectBeforeMove.revision, projectKey: "Zulu" },
+		},
+	);
+	expect(moved.status(), await moved.text()).toBe(200);
+	repos[0]!.project = "Zulu";
+	expect((await watchList()).data).toEqual([]);
+	await cli("discover", "--repo", repoUrl(repos[0]!));
+	expect((await execute()).state).toBe("complete");
+	const currentProjectUrl = `${repoUrl(repos[0]!)}/pullrequest/1`;
+	expect(
+		pullDetailSchema.parse(await cli("pr", "get", currentProjectUrl)).data
+			.observation,
+	).toBeNull();
+	await cli("watch", "add", currentProjectUrl);
+	const currentWatch = (await watchList()).data[0]!;
+	expect(
+		pullDetailSchema.parse(await cli("pr", "get", currentProjectUrl)).data
+			.observation,
+	).toMatchObject({
+		id: currentWatch.id,
+		active: true,
+		ref: { projectKey: "Zulu" },
+	});
+	await page.reload();
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
+	await selectAll.check();
+	await page
+		.getByRole("button", { name: "Remove from watch list", exact: true })
+		.click();
+	await expect(
+		page.getByText("1 PR removed from the shared watch list.", { exact: true }),
+	).toBeVisible();
+	expect((await watchList()).data).toEqual([]);
 
 	// Uncached CLI watches have independent pagination and errors in the browser.
 	const pendingUrls = Array.from(
