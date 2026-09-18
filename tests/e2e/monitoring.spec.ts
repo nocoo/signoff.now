@@ -1222,6 +1222,34 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	).toBe(true);
 	await page.screenshot({ path: test.info().outputPath("connector-menu.png") });
 	await page.keyboard.press("Escape");
+	await page.goto("/developers?source=cli");
+	let rejectSettings = true;
+	await page.route("**/api/collection/settings", async (route) => {
+		if (rejectSettings)
+			await route.fulfill({
+				status: 503,
+				json: { error: "Cannot save refresh cooldown" },
+			});
+		else {
+			status.detailCooldownSeconds = 600;
+			await route.continue();
+		}
+	});
+	await interval.click();
+	await page.getByRole("option", { name: "10 min", exact: true }).click();
+	await expect(panel.getByRole("alert")).toHaveText(
+		"Cannot save refresh cooldown",
+	);
+	await expect(interval).toHaveText("5 min");
+	rejectSettings = false;
+	await interval.click();
+	await page.getByRole("option", { name: "10 min", exact: true }).click();
+	await expect(panel.getByText("Watch refresh cooldown saved.")).toBeVisible();
+	await expect(interval).toHaveText("10 min");
+	await expect(panel.getByRole("alert")).toHaveCount(0);
+	expect(
+		collectorQuerySchema.parse(await cli("status")).detailCooldownSeconds,
+	).toBe(600);
 	status.connection = {
 		state: "offline",
 		lastSeenAt: updatedAt,

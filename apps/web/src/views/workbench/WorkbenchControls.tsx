@@ -45,10 +45,10 @@ export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
 						: " Retry to read the cache."}
 				</AlertBanner>
 			) : null}
-			{vm.mutationError && vm.feedbackKind !== "watch" ? (
+			{vm.mutationError && vm.feedbackKind === "other" ? (
 				<AlertBanner variant="error">{vm.mutationError}</AlertBanner>
 			) : null}
-			{vm.notice && vm.feedbackKind !== "watch" ? (
+			{vm.notice && vm.feedbackKind === "other" ? (
 				<AlertBanner>{vm.notice}</AlertBanner>
 			) : null}
 			{vm.coverage?.state !== "complete" && vm.coverage ? (

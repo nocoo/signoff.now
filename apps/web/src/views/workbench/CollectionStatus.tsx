@@ -59,7 +59,6 @@ export function CollectionStatus({
 }) {
 	const vm = useWorkbench();
 	const now = useMinuteNow();
-	const intervalId = useId();
 	const collector = vm.collector;
 	const state = vm.collectionError
 		? "unavailable"
@@ -265,8 +264,24 @@ export function CollectionStatus({
 					</p>
 				) : null}
 			</div>
+			<RefreshCooldown vm={vm} />
+		</section>
+	);
+}
+
+function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
+	const intervalId = useId();
+	const feedbackId = `${intervalId}-feedback`;
+	const saving = vm.busy === "refresh-settings";
+	const error =
+		vm.feedbackKind === "refresh-settings" ? vm.mutationError : null;
+	const feedback = saving
+		? "Saving cooldown…"
+		: error || (vm.feedbackKind === "refresh-settings" ? vm.notice : null);
+	return (
+		<div className="mt-2" aria-busy={saving}>
 			<div
-				className="mt-2 flex items-center justify-between gap-2"
+				className="flex items-center justify-between gap-2"
 				title="Refresh the shared watch list after each project's entire round finishes. Continues without an open webpage."
 			>
 				<div>
@@ -280,8 +295,10 @@ export function CollectionStatus({
 				<SelectControl
 					id={intervalId}
 					aria-label="Watched PR refresh cooldown"
+					aria-describedby={feedback ? feedbackId : undefined}
+					aria-invalid={error ? true : undefined}
 					value={String(vm.detailCooldownSeconds)}
-					disabled={Boolean(vm.busy) || !collector}
+					disabled={Boolean(vm.busy) || !vm.collector}
 					onChange={(value) =>
 						void vm.setRefreshCooldown("details", Number(value))
 					}
@@ -295,6 +312,18 @@ export function CollectionStatus({
 					))}
 				</SelectControl>
 			</div>
-		</section>
+			{feedback ? (
+				<p
+					id={feedbackId}
+					role={error ? "alert" : "status"}
+					className={cn(
+						"mt-1 break-words text-[10px] leading-relaxed",
+						error ? "text-basalt-destructive" : "text-basalt-muted-foreground",
+					)}
+				>
+					{feedback}
+				</p>
+			) : null}
+		</div>
 	);
 }

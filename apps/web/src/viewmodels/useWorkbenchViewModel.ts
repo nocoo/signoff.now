@@ -106,6 +106,20 @@ type Selection = {
 	pullId: string;
 	observation: Pick<Observation, "id" | "generation" | "active"> | null;
 };
+type MutationFeedback = {
+	source: PullFilter["source"];
+	kind: "watch" | "refresh-settings" | "other";
+	error: string | null;
+	notice: string | null;
+};
+function feedbackForSource(
+	feedback: MutationFeedback,
+	source: PullFilter["source"],
+) {
+	return feedback.kind === "refresh-settings" || feedback.source === source
+		? feedback
+		: null;
+}
 const watchKey = (
 	source: PullFilter["source"],
 	pullId: string,
@@ -469,22 +483,21 @@ export function useWorkbenchViewModel() {
 		pending.reload,
 	]);
 	const [busy, setBusy] = useState<string | null>(null);
-	const [feedback, setFeedback] = useState<{
-		source: PullFilter["source"];
-		kind: "watch" | "other";
-		error: string | null;
-		notice: string | null;
-	}>({ source: filter.source, kind: "other", error: null, notice: null });
-	const mutationError =
-		feedback.source === filter.source ? feedback.error : null;
-	const notice = feedback.source === filter.source ? feedback.notice : null;
+	const [feedback, setFeedback] = useState<MutationFeedback>({
+		source: filter.source,
+		kind: "other",
+		error: null,
+		notice: null,
+	});
+	const visibleFeedback = feedbackForSource(feedback, filter.source);
+	const mutationError = visibleFeedback?.error ?? null;
+	const notice = visibleFeedback?.notice ?? null;
 	const setMutationError = (error: string | null) =>
-		setFeedback((previous) => ({
-			source: filter.source,
-			kind: previous.source === filter.source ? previous.kind : "other",
-			error,
-			notice: previous.source === filter.source ? previous.notice : null,
-		}));
+		setFeedback((previous) =>
+			feedbackForSource(previous, filter.source)
+				? { ...previous, error }
+				: { source: filter.source, kind: "other", error, notice: null },
+		);
 	const sourceRef = useRef(filter.source);
 	sourceRef.current = filter.source;
 	const mutationLock = useRef(false);
@@ -498,19 +511,26 @@ export function useWorkbenchViewModel() {
 	const mutate = async (label: string, operation: () => Promise<string>) => {
 		if (mutationLock.current) return false;
 		const source = filter.source;
+		const kind = label === "refresh-settings" ? "refresh-settings" : "other";
 		mutationLock.current = true;
 		setBusy(label);
-		setFeedback({ source, kind: "other", error: null, notice: null });
+		setFeedback({ source, kind, error: null, notice: null });
 		try {
 			const result = await operation();
-			if (mounted.current && sourceRef.current === source) {
-				setFeedback((previous) => ({ ...previous, notice: result }));
+			if (
+				mounted.current &&
+				(kind === "refresh-settings" || sourceRef.current === source)
+			) {
+				setFeedback({ source, kind, error: null, notice: result });
 				await reload();
 			}
 			return true;
 		} catch (error) {
-			if (mounted.current && sourceRef.current === source)
-				setMutationError(message(error));
+			if (
+				mounted.current &&
+				(kind === "refresh-settings" || sourceRef.current === source)
+			)
+				setFeedback({ source, kind, error: message(error), notice: null });
 			return false;
 		} finally {
 			mutationLock.current = false;
@@ -665,20 +685,20 @@ export function useWorkbenchViewModel() {
 							}
 						: previous,
 				);
-				setFeedback((previous) => ({
-					source,
-					kind: "watch",
-					error:
-						[
-							...(previous.source === source &&
-							previous.kind === "watch" &&
-							previous.error
-								? [previous.error]
-								: []),
-							...failures,
-						].join(" ") || null,
-					notice: `${succeeded.size} PR${succeeded.size === 1 ? "" : "s"} ${adding ? "added to" : "removed from"} the shared watch list.`,
-				}));
+				setFeedback((previous) =>
+					previous.kind !== "watch" || previous.source !== source
+						? previous
+						: {
+								source,
+								kind: "watch",
+								error:
+									[
+										...(previous.error ? [previous.error] : []),
+										...failures,
+									].join(" ") || null,
+								notice: `${succeeded.size} PR${succeeded.size === 1 ? "" : "s"} ${adding ? "added to" : "removed from"} the shared watch list.`,
+							},
+				);
 				// Reconcile only affected blocks in the background; never hold the
 				// row lock or replace the table while a cache read is in progress.
 				void Promise.allSettled([
@@ -691,12 +711,16 @@ export function useWorkbenchViewModel() {
 			return true;
 		} catch (error) {
 			if (mounted.current && sourceRef.current === source)
-				setFeedback({
-					source,
-					kind: "watch",
-					error: message(error),
-					notice: null,
-				});
+				setFeedback((previous) =>
+					previous.kind !== "watch" || previous.source !== source
+						? previous
+						: {
+								source,
+								kind: "watch",
+								error: message(error),
+								notice: null,
+							},
+				);
 			return false;
 		} finally {
 			for (const item of applicable) watchRequests.current.delete(item.key);
@@ -743,7 +767,7 @@ export function useWorkbenchViewModel() {
 			repositoryResolution.error,
 		mutationError,
 		notice,
-		feedbackKind: feedback.source === filter.source ? feedback.kind : "other",
+		feedbackKind: visibleFeedback?.kind ?? "other",
 		busy,
 		collectionError: collector.error,
 		detailLoading: Boolean(selectedId) && detail.loading,

@@ -20,6 +20,9 @@ const vm: Pick<
 	| "collector"
 	| "connection"
 	| "collectionError"
+	| "feedbackKind"
+	| "mutationError"
+	| "notice"
 	| "busy"
 	| "detailCooldownSeconds"
 	| "setRefreshCooldown"
@@ -30,6 +33,9 @@ const vm: Pick<
 	collector: queryFixture().collector,
 	connection: queryFixture().collector.connection,
 	collectionError: null,
+	feedbackKind: "other",
+	mutationError: null,
+	notice: null,
 	busy: null,
 	detailCooldownSeconds: 300,
 	setRefreshCooldown: vi.fn(async () => true),
@@ -41,6 +47,9 @@ beforeEach(() => {
 	vm.collector = queryFixture().collector;
 	vm.connection = vm.collector.connection;
 	vm.collectionError = null;
+	vm.feedbackKind = "other";
+	vm.mutationError = null;
+	vm.notice = null;
 	vm.busy = null;
 	vm.detailCooldownSeconds = 300;
 	vm.filter.source = "cli";
@@ -113,6 +122,13 @@ it("keeps connection failures visible without hiding the connector or cached cou
 		within(status).getByText("Watching").parentElement?.textContent,
 	).toContain("6");
 	expect(within(status).queryByRole("progressbar")).toBeNull();
+});
+it("does not present unrelated watch errors as cooldown save failures", () => {
+	vm.feedbackKind = "watch";
+	vm.mutationError = "Watch could not be added";
+	renderSidebar();
+	expect(screen.queryByText(vm.mutationError)).toBeNull();
+	expect(within(panel()).getByText("Online")).toBeTruthy();
 });
 it("keeps a compact status above the avatar when collapsed", () => {
 	vm.collectionError = "Collector unavailable";

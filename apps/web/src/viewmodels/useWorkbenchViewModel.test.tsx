@@ -31,6 +31,7 @@ import {
 	fixturePull as pull,
 	queryFixture,
 } from "@/test/monitoring-fixture";
+import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 import { PullsPage } from "@/views/workbench/PullsPage";
 import {
 	useProjectFormViewModel,
@@ -70,10 +71,12 @@ const draft: ProjectWrite = {
 const fixture = queryFixture();
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((r) => {
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((r, fail) => {
 		resolve = r;
+		reject = fail;
 	});
-	return { promise, resolve };
+	return { promise, resolve, reject };
 }
 function render(path = "/") {
 	return renderHook(
@@ -1385,6 +1388,99 @@ describe("project settings and explicit discovery", () => {
 		expect(patchRefreshSettings).toHaveBeenCalledWith({
 			detailCooldownSeconds: 600,
 		});
+	});
+	it("shows cooldown save progress and failures on Directory and allows reselection", async () => {
+		const save = deferred<Awaited<ReturnType<typeof patchRefreshSettings>>>();
+		vi.mocked(patchRefreshSettings).mockReturnValueOnce(save.promise);
+		renderView(
+			<MemoryRouter initialEntries={["/developers"]}>
+				<WorkbenchProvider>
+					<CollectionStatus />
+				</WorkbenchProvider>
+			</MemoryRouter>,
+		);
+		const interval = await screen.findByRole("combobox", {
+			name: "Watched PR refresh cooldown",
+		});
+		await waitFor(() =>
+			expect((interval as HTMLButtonElement).disabled).toBe(false),
+		);
+		fireEvent.click(interval);
+		fireEvent.click(screen.getByRole("option", { name: "Manual" }));
+		await screen.findByText("Saving cooldown…");
+		expect((interval as HTMLButtonElement).disabled).toBe(true);
+		await act(() => save.reject(new Error("Cannot save refresh cooldown")));
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"Cannot save refresh cooldown",
+		);
+		expect(interval.textContent).toBe("5 min");
+		expect((interval as HTMLButtonElement).disabled).toBe(false);
+		vi.mocked(patchRefreshSettings).mockResolvedValueOnce([]);
+		vi.mocked(api.loadCollector).mockResolvedValue({
+			...fixture.collector,
+			detailCooldownSeconds: 0,
+		});
+		fireEvent.click(interval);
+		fireEvent.click(screen.getByRole("option", { name: "Manual" }));
+		await screen.findByText("Watch refresh cooldown saved.");
+		expect(screen.queryByRole("alert")).toBeNull();
+		await waitFor(() => expect(interval.textContent).toBe("Manual"));
+	});
+	it.each([
+		"success",
+		"failure",
+	] as const)("retains global cooldown save feedback across a source switch (%s)", async (outcome) => {
+		const save = deferred<Awaited<ReturnType<typeof patchRefreshSettings>>>();
+		vi.mocked(patchRefreshSettings).mockReturnValueOnce(save.promise);
+		const { result } = render();
+		await loaded(result);
+		let write!: Promise<boolean>;
+		act(() => {
+			write = result.current.vm.setRefreshCooldown("details", 600);
+		});
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		await loaded(result);
+		await act(async () => {
+			if (outcome === "success") save.resolve([]);
+			else save.reject(new Error("Cannot save refresh cooldown"));
+			expect(await write).toBe(outcome === "success");
+		});
+		expect(result.current.vm.feedbackKind).toBe("refresh-settings");
+		expect(result.current.vm.busy).toBeNull();
+		if (outcome === "success")
+			expect(result.current.vm.notice).toBe("Watch refresh cooldown saved.");
+		else
+			expect(result.current.vm.mutationError).toBe(
+				"Cannot save refresh cooldown",
+			);
+	});
+	it.each([
+		"receipt",
+		"transport",
+	] as const)("an earlier watch response cannot replace feedback from a later cooldown save (%s)", async (outcome) => {
+		const watch = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+		vi.mocked(api.addWatches).mockReturnValueOnce(watch.promise);
+		vi.mocked(patchRefreshSettings).mockRejectedValueOnce(
+			new Error("Cannot save refresh cooldown"),
+		);
+		const { result } = render();
+		await loaded(result);
+		let watching!: Promise<boolean>;
+		act(() => {
+			watching = result.current.vm.toggleWatch(pull.id);
+		});
+		await act(() => result.current.vm.setRefreshCooldown("details", 600));
+		await act(async () => {
+			if (outcome === "receipt")
+				watch.resolve({ results: [{ status: "added" }] });
+			else watch.reject(new Error("Watch request failed"));
+			await watching;
+		});
+		expect(result.current.vm.feedbackKind).toBe("refresh-settings");
+		expect(result.current.vm.mutationError).toBe(
+			"Cannot save refresh cooldown",
+		);
+		expect(result.current.vm.pageRows[0]?.watchPending).toBe(false);
 	});
 	it("repository filter selects the stable ID when an earlier repository has that name", async () => {
 		const correct = fixture.catalog.data[0]!;
