@@ -124,6 +124,7 @@ type Graph = ReturnType<typeof machineGraph>;
 
 async function arrange(graph: Graph) {
 	const { default: ELK } = await import("elkjs/lib/elk.bundled.js");
+	const stages = ["lifecycle", "gate", "aggregate", "mapping", "state"];
 	const result = await new ELK().layout({
 		id: "root",
 		layoutOptions: {
@@ -132,6 +133,10 @@ async function arrange(graph: Graph) {
 			"elk.hierarchyHandling": "INCLUDE_CHILDREN",
 			"elk.spacing.nodeNode": "35",
 			"elk.layered.spacing.nodeNodeBetweenLayers": "75",
+			// Center each stage instead of aligning it to an individual edge.
+			"elk.layered.nodePlacement.strategy": "SIMPLE",
+			"elk.partitioning.activate": "true",
+			"elk.separateConnectedComponents": "false",
 			"elk.edgeRouting": "ORTHOGONAL",
 		},
 		children: graph.nodes
@@ -141,6 +146,13 @@ async function arrange(graph: Graph) {
 				layoutOptions: {
 					"elk.padding": "[top=48,left=20,bottom=20,right=20]",
 					"elk.spacing.nodeNode": "18",
+					// Unmapped custom states still belong in the final stage.
+					"elk.partitioning.partition": String(
+						stages.indexOf(
+							graph.nodes.find((node) => node.parentId === group.id)?.data
+								.category ?? "",
+						),
+					),
 				},
 				children: graph.nodes
 					.filter((node) => node.parentId === group.id)

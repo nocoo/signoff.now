@@ -975,6 +975,56 @@ test("state machines preview, save and restore scoped rules without changing fac
 	expect((await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(
 		expandedCanvas.width,
 	);
+	const expectCenteredStages = async () => {
+		await expect(async () => {
+			const groups = await page
+				.locator(".react-flow__node-group")
+				.evaluateAll((elements) =>
+					elements.map((element) => {
+						const node = element as HTMLElement;
+						const position = new DOMMatrixReadOnly(
+							getComputedStyle(node).transform,
+						);
+						return {
+							id: node.dataset.id ?? "",
+							left: position.m41,
+							right: position.m41 + node.offsetWidth,
+							top: position.m42,
+							bottom: position.m42 + node.offsetHeight,
+						};
+					}),
+				);
+			const centers: number[] = [];
+			let previousRight = -1;
+			for (const prefix of [
+				"group:Provider lifecycle",
+				"group:Gates ·",
+				"group:Evaluation",
+				"group:Mappings ·",
+				"group:States ·",
+			]) {
+				const stage = groups
+					.filter((group) => group.id.startsWith(prefix))
+					.sort((a, b) => a.top - b.top);
+				if (!stage.length) continue;
+				expect(Math.min(...stage.map((group) => group.left))).toBeGreaterThan(
+					previousRight,
+				);
+				previousRight = Math.max(...stage.map((group) => group.right));
+				for (let i = 1; i < stage.length; i++)
+					expect(stage[i]!.top).toBeGreaterThan(stage[i - 1]!.bottom);
+				centers.push((stage[0]!.top + stage.at(-1)!.bottom) / 2);
+			}
+			expect(centers.length).toBeGreaterThanOrEqual(4);
+			// Allow half a node for ELK's edge clearance, independent of zoom.
+			expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(43);
+		}).toPass({ timeout: 5000 });
+	};
+	await expectCenteredStages();
+	const allGates = page.getByRole("checkbox", { name: "All collected gates" });
+	await allGates.uncheck();
+	await expectCenteredStages();
+	await allGates.check();
 	const watchedFilter = page.getByRole("button", {
 		name: "Watched",
 		exact: true,
@@ -1019,6 +1069,14 @@ test("state machines preview, save and restore scoped rules without changing fac
 		.click();
 	await expect(page).toHaveURL(/trace=[^&]*%3A1(?:&|$)/);
 	await page.getByRole("tab", { name: "States", exact: true }).click();
+	await page.getByRole("button", { name: "Add state", exact: true }).click();
+	const customGroup = page.locator(
+		'.react-flow__node-group[data-id="group:States · Custom"]',
+	);
+	await expect(customGroup).toBeVisible();
+	await expectCenteredStages();
+	await page.getByRole("button", { name: "Discard", exact: true }).click();
+	await expect(customGroup).toHaveCount(0);
 	const label = page.getByLabel(`${pull.readiness.stateId} display name`, {
 		exact: true,
 	});
