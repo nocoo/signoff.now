@@ -184,6 +184,8 @@ async function execute(merged = false, jobId?: string) {
 test("Web and CLI share persisted watches; discovery is explicit and terminal refresh retires atomically", async ({
 	page,
 }) => {
+	// The full lifecycle runs many real CLI subprocesses alongside browser I/O.
+	test.slow();
 	await page.clock.install();
 	const browserErrors: string[] = [];
 	page.on("pageerror", (error) => browserErrors.push(error.message));
