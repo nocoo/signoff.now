@@ -42,6 +42,7 @@ bun run signoff discover --repo 'https://dev.azure.com/acme/Platform/_git/web-ap
 bun run signoff pr list --state all --draft include --all
 bun run signoff watch add 'https://dev.azure.com/acme/Platform/_git/web-app/pullrequest/123'
 bun run signoff watch list --all
+bun run signoff pr get 'https://dev.azure.com/acme/Platform/_git/web-app/pullrequest/123'
 ```
 
 Discovery includes Draft, Merged and Closed PRs across all accessible history. The daemon executes queued work and refreshes active watches independently of browser visibility. **Refresh watched** only enqueues watched PRs. A bottom-right toast shows task progress. Expired authentication is reported without erasing previous data; after the indicated `az login`, the daemon resumes.
