@@ -6,6 +6,7 @@ import {
 	type pullProgress,
 	readinessKindSchema,
 } from "@signoff/domain/workbench";
+import { sourceFromParams } from "./workspaceLocation";
 
 export type PullRow = {
 	observation?: Observation | null;
@@ -90,7 +91,7 @@ export function readPullFilter(
 	hasLiveProjects = false,
 ): PullFilter {
 	const defaultSource = hasLiveProjects ? "cli" : "demo";
-	const source = params.get("source") ?? defaultSource;
+	const source = sourceFromParams(params, defaultSource);
 	const state = params.get("state") ?? "open";
 	const legacyStatus = params.get("status") ?? "all";
 	const status = legacyStatus === "draft" ? "all" : legacyStatus;
@@ -114,9 +115,7 @@ export function readPullFilter(
 			params.get("watching") === "unwatched"
 				? (params.get("watching") as PullFilter["watching"])
 				: "all",
-		source: ["cli", "demo"].includes(source)
-			? (source as PullFilter["source"])
-			: defaultSource,
+		source,
 		query: params.get("q") ?? "",
 		organization: (params.get("org") ?? "").toLowerCase(),
 		projectId: params.get("project") ?? "",
@@ -150,8 +149,11 @@ export function writePullFilter(
 		PULL_FILTER_PARAMS,
 	) as (keyof typeof PULL_FILTER_PARAMS)[]) {
 		const param = PULL_FILTER_PARAMS[key];
+		if (key === "source") {
+			params.set(param, filter.source === "cli" ? "live" : "sample");
+			continue;
+		}
 		if (
-			key !== "source" &&
 			filter[key] === DEFAULT_PULL_FILTER[key] &&
 			!(key === "sortDirection" && filter.sort !== "readiness")
 		)

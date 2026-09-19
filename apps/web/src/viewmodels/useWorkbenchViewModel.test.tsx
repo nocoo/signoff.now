@@ -22,6 +22,7 @@ import {
 	patchProject,
 	patchRefreshSettings,
 } from "@/models/workbenchApi";
+import { pullHref } from "@/models/workspaceLocation";
 import {
 	fixtureObservation,
 	fixtureProject as project,
@@ -51,6 +52,7 @@ vi.mock("@/models/monitoringApi", async (original) => ({
 	loadPulls: vi.fn(),
 	loadCollector: vi.fn(),
 	loadPull: vi.fn(),
+	lookupPull: vi.fn(),
 	loadPending: vi.fn(),
 	addWatches: vi.fn(),
 	removeWatches: vi.fn(),
@@ -272,6 +274,14 @@ beforeEach(() => {
 		data: {
 			...queryFixture(source).pulls.data[0]!,
 			id,
+			description: "Full detail",
+		},
+	}));
+	vi.mocked(api.lookupPull).mockImplementation(async (source, reference) => ({
+		...queryFixture(source).envelope,
+		data: {
+			...queryFixture(source).pulls.data[0]!,
+			number: reference.number,
 			description: "Full detail",
 		},
 	}));
@@ -551,6 +561,109 @@ describe("independent cached blocks", () => {
 });
 
 describe("filters, server pages and temporary selection", () => {
+	it("resolves a friendly PR path in its explicit scope, independently of saved filters and legacy query IDs", async () => {
+		localStorage.setItem(PULL_FILTER_STORAGE_KEY, "source=sample&state=closed");
+		const href = pullHref(project, pull);
+		const { result } = render(`${href}?pr=unrelated-id&watching=watching`);
+		await loaded(result);
+		await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
+		expect(api.lookupPull).toHaveBeenCalledWith(
+			"cli",
+			{
+				repositoryUrl: `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.name}`,
+				number: pull.number,
+			},
+			expect.any(AbortSignal),
+		);
+		expect(api.loadPull).not.toHaveBeenCalled();
+		expect(result.current.vm.selected?.pull.id).toBe(pull.id);
+		expect(result.current.vm.filter).toMatchObject({
+			source: "cli",
+			state: "open",
+			watching: "watching",
+		});
+		expect(
+			`${result.current.location.pathname}${result.current.location.search}`,
+		).toBe(`${href}?watching=watching`);
+		await act(() => result.current.vm.reloadDetail());
+		expect(api.loadPull).toHaveBeenCalledWith(
+			"cli",
+			pull.id,
+			expect.any(AbortSignal),
+		);
+		expect(api.lookupPull).toHaveBeenCalledTimes(1);
+	});
+	it("restores list filters and PR details with Back and Forward without adding a history entry per keystroke", async () => {
+		const { result } = render("/prs");
+		await loaded(result);
+		act(() => result.current.vm.setFilter({ watching: "watching" }));
+		act(() => result.current.vm.setFilter({ query: "rev" }));
+		act(() => result.current.vm.setFilter({ query: "review" }));
+		await loaded(result);
+		act(() => result.current.vm.selectPull(pull.id));
+		await waitFor(() =>
+			expect(result.current.vm.selected?.pull.id).toBe(pull.id),
+		);
+		expect(result.current.location.pathname).toBe(pullHref(project, pull));
+		act(() => result.current.vm.selectPull(null));
+		expect(result.current.location.pathname).toBe("/prs");
+		act(() => result.current.navigate(-1));
+		await waitFor(() =>
+			expect(result.current.vm.selected?.pull.id).toBe(pull.id),
+		);
+		act(() => result.current.navigate(-1));
+		expect(result.current.location.pathname).toBe("/prs");
+		expect(result.current.vm.filter).toMatchObject({
+			watching: "watching",
+			query: "review",
+		});
+		act(() => result.current.navigate(-1));
+		expect(result.current.vm.filter).toMatchObject({
+			source: "cli",
+			watching: "all",
+			query: "",
+		});
+		act(() => result.current.navigate(1));
+		expect(result.current.vm.filter).toMatchObject({
+			watching: "watching",
+			query: "review",
+		});
+	});
+	it("does not fetch legacy query IDs on invalid resource paths or trace IDs on machine pages", async () => {
+		const { result } = render("/prs/ado/org/project/repo/0?pr=unrelated-id");
+		await loaded(result);
+		expect(result.current.vm.detailError).toBe("Invalid PR address");
+		expect(result.current.vm.selected).toBeNull();
+		expect(api.loadPull).not.toHaveBeenCalled();
+		expect(api.lookupPull).not.toHaveBeenCalled();
+		act(() => result.current.navigate("/sm/ado/org/project/repo?pr=1"));
+		await loaded(result);
+		expect(result.current.vm.detailError).toBeNull();
+		expect(api.loadPull).not.toHaveBeenCalled();
+		expect(api.lookupPull).not.toHaveBeenCalled();
+	});
+	it("fences an in-flight friendly detail lookup when switching sources and restores it with Back", async () => {
+		const pending = deferred<Awaited<ReturnType<typeof api.lookupPull>>>();
+		vi.mocked(api.lookupPull).mockReturnValueOnce(pending.promise);
+		const href = pullHref(project, pull);
+		const { result } = render(href);
+		await loaded(result);
+		expect(result.current.vm.detailLoading).toBe(true);
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		await loaded(result);
+		await act(async () =>
+			pending.resolve({ ...fixture.envelope, data: fixture.pulls.data[0]! }),
+		);
+		expect(result.current.location.pathname).toBe("/prs");
+		expect(result.current.vm.filter.source).toBe("demo");
+		expect(result.current.vm.selected).toBeNull();
+		act(() => result.current.navigate(-1));
+		await waitFor(() =>
+			expect(result.current.vm.selected?.pull.id).toBe(pull.id),
+		);
+		expect(result.current.vm.filter.source).toBe("cli");
+		expect(result.current.location.pathname).toBe(href);
+	});
 	it("clears the traced PR when its source or repository scope changes, preserving it for display filters", async () => {
 		const { result } = render("/state-machines?source=cli&trace=old-pr");
 		await loaded(result);

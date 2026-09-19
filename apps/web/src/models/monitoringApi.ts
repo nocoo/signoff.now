@@ -113,6 +113,20 @@ export async function loadPull(
 		),
 	);
 }
+export async function lookupPull(
+	source: PullFilter["source"],
+	reference: { repositoryUrl: string; number: number },
+	signal: AbortSignal,
+) {
+	const params = new URLSearchParams({
+		source: publicSource(source),
+		repositoryUrl: reference.repositoryUrl,
+		number: String(reference.number),
+	});
+	return pullDetailSchema.parse(
+		await apiFetch(`/api/query/v1/prs/lookup?${params}`, init(signal)),
+	);
+}
 export async function loadCollector(
 	source: PullFilter["source"],
 	signal: AbortSignal,

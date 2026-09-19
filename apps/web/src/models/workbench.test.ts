@@ -77,7 +77,9 @@ describe("persisted PR filters", () => {
 			sort: "updated" as const,
 		};
 		expect(readPullFilter(writePullFilter(filter))).toEqual(filter);
-		expect(writePullFilter(DEFAULT_PULL_FILTER).toString()).toBe("source=demo");
+		expect(writePullFilter(DEFAULT_PULL_FILTER).toString()).toBe(
+			"source=sample",
+		);
 		expect(
 			readPullFilter(
 				new URLSearchParams(

@@ -55,7 +55,8 @@ export default function App() {
 				persist={false}
 				paletteOverrides={BRAND_PALETTE}
 			>
-				<BrowserRouter>
+				{/* URL-controlled filters update within the input event. */}
+				<BrowserRouter useTransitions={false}>
 					<LinkProvider render={RouterLink}>
 						<TooltipProvider>
 							<Toaster />
@@ -68,19 +69,25 @@ export default function App() {
 									}
 								>
 									<Route path="/" element={<PullsPage />} />
+									<Route path="/prs/*" element={<PullsPage />} />
 									<Route path="/projects" element={<ProjectsPage />} />
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
-									<Route
-										path="/state-machines"
-										element={
-											<Suspense
-												fallback={<p role="status">Loading state machines…</p>}
-											>
-												<StateMachinesPage />
-											</Suspense>
-										}
-									/>
+									{["/sm/*", "/state-machines"].map((path) => (
+										<Route
+											key={path}
+											path={path}
+											element={
+												<Suspense
+													fallback={
+														<p role="status">Loading state machines…</p>
+													}
+												>
+													<StateMachinesPage />
+												</Suspense>
+											}
+										/>
+									))}
 									<Route path="/developers" element={<MembersPage />} />
 									<Route path="/teams" element={<DirectoryTeamsPage />} />
 									<Route path="/tags" element={<DirectoryTagsPage />} />
@@ -89,7 +96,7 @@ export default function App() {
 										path="/activity"
 										element={<Navigate to="/insights" replace />}
 									/>
-									<Route path="*" element={<Navigate to="/" replace />} />
+									<Route path="*" element={<Navigate to="/prs" replace />} />
 								</Route>
 							</Routes>
 						</TooltipProvider>

@@ -1,6 +1,6 @@
 import { Badge, Button, Checkbox, LayerCard } from "@nocoo/basalt";
 import type { MachinePage, MachinePreview } from "@signoff/domain/query";
-import type { StateMachine } from "@signoff/domain/workbench";
+import { repositoryUrl, type StateMachine } from "@signoff/domain/workbench";
 import {
 	ArrowRight,
 	CheckCheck,
@@ -16,16 +16,36 @@ import {
 	ScanSearch,
 	Undo2,
 } from "lucide-react";
-import { type Dispatch, type SetStateAction, useState } from "react";
-import { type SetURLSearchParams, useSearchParams } from "react-router";
+import {
+	type Dispatch,
+	type SetStateAction,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
+import {
+	type SetURLSearchParams,
+	useLocation,
+	useNavigate,
+	useSearchParams,
+} from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { HeaderTooltip } from "@/components/layout/header-links";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import { relativeAge } from "@/models/freshness";
+import { loadCatalog, lookupPull } from "@/models/monitoringApi";
 import type { MachineSelection } from "@/models/stateMachineGraph";
+import {
+	machineHref,
+	matchesProject,
+	parseWorkspaceLocation,
+	traceReference,
+	withQuery,
+} from "@/models/workspaceLocation";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
+import { useQueryBlock } from "@/viewmodels/useQueryBlock";
 import {
 	type StateMachineViewModel,
 	useStateMachineViewModel,
@@ -53,28 +73,130 @@ const INSPECTOR_TABS = [
 	{ id: "history", label: "History", icon: History },
 ] as const;
 type InspectorTab = (typeof INSPECTOR_TABS)[number]["id"];
+
+function useMachineScope(
+	workbench: ReturnType<typeof useWorkbench>,
+	params: URLSearchParams,
+	pathname: string,
+) {
+	const route = useMemo(() => parseWorkspaceLocation(pathname), [pathname]);
+	const source = workbench.filter.source;
+	const projectScope = route?.project;
+	const projects = projectScope
+		? workbench.projects.filter(({ project }) =>
+				matchesProject(projectScope, project),
+			)
+		: workbench.projects;
+	const projectId = projectScope
+		? projects.length === 1
+			? (projects[0]?.project.id ?? "")
+			: ""
+		: params.get("project") || projects[0]?.project.id || "";
+	const repositoryReference =
+		projectScope && route?.repository
+			? repositoryUrl(projectScope, route.repository)
+			: null;
+	const repositoryQuery = useQueryBlock(
+		repositoryReference && projectId
+			? `machine-repository:${source}:${projectId}:${repositoryReference}`
+			: null,
+		(signal) =>
+			loadCatalog(source, signal, {
+				projectId,
+				repository: repositoryReference ?? "",
+			}),
+		30000,
+	);
+	const repository =
+		repositoryQuery.data?.page.total === 1 &&
+		repositoryQuery.data.data.length === 1
+			? repositoryQuery.data.data[0]
+			: null;
+	const repositoryId = projectScope
+		? (repository?.repository.id ?? null)
+		: params.get("repo") || null;
+	const trace = traceReference(route, params.get("pr"));
+	const traceQuery = useQueryBlock(
+		trace ? `machine-trace:${source}:${JSON.stringify(trace)}` : null,
+		async (signal) => (trace ? lookupPull(source, trace, signal) : null),
+		15000,
+	);
+	const pullId = projectScope
+		? (traceQuery.data?.data.id ?? null)
+		: params.get("trace");
+	const requestedTrace = projectScope ? params.get("pr") : params.get("trace");
+	const routeError = !route?.valid
+		? "Invalid state machine address"
+		: projectScope && !workbench.loading && !projectId
+			? (workbench.catalogError ??
+				"Project address was not found or is ambiguous")
+			: repositoryReference &&
+					projectId &&
+					!repositoryQuery.loading &&
+					!repositoryId
+				? (repositoryQuery.error ??
+					"Repository address is not collected or is ambiguous")
+				: requestedTrace && projectScope && !trace
+					? "Invalid PR trace address"
+					: traceQuery.error;
+	const scopeReady =
+		!routeError && (!repositoryReference || Boolean(repositoryId));
+	return {
+		source,
+		projectId,
+		repositoryId,
+		pullId,
+		requestedTrace,
+		routeError,
+		scopeReady,
+		repositoryQuery,
+		traceQuery,
+	};
+}
+
 export default function StateMachinesPage() {
 	const workbench = useWorkbench();
 	const [params, setParams] = useSearchParams();
-	const source = workbench.filter.source;
-	const projectId =
-		params.get("project") || workbench.projectOptions[0]?.project.id || "";
-	const repositoryId = params.get("repo") || null;
-	const pullId = params.get("trace");
+	const location = useLocation();
+	const navigate = useNavigate();
+	const {
+		source,
+		projectId,
+		repositoryId,
+		pullId,
+		requestedTrace,
+		routeError,
+		scopeReady,
+		repositoryQuery,
+		traceQuery,
+	} = useMachineScope(workbench, params, location.pathname);
 	const vm = useStateMachineViewModel(
-		{ source, projectId, repositoryId },
+		{ source, projectId: scopeReady ? projectId : "", repositoryId },
 		pullId,
 	);
-	const [tab, setTab] = useState<InspectorTab>(
-		() =>
-			INSPECTOR_TABS.find((item) => item.id === params.get("tab"))?.id ??
-			"inspect",
-	);
+	const requestedTab = INSPECTOR_TABS.find(
+		(item) => item.id === params.get("tab"),
+	)?.id;
+	const [lastTab, setLastTab] = useState<InspectorTab>("inspect");
+	const tab = requestedTab ?? lastTab;
+	const inspectorOpen = Boolean(requestedTab);
 	const [selection, setSelection] = useState<MachineSelection | null>(null);
-	const [inspectorOpen, setInspectorOpen] = useState(() =>
-		INSPECTOR_TABS.some((item) => item.id === params.get("tab")),
-	);
 	const page = vm.data;
+	const scopedRepository =
+		page?.repositories.find((repo) => repo.id === repositoryId) ?? null;
+	const canonicalHref =
+		page &&
+		!routeError &&
+		(!requestedTrace || (pullId && page.selectedPull?.id === pullId))
+			? machineHref(page.project, scopedRepository, page.selectedPull, params)
+			: null;
+	useEffect(() => {
+		if (
+			canonicalHref &&
+			canonicalHref !== `${location.pathname}${location.search}`
+		)
+			navigate(canonicalHref, { replace: true });
+	}, [canonicalHref, location.pathname, location.search, navigate]);
 	const config = vm.config;
 	const evaluations = vm.dirty
 		? (vm.preview?.evaluations ?? [])
@@ -86,15 +208,65 @@ export default function StateMachinesPage() {
 		nextRepository: string,
 	) {
 		setSelection(null);
-		setParams({
-			source: nextSource,
-			...(nextProject ? { project: nextProject } : {}),
-			...(nextRepository ? { repo: nextRepository } : {}),
+		const project = workbench.projects.find(
+			(item) => item.project.id === nextProject,
+		)?.project;
+		if (nextSource === source && project)
+			navigate(
+				machineHref(
+					project,
+					page?.repositories.find((repo) => repo.id === nextRepository),
+					null,
+					params,
+				),
+			);
+		else
+			navigate(
+				withQuery(
+					"/sm",
+					new URLSearchParams({
+						source: nextSource === "demo" ? "sample" : "live",
+					}),
+				),
+			);
+	}
+	function setTab(next: InspectorTab) {
+		setLastTab(next);
+		setParams((previous) => {
+			const nextParams = new URLSearchParams(previous);
+			nextParams.set("tab", next);
+			return nextParams;
 		});
+	}
+	function selectTrace(id: string, options?: { replace?: boolean }) {
+		if (!page) return;
+		const evaluation = page.evaluations.find((item) => item.id === id);
+		const repo = page.repositories.find(
+			(item) => item.id === evaluation?.repositoryId,
+		);
+		if (evaluation && repo) {
+			navigate(
+				machineHref(
+					page.project,
+					scopedRepository,
+					{ repository: repo, number: evaluation.number },
+					params,
+				),
+				options,
+			);
+			return;
+		}
+		// An off-page selection is resolved by the cache before replacing the old ID link.
+		const next = new URLSearchParams(params);
+		next.delete("pr");
+		next.set("source", source === "cli" ? "live" : "sample");
+		next.set("project", projectId);
+		if (repositoryId) next.set("repo", repositoryId);
+		next.set("trace", id);
+		navigate(withQuery("/state-machines", next), options);
 	}
 	function selectNode(next: MachineSelection) {
 		setSelection(next);
-		setInspectorOpen(true);
 		setTab(
 			next.category === "state"
 				? "states"
@@ -104,7 +276,12 @@ export default function StateMachinesPage() {
 		);
 	}
 	function closeInspector() {
-		setInspectorOpen(false);
+		setLastTab(tab);
+		setParams((previous) => {
+			const next = new URLSearchParams(previous);
+			next.delete("tab");
+			return next;
+		});
 		document.getElementById(`machine-tab-${tab}`)?.focus();
 	}
 	return (
@@ -115,13 +292,24 @@ export default function StateMachinesPage() {
 				source={source}
 				projectId={projectId}
 				repositoryId={repositoryId}
-				projects={workbench.projectOptions}
+				projects={workbench.projects}
 				onScope={scope}
 			/>
-			{vm.error ? (
+			{routeError || vm.error ? (
 				<AlertBanner variant="error">
-					{vm.error}
-					<Button size="sm" variant="ghost" onClick={() => void vm.reload()}>
+					{routeError ?? vm.error}
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={() =>
+							void Promise.allSettled([
+								workbench.reload(),
+								repositoryQuery.reload(),
+								traceQuery.reload(),
+								vm.reload(),
+							])
+						}
+					>
 						Reload
 					</Button>
 				</AlertBanner>
@@ -135,7 +323,7 @@ export default function StateMachinesPage() {
 					</Button>
 				</AlertBanner>
 			) : null}
-			{!projectId ? (
+			{routeError ? null : !projectId && !workbench.loading ? (
 				<LayerCard padding="none">
 					<EmptyState
 						icon={Network}
@@ -159,6 +347,12 @@ export default function StateMachinesPage() {
 						storageKey={`signoff:machine-layout:${source}:${projectId}:${repositoryId ?? "project"}`}
 						onSelect={selectNode}
 						setParams={setParams}
+						params={params}
+						onTrace={selectTrace}
+						autoSelect={
+							!requestedTrace &&
+							canonicalHref === `${location.pathname}${location.search}`
+						}
 					/>
 					<InspectorCard
 						vm={vm}
@@ -171,7 +365,6 @@ export default function StateMachinesPage() {
 						tab={tab}
 						setTab={setTab}
 						open={inspectorOpen}
-						onOpen={() => setInspectorOpen(true)}
 						onClose={closeInspector}
 					/>
 				</div>
@@ -324,6 +517,9 @@ function CanvasCard({
 	storageKey,
 	onSelect,
 	setParams,
+	params,
+	onTrace,
+	autoSelect,
 }: {
 	page: MachinePage;
 	config: StateMachine;
@@ -334,9 +530,20 @@ function CanvasCard({
 	storageKey: string;
 	onSelect: (selection: MachineSelection) => void;
 	setParams: SetURLSearchParams;
+	params: URLSearchParams;
+	onTrace: (id: string, options?: { replace?: boolean }) => void;
+	autoSelect: boolean;
 }) {
-	const [mode, setMode] = useState<"model" | "observed">("model");
-	const [allGates, setAllGates] = useState(true);
+	const mode = params.get("view") === "transitions" ? "observed" : "model";
+	const allGates = params.get("gates") !== "pr";
+	function setView(key: string, value: string | null) {
+		setParams((previous) => {
+			const next = new URLSearchParams(previous);
+			if (value) next.set(key, value);
+			else next.delete(key);
+			return next;
+		});
+	}
 	const now = useMinuteNow();
 	const toolbar = (
 		<div className="flex items-center gap-2">
@@ -354,7 +561,9 @@ function CanvasCard({
 							value === "model" ? "Rule model" : "Observed transitions"
 						}
 						className="h-7 px-2 text-xs"
-						onClick={() => setMode(value)}
+						onClick={() =>
+							setView("view", value === "observed" ? "transitions" : null)
+						}
 					>
 						{value === "model" ? (
 							<Network size={13} className="text-sky-500" aria-hidden />
@@ -375,7 +584,9 @@ function CanvasCard({
 						aria-label="All collected gates"
 						checked={allGates}
 						disabled={mode === "observed"}
-						onCheckedChange={(checked) => setAllGates(checked === true)}
+						onCheckedChange={(checked) =>
+							setView("gates", checked === true ? null : "pr")
+						}
 					/>
 					<Layers3 size={13} className="text-teal-500" aria-hidden />
 					<span className="machine-gates-label">All gates</span>
@@ -393,17 +604,8 @@ function CanvasCard({
 				}}
 				pullId={pullId}
 				selectedPull={page.selectedPull}
-				onChange={(value) =>
-					setParams(
-						(previous) => {
-							const next = new URLSearchParams(previous);
-							next.set("project", page.project.id);
-							next.set("trace", value);
-							return next;
-						},
-						{ replace: true },
-					)
-				}
+				onChange={onTrace}
+				autoSelect={autoSelect}
 			/>
 			<StateMachineGraph
 				config={config}
@@ -461,7 +663,6 @@ function InspectorCard({
 	tab,
 	setTab,
 	open,
-	onOpen,
 	onClose,
 }: {
 	vm: StateMachineViewModel;
@@ -472,9 +673,8 @@ function InspectorCard({
 	selection: MachineSelection | null;
 	setSelection: Dispatch<SetStateAction<MachineSelection | null>>;
 	tab: InspectorTab;
-	setTab: Dispatch<SetStateAction<InspectorTab>>;
+	setTab: (tab: InspectorTab) => void;
 	open: boolean;
-	onOpen: () => void;
 	onClose: () => void;
 }) {
 	return (
@@ -509,7 +709,6 @@ function InspectorCard({
 							)}
 							onClick={() => {
 								setTab(id);
-								onOpen();
 							}}
 							onKeyDown={(event) => {
 								if (event.key === "Escape") {
@@ -533,7 +732,6 @@ function InspectorCard({
 										(next + INSPECTOR_TABS.length) % INSPECTOR_TABS.length
 									] ?? INSPECTOR_TABS[0];
 								setTab(nextTab.id);
-								onOpen();
 								document.getElementById(`machine-tab-${nextTab.id}`)?.focus();
 							}}
 						>

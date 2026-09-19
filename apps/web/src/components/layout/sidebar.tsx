@@ -32,6 +32,7 @@ import type { ElementType } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { avatarInitial } from "@/lib/avatar";
 import { NAV_GROUPS, type NavGroupDef } from "@/lib/navigation";
+import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 
 const ICON_MAP: Record<string, ElementType> = {
@@ -87,9 +88,14 @@ export function Sidebar({
 }) {
 	const { pathname } = useLocation();
 	const navigate = useNavigate();
+	const workbench = useWorkbench();
 	const initial = avatarInitial(userLabel);
 	const go = (href: string) => {
-		navigate(href);
+		navigate(
+			href === "/prs"
+				? workbench.pullsHref
+				: `${href}?source=${workbench.filter.source === "demo" ? "sample" : "live"}`,
+		);
 		onNavigate?.();
 	};
 

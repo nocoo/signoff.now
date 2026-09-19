@@ -17,7 +17,7 @@ import {
 	type Workbench,
 } from "@signoff/domain/workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import {
 	addWatches,
 	discover,
@@ -26,6 +26,7 @@ import {
 	loadPending,
 	loadPull,
 	loadPulls,
+	lookupPull,
 	pullQueryParams,
 	queryProject,
 	queryRow,
@@ -49,6 +50,12 @@ import {
 	patchProject,
 	patchRefreshSettings,
 } from "@/models/workbenchApi";
+import {
+	parseWorkspaceLocation,
+	pullHref,
+	type WorkspaceLocation,
+	withQuery,
+} from "@/models/workspaceLocation";
 import { useQueryBlock } from "./useQueryBlock";
 
 const PAGE_SIZE = 20;
@@ -135,22 +142,127 @@ const pendingWatchKey = (
 	source: PullFilter["source"],
 	observation: { id: string; generation: number },
 ) => `${source}:observation:${observation.id}:${observation.generation}`;
+
+function usePullDetail(
+	source: PullFilter["source"],
+	route: WorkspaceLocation | null,
+) {
+	const location = useLocation();
+	const [params] = useSearchParams();
+	const navigate = useNavigate();
+	const isPullsPage = route?.section === "prs";
+	// Keep the resolved identity/query when a legacy URL is replaced, without a second load.
+	const identity = useRef<{
+		source: PullFilter["source"];
+		pathname: string;
+		id: string;
+		key: string;
+	} | null>(null);
+	const remembered =
+		identity.current?.source === source &&
+		identity.current.pathname === location.pathname
+			? identity.current
+			: null;
+	const legacyId =
+		isPullsPage && route.valid && !route.project ? params.get("pr") : null;
+	const selectedId = isPullsPage ? (legacyId ?? remembered?.id ?? null) : null;
+	const pullReference =
+		route?.valid &&
+		isPullsPage &&
+		route.project &&
+		route.repository &&
+		route.number
+			? {
+					repositoryUrl: repositoryUrl(route.project, route.repository),
+					number: route.number,
+				}
+			: null;
+	const hasSelection = Boolean(selectedId || pullReference);
+	const key = hasSelection
+		? legacyId
+			? `pr:${source}:${legacyId}`
+			: (remembered?.key ?? `pr:${source}:${JSON.stringify(pullReference)}`)
+		: null;
+	const query = useQueryBlock(
+		key,
+		async (signal) => {
+			if (selectedId) return loadPull(source, selectedId, signal);
+			if (!pullReference) throw new Error("Invalid PR address");
+			return lookupPull(source, pullReference, signal);
+		},
+		15000,
+	);
+	if (query.data && key) {
+		const pull = query.data.data;
+		const href = pullHref(queryProject(pull.project), pull);
+		identity.current = {
+			source,
+			id: pull.id,
+			key,
+			pathname: href.split("?")[0] ?? href,
+		};
+	}
+	useEffect(() => {
+		if (!isPullsPage || !query.data) return;
+		const pull = query.data.data;
+		const href = pullHref(queryProject(pull.project), pull, params);
+		if (href !== `${location.pathname}${location.search}`)
+			navigate(href, { replace: true });
+	}, [
+		isPullsPage,
+		query.data,
+		params,
+		location.pathname,
+		location.search,
+		navigate,
+	]);
+	return {
+		...query,
+		error: isPullsPage && !route.valid ? "Invalid PR address" : query.error,
+		selectedId,
+		pullReference,
+		hasSelection,
+		remember: (id: string, href: string) => {
+			identity.current = {
+				source,
+				id,
+				pathname: href.split("?")[0] ?? href,
+				key: `pr:${source}:${id}`,
+			};
+		},
+	};
+}
+
 export function useWorkbenchViewModel() {
 	const [params, setParams] = useSearchParams();
 	const location = useLocation();
+	const navigate = useNavigate();
+	const route = useMemo(
+		() => parseWorkspaceLocation(location.pathname),
+		[location.pathname],
+	);
+	const isPullsPage = route?.section === "prs";
 	const [savedFilters, setSavedFilters] = useState(storedFilters);
 	const filter = useMemo(
 		() =>
 			readPullFilter(
-				[...Object.values(PULL_FILTER_PARAMS), "author"].some((key) =>
-					params.has(key),
-				)
+				location.pathname.startsWith("/prs") ||
+					route?.project ||
+					[...Object.values(PULL_FILTER_PARAMS), "author"].some((key) =>
+						params.has(key),
+					)
 					? params
 					: new URLSearchParams(savedFilters),
 				true,
 			),
-		[params, savedFilters],
+		[params, savedFilters, location.pathname, route?.project],
 	);
+	useEffect(() => {
+		if (location.pathname === "/")
+			navigate(withQuery("/prs", writePullFilter(filter, params)), {
+				replace: true,
+			});
+	}, [location.pathname, filter, params, navigate]);
 	useEffect(() => {
 		const next = writePullFilter(filter).toString();
 		if (next !== savedFilters) {
@@ -188,7 +300,7 @@ export function useWorkbenchViewModel() {
 		30000,
 	);
 	const pulls = useQueryBlock(
-		location.pathname === "/" ? query : null,
+		isPullsPage ? query : null,
 		(signal) => loadPulls(query, signal),
 		15000,
 	);
@@ -197,12 +309,8 @@ export function useWorkbenchViewModel() {
 		(signal) => loadCollector(filter.source, signal),
 		3000,
 	);
-	const selectedId = params.get("pr");
-	const detail = useQueryBlock(
-		selectedId ? `pr:${filter.source}:${selectedId}` : null,
-		(signal) => loadPull(filter.source, selectedId ?? "", signal),
-		15000,
-	);
+	const detail = usePullDetail(filter.source, route);
+	const { selectedId, pullReference, hasSelection } = detail;
 	const pendingScope = JSON.stringify([
 		filter.source,
 		filter.organization,
@@ -294,7 +402,13 @@ export function useWorkbenchViewModel() {
 	);
 	const selected = detail.data
 		? withWatchState(queryRow(detail.data.data))
-		: (pageRows.find((row) => row.pull.id === selectedId) ?? null);
+		: (pageRows.find(
+				(row) =>
+					row.pull.id === selectedId ||
+					(Boolean(pullReference) &&
+						pullHref(row.project, row.pull).split("?")[0] ===
+							location.pathname),
+			) ?? null);
 	const pendingObservations = (pending.data?.data ?? []).filter(
 		(item) => !optimisticWatches.has(pendingWatchKey(filter.source, item)),
 	);
@@ -419,7 +533,7 @@ export function useWorkbenchViewModel() {
 	]);
 	const total = pulls.data?.page.total ?? 0;
 	const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-	const loading = location.pathname === "/" ? pulls.loading : catalog.loading;
+	const loading = isPullsPage ? pulls.loading : catalog.loading;
 	const data: Workbench | null =
 		catalog.data || pulls.data
 			? {
@@ -449,15 +563,12 @@ export function useWorkbenchViewModel() {
 				}
 			: null;
 	const setParam = (key: string, value: string | null) =>
-		setParams(
-			(previous) => {
-				const next = writePullFilter(filter, previous);
-				if (value === null) next.delete(key);
-				else next.set(key, value);
-				return next;
-			},
-			{ replace: key === "page" },
-		);
+		setParams((previous) => {
+			const next = writePullFilter(filter, previous);
+			if (value === null || (key === "page" && value === "1")) next.delete(key);
+			else next.set(key, value);
+			return next;
+		});
 	useEffect(() => {
 		if (pulls.data && !pulls.loading && page > pageCount)
 			setParams(
@@ -486,6 +597,18 @@ export function useWorkbenchViewModel() {
 				projects
 					.find((p) => p.project.id === patch.projectId)
 					?.project.organization.toLowerCase() ?? next.organization;
+		if (
+			patch.source !== undefined &&
+			(route?.section === "sm" || pullReference)
+		) {
+			navigate(
+				withQuery(
+					route?.section === "sm" ? "/sm" : "/prs",
+					writePullFilter(next),
+				),
+			);
+			return;
+		}
 		setParams(
 			(previous) => {
 				const result = writePullFilter(next, previous);
@@ -500,7 +623,7 @@ export function useWorkbenchViewModel() {
 					result.delete("trace");
 				return result;
 			},
-			{ replace: true },
+			{ replace: patch.query !== undefined },
 		);
 	};
 	const reload = useCallback(async () => {
@@ -801,20 +924,19 @@ export function useWorkbenchViewModel() {
 		pullsLoaded: pulls.data !== null,
 		refreshing: pulls.refreshing || catalog.refreshing,
 		error:
-			(location.pathname === "/" ? pulls.error : catalog.error) ??
-			repositoryResolution.error,
+			(isPullsPage ? pulls.error : catalog.error) ?? repositoryResolution.error,
 		mutationError,
 		notice,
 		feedbackKind: visibleFeedback?.kind ?? "other",
 		busy,
 		collectionError: collector.error,
-		detailLoading: Boolean(selectedId) && detail.loading,
+		detailLoading: hasSelection && detail.loading,
 		detailRefreshing: detail.refreshing,
 		detailError: detail.error,
 		reloadDetail: detail.reload,
 		selected,
 		missingSelection:
-			Boolean(selectedId) &&
+			hasSelection &&
 			!detail.loading &&
 			!selected &&
 			detail.errorCode === "CACHE_MISS",
@@ -833,8 +955,27 @@ export function useWorkbenchViewModel() {
 		page,
 		pageCount,
 		pageSize: PAGE_SIZE,
+		pullsHref: withQuery("/prs", writePullFilter(filter)),
 		setPage: (value: number) => setParam("page", String(value)),
-		selectPull: (id: string | null) => setParam("pr", id),
+		selectPull: (id: string | null) => {
+			const next = writePullFilter(filter, params);
+			next.delete("pr");
+			if (!id) {
+				navigate(withQuery("/prs", next));
+				return;
+			}
+			const row =
+				pageRows.find((item) => item.pull.id === id) ??
+				(selected?.pull.id === id ? selected : null);
+			if (row) {
+				const href = pullHref(row.project, row.pull, next);
+				detail.remember(id, href);
+				navigate(href);
+			} else {
+				next.set("pr", id);
+				navigate(withQuery("/prs", next));
+			}
+		},
 		selectRepository: (key: string) => {
 			const repo = repositories.find((r) => r.key === key);
 			setFilter(

@@ -172,7 +172,8 @@ it("calculates only on request, uses uncapped saved totals, and links the reposi
 	);
 	expect(queue.searchParams.get("project")).toBe(project.id);
 	expect(queue.searchParams.get("repo")).toBe(repository.id);
-	expect(queue.searchParams.get("source")).toBe("cli");
+	expect(queue.pathname).toBe("/prs");
+	expect(queue.searchParams.get("source")).toBe("live");
 	expect(calculateContribution).toHaveBeenCalledTimes(1);
 	fireEvent.click(screen.getByRole("switch", { name: "Include drafts" }));
 	await waitFor(() =>

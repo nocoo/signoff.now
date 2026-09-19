@@ -14,6 +14,7 @@ import {
 	loadPending,
 	loadPull,
 	loadPulls,
+	lookupPull,
 	pullQueryParams,
 	queryRow,
 	refreshWatches,
@@ -27,6 +28,28 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 	apiFetch: vi.fn(),
 }));
 afterEach(() => vi.clearAllMocks());
+
+test("friendly PR links resolve from the scoped cache without invoking collection", async () => {
+	const fixture = queryFixture();
+	vi.mocked(apiFetch).mockResolvedValue({
+		...fixture.envelope,
+		data: fixture.pulls.data[0],
+	});
+	const reference = {
+		repositoryUrl: "https://dev.azure.com/org/Core%20API/_git/client",
+		number: 59380,
+	};
+	await lookupPull("demo", reference, new AbortController().signal);
+	const [path, options] = vi.mocked(apiFetch).mock.lastCall!;
+	const url = new URL(path, "https://signoff.dev.hexly.ai");
+	expect(url.pathname).toBe("/api/query/v1/prs/lookup");
+	expect(Object.fromEntries(url.searchParams)).toEqual({
+		source: "sample",
+		repositoryUrl: reference.repositoryUrl,
+		number: "59380",
+	});
+	expect(options?.method).toBeUndefined();
+});
 
 test("subsecond summary clocks remain valid domain timestamps while checks keep their independent age", () => {
 	const value = publicPull();

@@ -49,6 +49,7 @@ import {
 	type PullFilter,
 	type PullRow,
 } from "@/models/workbench";
+import { machineHref } from "@/models/workspaceLocation";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
@@ -204,7 +205,16 @@ export function PullsPage() {
 					<>
 						<Button asChild variant="ghost" size="sm">
 							<Link
-								to={`/state-machines?${new URLSearchParams({ source: vm.filter.source, tab: "priority", ...(scopeProject ? { project: scopeProject.id } : {}), ...(repository?.identityResolved ? { repo: repository.id } : {}) })}`}
+								to={
+									scopeProject
+										? machineHref(
+												scopeProject,
+												repository?.identityResolved ? repository : null,
+												null,
+												new URLSearchParams({ tab: "priority" }),
+											)
+										: `/sm?source=${vm.filter.source === "demo" ? "sample" : "live"}&tab=priority`
+								}
 							>
 								<ListOrdered className="h-3.5 w-3.5" aria-hidden />
 								Readiness order

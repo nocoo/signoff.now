@@ -22,8 +22,8 @@ export const NAV_GROUPS: NavGroupDef[] = [
 		label: "Workspace",
 		defaultOpen: true,
 		items: [
-			{ href: "/state-machines", label: "State machines", icon: "Network" },
-			{ href: "/", label: "Pull requests", icon: "GitPullRequest", end: true },
+			{ href: "/sm", label: "State machines", icon: "Network" },
+			{ href: "/prs", label: "Pull requests", icon: "GitPullRequest" },
 			{ href: "/repos", label: "Repos", icon: "GitBranch" },
 			{ href: "/projects", label: "Projects", icon: "FolderGit2" },
 		],
@@ -57,9 +57,15 @@ export interface BreadcrumbItem {
 }
 
 export function breadcrumbsFromPathname(pathname: string): BreadcrumbItem[] {
-	const path = pathname.replace(/\/+$/, "") || "/";
+	const path = (pathname.replace(/\/+$/, "") || "/prs").replace(
+		/^\/state-machines(?=\/|$)/,
+		"/sm",
+	);
 	for (const group of NAV_GROUPS) {
-		const item = group.items.find((candidate) => candidate.href === path);
+		const item = group.items.find(
+			(candidate) =>
+				candidate.href === path || path.startsWith(`${candidate.href}/`),
+		);
 		if (item) return [{ label: group.label }, { label: item.label }];
 	}
 	return [{ label: path.slice(path.lastIndexOf("/") + 1) }];

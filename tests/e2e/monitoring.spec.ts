@@ -1057,7 +1057,9 @@ test("state machines preview, save and restore scoped rules without changing fac
 	await choices
 		.getByRole("option", { name: /^#5\s+machines change 5$/ })
 		.click();
-	await expect(page).toHaveURL(/trace=[^&]*%3A5(?:&|$)/);
+	await expect(page).toHaveURL(
+		/\/sm\/ado\/e2e-machines\/Machines\/machines\?pr=5(?:&|$)/,
+	);
 	await page
 		.getByRole("textbox", { name: "Search cached PRs", exact: true })
 		.fill("");
@@ -1067,7 +1069,9 @@ test("state machines preview, save and restore scoped rules without changing fac
 	await choices
 		.getByRole("option", { name: /^#1\s+machines change 1$/ })
 		.click();
-	await expect(page).toHaveURL(/trace=[^&]*%3A1(?:&|$)/);
+	await expect(page).toHaveURL(
+		/\/sm\/ado\/e2e-machines\/Machines\/machines\?pr=1(?:&|$)/,
+	);
 	await page.getByRole("tab", { name: "States", exact: true }).click();
 	await page.getByRole("button", { name: "Add state", exact: true }).click();
 	const customGroup = page.locator(
@@ -1590,9 +1594,10 @@ test("incremental discovery retries from its last success and full discovery rec
 test("sidebar connector keeps stable geometry through loading, activity and feedback in desktop and mobile navigation", async ({
 	page,
 }) => {
-	await page.clock.install();
+	const clockNow = Math.floor(Date.now() / 1000) * 1000;
+	await page.clock.install({ time: clockNow });
 	const current = collectorQuerySchema.parse(await cli("status"));
-	const updatedAt = new Date().toISOString();
+	const updatedAt = new Date(clockNow).toISOString();
 	const status = {
 		...current,
 		detailCooldownSeconds: 300,
@@ -1600,7 +1605,7 @@ test("sidebar connector keeps stable geometry through loading, activity and feed
 			strategy: "per_pr",
 			checksConcurrency: 2,
 			statusConcurrency: 2,
-			nextCheckDueAt: new Date(Date.now() + 180000).toISOString(),
+			nextCheckDueAt: new Date(clockNow + 180000).toISOString(),
 			overdueChecks: 0,
 			oldestChecksAgeSeconds: 420,
 			oldestSummaryAgeSeconds: 20,
@@ -1837,4 +1842,182 @@ test("sidebar connector keeps stable geometry through loading, activity and feed
 	await page.screenshot({
 		path: test.info().outputPath("connector-mobile.png"),
 	});
+});
+
+test("friendly workspace URLs survive history, reload and sharing without changing rule scope", async ({
+	page,
+	browser,
+}) => {
+	const repo = {
+		org: "e2e-urls",
+		project: "URL space",
+		id: "url-repository",
+		name: "routes + 100%",
+		projectGuid: "url-project",
+	};
+	repos.push(repo);
+	await cli("repo", "add", repoUrl(repo));
+	const scopePath = `ado/${repo.org}/${encodeURIComponent(repo.project)}`;
+	const repositoryPath = `${scopePath}/${encodeURIComponent(repo.name)}`;
+	await page.goto(`/sm/${repositoryPath}`);
+	await expect(page.getByRole("alert")).toContainText(
+		"Repository address is not collected",
+	);
+	await expect(
+		page.getByRole("region", { name: "State machine graph" }),
+	).toHaveCount(0);
+	await expect(page).toHaveURL(`${base}/sm/${repositoryPath}`);
+	const discovery = commandReceiptSchema.parse(
+		await cli("discover", "--repo", repoUrl(repo)),
+	);
+	expect((await execute(false, discovery.jobs[0]!.id)).state).toBe("complete");
+	await cli("watch", "add", `${repoUrl(repo)}/pullrequest/1`);
+	const pull = pullDetailSchema.parse(
+		await cli("pr", "get", `${repoUrl(repo)}/pullrequest/1`),
+	).data;
+	const providerReads = providerRequests;
+	const watches = await watchList();
+	const detailPath = `/prs/${repositoryPath}/1`;
+	let documents = 0;
+	page.on("request", (request) => {
+		if (request.resourceType() === "document") documents++;
+	});
+	await page.goto(`/?pr=${encodeURIComponent(pull.id)}`);
+	await expect(
+		page.getByRole("heading", { name: pull.title, exact: true }),
+	).toBeVisible();
+	await expect(page).toHaveURL(`${base}${detailPath}`);
+	const loadedDocuments = documents;
+	await page
+		.getByRole("button", { name: "Close pull request details" })
+		.click();
+	await expect(page).toHaveURL(`${base}/prs?source=live`);
+	await page.goBack();
+	await expect(
+		page.getByRole("heading", { name: pull.title, exact: true }),
+	).toBeVisible();
+	await expect(page).toHaveURL(`${base}${detailPath}`);
+	await page.goForward();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	expect(documents).toBe(loadedDocuments);
+	await page.goBack();
+	await page.reload();
+	await expect(
+		page.getByRole("heading", { name: pull.title, exact: true }),
+	).toBeVisible();
+	await expect(page).toHaveURL(`${base}${detailPath}`);
+
+	// A trace is a sample evaluated by project defaults, not a repository override.
+	const projectScopeRead = page.waitForResponse((response) => {
+		const url = new URL(response.url());
+		return (
+			url.pathname === `/api/state-machines/${pull.project.id}` &&
+			url.searchParams.get("pullId") === pull.id &&
+			!url.searchParams.has("repositoryId")
+		);
+	});
+	await page.goto(
+		`/state-machines?${new URLSearchParams({ source: "cli", project: pull.project.id, trace: pull.id, tab: "priority" })}`,
+	);
+	expect(
+		machinePageSchema.parse(await (await projectScopeRead).json()).repositoryId,
+	).toBeNull();
+	const machinePath = `/sm/${scopePath}`;
+	await expect(page).toHaveURL(
+		`${base}${machinePath}?${new URLSearchParams({ tab: "priority", pr: `${repo.name}/1` })}`,
+	);
+	const repository = page.getByRole("combobox", {
+		name: "State machine repository",
+	});
+	const picker = page.getByRole("combobox", { name: "Trace pull request" });
+	await expect(repository).toHaveText("Project default · all repositories");
+	await expect(picker).toHaveText(`#1 ${pull.title}`);
+	const machineDocuments = documents;
+	await page
+		.getByRole("button", { name: "Hide inspector", exact: true })
+		.click();
+	await expect(page.getByRole("tabpanel")).toHaveCount(0);
+	await page.goBack();
+	await expect(
+		page.getByRole("tab", { name: "Priority", exact: true }),
+	).toHaveAttribute("aria-selected", "true");
+	await expect(page.getByRole("tabpanel")).toBeVisible();
+	await page.goForward();
+	await expect(page.getByRole("tabpanel")).toHaveCount(0);
+	await page.getByRole("checkbox", { name: "All collected gates" }).uncheck();
+	await page
+		.getByRole("button", { name: "Observed transitions", exact: true })
+		.click();
+	await page.getByRole("tab", { name: "History", exact: true }).click();
+	const sharedUrl = page.url();
+	expect(new URL(sharedUrl).searchParams.get("view")).toBe("transitions");
+	expect(new URL(sharedUrl).searchParams.get("gates")).toBe("pr");
+	expect(new URL(sharedUrl).searchParams.get("tab")).toBe("history");
+	expect(documents).toBe(machineDocuments);
+
+	const fresh = await browser.newContext();
+	try {
+		await fresh.addInitScript(() =>
+			localStorage.setItem(
+				"signoff-pull-filters",
+				"source=sample&state=closed",
+			),
+		);
+		const shared = await fresh.newPage();
+		await shared.goto(sharedUrl);
+		await expect(
+			shared.getByRole("combobox", { name: "State machine data source" }),
+		).toHaveText("Live");
+		await expect(
+			shared.getByRole("combobox", { name: "State machine repository" }),
+		).toHaveText("Project default · all repositories");
+		await expect(
+			shared.getByRole("combobox", { name: "Trace pull request" }),
+		).toHaveText(`#1 ${pull.title}`);
+		await expect(
+			shared.getByRole("tab", { name: "History", exact: true }),
+		).toHaveAttribute("aria-selected", "true");
+		await expect(
+			shared.getByRole("button", { name: "Observed transitions", exact: true }),
+		).toHaveAttribute("aria-pressed", "true");
+		await expect(
+			shared.getByRole("checkbox", { name: "All collected gates" }),
+		).not.toBeChecked();
+		await shared.reload();
+		await expect(
+			shared.getByRole("combobox", { name: "Trace pull request" }),
+		).toHaveText(`#1 ${pull.title}`);
+		await expect(shared).toHaveURL(sharedUrl);
+		await shared.goto(`${base}${detailPath}`);
+		await expect(
+			shared.getByRole("heading", { name: pull.title, exact: true }),
+		).toBeVisible();
+	} finally {
+		await fresh.close();
+	}
+
+	await repository.click();
+	await page.getByRole("option", { name: repo.name, exact: true }).click();
+	await expect(page).toHaveURL(
+		(url) =>
+			url.pathname === `/sm/${repositoryPath}` &&
+			url.searchParams.get("pr") === "1",
+	);
+	await expect(repository).toHaveText(repo.name);
+	await page.goBack();
+	await expect(repository).toHaveText("Project default · all repositories");
+	await expect(page).toHaveURL(sharedUrl);
+	await page.goto(`${base}/sm/${repositoryPath}?pr=999999`);
+	await expect(page.getByRole("alert")).toContainText("PR is not in the cache");
+	expect(new URL(page.url()).searchParams.get("pr")).toBe("999999");
+	await expect(
+		page.getByRole("combobox", { name: "Trace pull request" }),
+	).toHaveCount(0);
+	expect(providerRequests).toBe(providerReads);
+	const after = await watchList();
+	expect(after.dataRevision).toBe(watches.dataRevision);
+	// Query timestamps and calculated fact ages advance without changing watches.
+	expect(after.data.map(({ pull: _pull, ...watch }) => watch)).toEqual(
+		watches.data.map(({ pull: _pull, ...watch }) => watch),
+	);
 });

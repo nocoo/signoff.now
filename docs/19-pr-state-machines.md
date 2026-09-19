@@ -37,3 +37,20 @@ All `/api/state-machines/:projectId` routes require the same browser/Access boun
 Graph layout is a local view preference. Moving graph nodes changes no mapping or priority; edits in the inspector and priority editor are previewed and explicitly saved.
 
 The graph fills the remaining viewport below two compact scope/PR toolbars. Graph modes and navigation controls float inside the canvas; freshness and replay coverage share a single status line. The inspector starts collapsed unless a tab is linked explicitly. Selecting a node or an inspector tab opens it; closing it retains the draft. On narrow screens the inspector overlays the graph, with its own scroll area and pinned preview/save actions.
+
+## Browser URLs
+
+The web uses React Router's History API routing. Resource identity belongs in the path; filters and view selections belong in query parameters. ADO scopes use `ado/:organization/:project`; GitHub scopes use `github/:owner`. Each name is URL-encoded separately and resolved through the existing cache, including retained repository aliases. Unknown or ambiguous resources show an error instead of selecting another resource.
+
+| URL | Meaning |
+|---|---|
+| `/sm/ado/intentional/intent` | Project default rules |
+| `/sm/ado/intentional/intent/whiteboard-app?pr=59380` | Repository rules, tracing PR 59380 |
+| `/sm/ado/intentional/intent?pr=whiteboard-app%2F59380` | Project default rules, tracing the same PR without changing the rule scope |
+| `/prs/ado/intentional/intent/whiteboard-app/59380` | PR details |
+| `/prs/github/nocoo/signoff.now/123?source=sample` | Sample GitHub PR details |
+| `/prs?source=live&watching=watching` | Watched PR list |
+
+State machine view parameters are `tab=inspect|priority|states|mappings|history`, `view=transitions` (default: rule model), and `gates=pr` (default: all gates). Resource links default to Live independently of saved filters; Sample is explicit as `source=sample`. List links include their source. Old `source=cli|demo`, `/state-machines?project=…&repo=…&trace=…`, and `/?pr=…` links still work and are replaced with the resolved friendly URL. ADO repository names that look like UUIDs use the stable repository ID to avoid name/ID collisions.
+
+Scope changes, PR selections, discrete filters, pagination, tabs and graph modes add history entries. Automatic selections and URL normalization replace the current entry; typing in the PR list search also replaces it. Back/Forward, reload and shared links restore the URL's scope and view without provider calls or changes to facts, watches or rules.

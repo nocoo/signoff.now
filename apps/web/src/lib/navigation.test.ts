@@ -4,7 +4,7 @@ import { breadcrumbsFromPathname, NAV_GROUPS } from "./navigation";
 describe("navigation", () => {
 	test("nav groups cover core product routes", () => {
 		const hrefs = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
-		expect(hrefs).toContain("/");
+		expect(hrefs).toContain("/prs");
 		expect(hrefs).toContain("/projects");
 		expect(hrefs).toContain("/insights");
 		expect(hrefs).toContain("/developers");
@@ -14,7 +14,7 @@ describe("navigation", () => {
 			NAV_GROUPS.find((group) => group.label === "Workspace")?.items.map(
 				(item) => item.href,
 			),
-		).toEqual(["/state-machines", "/", "/repos", "/projects"]);
+		).toEqual(["/sm", "/prs", "/repos", "/projects"]);
 		expect(breadcrumbsFromPathname("/insights")).toEqual([
 			{ label: "Insights" },
 			{ label: "Contributions" },
@@ -39,6 +39,13 @@ describe("navigation", () => {
 		const items = breadcrumbsFromPathname("/settings");
 		expect(items[0]).toEqual({ label: "System" });
 		expect(items[1]).toEqual({ label: "Settings" });
+		expect(breadcrumbsFromPathname("/sm/ado/org/project/repository")).toEqual([
+			{ label: "Workspace" },
+			{ label: "State machines" },
+		]);
+		expect(
+			breadcrumbsFromPathname("/prs/ado/org/project/repository/123"),
+		).toEqual([{ label: "Workspace" }, { label: "Pull requests" }]);
 	});
 
 	test("breadcrumbs unknown segment falls back to raw name", () => {

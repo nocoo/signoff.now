@@ -345,7 +345,7 @@ export function RepositoryOverview({
 											<TableCell className="text-right">
 												<Button asChild variant="ghost" size="sm">
 													<Link
-														to={`/?${queue}`}
+														to={`/prs?${queue}`}
 														aria-label={`View PRs in ${repository.name}`}
 													>
 														View PRs

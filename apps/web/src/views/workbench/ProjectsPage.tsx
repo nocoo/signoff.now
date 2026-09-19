@@ -34,6 +34,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
+import { machineHref } from "@/models/workspaceLocation";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { ProjectDialog } from "./ProjectDialog";
 import { WorkbenchFeedback } from "./WorkbenchControls";
@@ -152,7 +153,7 @@ export function ProjectsPage() {
 											<h2 className="font-semibold text-basalt-foreground">
 												<Link
 													className="hover:underline"
-													to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+													to={`/prs?source=${project.source === "demo" ? "sample" : "live"}&project=${encodeURIComponent(project.id)}`}
 												>
 													{project.name}
 												</Link>
@@ -254,7 +255,7 @@ export function ProjectsPage() {
 													asChild
 												>
 													<Link
-														to={`/?${new URLSearchParams({ source: project.source, org: project.organization, project: project.id, repo: repository.id })}`}
+														to={`/prs?${new URLSearchParams({ source: project.source === "demo" ? "sample" : "live", org: project.organization, project: project.id, repo: repository.id })}`}
 													>
 														{repository.name}
 														{project.lastScannedAt !== null
@@ -282,7 +283,7 @@ export function ProjectsPage() {
 									<div className="flex items-center gap-1">
 										<Button variant="ghost" size="sm" asChild>
 											<Link
-												to={`/?source=${project.source}&project=${encodeURIComponent(project.id)}`}
+												to={`/prs?source=${project.source === "demo" ? "sample" : "live"}&project=${encodeURIComponent(project.id)}`}
 											>
 												View PRs
 												<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
@@ -294,9 +295,7 @@ export function ProjectsPage() {
 											asChild
 											aria-label={`Readiness for ${project.name}`}
 										>
-											<Link
-												to={`/state-machines?source=${project.source}&project=${encodeURIComponent(project.id)}`}
-											>
+											<Link to={machineHref(project)}>
 												<ListOrdered className="h-3.5 w-3.5" aria-hidden />
 												State machine
 											</Link>

@@ -17,19 +17,21 @@ export function MachinePullPicker({
 	pullId,
 	selectedPull,
 	onChange,
+	autoSelect = true,
 }: {
 	scope: MachineScope;
 	pullId: string | null;
 	selectedPull: MachinePage["selectedPull"];
-	onChange: (id: string) => void;
+	onChange: (id: string, options?: { replace?: boolean }) => void;
+	autoSelect?: boolean;
 }) {
 	const [search, setSearch] = useState("");
 	const [watchedOnly, setWatchedOnly] = useState(true);
 	const vm = useMachinePullPicker(scope, search, watchedOnly);
 	const first = vm.items[0];
 	useEffect(() => {
-		if (!pullId && first) onChange(first.id);
-	}, [pullId, first, onChange]);
+		if (autoSelect && !pullId && first) onChange(first.id, { replace: true });
+	}, [autoSelect, pullId, first, onChange]);
 	const current =
 		selectedPull?.id === pullId
 			? selectedPull
