@@ -1527,7 +1527,7 @@ test("incremental discovery retries from its last success and full discovery rec
 	).toHaveAttribute("aria-pressed", "false");
 });
 
-test("sidebar connector stays compact and its interval menu fits in expanded, collapsed and mobile navigation", async ({
+test("sidebar connector keeps stable geometry through loading, activity and feedback in desktop and mobile navigation", async ({
 	page,
 }) => {
 	await page.clock.install();
@@ -1535,6 +1535,17 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	const updatedAt = new Date().toISOString();
 	const status = {
 		...current,
+		detailCooldownSeconds: 300,
+		scheduling: {
+			strategy: "per_pr",
+			checksConcurrency: 2,
+			statusConcurrency: 2,
+			nextCheckDueAt: new Date(Date.now() + 180000).toISOString(),
+			overdueChecks: 0,
+			oldestChecksAgeSeconds: 420,
+			oldestSummaryAgeSeconds: 20,
+			missingChecks: 1,
+		},
 		connection: { state: "ready", lastSeenAt: updatedAt, message: "Connected" },
 		watching: 16,
 		queue: { running: 1, queued: 3, authRequired: 0 },
@@ -1561,11 +1572,33 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 			},
 		],
 	};
-	await page.route("**/api/query/v1/collector?**", (route) =>
-		route.fulfill({ json: status }),
-	);
+	let releaseCollector!: () => void;
+	const collectorReady = new Promise<void>((resolve) => {
+		releaseCollector = resolve;
+	});
+	await page.route("**/api/query/v1/collector?**", async (route) => {
+		await collectorReady;
+		await route.fulfill({ json: status });
+	});
 	await page.goto("/?source=cli");
 	const panel = page.getByRole("region", { name: "Connector status" });
+	const interval = panel.getByRole("combobox", {
+		name: "Watched PR refresh cooldown",
+	});
+	await expect(
+		panel.getByText("Reading status", { exact: true }),
+	).toBeVisible();
+	await expect(interval).toBeDisabled();
+	const geometry = async () => ({
+		panel: await panel.boundingBox(),
+		interval: await interval.boundingBox(),
+	});
+	const loadingGeometry = await geometry();
+	const expectStable = async (baseline = loadingGeometry) => {
+		expect(await geometry()).toEqual(baseline);
+		expect((await panel.boundingBox())!.height).toBeLessThan(180);
+	};
+	releaseCollector();
 	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
 	await expect(panel.getByRole("progressbar")).toHaveAttribute(
 		"aria-valuenow",
@@ -1577,10 +1610,27 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	await expect(
 		page.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
 	).toHaveCount(1);
-	expect((await panel.boundingBox())!.height).toBeLessThan(180);
-	const interval = panel.getByRole("combobox", {
-		name: "Watched PR refresh cooldown",
-	});
+	await expect(
+		panel.getByText("Oldest checks: 7m ago · 1 missing"),
+	).toBeVisible();
+	await expectStable();
+	const runningJob = status.jobs[0]!;
+	status.queue = { running: 0, queued: 0, authRequired: 0 };
+	status.jobs = [];
+	await page.clock.runFor(3100);
+	await expect(panel.getByText("Next check in 3 min")).toBeVisible();
+	await expect(panel.getByRole("progressbar")).toHaveCount(0);
+	await expectStable();
+	status.watching = 0;
+	await page.clock.runFor(3100);
+	await expect(panel.getByText("Ready to watch")).toBeVisible();
+	await expectStable();
+	status.watching = 16;
+	status.queue = { running: 1, queued: 3, authRequired: 0 };
+	status.jobs = [runningJob];
+	await page.clock.runFor(3100);
+	await expect(panel.getByRole("progressbar")).toBeVisible();
+	await expectStable();
 	const intervalWidth = (await interval.boundingBox())!.width;
 	await interval.click();
 	const menu = page.getByRole("listbox");
@@ -1605,8 +1655,15 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	await page.screenshot({ path: test.info().outputPath("connector-menu.png") });
 	await page.keyboard.press("Escape");
 	await page.goto("/developers?source=cli");
+	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
+	await expectStable();
 	let rejectSettings = true;
+	let releaseSettings!: () => void;
+	const settingsReady = new Promise<void>((resolve) => {
+		releaseSettings = resolve;
+	});
 	await page.route("**/api/collection/settings", async (route) => {
+		await settingsReady;
 		if (rejectSettings)
 			await route.fulfill({
 				status: 503,
@@ -1619,16 +1676,22 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	});
 	await interval.click();
 	await page.getByRole("option", { name: "10 min", exact: true }).click();
+	await expect(panel.getByText("Saving cooldown…")).toBeVisible();
+	await expect(interval).toBeDisabled();
+	await expectStable();
+	releaseSettings();
 	await expect(panel.getByRole("alert")).toHaveText(
 		"Cannot save refresh cooldown",
 	);
 	await expect(interval).toHaveText("5 min");
+	await expectStable();
 	rejectSettings = false;
 	await interval.click();
 	await page.getByRole("option", { name: "10 min", exact: true }).click();
 	await expect(panel.getByText("Watch refresh cooldown saved.")).toBeVisible();
 	await expect(interval).toHaveText("10 min");
 	await expect(panel.getByRole("alert")).toHaveCount(0);
+	await expectStable();
 	expect(
 		collectorQuerySchema.parse(await cli("status")).detailCooldownSeconds,
 	).toBe(600);
@@ -1652,6 +1715,7 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	await expect(
 		panel.getByText("Collection paused", { exact: true }),
 	).toHaveCount(0);
+	await expectStable();
 	status.connection = {
 		state: "offline",
 		lastSeenAt: updatedAt,
@@ -1663,6 +1727,13 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 	await expect(panel.getByText("Offline", { exact: true })).toHaveClass(
 		/text-basalt-destructive/,
 	);
+	await expectStable();
+	const longProblem =
+		"Sign-in expired for a watched repository. Open the collector and sign in to resume checks for this project. Other projects can continue collecting normally.";
+	status.connection.message = longProblem;
+	await page.clock.runFor(3100);
+	await expect(panel.getByText(longProblem, { exact: true })).toBeVisible();
+	await expectStable();
 	await page.screenshot({
 		path: test.info().outputPath("connector-offline.png"),
 	});
@@ -1674,9 +1745,28 @@ test("sidebar connector stays compact and its interval menu fits in expanded, co
 		.getByRole("button", { name: /Connector offline.*Expand sidebar/ })
 		.click();
 	await expect(interval).toBeVisible();
+	await expect
+		.poll(async () => (await panel.boundingBox())!.width)
+		.toBe(loadingGeometry.panel!.width);
+	await expectStable();
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.getByRole("button", { name: "Open navigation" }).click();
 	await expect(panel).toBeVisible();
+	await expect
+		.poll(async () => (await panel.boundingBox())!.x)
+		.toBe(loadingGeometry.panel!.x);
+	const mobileGeometry = await geometry();
+	status.connection = {
+		state: "ready",
+		lastSeenAt: updatedAt,
+		message: "Connected",
+	};
+	status.queue = { running: 0, queued: 0, authRequired: 0 };
+	status.jobs = [];
+	await page.clock.runFor(3100);
+	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
+	await expect(panel.getByRole("progressbar")).toHaveCount(0);
+	await expectStable(mobileGeometry);
 	await panel
 		.getByRole("combobox", { name: "Watched PR refresh cooldown" })
 		.click();
