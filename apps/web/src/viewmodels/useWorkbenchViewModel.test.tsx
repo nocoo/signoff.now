@@ -15,7 +15,11 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import * as api from "@/models/monitoringApi";
-import { PULL_FILTER_STORAGE_KEY } from "@/models/workbench";
+import {
+	DEFAULT_PULL_FILTER,
+	PULL_FILTER_STORAGE_KEY,
+	readPullFilter,
+} from "@/models/workbench";
 import {
 	createProject,
 	deleteProject,
@@ -549,13 +553,25 @@ describe("independent cached blocks", () => {
 		expect(result.current.vm.detailError).toBe("Connection lost");
 	});
 	it("changing routes stops the PR page query while preserving global source and catalog", async () => {
-		const { result } = render("/projects");
+		localStorage.setItem(
+			PULL_FILTER_STORAGE_KEY,
+			"source=live&q=review&watching=watching&sort=title&direction=desc&repo=old-repo&author=old-author",
+		);
+		const { result } = render("/projects?source=live");
 		await loaded(result);
 		expect(api.loadPulls).not.toHaveBeenCalled();
 		act(() => result.current.vm.setFilter({ source: "demo" }));
 		act(() => result.current.navigate("/"));
 		await loaded(result);
-		expect(result.current.vm.filter.source).toBe("demo");
+		expect(result.current.vm.filter).toMatchObject({
+			source: "demo",
+			query: "review",
+			watching: "watching",
+			sort: "title",
+			sortDirection: "desc",
+			repository: "",
+			authors: [],
+		});
 		expect(result.current.vm.pageRows[0]?.project.source).toBe("demo");
 	});
 });
@@ -683,22 +699,109 @@ describe("filters, server pages and temporary selection", () => {
 			new URLSearchParams(result.current.location.search).has("trace"),
 		).toBe(false);
 	});
-	it("restores saved filters and gives explicit URL filters priority", async () => {
+	it.each([
+		"/",
+		"/prs",
+	])("restores saved filters at %s and gives explicit URL filters priority", async (path) => {
 		localStorage.setItem(
 			PULL_FILTER_STORAGE_KEY,
-			"source=demo&draft=include&watching=watching",
+			"source=demo&q=review+me&org=northstar&project=core&repo=repo-id&draft=include&author=one&author=two&state=all&watching=watching&sort=updated&direction=asc",
 		);
-		const first = render();
+		const first = render(path);
 		await loaded(first.result);
-		expect(first.result.current.vm.filter).toMatchObject({
+		expect(first.result.current.vm.filter).toEqual({
 			source: "demo",
+			query: "review me",
+			organization: "northstar",
+			projectId: "core",
+			repository: "repo-id",
 			draft: "include",
+			authors: ["one", "two"],
+			state: "all",
+			status: "all",
 			watching: "watching",
+			sort: "updated",
+			sortDirection: "asc",
 		});
+		expect(first.result.current.location.pathname).toBe("/prs");
+		expect(
+			new URLSearchParams(first.result.current.location.search).get("source"),
+		).toBe("sample");
 		first.unmount();
-		const second = render("/?source=cli");
+		const second = render(`${path}?source=cli`);
 		await loaded(second.result);
-		expect(second.result.current.vm.filter.source).toBe("cli");
+		expect(second.result.current.vm.filter).toEqual({
+			...DEFAULT_PULL_FILTER,
+			source: "cli",
+		});
+	});
+	it.each([
+		"/sm/ado/northstar/Platform/repo?pr=1",
+		"/sm?source=live&tab=priority",
+		"/projects?source=live",
+		pullHref(project, pull),
+	])("keeps list preferences when visiting %s and returning through the sidebar", async (path) => {
+		const saved =
+			"source=sample&draft=only&status=attention&watching=watching&sort=progress&direction=asc";
+		localStorage.setItem(PULL_FILTER_STORAGE_KEY, saved);
+		const { result } = render(path);
+		await loaded(result);
+		expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toBe(saved);
+		act(() => result.current.navigate(result.current.vm.pullsHref));
+		await loaded(result);
+		expect(result.current.vm.filter).toMatchObject({
+			source: "demo",
+			draft: "only",
+			status: "attention",
+			watching: "watching",
+			sort: "progress",
+			sortDirection: "asc",
+		});
+	});
+	it("persists changed filters and sort direction across reloads, including clearing them", async () => {
+		const first = render("/prs");
+		await loaded(first.result);
+		act(() =>
+			first.result.current.vm.setFilter({
+				watching: "unwatched",
+				status: "approval",
+				draft: "include",
+				authors: ["one", "two"],
+				query: "review",
+				sort: "title",
+				sortDirection: "desc",
+			}),
+		);
+		const expected = first.result.current.vm.filter;
+		expect(
+			readPullFilter(
+				new URLSearchParams(localStorage.getItem(PULL_FILTER_STORAGE_KEY)!),
+				true,
+			),
+		).toEqual(expected);
+		const url = `${first.result.current.location.pathname}${first.result.current.location.search}`;
+		first.unmount();
+		const reloaded = render(url);
+		await loaded(reloaded.result);
+		expect(reloaded.result.current.vm.filter).toEqual(expected);
+		reloaded.unmount();
+		const reopened = render("/prs");
+		await loaded(reopened.result);
+		expect(reopened.result.current.vm.filter).toEqual(expected);
+		act(() =>
+			reopened.result.current.vm.setFilter({
+				...DEFAULT_PULL_FILTER,
+				source: "cli",
+			}),
+		);
+		expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toBe("source=live");
+		reopened.unmount();
+		const cleared = render("/prs");
+		await loaded(cleared.result);
+		expect(cleared.result.current.vm.filter).toEqual({
+			...DEFAULT_PULL_FILTER,
+			source: "cli",
+		});
 	});
 	it("works even when browser storage is unavailable", async () => {
 		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {

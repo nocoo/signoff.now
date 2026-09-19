@@ -233,6 +233,70 @@ function usePullDetail(
 	};
 }
 
+function usePullFilters(route: WorkspaceLocation | null) {
+	const [params] = useSearchParams();
+	const location = useLocation();
+	const navigate = useNavigate();
+	const isPullsPage = route?.section === "prs";
+	const isPullsList =
+		isPullsPage && route.valid && !route.project && !params.has("pr");
+	const [savedFilters, setSavedFilters] = useState(storedFilters);
+	const savedFilter = useMemo(
+		() => readPullFilter(new URLSearchParams(savedFilters), true),
+		[savedFilters],
+	);
+	const hasFilterParams = [...Object.values(PULL_FILTER_PARAMS), "author"].some(
+		(key) => params.has(key),
+	);
+	const filter = useMemo(
+		() =>
+			hasFilterParams || route?.project || (isPullsPage && !isPullsList)
+				? readPullFilter(params, true)
+				: savedFilter,
+		[
+			params,
+			savedFilter,
+			hasFilterParams,
+			route?.project,
+			isPullsPage,
+			isPullsList,
+		],
+	);
+	const listFilter = isPullsList ? filter : savedFilter;
+	useEffect(() => {
+		// Give restored preferences an explicit history entry so Back uses that
+		// entry's filters, rather than the latest localStorage preferences.
+		if (location.pathname === "/" || (isPullsList && !hasFilterParams))
+			navigate(withQuery("/prs", writePullFilter(filter, params)), {
+				replace: true,
+			});
+	}, [
+		location.pathname,
+		isPullsList,
+		hasFilterParams,
+		filter,
+		params,
+		navigate,
+	]);
+	const saveFilters = useCallback(
+		(value: PullFilter) => {
+			const next = writePullFilter(value).toString();
+			if (next === savedFilters) return;
+			setSavedFilters(next);
+			try {
+				localStorage.setItem(PULL_FILTER_STORAGE_KEY, next);
+			} catch {
+				/* URL and session state remain usable. */
+			}
+		},
+		[savedFilters],
+	);
+	useEffect(() => {
+		if (isPullsList) saveFilters(filter);
+	}, [isPullsList, filter, saveFilters]);
+	return { filter, listFilter, saveFilters, isPullsList };
+}
+
 export function useWorkbenchViewModel() {
 	const [params, setParams] = useSearchParams();
 	const location = useLocation();
@@ -242,38 +306,8 @@ export function useWorkbenchViewModel() {
 		[location.pathname],
 	);
 	const isPullsPage = route?.section === "prs";
-	const [savedFilters, setSavedFilters] = useState(storedFilters);
-	const filter = useMemo(
-		() =>
-			readPullFilter(
-				location.pathname.startsWith("/prs") ||
-					route?.project ||
-					[...Object.values(PULL_FILTER_PARAMS), "author"].some((key) =>
-						params.has(key),
-					)
-					? params
-					: new URLSearchParams(savedFilters),
-				true,
-			),
-		[params, savedFilters, location.pathname, route?.project],
-	);
-	useEffect(() => {
-		if (location.pathname === "/")
-			navigate(withQuery("/prs", writePullFilter(filter, params)), {
-				replace: true,
-			});
-	}, [location.pathname, filter, params, navigate]);
-	useEffect(() => {
-		const next = writePullFilter(filter).toString();
-		if (next !== savedFilters) {
-			setSavedFilters(next);
-			try {
-				localStorage.setItem(PULL_FILTER_STORAGE_KEY, next);
-			} catch {
-				/* URL and session state remain usable. */
-			}
-		}
-	}, [filter, savedFilters]);
+	const { filter, listFilter, saveFilters, isPullsList } =
+		usePullFilters(route);
 	const requestedPage = Number(params.get("page") ?? 1);
 	const page =
 		Number.isSafeInteger(requestedPage) && requestedPage > 0
@@ -581,7 +615,10 @@ export function useWorkbenchViewModel() {
 			);
 	}, [pulls.data, pulls.loading, page, pageCount, setParams]);
 	const setFilter = (patch: Partial<PullFilter>) => {
-		const next = updatePullFilter(filter, patch);
+		const next = updatePullFilter(
+			patch.source !== undefined ? listFilter : filter,
+			patch,
+		);
 		if (patch.source !== undefined) {
 			next.organization = patch.organization ?? "";
 			next.projectId = patch.projectId ?? "";
@@ -597,6 +634,7 @@ export function useWorkbenchViewModel() {
 				projects
 					.find((p) => p.project.id === patch.projectId)
 					?.project.organization.toLowerCase() ?? next.organization;
+		if (patch.source !== undefined && !isPullsList) saveFilters(next);
 		if (
 			patch.source !== undefined &&
 			(route?.section === "sm" || pullReference)
@@ -955,7 +993,7 @@ export function useWorkbenchViewModel() {
 		page,
 		pageCount,
 		pageSize: PAGE_SIZE,
-		pullsHref: withQuery("/prs", writePullFilter(filter)),
+		pullsHref: withQuery("/prs", writePullFilter(listFilter)),
 		setPage: (value: number) => setParam("page", String(value)),
 		selectPull: (id: string | null) => {
 			const next = writePullFilter(filter, params);

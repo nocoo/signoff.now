@@ -1878,6 +1878,82 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	const providerReads = providerRequests;
 	const watches = await watchList();
 	const detailPath = `/prs/${repositoryPath}/1`;
+	await page.goto(`/prs?source=live&org=${repo.org}`);
+	await page.getByRole("combobox", { name: "Project", exact: true }).click();
+	await page.getByRole("option", { name: repo.project, exact: true }).click();
+	await page.getByRole("combobox", { name: "Repository", exact: true }).click();
+	await page.getByRole("option", { name: repo.name, exact: true }).click();
+	await page.getByRole("textbox", { name: "Search PRs" }).fill("change");
+	await page.getByRole("combobox", { name: "Draft", exact: true }).click();
+	await page
+		.getByRole("option", { name: "Include drafts", exact: true })
+		.click();
+	await page.getByRole("button", { name: "Watched", exact: true }).click();
+	await page.getByRole("button", { name: "All states", exact: true }).click();
+	const sort = page.getByRole("button", {
+		name: "Sort by Pull request",
+		exact: true,
+	});
+	await sort.click();
+	await sort.click();
+	const preferencesUrl = new URL(page.url());
+	preferencesUrl.searchParams.sort();
+	const storedPreferences = () =>
+		page.evaluate(() => localStorage.getItem("signoff-pull-filters"));
+	const preferences = await storedPreferences();
+	expect(Object.fromEntries(new URLSearchParams(preferences!))).toEqual({
+		source: "live",
+		org: repo.org,
+		project: pull.project.id,
+		repo: repo.id,
+		q: "change",
+		draft: "include",
+		watching: "watching",
+		state: "all",
+		sort: "title",
+		direction: "desc",
+	});
+	const expectPreferences = async () => {
+		await expect(page).toHaveURL((url) => {
+			url.searchParams.sort();
+			return url.href === preferencesUrl.href;
+		});
+		await expect(page.getByRole("textbox", { name: "Search PRs" })).toHaveValue(
+			"change",
+		);
+		await expect(
+			page.getByRole("combobox", { name: "Repository", exact: true }),
+		).toHaveText(repo.name);
+		await expect(
+			page.getByRole("combobox", { name: "Draft", exact: true }),
+		).toHaveText("Include drafts");
+		await expect(
+			page.getByRole("button", { name: "Watched", exact: true }),
+		).toHaveAttribute("aria-pressed", "true");
+		await expect(
+			page.getByRole("button", { name: "All states", exact: true }),
+		).toHaveAttribute("aria-pressed", "true");
+		await expect(
+			page.getByRole("columnheader", {
+				name: "Sort by Pull request",
+				exact: true,
+			}),
+		).toHaveAttribute("aria-sort", "descending");
+		await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
+	};
+	await page.reload();
+	await expectPreferences();
+	await page.goto("/prs");
+	await expectPreferences();
+	await page.goto(`/sm/${repositoryPath}?pr=1`);
+	await expect(
+		page.getByRole("combobox", { name: "Trace pull request" }),
+	).toHaveText(`#1 ${pull.title}`);
+	expect(await storedPreferences()).toBe(preferences);
+	await page
+		.getByRole("button", { name: "Pull requests", exact: true })
+		.click();
+	await expectPreferences();
 	let documents = 0;
 	page.on("request", (request) => {
 		if (request.resourceType() === "document") documents++;

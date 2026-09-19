@@ -56,7 +56,7 @@ bun run db:seed:local
 bun run dev:worker
 ```
 
-另开终端执行 `bun run dev`，访问 `https://signoff.dev.hexly.ai`（已有本机 Caddy 映射），或 `http://localhost:7042`。
+另开终端执行 `bun run dev`，通过本机 Caddy 域名 `https://signoff.dev.hexly.ai` 访问。
 
 Worker 开发脚本固定本地 upstream，并开启 `SIGNOFF_DEMO_MODE=1`。模拟扫描同时检查本地域名、Demo 开关、项目 source 和监控开关，不能修改 CLI 来源的快照。生产不设置此开关。
 
@@ -64,7 +64,7 @@ Worker 开发脚本固定本地 upstream，并开启 `SIGNOFF_DEMO_MODE=1`。模
 
 ## UI 与场景
 
-首页 `/` 为 PR 工作台，`/projects` 为项目管理，原 Dashboard 位于 `/insights`。来源、三级范围、搜索、Draft、作者多选、状态和排序保存在 URL 与 `signoff-pull-filters` localStorage；分页和详情使用 `page`、`pr` URL 参数。明确的筛选链接优先于本地缓存；直接访问首页恢复上次筛选。
+PR 工作台位于 `/prs`（`/` 自动跳转），`/projects` 为项目管理，原 Dashboard 位于 `/insights`。来源、三级范围、搜索、Draft、作者多选、PR 状态、readiness、Watched 筛选以及排序字段和升降序保存在 URL 与 `signoff-pull-filters` localStorage。刷新保留当前选项，直接打开无筛选参数的 `/prs` 或 `/` 恢复上次偏好，并以 replace 写回 URL；明确的筛选链接优先于缓存，前进后退恢复对应历史条目的筛选。状态机、详情及其他页面的访问不会覆盖列表偏好，从侧栏返回 Pull requests 会恢复它们；主动切换全局来源仍保留通用筛选，清空来源相关的范围与作者。分页使用 `page` 参数，PR 详情使用资源路径（见 [浏览器 URL 约定](19-pr-state-machines.md)），这些临时位置不写入筛选缓存。
 
 各页面使用 Basalt PageHeader 的主标题、次标题与全局 AppHeader 面包屑，分类名称无跳转目标时不可点击。PR 页主标题为 Pull requests，次标题显示当前组织 / 项目 / 仓库；移除重复仓库横幅，筛选后的状态数量保留在汇总区。Live 列表与当前页检查使用独立刷新队列，默认完成整轮后冷却 2 / 5 分钟，见 11。
 
