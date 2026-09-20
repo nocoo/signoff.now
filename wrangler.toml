@@ -6,6 +6,7 @@
 #   bun run db:migrate:remote
 
 name = "signoff"
+preview_urls = false
 main = "packages/worker/src/index.ts"
 compatibility_date = "2026-07-07"
 
@@ -25,10 +26,7 @@ routes = [
   { pattern = "signoff-ingest.hexly.ai", custom_domain = true },
 ]
 
-# workers.dev stays on as a fallback: if the custom domain or its certificate
-# misbehaves, `signoff.<subdomain>.workers.dev` is still a way in to check
-# whether the Worker itself is healthy.
-workers_dev = true
+workers_dev = false
 
 # Local: bun run dev:worker → :37042 with --local D1
 [dev]
