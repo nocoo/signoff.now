@@ -15,12 +15,6 @@ const count = z.number().int().nonnegative();
 const leaseToken = z.uuid();
 const message = z.string().max(1000);
 
-export const discoveryCursorSchema = z.object({
-	number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-	createdAt: z.number().int().nonnegative(),
-});
-export type DiscoveryCursor = z.infer<typeof discoveryCursorSchema>;
-
 export const refreshSettingsSchema = z
 	.object({
 		listCooldownSeconds: refreshCooldownSchema.optional(),
@@ -109,9 +103,23 @@ export const collectionBatchSchema = z
 		pulls: z.array(pullRequestSchema).min(1).max(20),
 	})
 	.strict();
+export const collectionPhaseSchema = z.enum([
+	"starting",
+	"authenticating",
+	"repositories",
+	"listing",
+	"state",
+	"policies",
+	"builds",
+	"metrics",
+	"publishing",
+	"finished",
+]);
+export type CollectionPhase = z.infer<typeof collectionPhaseSchema>;
 export const collectionProgressSchema = z
 	.object({
 		leaseToken,
+		phase: collectionPhaseSchema.optional(),
 		completedPulls: count,
 		totalPulls: count.nullable(),
 		message,

@@ -1157,7 +1157,8 @@ export function publicJob(
 			: null,
 		source: publicSource(row.source),
 		kind: row.kind === "list" ? ("discover" as const) : ("refresh" as const),
-		...(row.summary_only ? { lane: "status" as const } : {}),
+		lane: row.kind === "list" ? ("discover" as const) : ("checks" as const),
+		phase: row.phase,
 		state: row.state === "complete" ? ("succeeded" as const) : row.state,
 		projectId: row.project_id,
 		projectRevision: row.revision,
@@ -1208,20 +1209,38 @@ export async function queryJob(
 	]);
 	const job = results[0]?.results[0] as JobRow | undefined;
 	if (!job) throw new MonitoringError("NOT_FOUND", "Job not found", 404);
-	return publicJob(job, (results[1]?.results ?? []) as JobRepositoryRow[]);
+	return {
+		...publicJob(job, (results[1]?.results ?? []) as JobRepositoryRow[]),
+		events: JSON.parse(job.events_json),
+		result: job.result_json ? JSON.parse(job.result_json) : null,
+	};
 }
 export async function queryJobHistory(
 	db: QueryDatabase,
 	source: DataSource,
 	filters: JobHistoryFilters,
 ) {
-	const signature = JSON.stringify([source, filters.lane, filters.outcome]);
-	const where = ["j.source=?"];
+	const signature = JSON.stringify([
+		source,
+		filters.lane,
+		filters.outcome,
+		filters.group,
+	]);
+	const where = ["j.source=?", "j.summary_only=0"];
 	const values: (string | number)[] = [source];
 	if (filters.lane === "discover") where.push("j.kind='list'");
 	else if (filters.lane !== "all") {
-		where.push("j.kind<>'list' AND j.summary_only=?");
-		values.push(Number(filters.lane === "status"));
+		where.push("j.kind='details'");
+	}
+	if (filters.group) {
+		if (filters.group.startsWith("pr:")) {
+			where.push("j.observation_id=?");
+			values.push(filters.group.slice(3));
+		} else if (filters.group.startsWith("project:")) {
+			where.push("j.project_id=? AND j.kind='list'");
+			values.push(filters.group.slice(8));
+		} else
+			throw new MonitoringError("INVALID_ARGUMENT", "Invalid collection group");
 	}
 	if (filters.outcome === "issues")
 		where.push("j.state IN ('partial','failed','auth_required')");
@@ -1284,7 +1303,7 @@ export async function queryCollector(
 				`WITH latest AS (
         SELECT *, (SELECT ref_json FROM pr_observations o WHERE o.id=collection_jobs.observation_id) ref_json,ROW_NUMBER() OVER (
           PARTITION BY project_id,kind,summary_only,observation_id,scope_key ORDER BY requested_at DESC,rowid DESC
-        ) AS newest FROM collection_jobs WHERE source=? AND (kind='list' OR EXISTS (
+        ) AS newest FROM collection_jobs WHERE source=? AND summary_only=0 AND (kind='list' OR EXISTS (
           SELECT 1 FROM pr_observations o WHERE o.id=collection_jobs.observation_id
           AND o.active=1 AND o.generation=collection_jobs.observation_generation))
       ) SELECT * FROM latest WHERE newest=1
@@ -1308,7 +1327,7 @@ export async function queryCollector(
 			)
 			.bind(source),
 		db.prepare(
-			"SELECT cooldown_seconds FROM collection_refresh WHERE kind='details'",
+			"SELECT cooldown_seconds,(SELECT cooldown_seconds FROM collection_refresh WHERE kind='list') list_cooldown_seconds FROM collection_refresh WHERE kind='details'",
 		),
 		db
 			.prepare(
@@ -1392,15 +1411,17 @@ export async function queryCollector(
 		watching: counts.active ?? 0,
 		pendingFirstResult: counts.pending ?? 0,
 		detailCooldownSeconds: cooldown,
-		statusCooldownSeconds: 30,
-		discovery: "on_demand" as const,
+		listCooldownSeconds: (
+			results[4]?.results[0] as { list_cooldown_seconds: number }
+		).list_cooldown_seconds,
+		discovery: "scheduled" as const,
 		jobs: jobs.map((j) => publicJob(j, [])),
 		// Retained as an empty compatibility field for older v1 clients.
 		rounds: [],
 		scheduling: {
 			strategy: "per_pr" as const,
 			checksConcurrency: 2,
-			statusConcurrency: 2,
+			discoveryConcurrency: 1,
 			nextCheckDueAt: due.length ? iso(Math.min(...due)) : null,
 			overdueChecks: due.filter((at) => at <= timestamp).length,
 			oldestChecksAgeSeconds: oldest("checks_observed_at"),

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Hono } from "hono";
 import app from "../index";
-import { addObservation } from "../monitoring/observations";
+import { addObservation, refreshObserved } from "../monitoring/observations";
+import { claimJob, failJob } from "../monitoring/scheduler";
 import { seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 import type { AppEnv } from "../types";
@@ -27,7 +28,7 @@ const request = (path: string, method = "POST", body?: unknown) =>
 		{ DB: sqlite.db },
 	);
 
-test("page notifications are retired and neither legacy list ticks nor queries enqueue discovery", async () => {
+test("only discovery scheduling enqueues project list jobs", async () => {
 	seedProject(sqlite, { repositories: [] });
 	seedPull(sqlite);
 	expect(
@@ -41,14 +42,15 @@ test("page notifications are retired and neither legacy list ticks nor queries e
 	expect((await request("collection/refresh", "GET")).status).toBe(200);
 	expect(
 		sqlite.raw.query("SELECT COUNT(*) AS n FROM collection_jobs").get(),
-	).toEqual({ n: 0 });
+	).toEqual({ n: 1 });
 });
 
-test("only check cooldown can be configured; defaults to five minutes and zero disables periodic work", async () => {
+test("both task cooldowns are configurable and zero disables periodic work", async () => {
 	const initial = (await (
 		await request("collection/refresh", "GET")
 	).json()) as { kind: string; cooldownSeconds: number }[];
 	expect(initial.find((q) => q.kind === "details")?.cooldownSeconds).toBe(300);
+	expect(initial.find((q) => q.kind === "list")?.cooldownSeconds).toBe(600);
 	for (const value of [120, 300, 0]) {
 		const response = await request("collection/settings", "PATCH", {
 			detailCooldownSeconds: value,
@@ -65,7 +67,7 @@ test("only check cooldown can be configured; defaults to five minutes and zero d
 			.status,
 	).toBe(200);
 	for (const value of [
-		{ listCooldownSeconds: 120 },
+		{ listCooldownSeconds: 1 },
 		{ detailCooldownSeconds: -1 },
 		{ detailCooldownSeconds: 1 },
 		{},
@@ -117,4 +119,44 @@ test("scheduler configuration and reads stay on loopback", async () => {
 				)
 			).status,
 		).toBe(403);
+});
+
+test("changing cooldown replans queued manual refreshes without bypassing completion", async () => {
+	seedProject(sqlite, { repositories: [] });
+	const pull = seedPull(sqlite);
+	const t = 1000;
+	await addObservation(sqlite.db, "cli", { pullId: pull.id }, t);
+	const claim = (await claimJob(sqlite.db, t))!;
+	await failJob(
+		sqlite.db,
+		claim.job.id,
+		claim.leaseToken,
+		"unavailable",
+		"Network",
+		t + 30,
+	);
+	const queued = (
+		await refreshObserved(sqlite.db, "cli", { pullId: pull.id }, t + 31)
+	).jobs[0]!;
+	expect(queued.notBefore).toBe(new Date((t + 330) * 1000).toISOString());
+	for (const cooldown of [600, 60]) {
+		expect(
+			(
+				await request("collection/settings", "PATCH", {
+					detailCooldownSeconds: cooldown,
+				})
+			).status,
+		).toBe(200);
+		expect(
+			sqlite.raw
+				.query("SELECT not_before FROM collection_jobs WHERE id=?")
+				.get(queued.id),
+		).toEqual({ not_before: t + 30 + cooldown });
+		expect(
+			await claimJob(sqlite.db, t + 29 + cooldown, { jobId: queued.id }),
+		).toBeNull();
+	}
+	expect(
+		(await claimJob(sqlite.db, t + 90, { jobId: queued.id }))?.job.id,
+	).toBe(queued.id);
 });

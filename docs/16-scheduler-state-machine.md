@@ -1,6 +1,6 @@
 # 16 — 观察列表、刷新调度与自动淘汰
 
-> 当前实现，2026-09-18。网页和 CLI 共用一份关注清单；首次启用时清单为空，后续升级保留已有关注项；发现仅按需执行。
+> Current implementation, 2026-09-21. Web and CLI share one watch list. Project discovery and watched PR refresh use independent completion-based cooldowns.
 > 总览见 [14](14-collector-architecture.md)，周期见 [17](17-query-cadence.md)，对外 API / CLI 见 [18](18-cli-query-contract.md)。
 
 ## 1. 刷新模块只接收两类输入
@@ -8,7 +8,7 @@
 1. **active 观察列表**：对列表内的 PR 按配置持续刷新，不关心是谁加入的，也不根据当前页面、搜索或项目全集扩充它。
 2. **显式任务**：执行其他模块提交的仓库发现任务，或对 active 观察项提前刷新。发现完成只更新 PR 缓存，不自动加入观察。
 
-发现只由网页、CLI 或外部模块显式提交；本期没有自动发现计时器。默认关注清单为空，启动和查询不会检查源站登录或生成任务。刷新模块不读取项目全集来生成发现目标。
+Enabled ADO projects are discovered automatically. Active watches are refreshed independently. Query requests never enqueue provider work. The provider client is created only after the daemon claims a task.
 
 查询模块只有只读端口。所有加入、移除、发现和提前刷新都通过明确的命令 API；不能把 GET、打开页面或缓存缺失变成命令。
 
@@ -75,37 +75,18 @@ stateDiagram-v2
 
 Sample 的观察记录单独隔离，只在现有本地 demo 模式允许写入，由示例执行逻辑演示状态变化。Sample 项永远不能发起真实 ADO / GitHub 请求。
 
-## 4. 任务范围与冷却
+## 4. Tasks and cooldowns
 
-| 工作 | 谁决定范围和时机 | 执行器负责的内容 |
+| Task | Default cooldown | Provider work |
 | --- | --- | --- |
-| discover / 内部 list | 网页 / CLI 明确命令，提供项目或仓库范围 | 首次 / full 枚举历史，之后按成功边界增量分页；始终包含 Draft、Completed、Abandoned，不请求 policy / build / timeline |
-| refresh / checks 通道 | Scheduler 从 active 观察项安排，或收到针对 active 项的提前刷新命令 | 定向读取 PR、review、policy、status、build、stage；已确认终态立即跳过检查补全 |
-| refresh / status 通道 | Scheduler 按每个 active 观察项本次完成后 30 秒安排 | 只 GET 单个 PR 摘要，确认 open / merged / closed、分支与提交；不请求 policy、build、timeline、统计或发现 |
+| Project discovery (`list`, lane `discover`) | 600 seconds per project, after completion | Resolve configured repositories and paginate all accessible PRs with `status=all`; publish their list-provided state, author, branches and commits. No individual PR, policy, build or timeline requests. |
+| Watched PR refresh (`details`, lane `checks`) | 300 seconds per observation generation, after completion | Read the individual PR and collect policies, statuses, reviews, builds, stages/timelines and metrics before publishing. Terminal targets also receive full detail collection. |
 
-发现结果与观察列表是两个集合。观察列表为空时仍可执行显式发现任务，但绝不自行产生 checks / status。缓存里有 1,000 个 PR、观察列表只有 3 个时，两条周期通道的目标都只有这 3 个。provider 仅在领取真实采集任务后创建，空清单不检查登录。
+Both cooldowns are configured in the Collector dialog metadata column, through `PATCH /api/collection/settings`. Setting one to zero disables its automatic scheduling. Manual requests coalesce with matching unfinished jobs and respect the same cooldown. Changing a setting replans queued tasks. Failed and partial attempts also start a cooldown; authentication retries retain their task with project-wide 15/30/60-second backoff.
 
-保留“整轮完成后才计冷却”：checks 默认 300 秒，按 `(source, 外部项目身份, checks)` 隔离轮次；发现没有自动冷却轮次，只执行显式请求。不同项目可以独立推进，某组织登录过期不冻结别的项目。
+The daemon has two refresh workers and one discovery worker. Atomic claims allow at most two refresh leases and one discovery lease per project. Discovery and refresh may run concurrently; revision, lease, generation and snapshot version fences protect publication. Idle workers check for eligible local jobs every three seconds. These scheduler ticks do not contact ADO unless a task is claimed.
 
-status 不等待整个项目的 checks 轮次结束：每个 `(observationId, generation)` 的状态尝试结束后独立冷却 30 秒，再获得排队资格。同代次每通道最多一个 queued / running / auth_required 任务，每项目每通道最多一个 running 任务；数据库唯一约束与 claim 条件共同保证。daemon 为 checks 和 status 各保留两个执行循环，慢发现 / 检查不占用状态位置；认证退避由同项目两条通道共享，避免绕过退避重复登录。
-
-状态探测的终结任务回执保留 24 小时，清理不删除快照、停止观察记录或完整检查 / 发现回执。状态成功不生成 `scan_runs` 或更新项目完整扫描时间。Sample 状态探测只读取其保存状态，不推进模拟构建。
-
-### 发现任务的单位
-
-一次 discover 是“一个项目内明确的仓库范围”。CLI 的 `--repo` 只生成单仓库范围；网页可按项目生成任务，把当前仓库列表（或用户明确配置的 all 范围）和 revision 固定进任务。all 范围的仓库枚举也是这项明确发现任务的执行内容，不是刷新模块自主生成工作。
-
-同项目注册另一 URL 扩展已有配置，已配置 all 的项目保持 all。去重键包括项目 revision、规范化仓库范围和 full 模式，仅相同范围与模式的未结束任务复用；不同范围由同项目租约顺序执行。发现没有自动轮次；首次解析仓库后保存固定 provider ID 计划及各仓库起始游标，重领不会扩大仓库列表或改变边界。
-
-### 增量发现边界
-
-`workbench_repositories.discovery_cursor_json` 保存成功发布仓库结果的最新 `{ number, createdAt }`，以创建时间、PR number 排序。没有游标时完整枚举；旧缓存中的最大 ID、单条观察刷新和失败暂存均不能建立或推进它。0021 迁移将游标留空，首次后续显式发现补齐历史。空结果保留原有游标。
-
-ADO [Pull Requests API](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-requests?view=azure-devops-rest-7.1) 提供创建时间范围筛选，但未保证全局 PR ID 排序。增量查询使用 `status=all`、`queryTimeRangeType=created`、`minTime=cursor.createdAt - 1 秒`；`maxTime` 固定为该仓库迭代开始时刻。只遍历这个重叠窗口，不能遇到第一个已知 ID 就停止；窗口内乱序、同秒创建或边界 PR 被删除均不漏掉其他新 PR。重复分页 / continuation token、无效创建时间按失败处理。
-
-仓库完整分页与新游标在同一 guarded D1 事务发布；中途失败、取消、失效租约、快照冲突或声明 partial 的列表都不能发布为成功。多仓库部分成功只推进成功仓库的游标。认证重试沿用首次登记的起始游标，重新执行失败仓库；观察状态刷新不改变发现边界。
-
-旧的未关注 PR 不会因增量发现而重新核对其状态；持续关注项由 status 确认基础状态、checks 补齐检查。需要手动核对旧历史时使用 CLI `discover --full` 或 HTTP `full: true`，它不使用起始游标、不删除缺席快照，也不自动增加关注项。
+A discovery task freezes its project revision and repository scope. Equivalent unfinished commands coalesce. Each repository is fully paginated with a fixed request upper bound; creation-time incremental cursors and the `--full` discovery option have been removed. Complete repository results publish atomically. An interrupted or invalid page cannot be published as complete, and missing PRs do not delete cached snapshots.
 
 上游仓库改名但 provider ID 未变时，用该 ID 已保存的名称别名验证项目配置范围，接受新名称并保留旧名称。旧 URL、新 URL、GUID URL 和缓存 PR ID 都解析到同一个观察身份；不能把不同 provider ID 当成原仓库接纳。
 
@@ -117,26 +98,24 @@ ADO [Pull Requests API](https://learn.microsoft.com/en-us/rest/api/azure/devops/
 
 仓库名称在不同 PR 之间共享，按 `name_observed_at` 比较事实时间。发现以每次仓库页请求开始时间标记元数据；PR 发布使用被选中摘要的观测时间。较旧事实不能覆盖另一个 PR 已报告的新名称；真正较新的改名仍可更新，旧别名保留。重用冻结发现计划标记时间为 0，不冒充新读取；旧执行器省略时间时使用登记时间兼容。
 
-`job get` 返回每仓库的 state、PR 数量与错误。一个仓库失败时，成功仓库的完整结果可以按仓库边界原子发布，失败仓库保留旧数据；任务整体为 partial / failed，不能标成全成功。发现任务不会自行安排下一轮。配置改变使旧范围任务取消，新 revision 的发现轮次重新建立。
+`job get` 返回每仓库的 state、PR 数量与错误。一个仓库失败时，成功仓库的完整结果可以按仓库边界原子发布，失败仓库保留旧数据；任务整体为 partial / failed，不能标成全成功。The next discovery becomes eligible after its configured cooldown.配置改变使旧范围任务取消，新 revision 的发现轮次重新建立。
 
 取消未终结任务时，配置 CAS / 取消事务立即将其置为 canceled，优先于尚未结算的 partial / failed；不等待在途请求结束。已成功或失败的仓库结果保留原 state，未结束的仓库标 canceled。先前已发布的仓库结果不因任务取消回滚，但项目删除 / 来源替换本身仍按其数据删除语义生效。迟到结果被 lease / revision / 终态条件拒绝；已经终结的任务不被后来的配置操作改写。
 
 ```text
-checksDueAt = 该 PR 当前 observation generation 的最近 checks 尝试完成时间 + cooldownSeconds
-statusDueAt = 该 PR 当前 observation generation 的最近 status 尝试完成时间 + 30 秒
+refreshDueAt = latest completed attempt for this observation generation + detailCooldownSeconds
+discoveryDueAt = latest completed list attempt for this project revision + listCooldownSeconds
 ```
 
-每个 PR 独立到期，调度不再等待项目整轮完成。重复 schedule 复用同代次、同通道的 queued / running / auth_required 工作，不堆叠过期轮次。新增 watch 立即获得首次检查资格；移除、终态或代次改变取消对应工作。失败和 partial 都保留观察项，在自己的冷却后重试。
+A new watch is immediately eligible. Running tasks have no fixed next start time: their cooldown begins when the entire task completes. Queueing, authentication, network delays and provider limits can postpone starts beyond the due time. Removing or retiring a watch cancels its outstanding work.
 
-后台按单 PR 任务执行，不受网页 20 条页大小限制。checks 与 status 各有两个执行位置，同项目每通道最多两个 running 租约；该上限在原子 claim 中执行。显式发现独占项目的 checks 通道，并优先于之后排队的检查，避免饿死；status 继续独立运行。网页是否打开不参与调度。
-
-自动检查冷却设为 0 只停止新的周期 checks 工作，status 与显式刷新仍可执行。认证错误按原有项目退避恢复，不删除观察项。提前手动刷新只影响该 PR 的下次到期时间。`collector.scheduling` 提供下次独立检查到期时间、到期数量、最旧摘要/检查的实际年龄与缺失检查数；旧 `rounds` 字段保留为空数组。冷却不是延迟上限，排队、网络、provider 限流与认证仍可能影响真实读取间隔。
+Collector groups retain a stable PR/project identity across state changes. Each group exposes its latest attempt, last completion, next due time and cooldown; history contains all outcomes. Job detail includes phase events, repository receipts and the immutable returned PR snapshot. Old attempts that predate snapshot recording explicitly lack that evidence.
 
 ## 5. 自动淘汰与在途竞争
 
 ADO `completed` 规范化为 merged，`abandoned` 规范化为 closed。只有成功解析的源站终态事实才能自动淘汰；未来 GitHub 使用同一规范终态，但本期不宣称真实 GitHub 采集已支持。
 
-任一通道读到终态后不再等待 policy / build / stage；在同一事务中发布最终 PR 快照、停用任务绑定的观察代次，并取消该代次其他排队与运行任务。当前发布任务正常结束；已发出的请求即使返回，也无法凭旧租约发布。最终快照仍可被网页、CLI 和手动统计读取。
+Discovery may confirm terminal state from its list response; a full refresh collects policies, builds and stages before publication. 在同一事务中发布最终 PR 快照、停用任务绑定的观察代次，并取消该代次其他排队与运行任务。当前发布任务正常结束；已发出的请求即使返回，也无法凭旧租约发布。最终快照仍可被网页、CLI 和手动统计读取。
 
 终态证据必须包含规范 PR 身份、源状态、成功观测时间、任务 / lease token、项目 revision、读取时的 PR 快照版本，以及 `(observationId, generation)`。refresh 从创建 / 领取时绑定的观察项获取它；discover 在**实际领取时**，从其明确仓库范围内的 active 观察项建立只读绑定清单，同时记录各 PR 的已有快照版本，未有快照记为 0。复用 running discover 不扩展这份清单；重新领取使用新 lease 并重新绑定。
 

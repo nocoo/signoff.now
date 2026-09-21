@@ -8,14 +8,7 @@ import {
 	DialogTitle,
 	Label,
 } from "@nocoo/basalt";
-import type { JobHistoryFilters, JobQueryItem } from "@signoff/domain/query";
-import {
-	ChevronDown,
-	ChevronRight,
-	ExternalLink,
-	RefreshCw,
-	X,
-} from "lucide-react";
+import { X } from "lucide-react";
 import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";
@@ -23,32 +16,12 @@ import { cn } from "@/lib/utils";
 import {
 	collectorAge,
 	type collectorStatus,
-	JOB_STATES,
-	jobDuration,
-	jobOperation,
+	statusColor,
 } from "@/models/collectorStatus";
 import { REFRESH_INTERVALS, relativeTime } from "@/models/workbench";
-import { useCollectorHistoryViewModel } from "@/viewmodels/useCollectorHistoryViewModel";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+import { CollectorGroups } from "./CollectorGroups";
 
-export const statusColor = (tone: string) =>
-	tone === "error"
-		? "text-basalt-destructive"
-		: tone === "warning"
-			? "text-basalt-warning"
-			: tone === "success"
-				? "text-basalt-heatmap-green-4"
-				: "text-basalt-muted-foreground";
-const jobColor = (job: JobQueryItem) =>
-	statusColor(
-		job.state === "failed" || job.state === "auth_required"
-			? "error"
-			: job.state === "partial"
-				? "warning"
-				: job.state === "succeeded"
-					? "success"
-					: "neutral",
-	);
 const exactTime = (time: string | null) =>
 	time ? new Date(time).toLocaleString() : "—";
 
@@ -61,17 +34,7 @@ export function CollectorDialog({
 	status: ReturnType<typeof collectorStatus>;
 	now: number;
 }) {
-	const history = useCollectorHistoryViewModel(vm.filter.source);
 	const collector = vm.collector;
-	const selected = (job: JobQueryItem) => (
-		<JobDetails
-			job={history.detail.data ?? job}
-			loading={history.detail.loading}
-			error={history.detail.error}
-			retry={history.detail.reload}
-			now={now}
-		/>
-	);
 	return (
 		<DialogContent
 			size="xl"
@@ -161,12 +124,6 @@ export function CollectorDialog({
 									: "—",
 							],
 							["Missing checks", collector?.scheduling?.missingChecks ?? "—"],
-							[
-								"State interval",
-								collector?.statusCooldownSeconds
-									? `${collector.statusCooldownSeconds}s`
-									: "—",
-							],
 						].map(([label, value]) => (
 							<div key={label}>
 								<dt className="text-[11px] text-basalt-muted-foreground">
@@ -183,251 +140,18 @@ export function CollectorDialog({
 							<RefreshCooldown vm={vm} />
 						</div>
 						<p className="text-xs text-basalt-muted-foreground">
-							Checks include policies, builds and stages. PR state tracks open,
-							merged and closed. Ages measure the oldest collected data, not a
-							failed check.
+							Project lists refresh PR states in batches. Watched PRs collect
+							state, policies, builds and stages in full. Each cooldown starts
+							after the entire task finishes.
 						</p>
 					</div>
 				</section>
-				<section
-					aria-label="Collection jobs"
-					className="flex min-h-0 min-w-0 flex-col gap-3 border-t border-basalt-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0"
-				>
-					<div className="flex shrink-0 flex-wrap items-center gap-2">
-						<h3 className="mr-auto text-sm font-semibold">Jobs</h3>
-						<SelectControl
-							aria-label="Job task type"
-							value={history.filters.lane}
-							onChange={(lane) =>
-								history.setFilters({
-									...history.filters,
-									lane: lane as JobHistoryFilters["lane"],
-								})
-							}
-							className="h-8 w-28 text-xs sm:w-32"
-						>
-							<option value="all">All tasks</option>
-							<option value="checks">PR checks</option>
-							<option value="status">PR state</option>
-							<option value="discover">Discovery</option>
-						</SelectControl>
-						<SelectControl
-							aria-label="Job state"
-							value={history.filters.outcome}
-							onChange={(outcome) =>
-								history.setFilters({
-									...history.filters,
-									outcome: outcome as JobHistoryFilters["outcome"],
-								})
-							}
-							className="h-8 w-28 text-xs sm:w-32"
-						>
-							<option value="all">All states</option>
-							<option value="issues">Issues only</option>
-						</SelectControl>
-						<Button
-							size="icon"
-							variant="ghost"
-							className="h-8 w-8"
-							aria-label="Reload collection jobs"
-							disabled={history.history.refreshing}
-							onClick={() => void history.history.reload()}
-						>
-							<RefreshCw className="h-4 w-4" />
-						</Button>
-					</div>
-					<p className="text-[11px] text-basalt-muted-foreground">
-						Queued, running and finished · Newest requested first · PR state
-						jobs retained for 24 hours
-					</p>
-					<div
-						className="min-h-64 space-y-1 md:min-h-0 md:flex-1 md:overflow-y-auto"
-						aria-busy={history.history.refreshing}
-					>
-						{Boolean(history.history.error) && (
-							<AlertBanner variant="error">{history.history.error}</AlertBanner>
-						)}
-						{Boolean(history.history.loading) && (
-							<p role="status" className="py-4 text-sm">
-								Loading collection jobs…
-							</p>
-						)}
-						{history.history.data?.data.length === 0 && (
-							<p className="py-4 text-sm text-basalt-muted-foreground">
-								No jobs match these filters.
-							</p>
-						)}
-
-						{history.history.data?.data.map((job) => (
-							<div key={job.id}>
-								<JobButton
-									job={job}
-									name={`${job.projectName}${job.target ? ` · ${job.target.repository.name} #${job.target.number}` : ""}`}
-									selected={history.selectedId === job.id}
-									onClick={() =>
-										history.select(
-											history.selectedId === job.id ? null : job.id,
-										)
-									}
-									now={now}
-								/>
-								{history.selectedId === job.id && (
-									<>
-										{job.target !== null && (
-											<a
-												href={job.target.url}
-												target="_blank"
-												rel="noreferrer"
-												className="mx-3 my-2 inline-flex items-center gap-1 text-xs text-basalt-primary"
-											>
-												Open PR #{job.target.number}
-												<ExternalLink className="h-3 w-3" />
-											</a>
-										)}
-										{selected(job)}
-									</>
-								)}
-							</div>
-						))}
-					</div>
-					<div className="flex shrink-0 items-center justify-between border-t border-basalt-border pt-3 text-xs text-basalt-muted-foreground">
-						<span>
-							Page {history.page} · {history.history.data?.data.length ?? 0}{" "}
-							jobs
-						</span>
-						<div className="flex gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={history.page === 1 || history.history.loading}
-								onClick={history.newer}
-							>
-								Newer
-							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={
-									!history.history.data?.nextCursor || history.history.loading
-								}
-								onClick={history.older}
-							>
-								Older
-							</Button>
-						</div>
-					</div>
-				</section>
+				<CollectorGroups key={vm.filter.source} source={vm.filter.source} />
 			</div>
 		</DialogContent>
 	);
 }
 
-function JobButton({
-	job,
-	name,
-	selected,
-	onClick,
-	now,
-}: {
-	job: JobQueryItem;
-	name: string;
-	selected: boolean;
-	onClick: () => void;
-	now: number;
-}) {
-	return (
-		<Button
-			variant="ghost"
-			onClick={onClick}
-			aria-expanded={selected}
-			className="h-auto w-full justify-start gap-2 rounded-basalt-md border border-basalt-border/60 px-3 py-2 text-left"
-		>
-			{selected ? (
-				<ChevronDown className="h-3 w-3 shrink-0" />
-			) : (
-				<ChevronRight className="h-3 w-3 shrink-0" />
-			)}
-			<div className="min-w-0 flex-1">
-				<p className="truncate text-xs font-medium" title={name}>
-					{name}
-				</p>
-				<p className="mt-1 text-[11px] font-normal text-basalt-muted-foreground">
-					{jobOperation(job)} · {job.progress.completed}
-					{job.progress.total === null
-						? " collected"
-						: ` / ${job.progress.total}`}{" "}
-					· {jobDuration(job, now)}
-				</p>
-			</div>
-			<div className="shrink-0 text-right">
-				<p className={cn("text-xs", jobColor(job))}>{JOB_STATES[job.state]}</p>
-				<p
-					className="mt-1 text-[11px] font-normal text-basalt-muted-foreground"
-					title={exactTime(job.requestedAt)}
-				>
-					{relativeTime(Date.parse(job.requestedAt) / 1000, now)}
-				</p>
-			</div>
-		</Button>
-	);
-}
-function JobDetails({
-	job,
-	loading,
-	error,
-	retry,
-	now,
-}: {
-	job: JobQueryItem;
-	loading: boolean;
-	error: string | null;
-	retry: () => Promise<unknown>;
-	now: number;
-}) {
-	return (
-		<div className="space-y-2 rounded-basalt-md bg-basalt-muted/40 p-3 text-xs">
-			<p className="whitespace-pre-wrap break-words">
-				{job.message || "No additional message."}
-			</p>
-			<dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-				{[
-					["Requested", exactTime(job.requestedAt)],
-					["Started", exactTime(job.startedAt)],
-					["Completed", exactTime(job.completedAt)],
-					["Duration", jobDuration(job, now)],
-				].map(([label, value]) => (
-					<div key={label}>
-						<dt className="text-basalt-muted-foreground">{label}</dt>
-						<dd className="mt-1">{value}</dd>
-					</div>
-				))}
-			</dl>
-			{Boolean(job.error) && (
-				<p className="text-basalt-destructive">Error: {job.error}</p>
-			)}
-			{Boolean(job.reason) && <p>Reason: {job.reason}</p>}
-			{Boolean(loading) && <p role="status">Loading task details…</p>}
-			{Boolean(error) && (
-				<div role="alert">
-					{error}
-					<Button size="sm" variant="ghost" onClick={() => void retry()}>
-						Retry details
-					</Button>
-				</div>
-			)}
-			{job.repositories.map((repo) => (
-				<p key={repo.repository.id} className="break-words">
-					{repo.repository.name} · {JOB_STATES[repo.state]}
-					{repo.pullCount === null ? "" : ` · ${repo.pullCount} PRs`}
-					{repo.error ? ` · ${repo.error}` : ""}
-				</p>
-			))}
-			<p className="break-all font-mono text-[11px] text-basalt-muted-foreground">
-				Task {job.id}
-			</p>
-		</div>
-	);
-}
 export function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
 	const intervalId = useId();
 	const feedbackId = `${intervalId}-feedback`;
@@ -439,33 +163,52 @@ export function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
 		: error || (vm.feedbackKind === "refresh-settings" ? vm.notice : null);
 	return (
 		<div className="mt-1" aria-busy={saving}>
-			<div
-				className="flex h-6 items-center justify-between gap-2"
-				title="Each watched PR becomes due independently after its last check attempt. Two checks and two status probes can run per project. Continues without an open webpage."
-			>
-				<Label htmlFor={intervalId} className="text-[11px] font-medium">
-					Checks
-				</Label>
-				<SelectControl
-					id={intervalId}
-					aria-label="Watched PR refresh cooldown"
-					aria-describedby={feedbackId}
-					aria-invalid={error ? true : undefined}
-					value={String(vm.detailCooldownSeconds)}
-					disabled={Boolean(vm.busy) || !vm.collector}
-					onChange={(value) =>
-						void vm.setRefreshCooldown("details", Number(value))
-					}
-					className="h-6 w-[100px] shrink-0 whitespace-nowrap px-2 text-[11px] [&>svg]:h-3 [&>svg]:w-3"
-					contentClassName="w-[var(--radix-select-trigger-width)] [&_[role=option]]:py-1 [&_[role=option]]:text-[11px]"
+			<h3 className="mb-3 text-sm font-semibold">Collection cooldowns</h3>
+			{(
+				[
+					{
+						kind: "list",
+						label: "Project PR lists",
+						value: vm.listCooldownSeconds,
+					},
+					{
+						kind: "details",
+						label: "Watched PRs",
+						value: vm.detailCooldownSeconds,
+					},
+				] as const
+			).map((setting) => (
+				<div
+					key={setting.kind}
+					className="mb-3 flex items-center justify-between gap-3"
 				>
-					{REFRESH_INTERVALS.map((seconds) => (
-						<option key={seconds} value={seconds}>
-							{seconds === 0 ? "Manual" : `${seconds / 60} min`}
-						</option>
-					))}
-				</SelectControl>
-			</div>
+					<Label htmlFor={`${intervalId}-${setting.kind}`} className="text-xs">
+						{setting.label}
+					</Label>
+					<SelectControl
+						id={`${intervalId}-${setting.kind}`}
+						aria-label={
+							setting.kind === "list"
+								? "Project discovery cooldown"
+								: "Watched PR refresh cooldown"
+						}
+						aria-describedby={feedbackId}
+						aria-invalid={Boolean(error)}
+						value={String(setting.value)}
+						disabled={Boolean(vm.busy) || !vm.collector}
+						onChange={(value) =>
+							void vm.setRefreshCooldown(setting.kind, Number(value))
+						}
+						className="h-8 w-28 text-xs"
+					>
+						{REFRESH_INTERVALS.map((seconds) => (
+							<option key={seconds} value={seconds}>
+								{seconds === 0 ? "Manual" : `${seconds / 60} min`}
+							</option>
+						))}
+					</SelectControl>
+				</div>
+			))}
 			<p
 				id={feedbackId}
 				role={feedback ? (error ? "alert" : "status") : undefined}
@@ -475,7 +218,7 @@ export function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
 					error ? "text-basalt-destructive" : "text-basalt-muted-foreground",
 				)}
 			>
-				{feedback || "Cooldown per PR"}
+				{feedback || "Per project / per PR · Starts after completion"}
 			</p>
 		</div>
 	);

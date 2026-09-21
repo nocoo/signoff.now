@@ -88,7 +88,7 @@ describe("v1 cache queries", () => {
 				);
 		for (let i = 0; i < 55; i++) insert(`job-${String(i).padStart(3, "0")}`);
 		insert("sample-only", "demo");
-		insert("status-failure", "cli", 1, "failed");
+		insert("checks-failure", "cli", 0, "failed");
 		insert("discovery-partial", "cli", 0, "partial", "list");
 		const read = async (query = "") =>
 			jobHistorySchema.parse(
@@ -97,7 +97,7 @@ describe("v1 cache queries", () => {
 		const first = await read();
 		expect(first.data).toHaveLength(50);
 		expect(first.data[0]).toMatchObject({
-			id: "status-failure",
+			id: "job-054",
 			projectName: project.name,
 			target: { number: pull.number },
 		});
@@ -111,12 +111,12 @@ describe("v1 cache queries", () => {
 			new Set([...first.data, ...second.data].map((job) => job.id)).size,
 		).toBe(57);
 		expect(
-			(await read("&lane=status&outcome=issues")).data.map((job) => job.id),
-		).toEqual(["status-failure"]);
+			(await read("&lane=checks&outcome=issues")).data.map((job) => job.id),
+		).toEqual(["checks-failure"]);
 		expect((await read("&lane=discover")).data.map((job) => job.id)).toEqual([
 			"discovery-partial",
 		]);
-		expect((await read("&lane=checks&outcome=issues")).data).toEqual([]);
+		expect((await read("&lane=checks&outcome=issues")).data).toHaveLength(1);
 		const sample = jobHistorySchema.parse(
 			await (await request("/api/query/v1/jobs?source=sample")).json(),
 		);
@@ -124,7 +124,7 @@ describe("v1 cache queries", () => {
 		for (const query of [
 			"cursor=bad",
 			`source=sample&cursor=${encodeURIComponent(first.nextCursor!)}`,
-			`lane=status&cursor=${encodeURIComponent(first.nextCursor!)}`,
+			`lane=discover&cursor=${encodeURIComponent(first.nextCursor!)}`,
 			"lane=invalid",
 		]) {
 			expect((await request(`/api/query/v1/jobs?${query}`)).status).toBe(400);
@@ -139,8 +139,8 @@ describe("v1 cache queries", () => {
 		const current = await queryCollector(sqlite.db, "cli", PR_TEST_NOW + 11);
 		expect(current.jobs.some((job) => job.kind === "refresh")).toBe(false);
 		expect(
-			(await read("&lane=status&outcome=issues")).data.map((job) => job.id),
-		).toEqual(["status-failure"]);
+			(await read("&lane=checks&outcome=issues")).data.map((job) => job.id),
+		).toEqual(["checks-failure"]);
 	});
 	test("jobs retain request order and identity as queued and running tasks finish", async () => {
 		const { project } = seed();
@@ -1663,4 +1663,46 @@ describe("v1 commands", () => {
 				).status,
 			).toBe(403);
 	});
+});
+
+test("collector group queries are read-only, source-scoped and validate cursors", async () => {
+	const { project, pull } = seed();
+	const added = await addObservation(
+		sqlite.db,
+		"cli",
+		{ pullId: pull.id },
+		PR_TEST_NOW,
+	);
+	const response = await request("/api/query/v1/collector/groups?source=live");
+	expect(response.status).toBe(200);
+	const data = (await response.json()) as {
+		data: { id: string; nextRunAt: string | null }[];
+		nextCursor: string | null;
+	};
+	expect(data.data.map((g) => g.id)).toEqual([
+		`pr:${added.observation.id}`,
+		`project:${project.id}`,
+	]);
+	expect(data.data[1]?.nextRunAt).toBe(
+		new Date(project.createdAt * 1000).toISOString(),
+	);
+	expect(
+		await (
+			await request("/api/query/v1/collector/groups?source=sample")
+		).json(),
+	).toMatchObject({ data: [] });
+	expect(
+		await (
+			await request(
+				`/api/query/v1/collector/groups?source=live&cursor=${encodeURIComponent(data.data[0]!.id)}`,
+			)
+		).json(),
+	).toMatchObject({ data: [{ id: `project:${project.id}` }] });
+	expect(
+		(await request(`/api/query/v1/collector/groups?cursor=${"x".repeat(301)}`))
+			.status,
+	).toBe(400);
+	expect(
+		sqlite.raw.query("SELECT COUNT(*) n FROM collection_jobs").get(),
+	).toEqual({ n: 1 });
 });

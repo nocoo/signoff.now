@@ -7,7 +7,10 @@ import {
 import type { PullFilter } from "@/models/workbench";
 import { useQueryBlock } from "./useQueryBlock";
 
-export function useCollectorHistoryViewModel(source: PullFilter["source"]) {
+export function useCollectorHistoryViewModel(
+	source: PullFilter["source"],
+	group?: string,
+) {
 	const [filters, setFilters] = useState<JobHistoryFilters>({
 		lane: "all",
 		outcome: "all",
@@ -16,8 +19,13 @@ export function useCollectorHistoryViewModel(source: PullFilter["source"]) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const cursor = cursors[cursors.length - 1];
 	const history = useQueryBlock(
-		`history:${source}:${JSON.stringify(filters)}:${cursor ?? ""}`,
-		(signal) => loadCollectorHistory(source, { ...filters, cursor }, signal),
+		`history:${source}:${group ?? ""}:${JSON.stringify(filters)}:${cursor ?? ""}`,
+		(signal) =>
+			loadCollectorHistory(
+				source,
+				{ ...filters, cursor, ...(group ? { group } : {}) },
+				signal,
+			),
 		3000,
 	);
 	const detail = useQueryBlock(

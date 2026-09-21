@@ -1,6 +1,6 @@
 # 18 — CLI 查询、观察与命令契约
 
-> 当前实现，2026-09-18。网页和 CLI 共用一份关注清单；首次启用时清单为空，后续升级保留已有关注项；发现仅按需执行。
+> Current implementation, 2026-09-21. Web and CLI share one watch list. Project discovery and watched PR refresh use independent completion-based cooldowns.
 > 当前可用采集命令见 [11](11-真实PR采集与本地工作台.md)，辅助工具见 [cli/](cli/README.md)。架构见 [14](14-collector-architecture.md)，观察生命周期见 [16](16-scheduler-state-machine.md)。
 
 ## 1. 给其他项目的保证
@@ -10,7 +10,7 @@
 - `watch add / remove` 修改持久观察列表；`discover` 与 `refresh` 返回排队回执，由执行器稍后完成。
 - 每个 PR 都提供 provider、组织、项目、repository、PR number、内部 ID、源 URL 与各自采集时间，供其他项目进一步调查。
 - PR 列表、观察列表与单条详情是不同查询。观察列表包含等待首次结果的引用，也能包含未显示在网页当前页的 PR。
-- daemon 按 active 观察项分别执行 30 秒完成后冷却的基础状态探测，以及默认 300 秒整轮完成后冷却的完整检查。两者不依赖网页前台；状态探测不被慢构建检查占用执行位置。命令语法不变，查询仍不触发任何采集。
+- The daemon refreshes project PR lists every 600 seconds after completion and each active watched PR every 300 seconds after full completion. Both cooldowns are configurable; the separate 30-second status lane has been removed.
 
 ## 2. 命令结构
 
@@ -28,7 +28,6 @@
 | `signoff watch add <pr-ref...>` | 幂等加入观察，返回首个刷新任务回执 | 命令本身否 |
 | `signoff watch remove <pr-ref...>` | 移除当前观察代次，保留 PR 快照 | 否 |
 | `signoff discover --repo <repo-url>` | 明确请求发现一个仓库的 PR，不自动观察 | 命令本身否 |
-| `signoff discover --repo <repo-url> --full` | 绕过成功边界，重新核对全部可访问 PR 历史 | 命令本身否 |
 | `signoff refresh --pr <pr-ref>` | 提前刷新一个 active 观察项 | 命令本身否 |
 | `signoff refresh --repo <repo-url>` / `--all` | 提前刷新该仓库 / 全部 active 观察项 | 命令本身否 |
 | `signoff job get <job-id>` | 查询一个已存任务的进度、结果与错误 | 否 |
@@ -168,7 +167,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 - requirements 包含逻辑 ID、种类、名称、required、state、sourceIds、links、配置 label / color；只列此 PR 上有事实依据的阻塞要求，其他仓库的策略不混入，links 指向源 PR；PoP 只是其中一项，readiness 与网页共用领域规则和项目配置。
 - ADO build policy 有明确布尔到期证据时，`policies[].expired=true`，readiness issue 可带 `reason: "build_expired"`、`color: "red"`，对应 requirement / 主要标签为 `Build Expired`。这些是 v1 可选新增字段；保存的通用 Build 标签不掩盖到期，但项目 gate 顺序不变。未提供到期证据时不补造 expired，普通 queued build 仍是排队。
 - `freshness.listObservedAt` 使用成功摘要请求的开始时间，检查保留独立 `checksObservedAt`；慢检查不能把旧 open 覆盖较新 merged。`targetSha` 仍是 ADO PR 的 `lastMergeTargetCommit`，不是当前目标 ref 的独立读取。`checksValidity: valid` 只关联最后已知提交，不能单独作为当前目标 CI 或 stage retry 的操作证据；缓存没有完整 raw build / stage attempt / policy evaluation 操作上下文。
-- `coverage.state=complete` 只说明当前采集覆盖声明完成，不表示每条历史 PR 都刚刷新。首次 / full 发现覆盖全部可访问历史与所有状态，后续增量发现只核对创建时间边界附近的数据；旧的未关注 PR 状态可能较旧。迁移保留的旧缓存仍明确标记为有限历史覆盖，不能冒充完整发现。
+- `coverage.state=complete` describes collection coverage, not freshness. Every discovery paginates accessible history and all states; watched PR refreshes independently collect full details. Inspect the actual observation timestamps.
 - `watch list` 每项返回观察元数据、完整 `ref`、可空的 `pullId` 和可空的 `pull` 摘要，首次采集前不会伪造一个 PR 快照。
 - 每个规范 PR 只保留一条观察记录；inactive 首版不自动清理。`--include-stopped` 返回所有保留行的当前 generation，不按“最近 N 天 / N 条”截断，也不是每次增删的事件日志。重新加入覆盖该行启停字段并推进 generation；lookup 始终取当前一代，不查历史代次。`stopReason` 为 null、manual、completed、abandoned、project_deleted 或 scope_changed。项目删除后停止记录仍保留，`pull` 可为空。
 - 观察查询按内部 `projectId`（或 `project` 指定内部 ID）筛选时，仅返回该次注册下的记录；删除后重新注册相同外部项目，不会把旧注册的停止项混入新项目。未指定内部 ID 的外部范围查询仍可包含该范围的保留记录。
@@ -194,7 +193,7 @@ stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过
 | `POST /api/commands/v1/observations` | `{ source, refs: [{ pullId } 或 { url }] }`，每批最多 100 项，逐项返回 added / already_observed / rejected、observation ID / generation、job 回执或 error |
 | `DELETE /api/commands/v1/observations/:id?source=…` | `If-Match: "<generation>"`，仅移除该代次；同代次已停止为幂等成功，代次不匹配为 409 |
 | `POST /api/commands/v1/observations/remove` | `{ source, items: [{ id, generation }] }`，最多 100 项，逐项 removed / already_stopped / conflict / not_found |
-| `POST /api/commands/v1/discover` | `{ source, repositoryUrl, full? }` 或 `{ source, projectId, full? }`，二选一；full 默认 false，true 时重新枚举历史。前者仅该注册仓库，后者固定该项目当前已配置范围与 revision；返回 HTTP 202 |
+| `POST /api/commands/v1/discover` | `{ source, repositoryUrl }` or `{ source, projectId }`; enqueue a complete list refresh for the registered scope and revision; returns HTTP 202 and respects discovery cooldown. |
 | `POST /api/commands/v1/refresh` | `{ source, target }`，target 为 `{ pullId }`、`{ url }`、`{ repositoryUrl }` 或 `{ all: true }` 之一；只覆盖 active 观察项，返回 HTTP 202 |
 
 `repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。先读取完整分页目录，再判断已注册范围，避免目录较大时重复修改项目 revision。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；旧 enabled 字段不控制关注清单或显式发现，详见 16。
@@ -207,17 +206,17 @@ added 项的 `job` 为 `{ id, kind: "refresh", state: "queued", coalesced: false
 
 discover / refresh 的回执包含 `jobs: [{ id, kind, state, coalesced, notBefore }]` 和零目标时的说明。收到 202 仅表示任务已保存，不表示刷新成功。消费者稍后用 `job get` 查询；登录过期作为任务状态返回，不能触发查询 CLI 自己登录。
 
-一次 discover 对应一个项目内固定的仓库范围；只有相同 revision、相同规范范围与 full 模式的未结束任务才去重。网页通过 projectId 提交项目范围；仓库计划解析后固定，重领沿用同一计划。发现没有自动冷却或重复运行。
+A discovery freezes one project revision and repository scope. Matching unfinished requests coalesce. Automatic discovery defaults to 600 seconds after completion; manual requests respect the same cooldown.
 
 项目级发现与仓库 URL 发现采用相同的别名唯一性校验。名称复用导致多个稳定 ID 匹配时，返回 HTTP 409 / `REFERENCE_AMBIGUOUS`，不入队；可通过仓库 ID 消除歧义。固定范围内的 provider ID 不能由另一个仓库的名称替代。`repo add` 遇到 Unicode 大小写等价的多个项目注册时，也以 exit 3 / `REFERENCE_AMBIGUOUS` 拒绝，不任意编辑其中一个项目。
 
 `job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果；可选 `lane: "status"` 表示仅检查 PR 摘要，省略 lane 的旧 / 完整任务按 checks 理解。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消其他任务为 observation_retired。项目删除不主动清除摘要；状态探测仍受 24 小时回执保留期约束。
 
-Collector 返回 `detailCooldownSeconds` 与可选新增 `statusCooldownSeconds: 30`。前者设为 0 只停止自动完整检查，active PR 的基础状态仍持续检查。`jobs` 是最多 200 条的诊断预览：每个项目 / 种类 / 通道 / 观察项或范围取最新任务，活跃任务与尚未恢复的最近失败优先；不是任务历史全集。队列、运行数与认证状态从完整集合计算。状态成功不生成项目完整扫描记录；终态快照与停止观察记录不受任务回执清理影响。
+Collector returns `listCooldownSeconds` and `detailCooldownSeconds`. Zero disables automatic scheduling for that task type. Its job preview contains up to 200 latest tasks; grouped history provides full pagination. Queue and connection status are computed separately. Cached snapshots and stopped watch records remain available.
 
 discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；pullCount 是本次返回的窗口数量，不是仓库历史总量。单仓库完整结果与成功游标原子发布，失败仓库保留旧数据和边界，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
 
-首次发现没有游标，枚举全部历史。后续依据上次成功的创建时间、重叠一秒并固定查询上界，减少旧页请求，不假设 ADO 按 ID 排序；起始游标与仓库计划冻结，失败不推进。`--full` 与默认增量任务不合并，其他相同范围、模式的未结束请求仍去重。需要重新核对较旧未关注 PR 的合并 / 关闭状态时显式使用 `--full`，持续关注项则由 status / checks 分别更新。细节见 [16](16-scheduler-state-machine.md)。
+Every discovery paginates all accessible PR states without individual PR requests. Creation-time cursors and the discovery `--full` option are removed. Full watched PR refreshes use an independent completion-based cooldown. See [16](16-scheduler-state-machine.md).
 
 对未终结任务，取消事务立即令整体 state=canceled，优先于未结算的 partial / failed，不等待在途请求。已结束的 repositories 项保留 succeeded / failed，尚未结束的项变成 canceled；所以“一个仓库已成功，另一个被取消”返回 canceled 和逐仓库结果。先前发布不因取消而回滚，项目删除 / 来源替换仍可按配置操作的语义删除缓存；旧任务摘要保留。迟到响应不得再发布。若任务先已终结，则后来的配置操作不改写其历史结果。
 
@@ -336,7 +335,7 @@ signoff watch remove '<PR URL>'
 
 ### Agent skill
 
-[signoff-cli skill](../skills/signoff-cli/SKILL.md) 随 CLI 代码在同一仓库维护，包含路径定位、缓存查询、清单操作、增量 / full 发现与错误处理。当前本机通过 `~/.codex/skills/signoff-cli` 链接到仓库的 `skills/signoff-cli`；支持该技能目录的 agent 可在新会话发现它，也可以直接读取上表中的绝对 `SKILL.md` 路径。其他机器可把此技能目录链接到自己的技能目录，保留对实际 checkout 的路径配置。
+[signoff-cli skill](../skills/signoff-cli/SKILL.md) 随 CLI 代码在同一仓库维护，包含路径定位、缓存查询、清单操作、complete list discovery and error handling。当前本机通过 `~/.codex/skills/signoff-cli` 链接到仓库的 `skills/signoff-cli`；支持该技能目录的 agent 可在新会话发现它，也可以直接读取上表中的绝对 `SKILL.md` 路径。其他机器可把此技能目录链接到自己的技能目录，保留对实际 checkout 的路径配置。
 
 ## 7. 测试与交付清单
 
@@ -357,23 +356,10 @@ signoff watch remove '<PR URL>'
 
 ## Collector details and history
 
-The sidebar Connector opens a wide, two-column status dialog. Connection,
-freshness, and settings occupy the metadata column; queued, running, and finished
-jobs share one independently scrolling list. State changes update each row in
-place without moving it between sections.
-Current refresh issues only include active observation generations; stopped
-watches remain available in history.
+The wide, two-column dialog keeps connection metadata and both cooldown settings on the left. The right column groups jobs by stable PR or project identity. Queued, running, successful and failed attempts remain together; expanding a group preserves its place while status updates arrive.
 
-`GET /api/query/v1/jobs?source=live&lane=all&outcome=all` returns up to 50 collection
-tasks across all states as `{ data, nextCursor }`, ordered by request time and ID descending.
-`lane` accepts `all`, `checks`, `status`, or `discover`; `outcome` accepts `all`
-or `issues` (failed, partial, or sign-in required). Pass `nextCursor` as `cursor` for older results.
-Cursors are scoped to the source and filters and remain stable as new tasks
-arrive. Each row includes the project name and the retained PR reference, when
-available. `GET /api/query/v1/jobs/:id` supplies repository results and complete
-error details. These reads never enqueue work or contact the provider.
+`GET /api/query/v1/collector/groups?source=live` returns up to 50 groups as `{ data, nextCursor, generatedAt }`. Each group includes `cooldownSeconds`, `lastCompletedAt`, `nextRunAt`, the latest attempt and its retained PR identity. Running tasks have no fixed next start; the UI shows elapsed time and the cooldown after completion. Queued/cooling tasks show the planned timestamp and countdown; overdue tasks count upward.
 
-State-probe history retains the existing 24-hour window. A successful newer
-attempt clears the current warning without erasing the failed historical task.
-An ADO build policy with an unassigned build ID (`0`) remains queued; it does not
-cause an HTTP request for build 0 or an incomplete-collection warning.
+`GET /api/query/v1/jobs?source=live&lane=all&outcome=all&group=pr:<observationId>` reads up to 50 attempts, newest first. Use `project:<projectId>` for list tasks. `lane` accepts `all`, `checks`, `discover`; `outcome` accepts `all` or `issues`. Pagination cursors are scoped to the source and filters. `GET /api/query/v1/jobs/:id` includes phase events, repository results, errors and the immutable returned PR snapshot with builds, stages and checks. Attempts recorded before this feature explicitly have no returned snapshot.
+
+These reads never enqueue provider work. Old status-lane jobs are excluded from current groups and history. A newer successful attempt clears current warnings without erasing prior failures. An unassigned ADO policy build ID (`0`) remains queued and never triggers a build-0 request.

@@ -5,6 +5,7 @@ import {
 } from "@signoff/domain/monitoring";
 import {
 	batchCommandSchema,
+	collectorGroupsSchema,
 	collectorQuerySchema,
 	commandReceiptSchema,
 	type JobHistoryFilters,
@@ -152,8 +153,20 @@ export async function loadCollectorHistory(
 		outcome: filters.outcome,
 	});
 	if (filters.cursor) params.set("cursor", filters.cursor);
+	if (filters.group) params.set("group", filters.group);
 	return jobHistorySchema.parse(
 		await apiFetch(`/api/query/v1/jobs?${params}`, init(signal)),
+	);
+}
+export async function loadCollectorGroups(
+	source: PullFilter["source"],
+	cursor: string | undefined,
+	signal: AbortSignal,
+) {
+	const params = new URLSearchParams({ source: publicSource(source) });
+	if (cursor) params.set("cursor", cursor);
+	return collectorGroupsSchema.parse(
+		await apiFetch(`/api/query/v1/collector/groups?${params}`, init(signal)),
 	);
 }
 export async function loadCollectionJob(

@@ -492,7 +492,7 @@ export const scanRunSchema = z.object({
 	message: z.string(),
 });
 export type ScanRun = z.infer<typeof scanRunSchema>;
-export const collectionLaneSchema = z.enum(["checks", "status"]);
+export const collectionLaneSchema = z.enum(["checks", "discover"]);
 export type CollectionLane = z.infer<typeof collectionLaneSchema>;
 export const collectionJobSchema = z.object({
 	id: name,

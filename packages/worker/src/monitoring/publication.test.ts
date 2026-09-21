@@ -26,8 +26,8 @@ import {
 import {
 	claimJob,
 	failJob,
+	scheduleDiscovery,
 	scheduleObservations,
-	scheduleSummaries,
 } from "./scheduler";
 import { readJob, readProject } from "./store";
 
@@ -91,16 +91,8 @@ describe("guarded snapshot publication and retirement", () => {
 			{ pullId: sibling.id },
 			now,
 		);
-		await scheduleSummaries(sqlite.db, now);
-		const task = sqlite.raw
-			.query(
-				"SELECT id FROM collection_jobs WHERE observation_id=? AND summary_only=1",
-			)
-			.get(added.observation.id) as { id: string };
-		const status = (await claimJob(sqlite.db, now, {
-			lane: "status",
-			jobId: task.id,
-		}))!;
+
+		const status = (await claimJob(sqlite.db, now, { jobId: added.job!.id }))!;
 		await registerJobRepositories(
 			sqlite.db,
 			status.job.id,
@@ -118,7 +110,7 @@ describe("guarded snapshot publication and retirement", () => {
 					repository: { ...sibling.repository, name: "New name" },
 					summaryObservedAt: now + 2,
 					observedAt: now + 2,
-					checksObservedAt: null,
+					checksObservedAt: now + 2,
 				},
 			],
 			now + 2,
@@ -281,8 +273,8 @@ describe("guarded snapshot publication and retirement", () => {
 				now,
 			);
 			const checks = (await claimJob(checksDb, now))!;
-			await scheduleSummaries(statusDb, now);
-			const status = (await claimJob(statusDb, now, { lane: "status" }))!;
+			await scheduleDiscovery(statusDb, now);
+			const status = (await claimJob(statusDb, now, { lane: "discover" }))!;
 			for (const [db, task, snapshot] of [
 				[
 					checksDb,
@@ -415,20 +407,20 @@ describe("guarded snapshot publication and retirement", () => {
 				"Late terminal",
 				now + 4,
 			),
-		).rejects.toMatchObject({ code: "LEASE_LOST" });
+		).rejects.toMatchObject({ code: "SNAPSHOT_CHANGED" });
 		expect(cached(pull.id).state).toBe("open");
 		expect(
 			await resolveObservation(sqlite.db, "cli", { pullId: pull.id }),
 		).toMatchObject({ generation: 2, active: true });
 	});
 	async function statusClaim() {
-		await scheduleSummaries(sqlite.db, now);
-		const claim = (await claimJob(sqlite.db, now, { lane: "status" }))!;
+		await scheduleDiscovery(sqlite.db, now);
+		const claim = (await claimJob(sqlite.db, now, { lane: "discover" }))!;
 		await registerJobRepositories(
 			sqlite.db,
 			claim.job.id,
 			claim.leaseToken,
-			[claim.observation!.ref.repository],
+			[cached("ado:live-project:repo-1:1").repository],
 			now,
 		);
 		return claim;
@@ -557,9 +549,8 @@ describe("guarded snapshot publication and retirement", () => {
 				now + 3,
 			),
 		).rejects.toMatchObject({ code: "LEASE_LOST" });
-		await scheduleSummaries(sqlite.db, now + 1000);
 		expect(
-			await claimJob(sqlite.db, now + 1000, { lane: "status" }),
+			await claimJob(sqlite.db, now + 1000, { lane: "checks" }),
 		).toBeNull();
 	});
 	test("publication rebases against a status change after detail staging", async () => {
@@ -820,6 +811,9 @@ describe("guarded snapshot publication and retirement", () => {
 			now + 1,
 		);
 		await completeJob(sqlite.db, rename.job.id, rename.leaseToken, now + 1);
+		sqlite.raw.exec(
+			"UPDATE collection_refresh SET cooldown_seconds=0 WHERE kind='details'",
+		);
 		const refresh = await refreshObserved(
 			sqlite.db,
 			"cli",
@@ -834,7 +828,7 @@ describe("guarded snapshot publication and retirement", () => {
 			sqlite.db,
 			claim.job.id,
 			claim.leaseToken,
-			[claim.observation!.ref.repository],
+			[cached("ado:live-project:repo-1:1").repository],
 			now + 2,
 		);
 		const metadata = () =>
@@ -1189,7 +1183,9 @@ describe("guarded snapshot publication and retirement", () => {
 		});
 		expect((await readJob(sqlite.db, claim.job.id)).state).toBe("complete");
 		await scheduleObservations(sqlite.db, now + 1000);
-		expect(await claimJob(sqlite.db, now + 1000)).toBeNull();
+		expect(
+			await claimJob(sqlite.db, now + 1000, { lane: "checks" }),
+		).toBeNull();
 		expect(added.observation.ref.repository.id).toBe(pull.repository.id);
 	});
 	test("old terminal response after removal and re-add cannot overwrite or stop the new generation", async () => {
@@ -1526,6 +1522,9 @@ describe("repository discovery boundaries", () => {
 		).toBe("partial");
 		expect(cached(pull.id).title).toBe("Discovered title");
 		expect(cached(pull.id).checksObservedAt).toBe(now - 100);
+		sqlite.raw.exec(
+			"UPDATE collection_refresh SET cooldown_seconds=0 WHERE kind='list'",
+		);
 		await enqueueDiscovery(sqlite.db, project, [], now + 1);
 		const next = (await claimJob(sqlite.db, now + 1))!;
 		await registerJobRepositories(

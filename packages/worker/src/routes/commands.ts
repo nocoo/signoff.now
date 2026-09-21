@@ -41,14 +41,12 @@ const discoverSchema = z.union([
 		.object({
 			source: sourceSchema,
 			repositoryUrl: z.url().max(4096),
-			full: z.boolean().default(false),
 		})
 		.strict(),
 	z
 		.object({
 			source: sourceSchema,
 			projectId: z.string().min(1).max(240),
-			full: z.boolean().default(false),
 		})
 		.strict(),
 ]);
@@ -206,9 +204,7 @@ commandRoutes.post("/discover", async (c) => {
 	}
 	return c.json(
 		{
-			jobs: [
-				await enqueueDiscovery(c.env.DB, project, scope, now(), input.full),
-			],
+			jobs: [await enqueueDiscovery(c.env.DB, project, scope, now())],
 		},
 		202,
 	);

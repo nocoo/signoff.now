@@ -2,7 +2,6 @@ import {
 	type CollectedRepository,
 	type CollectorClaim,
 	collectorClaimSchema,
-	discoveryCursorSchema,
 } from "@signoff/domain/collection";
 import {
 	type CollectionLane,
@@ -158,7 +157,14 @@ export function createCollectionClient(
 			completedPulls: number,
 			totalPulls: number | null,
 			message: string,
-		) => jobRequest(lease, "progress", { completedPulls, totalPulls, message }),
+			phase?: import("@signoff/domain/collection").CollectionPhase,
+		) =>
+			jobRequest(lease, "progress", {
+				completedPulls,
+				totalPulls,
+				message,
+				phase,
+			}),
 		upload: async (lease: Lease, pulls: PullRequest[]) => {
 			for (const chunk of collectionChunks(pulls))
 				await jobRequest(lease, "batch", { pulls: chunk });
@@ -168,7 +174,6 @@ export function createCollectionClient(
 				.array(
 					z.object({
 						repository_id: z.string(),
-						discoveryCursor: discoveryCursorSchema.nullish(),
 						state: z.enum([
 							"queued",
 							"running",

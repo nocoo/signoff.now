@@ -45,7 +45,7 @@ Default source is Live; Sample requires explicit `--source sample`. Never substi
 
 stdout is one JSON document (`schemaVersion: 1`); errors go to stderr and nonzero exit codes. Check exit status before replacing a consumer snapshot. Preserve full provider, org, project, repository ID, PR number, URL and observation generation; PR number alone is not unique. Assess `freshness.listObservedAt`, `checksObservedAt`, `checksValidity` and coverage before reporting readiness. `generatedAt` is query time, not collection time.
 
-Active watches have separate daemon lanes: summary/status checks cool down for 30 seconds after each PR attempt, while full checks default to 300 seconds after the project round finishes. Queue/network/auth time can add delay; neither is a freshness SLA. Closing the webpage does not pause collection. `listObservedAt` records the successful summary request's start; `checksObservedAt` keeps its independent check time. Confirmed terminal PRs publish their final snapshot and retire atomically, canceling other work for that watch generation.
+Project discovery defaults to 600 seconds after each project's completed attempt and refreshes all list-provided PR states. Watched PRs independently collect full state, policies, builds and stages, then cool down for 300 seconds per PR. Both settings are configurable; manual commands also respect cooldown. There is no separate 30-second status lane. Query cadence does not trigger provider work. Terminal PRs retire after validated publication; cached results remain available.
 
 ADO `targetSha` is still the PR's `lastMergeTargetCommit`, not a separately read current target ref. `checksValidity: valid` alone cannot authorize current-target CI acceptance or a stage retry. A build policy with explicit expiry evidence exposes optional `expired: true` and red `Build Expired` readiness (`reason: "build_expired"`); raw build/task/log/attempt and policy-evaluation action evidence remains outside this cache contract. Consumers may perform their explicitly authorized pre-action investigation, without introducing a second background collector or provider fallback for these queries.
 
@@ -64,15 +64,13 @@ bun "$SIGNOFF_CLI" job get '<job id from receipt>'
 bun "$SIGNOFF_CLI" watch add '<PR URL>' '<another PR URL>'
 bun "$SIGNOFF_CLI" watch remove '<PR URL>'
 bun "$SIGNOFF_CLI" refresh --pr '<PR URL>'
-# Optional manual reconciliation of old, unwatched history
-bun "$SIGNOFF_CLI" discover --repo '<repository URL>' --full
 ```
 
-Registration does not discover or watch. Unresolved repository identity requires successful explicit discovery before adding a PR URL; known repositories can watch a PR whose snapshot is not cached yet. Draft can be watched. Already-cached terminal PRs cannot be added again. Bare PR numbers require `--repo`; never guess the repo or project.
+Registration itself does not collect or watch; the daemon automatically discovers enabled projects when due. Unresolved repository identity requires successful explicit discovery before adding a PR URL; known repositories can watch a PR whose snapshot is not cached yet. Draft can be watched. Already-cached terminal PRs cannot be added again. Bare PR numbers require `--repo`; never guess the repo or project.
 
-Discovery includes all states: first/full discovery covers accessible history, later discovery uses a successful overlapping creation-time boundary. Older unwatched PRs can retain older states until full discovery; watched PRs refresh independently. A queued receipt is not completion. Use `job get` for progress; authentication expiry is a daemon state, not a reason for the query consumer to run `az login`.
+Every discovery paginates all accessible PR history and states, including changes to old PRs. There is no incremental creation-time cursor or discovery `--full` option. A queued receipt is not completion. Use `job get` for phases, progress and returned details; authentication expiry belongs to the daemon, not the query consumer.
 
-`status` includes `detailCooldownSeconds` and optional `statusCooldownSeconds`; setting full checks to Manual does not stop lifecycle probes for active watches. Status-lane jobs carry optional `lane: "status"`; their finished receipts expire after 24 hours, unlike cached PRs and stopped watch records. The collector's job preview is bounded and deduplicated, not a permanent event log. Explicit refresh receipts always refer to full-check work.
+`status` includes `listCooldownSeconds` and `detailCooldownSeconds`. Zero disables periodic work for that task type; explicit commands remain available. The job preview is bounded; the grouped history endpoint provides paginated attempt records. Refresh receipts always refer to full PR collection.
 
 Removal uses the observed generation. A conflict must not silently delete a newly re-added watch. Batch item failures retain ordered results and continue independent targets with a nonzero exit. A fatal service/transport error stops later removal requests but preserves confirmed prefix receipts; verify the unacknowledged current item before retrying. Live GitHub workbench collection is not implemented; do not replace it with the separate `pulse` CLI's direct GitHub queries.
 

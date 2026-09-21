@@ -1,7 +1,4 @@
-import type {
-	DiscoveryCursor,
-	KnownOpenPull,
-} from "@signoff/domain/collection";
+import type { KnownOpenPull } from "@signoff/domain/collection";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import {
 	type MergeRequirement,
@@ -41,13 +38,11 @@ const DEFAULT_CONCURRENCY = 4;
 const BASE_URL = "https://dev.azure.com";
 const BUILD_POLICY_TYPE_ID = "0609b952-1397-4640-95ec-e00a01b2c241";
 
-/** First history or an overlapping creation window; ADO does not guarantee ID sort order. */
 export async function* discoverRepositoryPulls(
 	client: Pick<AdoPagedClient, "getPage">,
 	project: Project,
 	repo: RepoMeta,
 	now: number,
-	cursor?: DiscoveryCursor | null,
 ): AsyncGenerator<PullRequest[]> {
 	let skip = 0;
 	let token: string | null = null;
@@ -64,9 +59,7 @@ export async function* discoverRepositoryPulls(
 					"searchCriteria.status": "all",
 					"searchCriteria.queryTimeRangeType": "created",
 					"searchCriteria.maxTime": new Date(started).toISOString(),
-					"searchCriteria.minTime": cursor
-						? new Date(Math.max(0, cursor.createdAt - 1) * 1000).toISOString()
-						: undefined,
+
 					$top: 100,
 					$skip: token ? undefined : skip,
 					continuationToken: token ?? undefined,
@@ -871,7 +864,10 @@ export async function collectProjectPulls(opts: {
 	now: number;
 	targets?: KnownOpenPull[];
 	/** Targeted lifecycle facts only; never enumerate repositories or fetch checks. */
-	summaryOnly?: boolean;
+	onPhase?: (
+		phase: import("@signoff/domain/collection").CollectionPhase,
+		message: string,
+	) => Promise<void>;
 	knownOpenPulls?: KnownOpenPull[];
 	onProgress?: (done: number, total: number) => Promise<void>;
 }): Promise<{
@@ -884,11 +880,6 @@ export async function collectProjectPulls(opts: {
 	const startedMs = Date.now();
 	const org = project.organization;
 	const projectKey = project.projectKey;
-	if (opts.summaryOnly && !opts.targets?.length)
-		throw new AdoError(
-			"bad_request",
-			"Summary refresh requires explicit PR targets",
-		);
 	const summaryTimes = new Map<AdoPullRequestSummary, number>();
 	const summaryClock = () => now + Math.max(0, (Date.now() - startedMs) / 1000);
 
@@ -923,6 +914,7 @@ export async function collectProjectPulls(opts: {
 		summaryTimes.set(raw, summaryObservedAt);
 		return raw;
 	}
+	await opts.onPhase?.("state", "Reading PR state");
 	for (const target of opts.targets ?? [])
 		activePrs.push(await summary(target));
 
@@ -981,6 +973,7 @@ export async function collectProjectPulls(opts: {
 		};
 		const issues: string[] = [...globalIssues];
 
+		await opts.onPhase?.("policies", "Reading policies and check results");
 		const { evaluations, statuses } = await fetchPrEvaluationsAndStatuses(
 			client,
 			org,
@@ -990,6 +983,7 @@ export async function collectProjectPulls(opts: {
 			issues,
 		);
 
+		await opts.onPhase?.("builds", "Reading builds and stages");
 		const builds = await fetchPrBuilds(
 			buildService,
 			client,
@@ -1005,6 +999,7 @@ export async function collectProjectPulls(opts: {
 				issues.push(...build.collectionIssues.map(boundedIssue));
 		}
 
+		await opts.onPhase?.("metrics", "Reading comments and file changes");
 		const { comments, filesChanged, latestIterationSec } = await fetchPrMetrics(
 			client,
 			org,
@@ -1044,10 +1039,9 @@ export async function collectProjectPulls(opts: {
 
 	const normalizedPulls: PullRequest[] = [];
 	const queue = [...allPrs];
-	const listOnly = opts.summaryOnly || opts.targets?.length === 0;
+	const listOnly = opts.targets?.length === 0;
 	let mergeRequirements: MergeRequirement[] | undefined;
 	if (
-		!opts.summaryOnly &&
 		(listOnly || opts.targets?.length) &&
 		allPrs.some(
 			(pr) =>
@@ -1083,23 +1077,18 @@ export async function collectProjectPulls(opts: {
 			const terminal = ["completed", "abandoned"].includes(
 				item.status?.toLowerCase() ?? "",
 			);
-			const normalized =
-				listOnly || terminal
-					? normalizePullRequest({
-							projectId: project.id,
-							rawPr: item,
-							now: summaryClock(),
-							checksObservedAt: null,
-							summaryObservedAt: summaryTimes.get(item),
-							collectionIssues: terminal
-								? undefined
-								: [
-										opts.summaryOnly
-											? "Waiting for detailed checks."
-											: "Add this PR to the watch list to collect its checks.",
-									],
-						})
-					: await enrichPullRequest(item);
+			const normalized = listOnly
+				? normalizePullRequest({
+						projectId: project.id,
+						rawPr: item,
+						now: summaryClock(),
+						checksObservedAt: null,
+						summaryObservedAt: summaryTimes.get(item),
+						collectionIssues: terminal
+							? undefined
+							: ["Add this PR to the watch list to collect its checks."],
+					})
+				: await enrichPullRequest(item);
 			normalizedPulls.push(normalized);
 			completedCount++;
 			if (opts.onProgress && !listOnly) {

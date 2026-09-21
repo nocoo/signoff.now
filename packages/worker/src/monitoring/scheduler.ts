@@ -18,43 +18,32 @@ import {
 	readJob,
 } from "./store.js";
 
-export const STATUS_COOLDOWN_SECONDS = 30;
 export const LANE_CONCURRENCY = 2;
 
-/** A separately leased lane keeps slow policy/build work out of lifecycle polling. */
-export async function scheduleSummaries(
+export async function scheduleDiscovery(
 	db: D1Database,
 	timestamp: number,
 	source?: DataSource,
 ) {
-	await db.batch([
-		db
-			.prepare(
-				`DELETE FROM collection_jobs WHERE summary_only=1 AND completed_at<? AND state NOT IN (${ACTIVE_JOBS})`,
-			)
-			.bind(timestamp - 86400),
-		db
-			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,summary_only,message)
-      SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,json_object('id',p.id,'provider',p.provider,'organization',p.organization,'projectKey',p.project_key,'name',p.name),
-      'queued',?,?,?,'details',json_array(COALESCE(o.pull_id,p.provider||':'||p.id||':'||json_extract(o.ref_json,'$.repository.id')||':'||json_extract(o.ref_json,'$.number'))),
-      json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,1,'Waiting to check PR state'
-      FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source
-      WHERE o.active=1 AND (? IS NULL OR o.source=?)
-      AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=1
-        AND (j.state IN (${ACTIVE_JOBS}) OR j.completed_at>?))
-      ORDER BY o.added_at,o.id`)
-			.bind(
-				timestamp,
-				timestamp,
-				timestamp,
-				source ?? null,
-				source ?? null,
-				timestamp - STATUS_COOLDOWN_SECONDS,
-			),
-	]);
+	await db
+		.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,message)
+    SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,json_object('id',p.id,'provider',p.provider,'organization',p.organization,'projectKey',p.project_key,'name',p.name),
+      'queued',?,?,?,'list','[]',p.repositories_json,p.repositories_json,'Waiting to refresh project PR list'
+    FROM projects p JOIN collection_refresh settings ON settings.kind='list' AND settings.cooldown_seconds>0
+    WHERE p.provider='ado' AND p.enabled=1 AND (? IS NULL OR p.source=?)
+    AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.project_id=p.id AND j.kind='list'
+      AND (j.state IN (${ACTIVE_JOBS}) OR (j.revision=p.revision AND j.completed_at>?-settings.cooldown_seconds)))`)
+		.bind(
+			timestamp,
+			timestamp,
+			timestamp,
+			source ?? null,
+			source ?? null,
+			timestamp,
+		)
+		.run();
 }
 
-/** Only explicit observations create periodic work. Discovery never appears here. */
 export async function scheduleObservations(
 	db: D1Database,
 	timestamp: number,
@@ -107,15 +96,16 @@ export async function claimJob(
 			.bind(timestamp),
 		db
 			.prepare(`UPDATE collection_jobs SET state='running',lease_token=?,lease_expires_at=?,started_at=COALESCE(started_at,?),updated_at=?,attempts=attempts+1,
-      completed_pulls=0,total_pulls=NULL,message='Collecting PR data' WHERE id=(
+      completed_pulls=0,total_pulls=NULL,message='Starting collection',phase='starting' WHERE id=(
       SELECT j.id FROM collection_jobs j JOIN projects p ON p.id=j.project_id AND p.revision=j.revision AND p.source=j.source
       WHERE j.state IN ('queued','auth_required') AND j.not_before<=? AND j.kind<>'full'
-        AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?) AND j.summary_only=?
+        AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?) AND j.summary_only=0 AND (? IS NULL OR (j.kind='list')=?)
+        AND NOT EXISTS (SELECT 1 FROM collection_jobs previous JOIN collection_refresh settings ON settings.kind=j.kind
+          WHERE previous.id<>j.id AND previous.project_id=j.project_id AND previous.revision=j.revision AND previous.kind=j.kind AND previous.summary_only=0
+          AND (j.kind='list' OR (previous.observation_id=j.observation_id AND previous.observation_generation=j.observation_generation))
+          AND previous.completed_at>?-settings.cooldown_seconds)
         AND (j.kind='list' OR EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=j.observation_id AND o.generation=j.observation_generation AND o.active=1))
-        AND (SELECT COUNT(*) FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.summary_only=j.summary_only AND busy.state='running')<${LANE_CONCURRENCY}
-        AND NOT EXISTS (SELECT 1 FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.summary_only=j.summary_only AND busy.state='running' AND (j.kind='list' OR busy.kind='list'))
-        AND NOT EXISTS (SELECT 1 FROM collection_jobs discovery WHERE discovery.project_id=j.project_id AND discovery.kind='list' AND discovery.state='queued'
-          AND j.kind='details' AND j.summary_only=0 AND discovery.requested_at<j.requested_at)
+        AND (SELECT COUNT(*) FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.kind=j.kind AND busy.state='running')<CASE WHEN j.kind='list' THEN 1 ELSE ${LANE_CONCURRENCY} END
         AND NOT EXISTS (SELECT 1 FROM collection_jobs auth WHERE auth.project_id=j.project_id AND auth.state='auth_required' AND auth.not_before>?)
       ORDER BY j.requested_at,j.rowid LIMIT 1)`)
 			.bind(
@@ -130,7 +120,9 @@ export async function claimJob(
 				options.kind ?? null,
 				options.source ?? null,
 				options.source ?? null,
-				Number(options.lane === "status"),
+				options.lane ?? options.kind ?? null,
+				Number(options.lane === "discover" || options.kind === "list"),
+				timestamp,
 				timestamp,
 			),
 		db
@@ -223,11 +215,12 @@ export async function renewJob(
 		completedPulls: number;
 		totalPulls: number | null;
 		message: string;
+		phase?: string;
 	},
 ) {
 	const result = await db
 		.prepare(`UPDATE collection_jobs SET lease_expires_at=?,updated_at=?,completed_pulls=COALESCE(?,completed_pulls),
-    total_pulls=CASE WHEN ?=1 THEN ? ELSE total_pulls END,message=COALESCE(?,message) WHERE id=? AND ${RUNNING_JOB}`)
+    total_pulls=CASE WHEN ?=1 THEN ? ELSE total_pulls END,message=COALESCE(?,message),phase=COALESCE(?,phase) WHERE id=? AND ${RUNNING_JOB}`)
 		.bind(
 			timestamp + LEASE_SECONDS,
 			timestamp,
@@ -235,6 +228,7 @@ export async function renewJob(
 			Number(Boolean(progress)),
 			progress?.totalPulls ?? null,
 			progress?.message ?? null,
+			progress?.phase ?? null,
 			id,
 			id,
 			token,

@@ -13,11 +13,7 @@ export const JOB_STATES = {
 	canceled: "Canceled",
 };
 export function jobOperation(job: Pick<JobQueryItem, "kind" | "lane">) {
-	return job.kind === "discover"
-		? "PR discovery"
-		: job.lane === "status"
-			? "PR state"
-			: "PR checks";
+	return job.kind === "discover" ? "Project PR list" : "Full PR refresh";
 }
 export function jobDuration(job: JobQueryItem, now: number) {
 	if (!job.startedAt) return "Not started";
@@ -121,9 +117,7 @@ function collectorActivity(
 			activity =
 				running[0]?.kind === "discover"
 					? "Discovering PRs"
-					: running[0]?.lane === "status"
-						? "Checking PR state"
-						: "Refreshing PR checks";
+					: "Refreshing watched PRs";
 		else if (collector.queue.queued) activity = "Waiting to start";
 		else if (!collector.watching) activity = "Ready to watch";
 		else if (!collector.detailCooldownSeconds) activity = "Manual checks";
@@ -137,3 +131,12 @@ function collectorActivity(
 	}
 	return activity;
 }
+
+export const statusColor = (tone: string) =>
+	tone === "error"
+		? "text-basalt-destructive"
+		: tone === "warning"
+			? "text-basalt-warning"
+			: tone === "success"
+				? "text-basalt-heatmap-green-4"
+				: "text-basalt-muted-foreground";

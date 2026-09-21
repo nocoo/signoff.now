@@ -60,7 +60,6 @@ export type RepositoryRow = {
 	last_discovered_at: number | null;
 	discovery_state: "not_collected" | "legacy" | "complete" | "failed";
 	discovery_message: string | null;
-	discovery_cursor_json: string | null;
 };
 export const matchesAlias = (
 	row: Pick<RepositoryRow, "name" | "repository_id" | "aliases_json">,
@@ -154,6 +153,9 @@ export type JobRow = {
 	pull_ids_json: string | null;
 	kind: "list" | "details" | "full";
 	summary_only: number;
+	phase: string;
+	events_json: string;
+	result_json: string | null;
 	round_id: string | null;
 	scope_json: string;
 	scope_key: string;
@@ -164,7 +166,6 @@ export type JobRow = {
 	cancel_reason: string | null;
 	error_kind: string | null;
 	repositories_resolved: number;
-	full_discovery: number;
 };
 export type JobRepositoryRow = {
 	job_id: string;
@@ -175,7 +176,6 @@ export type JobRepositoryRow = {
 	pull_count: number | null;
 	message: string | null;
 	publication_token: string | null;
-	discovery_cursor_json: string | null;
 };
 export type JobReceipt = {
 	id: string;
@@ -215,7 +215,7 @@ export function mapJob(row: JobRow): CollectionJob {
 		message: row.message,
 		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
 		kind: row.kind,
-		...(row.summary_only ? { lane: "status" } : {}),
+		lane: row.kind === "list" ? "discover" : "checks",
 		roundId: row.round_id,
 	});
 }

@@ -94,3 +94,7 @@ Two things that cost time when they were missing:
   identifier is `common_name`. `principalFromPayload` reads it and sets
   `service: true`, otherwise `/api/me` reports a blank identity and an
   automated session is indistinguishable from a person's.
+
+### 2026-09-21 — Sample discovery reused detailed-check coverage
+
+During local validation of the collector cadence refactor, an automatic Sample discovery failed with `INCOMPLETE_UPLOAD`. The Sample executor classified its list publication using the cached PR check coverage. A fully enumerated list can contain PRs whose detailed checks are partial; those are separate completeness measures. Discovery now publishes complete enumeration independently of check coverage, while full PR refreshes preserve partial-check reporting. A regression test exercises Sample discovery with a partial cached PR. Live PR collection was unaffected.

@@ -65,16 +65,17 @@ async function sampleTask(
 	let pulls: PullRequest[];
 	if (claim.job.kind === "details") {
 		if (!claim.targets?.[0]) throw new Error("Sample PR is not in the cache");
-		const advanced =
-			claim.job.lane === "status"
-				? claim.targets[0]
-				: advanceDemoPull(claim.targets[0], timestamp, claim.job.id).pull;
+		const advanced = advanceDemoPull(
+			claim.targets[0],
+			timestamp,
+			claim.job.id,
+		).pull;
 		pulls = [
 			{
 				...advanced,
 				observedAt: timestamp,
 				summaryObservedAt: timestamp,
-				checksObservedAt: claim.job.lane === "status" ? null : timestamp,
+				checksObservedAt: timestamp,
 			},
 		];
 	} else {
@@ -106,7 +107,10 @@ async function sampleTask(
 		const result = await api.publish(
 			claim,
 			repo.id,
-			selected.some((p) => p.coverage === "partial") ? "partial" : "complete",
+			claim.job.kind === "details" &&
+				selected.some((p) => p.coverage === "partial")
+				? "partial"
+				: "complete",
 			selected.length,
 			"Sample data updated",
 		);
@@ -132,6 +136,8 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 	let ado: AdoPagedClient | undefined;
 	let done = 0;
 	let total: number | null = null;
+	let phase: import("@signoff/domain/collection").CollectionPhase = "starting";
+	let phaseMessage = "Starting collection";
 	let progressError: unknown;
 	let reporting = Promise.resolve();
 	let publishing = false;
@@ -143,18 +149,22 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		reporting = reporting
 			.then(async () => {
 				if (publishing) return;
-				await api.progress(
-					claim,
-					done,
-					total,
-					`Collected ${done}${total === null ? "" : ` of ${total}`} PRs`,
-				);
+				await api.progress(claim, done, total, phaseMessage, phase);
 				await api.heartbeat("ready", "Refreshing the shared PR watch list");
 			})
 			.catch((error: unknown) => {
 				progressError ??= error;
 			});
 		return reporting;
+	};
+	const setPhase = async (
+		next: import("@signoff/domain/collection").CollectionPhase,
+		message: string,
+	) => {
+		phase = next;
+		phaseMessage = message;
+		await report();
+		check();
 	};
 	const timer = setInterval(() => {
 		void report();
@@ -186,12 +196,14 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 			checkAuth: guarded(provider.checkAuth.bind(provider)),
 			invalidateToken: provider.invalidateToken.bind(provider),
 		};
+		await setPhase("authenticating", "Checking provider credentials");
 		await ado.checkAuth(claim.project.organization);
 		check();
 		log.info(
 			`${claim.job.kind === "list" ? "Discovering" : "Refreshing watched PR in"} ${claim.project.organization}/${claim.project.projectKey}`,
 		);
 		if (claim.job.kind === "list") {
+			await setPhase("repositories", "Resolving project repositories");
 			const repos =
 				claim.repositories?.map((repo) => ({
 					id: repo.id,
@@ -219,12 +231,12 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 					continue;
 				let count = 0;
 				try {
+					await setPhase("listing", `Refreshing ${repo.name} PR list`);
 					for await (const pulls of discoverRepositoryPulls(
 						ado,
 						claim.project,
 						repo,
 						Date.now() / 1000,
-						repositoryPlan?.discoveryCursor,
 					)) {
 						check();
 						await api.upload(claim, pulls);
@@ -235,12 +247,13 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 					}
 					await reporting;
 					check();
+					await setPhase("publishing", `Saving ${repo.name}: ${count} PRs`);
 					await api.publish(
 						claim,
 						repo.id,
 						"complete",
 						count,
-						`Discovered ${count} PRs from ${repositoryPlan?.discoveryCursor ? "the incremental window" : "full history"}, including Draft and terminal PRs`,
+						`Refreshed ${count} PR states from the repository list`,
 					);
 				} catch (error) {
 					if (
@@ -273,7 +286,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		const result = await (opts.collect ?? collectProjectPulls)({
 			project: claim.project,
 			client: ado,
-			summaryOnly: claim.job.lane === "status",
+			onPhase: setPhase,
 			now: Date.now() / 1000,
 			targets: [
 				{
@@ -292,6 +305,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 			},
 		});
 		check();
+		await setPhase("publishing", "Saving complete PR collection");
 		await api.upload(claim, result.pulls);
 		clearInterval(timer);
 		await reporting;
@@ -329,17 +343,19 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 	}
 }
 
-/** Reserve capacity for lifecycle checks even while every expensive worker is busy. */
 export async function watchCollections(
 	opts: RunOptions & { sleep?: (ms: number) => Promise<unknown> },
 ): Promise<void> {
 	const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
 	await Promise.all(
-		(["checks", "checks", "status", "status"] as const).map(async (lane) => {
+		(["checks", "checks", "discover"] as const).map(async (lane) => {
 			while (!opts.signal?.aborted) {
 				try {
 					await opts.api.heartbeat("ready", "Watching the shared PR list");
-					await opts.api.schedule("details", lane);
+					await opts.api.schedule(
+						lane === "discover" ? "list" : "details",
+						lane,
+					);
 					if (opts.signal?.aborted) break;
 					const result = await runCollectionOnce({ ...opts, lane });
 					if (

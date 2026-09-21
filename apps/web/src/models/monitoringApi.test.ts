@@ -13,6 +13,7 @@ import {
 	loadCatalog,
 	loadCollectionJob,
 	loadCollector,
+	loadCollectorGroups,
 	loadCollectorHistory,
 	loadPending,
 	loadPull,
@@ -36,11 +37,11 @@ test("collector history and detail reads validate payloads and encode scoped cur
 	vi.mocked(apiFetch).mockResolvedValueOnce({ data: [], nextCursor: null });
 	await loadCollectorHistory(
 		"demo",
-		{ lane: "status", outcome: "issues", cursor: "a+/=" },
+		{ lane: "checks", outcome: "issues", cursor: "a+/=" },
 		new AbortController().signal,
 	);
 	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe(
-		"/api/query/v1/jobs?source=sample&lane=status&outcome=issues&cursor=a%2B%2F%3D",
+		"/api/query/v1/jobs?source=sample&lane=checks&outcome=issues&cursor=a%2B%2F%3D",
 	);
 	vi.mocked(apiFetch).mockResolvedValueOnce({ data: [], nextCursor: null });
 	await loadCollectorHistory(
@@ -320,4 +321,33 @@ test("watch commands send only complete internal refs or observation ID and capt
 	expect(
 		JSON.parse(String(vi.mocked(apiFetch).mock.calls[4]?.[1]?.body)),
 	).toEqual({ source: "sample", target: { pullId: "pr" } });
+});
+
+test("collector groups validate responses and preserve group and pagination scopes", async () => {
+	const payload = {
+		data: [],
+		nextCursor: null,
+		generatedAt: new Date().toISOString(),
+	};
+	const signal = new AbortController().signal;
+	vi.mocked(apiFetch).mockResolvedValue(payload);
+	expect(await loadCollectorGroups("cli", undefined, signal)).toEqual(payload);
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe(
+		"/api/query/v1/collector/groups?source=live",
+	);
+	await loadCollectorGroups("demo", "pr:a+/=", signal);
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe(
+		"/api/query/v1/collector/groups?source=sample&cursor=pr%3Aa%2B%2F%3D",
+	);
+	vi.mocked(apiFetch).mockResolvedValue({ data: [], nextCursor: null });
+	await loadCollectorHistory(
+		"cli",
+		{ lane: "all", outcome: "all", group: "pr:a+/=" },
+		signal,
+	);
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toContain(
+		"group=pr%3Aa%2B%2F%3D",
+	);
+	vi.mocked(apiFetch).mockResolvedValue({ data: [{}] });
+	await expect(loadCollectorGroups("cli", undefined, signal)).rejects.toThrow();
 });

@@ -100,7 +100,8 @@ const status = {
 	watching: 0,
 	pendingFirstResult: 0,
 	detailCooldownSeconds: 300,
-	discovery: "on_demand",
+	listCooldownSeconds: 600,
+	discovery: "scheduled",
 	jobs: [],
 	rounds: [],
 };

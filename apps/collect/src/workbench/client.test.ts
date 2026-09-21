@@ -115,35 +115,6 @@ describe("local collection API client", () => {
 			expect(attempts).toBe(before + 1);
 		}
 	});
-	test("repository plans retain validated discovery cursors", async () => {
-		const cursor = { number: 42, createdAt: 1789646000 };
-		const api = createCollectionClient({
-			fetchImpl: async () =>
-				Response.json([
-					{ repository_id: "repo", state: "queued", discoveryCursor: cursor },
-				]),
-		});
-		expect(
-			(
-				await api.repositories({ job: { id: "job" }, leaseToken: "token" }, [
-					{ id: "repo", name: "app" },
-				])
-			)[0]?.discoveryCursor,
-		).toEqual(cursor);
-		const invalid = createCollectionClient({
-			fetchImpl: async () =>
-				Response.json([
-					{
-						repository_id: "repo",
-						state: "queued",
-						discoveryCursor: { number: -1, createdAt: 0 },
-					},
-				]),
-		});
-		await expect(
-			invalid.repositories({ job: { id: "job" }, leaseToken: "token" }, []),
-		).rejects.toThrow();
-	});
 	test("repository receipts, requirements and failure messages use the claimed lease and reject redirects", async () => {
 		const now = 1_789_632_000;
 		const lease = {
@@ -231,11 +202,11 @@ describe("local collection API client", () => {
 		});
 		await api.schedule("list");
 		await api.schedule("details");
-		await api.schedule("details", "status");
+		await api.schedule("details", "discover");
 		expect(await api.claim("list")).toBeNull();
 		expect(await api.claim("details")).toBeNull();
 		expect(await api.claim(undefined, "manual-full")).toBeNull();
-		expect(await api.claim(undefined, undefined, "status")).toBeNull();
+		expect(await api.claim(undefined, undefined, "discover")).toBeNull();
 		expect(
 			calls.map(
 				(call) => new URL(call.url).pathname + new URL(call.url).search,
@@ -247,12 +218,12 @@ describe("local collection API client", () => {
 			"/api/collector/claim?kind=list",
 			"/api/collector/claim?kind=details",
 			"/api/collector/claim?jobId=manual-full",
-			"/api/collector/claim?lane=status",
+			"/api/collector/claim?lane=discover",
 		]);
 		expect(calls.slice(0, 3).map((call) => call.body)).toEqual([
 			{ kind: "list" },
 			{ kind: "details" },
-			{ kind: "details", lane: "status" },
+			{ kind: "details", lane: "discover" },
 		]);
 	});
 	test("refuses a remote upload target and URLs carrying credentials", () => {

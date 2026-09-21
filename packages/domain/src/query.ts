@@ -296,7 +296,20 @@ export const jobQuerySchema = z.object({
 	target: watchRefSchema.nullable().optional(),
 	source: querySourceSchema,
 	kind: z.enum(["discover", "refresh"]),
-	lane: z.enum(["checks", "status"]).optional(),
+	lane: z.enum(["checks", "discover"]).optional(),
+	phase: z.string().optional(),
+	events: z
+		.array(
+			z.object({
+				id: z.string(),
+				at: z.number(),
+				phase: z.string(),
+				state: z.string(),
+				message: z.string(),
+			}),
+		)
+		.optional(),
+	result: pullRequestSchema.nullable().optional(),
 	state: z.enum([
 		"queued",
 		"running",
@@ -330,7 +343,8 @@ export const jobQuerySchema = z.object({
 });
 export type JobQueryItem = z.infer<typeof jobQuerySchema>;
 export const jobHistoryFiltersSchema = z.object({
-	lane: z.enum(["all", "checks", "status", "discover"]).default("all"),
+	lane: z.enum(["all", "checks", "discover"]).default("all"),
+	group: z.string().max(300).optional(),
 	outcome: z.enum(["all", "issues"]).default("all"),
 	cursor: z.string().max(4096).optional(),
 });
@@ -343,6 +357,24 @@ export type JobHistoryItem = z.infer<typeof jobHistoryItemSchema>;
 export const jobHistorySchema = z.object({
 	data: z.array(jobHistoryItemSchema),
 	nextCursor: z.string().nullable(),
+});
+export const collectorGroupSchema = z.object({
+	id: z.string(),
+	kind: z.enum(["discover", "refresh"]),
+	projectId: z.string(),
+	projectName: z.string(),
+	target: watchRefSchema.nullable(),
+	active: z.boolean(),
+	cooldownSeconds: z.number(),
+	lastCompletedAt: nullableIso,
+	nextRunAt: nullableIso,
+	latest: jobHistoryItemSchema.nullable(),
+});
+export type CollectorGroup = z.infer<typeof collectorGroupSchema>;
+export const collectorGroupsSchema = z.object({
+	data: z.array(collectorGroupSchema),
+	nextCursor: z.string().nullable(),
+	generatedAt: iso,
 });
 export const collectorQuerySchema = z.object({
 	schemaVersion: z.literal(1),
@@ -364,12 +396,12 @@ export const collectorQuerySchema = z.object({
 	pendingFirstResult: z.number(),
 	sampleCommandsEnabled: z.boolean().default(false),
 	detailCooldownSeconds: z.number(),
-	statusCooldownSeconds: z.number().optional(),
+	listCooldownSeconds: z.number(),
 	scheduling: z
 		.object({
 			strategy: z.literal("per_pr"),
 			checksConcurrency: z.number(),
-			statusConcurrency: z.number(),
+			discoveryConcurrency: z.number(),
 			nextCheckDueAt: nullableIso,
 			overdueChecks: z.number(),
 			oldestChecksAgeSeconds: z.number().nullable(),
@@ -377,7 +409,7 @@ export const collectorQuerySchema = z.object({
 			missingChecks: z.number(),
 		})
 		.optional(),
-	discovery: z.literal("on_demand"),
+	discovery: z.literal("scheduled"),
 	jobs: z.array(jobQuerySchema),
 	rounds: z.array(
 		z.object({

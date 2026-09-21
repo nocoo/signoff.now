@@ -363,7 +363,6 @@ export async function enqueueDiscovery(
 	project: Project,
 	scope: string[],
 	timestamp: number,
-	full = false,
 ): Promise<JobReceipt> {
 	supported(project);
 	const repositories = (
@@ -385,12 +384,12 @@ export async function enqueueDiscovery(
 		),
 	].sort();
 	const scopeJson = JSON.stringify(normalized);
-	const scopeKey = full ? `full:${scopeJson}` : scopeJson;
+	const scopeKey = scopeJson;
 	const id = crypto.randomUUID();
 	const results = await db.batch([
 		db
-			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,full_discovery,message)
-      SELECT ?,?,?,?,?,'queued',?,?,?,'list','[]',?,?,?,'Waiting to discover PRs'
+			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,message)
+      SELECT ?,?,?,?,?,'queued',?,?,?,'list','[]',?,?,'Waiting to discover PRs'
       WHERE EXISTS (SELECT 1 FROM projects WHERE id=? AND revision=? AND source=?)
       AND NOT EXISTS (SELECT 1 FROM collection_jobs WHERE project_id=? AND revision=? AND kind='list' AND scope_key=? AND state IN (${ACTIVE_JOBS}))`)
 			.bind(
@@ -404,7 +403,6 @@ export async function enqueueDiscovery(
 				timestamp,
 				scopeJson,
 				scopeKey,
-				Number(full),
 				project.id,
 				project.revision,
 				project.source,

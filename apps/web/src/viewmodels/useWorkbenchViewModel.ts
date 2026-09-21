@@ -978,15 +978,18 @@ export function useWorkbenchViewModel() {
 			!detail.loading &&
 			!selected &&
 			detail.errorCode === "CACHE_MISS",
-		listCooldownSeconds: 0,
+		listCooldownSeconds: collector.data?.listCooldownSeconds ?? 600,
 		detailCooldownSeconds: collector.data?.detailCooldownSeconds ?? 300,
 		setRefreshCooldown: async (kind: RefreshQueueKind, value: number) =>
-			kind === "details" && refreshCooldownSchema.safeParse(value).success
+			refreshCooldownSchema.safeParse(value).success
 				? mutate("refresh-settings", async () => {
 						await patchRefreshSettings({
-							detailCooldownSeconds: refreshCooldownSchema.parse(value),
+							[kind === "list"
+								? "listCooldownSeconds"
+								: "detailCooldownSeconds"]: refreshCooldownSchema.parse(value),
 						});
-						return "Watch refresh cooldown saved.";
+						await collector.reload();
+						return "Collector cooldown saved.";
 					})
 				: false,
 		reload,

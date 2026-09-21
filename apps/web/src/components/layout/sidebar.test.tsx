@@ -10,6 +10,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	loadCollectionJob,
+	loadCollectorGroups,
 	loadCollectorHistory,
 } from "@/models/monitoringApi";
 import { DEFAULT_PULL_FILTER } from "@/models/workbench";
@@ -32,6 +33,7 @@ const vm: Pick<
 	| "notice"
 	| "busy"
 	| "detailCooldownSeconds"
+	| "listCooldownSeconds"
 	| "setRefreshCooldown"
 	| "projects"
 	| "repositories"
@@ -45,12 +47,14 @@ const vm: Pick<
 	notice: null,
 	busy: null,
 	detailCooldownSeconds: 300,
+	listCooldownSeconds: 600,
 	setRefreshCooldown: vi.fn(async () => true),
 	projects: [],
 	repositories: [],
 };
 vi.mock("@/models/monitoringApi", () => ({
 	loadCollectionJob: vi.fn(),
+	loadCollectorGroups: vi.fn(),
 	loadCollectorHistory: vi.fn(),
 }));
 vi.mock("@/viewmodels/WorkbenchProvider", () => ({ useWorkbench: () => vm }));
@@ -67,6 +71,11 @@ beforeEach(() => {
 	vm.projects = [];
 	vm.repositories = [];
 	vi.clearAllMocks();
+	vi.mocked(loadCollectorGroups).mockResolvedValue({
+		data: [],
+		nextCursor: null,
+		generatedAt: new Date(fixtureNow * 1000).toISOString(),
+	});
 	vi.mocked(loadCollectorHistory).mockResolvedValue({
 		data: [],
 		nextCursor: null,
@@ -89,17 +98,49 @@ const openDetails = () =>
 		within(panel()).getByRole("button", { name: /Open details and history/ }),
 	);
 
-it("keeps the sidebar compact and moves settings and history into the dialog", async () => {
+const group = (task = fixtureJob()) => ({
+	id: "pr:watch-1",
+	kind: "refresh" as const,
+	projectId: task.projectId,
+	projectName: "Intent",
+	target: null,
+	active: true,
+	cooldownSeconds: 300,
+	lastCompletedAt: task.completedAt,
+	nextRunAt: task.completedAt
+		? new Date(Date.parse(task.completedAt) + 300000).toISOString()
+		: null,
+	latest: { ...task, projectName: "Intent", target: null },
+});
+const seedGroup = (task = fixtureJob()) => {
+	vi.mocked(loadCollectorGroups).mockResolvedValue({
+		data: [group(task)],
+		nextCursor: null,
+		generatedAt: new Date(fixtureNow * 1000).toISOString(),
+	});
+	vi.mocked(loadCollectorHistory).mockResolvedValue({
+		data: [{ ...task, projectName: "Intent", target: null }],
+		nextCursor: null,
+	});
+	vi.mocked(loadCollectionJob).mockResolvedValue(task);
+};
+it("keeps the sidebar compact and configures both task cooldowns in the dialog", async () => {
 	renderSidebar();
 	expect(within(panel()).getByText("Online")).toBeTruthy();
 	expect(within(panel()).queryByRole("combobox")).toBeNull();
-	expect(loadCollectorHistory).not.toHaveBeenCalled();
+	expect(loadCollectorGroups).not.toHaveBeenCalled();
 	openDetails();
 	const dialog = await screen.findByRole("dialog", {
 		name: "Collector details",
 	});
-	expect(within(dialog).getByText("Overview")).toBeTruthy();
-	await within(dialog).findByText("No jobs match these filters.");
+	await within(dialog).findByText("No projects or watched PRs.");
+	fireEvent.click(
+		within(dialog).getByRole("combobox", {
+			name: "Project discovery cooldown",
+		}),
+	);
+	fireEvent.click(screen.getByRole("option", { name: "2 min" }));
+	expect(vm.setRefreshCooldown).toHaveBeenCalledWith("list", 120);
 	fireEvent.click(
 		within(dialog).getByRole("combobox", {
 			name: "Watched PR refresh cooldown",
@@ -117,58 +158,52 @@ it("opens details directly from a collapsed sidebar", async () => {
 	expect(await screen.findByRole("dialog")).toBeTruthy();
 	expect(expand).not.toHaveBeenCalled();
 });
-it("distinguishes partial collection from connectivity failure and exposes complete task evidence", async () => {
+it("shows group history and the returned result of the selected attempt", async () => {
 	const task = fixtureJob({
 		state: "partial",
-		message: "Build 123 is unavailable",
+		message: "Build 123 unavailable",
 		error: "unavailable",
-	});
-	vm.collector!.jobs = [task];
-	vi.mocked(loadCollectorHistory).mockResolvedValue({
-		data: [{ ...task, projectName: "Intent", target: null }],
-		nextCursor: "older",
-	});
-	vi.mocked(loadCollectionJob).mockResolvedValue({
-		...task,
-		repositories: [
+		phase: "builds",
+		events: [
 			{
-				repository: { id: "repo", name: "whiteboard-app" },
-				state: "failed",
-				pullCount: null,
-				error: "Build expired",
+				id: "event",
+				at: fixtureNow,
+				phase: "builds",
+				state: "running",
+				message: "Reading builds and stages",
 			},
 		],
 	});
+	vm.collector!.jobs = [task];
+	seedGroup(task);
 	renderSidebar();
 	expect(within(panel()).getByText("Partial data")).toBeTruthy();
-	expect(panel().textContent).not.toContain("Build 123 is unavailable");
 	openDetails();
-	const history = await screen.findByRole("region", {
-		name: "Collection jobs",
-	});
 	fireEvent.click(
-		await within(history).findByRole("button", { name: /Intent/ }),
+		await screen.findByRole("button", { name: /Intent Incomplete/ }),
 	);
-	await within(history).findByText(/Build expired/);
-	expect(within(history).getByText("Build 123 is unavailable")).toBeTruthy();
-	expect(within(history).getByText("Error: unavailable")).toBeTruthy();
-	fireEvent.click(within(history).getByRole("button", { name: "Older" }));
-	await within(history).findByText(/Page 2/);
-	fireEvent.click(within(history).getByRole("combobox", { name: "Job state" }));
-	fireEvent.click(screen.getByRole("option", { name: "Issues only" }));
-	await within(history).findByText(/Page 1/);
+	const history = await screen.findByRole("region", { name: "PR job history" });
+	fireEvent.click(
+		await within(history).findByRole("button", { expanded: false }),
+	);
+	await within(history).findByText("Error: unavailable");
+	expect(within(history).getByText(/Reading builds and stages/)).toBeTruthy();
+	expect(loadCollectorHistory).toHaveBeenCalledWith(
+		"cli",
+		expect.objectContaining({ group: "pr:watch-1" }),
+		expect.any(AbortSignal),
+	);
 });
-it("shows connection errors clearly and retains the cached watch count", async () => {
+it("shows connection errors without dropping cached watch counts", async () => {
 	vm.collectionError = "Local Worker unavailable";
 	vm.collector!.watching = 16;
 	renderSidebar();
-	expect(panel().textContent).toContain("Unavailable");
 	expect(panel().textContent).toContain("16 watching");
 	openDetails();
 	expect(await screen.findByText("Local Worker unavailable")).toBeTruthy();
 });
-it("reports history errors with a retry control without hiding current health", async () => {
-	vi.mocked(loadCollectorHistory).mockRejectedValueOnce(
+it("retries group loading independently of connector health", async () => {
+	vi.mocked(loadCollectorGroups).mockRejectedValueOnce(
 		new Error("History unavailable"),
 	);
 	renderSidebar();
@@ -177,102 +212,33 @@ it("reports history errors with a retry control without hiding current health", 
 	fireEvent.click(
 		screen.getByRole("button", { name: "Reload collection jobs" }),
 	);
-	await screen.findByText("No jobs match these filters.");
+	await screen.findByText("No projects or watched PRs.");
 });
-it("shows current progress and freshness in the dialog", async () => {
-	vm.collector!.queue.running = 1;
-	vm.collector!.jobs = [
-		fixtureJob({
-			state: "running",
-			completedAt: null,
-			progress: { completed: 3, total: 8 },
-			lane: "status",
-		}),
-	];
-	vi.mocked(loadCollectorHistory).mockResolvedValue({
-		data: vm.collector!.jobs.map((job) => ({
-			...job,
-			projectName: "Intent",
-			target: null,
-		})),
-		nextCursor: null,
+it("keeps the PR group and history expanded when its running job completes", async () => {
+	const task = fixtureJob({
+		state: "running",
+		completedAt: null,
+		progress: { completed: 3, total: 8 },
+		message: "Reading builds and stages",
 	});
-	vm.collector!.scheduling = {
-		strategy: "per_pr",
-		checksConcurrency: 2,
-		statusConcurrency: 2,
-		nextCheckDueAt: null,
-		oldestChecksAgeSeconds: 420,
-		oldestSummaryAgeSeconds: 20,
-		overdueChecks: 2,
-		missingChecks: 1,
-	};
-	vm.collector!.generatedAt = new Date(fixtureNow * 1000).toISOString();
-	renderSidebar();
-	expect(within(panel()).getByText("Checking PR state")).toBeTruthy();
-	openDetails();
-	const work = await screen.findByRole("region", {
-		name: "Collection jobs",
-	});
-	await within(work).findByText(/3 \/ 8/);
-	expect(screen.getByText("Oldest checks")).toBeTruthy();
-});
-
-it("keeps running and finished jobs in one list and preserves expanded rows after completion", async () => {
-	const running = {
-		...fixtureJob({ id: "running", state: "running", completedAt: null }),
-		projectName: "Active task",
-		target: null,
-	};
-	const failed = {
-		...fixtureJob({ id: "failed", state: "failed" }),
-		projectName: "Failed task",
-		target: null,
-	};
-	const succeeded = {
-		...fixtureJob({ id: "succeeded", state: "succeeded" }),
-		projectName: "Finished task",
-		target: null,
-	};
-	vi.mocked(loadCollectorHistory).mockResolvedValue({
-		data: [running, failed, succeeded],
-		nextCursor: null,
-	});
-	vi.mocked(loadCollectionJob).mockResolvedValue(running);
+	seedGroup(task);
 	renderSidebar();
 	openDetails();
-	const jobs = await screen.findByRole("region", { name: "Collection jobs" });
-	const row = await within(jobs).findByRole("button", { name: /Active task/ });
+	const row = await screen.findByRole("button", { name: /Intent Running/ });
 	fireEvent.click(row);
-	await within(jobs).findByText("Task running");
-	expect(
-		within(jobs).getByRole("button", { name: /Failed task/ }),
-	).toBeTruthy();
-	expect(
-		within(jobs).getByRole("button", { name: /Finished task/ }),
-	).toBeTruthy();
-	const updated = { ...running, state: "succeeded" as const };
-	vi.mocked(loadCollectorHistory).mockResolvedValue({
-		data: [updated, failed, succeeded],
-		nextCursor: null,
+	await screen.findByRole("region", { name: "PR job history" });
+	seedGroup({
+		...task,
+		state: "succeeded",
+		completedAt: new Date(fixtureNow * 1000).toISOString(),
 	});
 	fireEvent.click(
-		within(jobs).getByRole("button", { name: "Reload collection jobs" }),
+		screen.getByRole("button", { name: "Reload collection jobs" }),
 	);
-	const completed = await within(jobs).findByRole("button", {
-		name: /Active task.*Succeeded/,
+	const finished = await screen.findByRole("button", {
+		name: /Intent Succeeded/,
 	});
-	expect(completed).toBe(row);
-	expect(completed.getAttribute("aria-expanded")).toBe("true");
-	expect(within(jobs).getAllByRole("button", { expanded: true })).toHaveLength(
-		1,
-	);
-	const rows = within(jobs).getAllByRole("button", {
-		name: /Active task|Failed task|Finished task/,
-	});
-	expect(rows.map((item) => item.textContent?.split("PR")[0])).toEqual([
-		"Active task",
-		"Failed task",
-		"Finished task",
-	]);
+	expect(finished).toBe(row);
+	expect(finished.getAttribute("aria-expanded")).toBe("true");
+	expect(screen.getByRole("region", { name: "PR job history" })).toBeTruthy();
 });

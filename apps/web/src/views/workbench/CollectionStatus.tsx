@@ -9,10 +9,10 @@ import {
 import { Activity, ChevronRight, CircleAlert, Radio } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { collectorStatus } from "@/models/collectorStatus";
+import { collectorStatus, statusColor } from "@/models/collectorStatus";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import { CollectorDialog, statusColor } from "./CollectorDialog";
+import { CollectorDialog } from "./CollectorDialog";
 
 export function CollectionStatus({
 	collapsed = false,

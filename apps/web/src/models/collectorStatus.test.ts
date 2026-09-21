@@ -73,9 +73,9 @@ test("keeps other work visible when one project needs authentication", () => {
 	const snapshot = queryFixture().collector;
 	snapshot.connection.state = "auth_required";
 	snapshot.queue.authRequired = 1;
-	snapshot.jobs = [fixtureJob({ state: "running", lane: "status" })];
+	snapshot.jobs = [fixtureJob({ state: "running", lane: "checks" })];
 	expect(collectorStatus(snapshot, null, fixtureNow).activity).toBe(
-		"Checking PR state",
+		"Refreshing watched PRs",
 	);
 	snapshot.connection.state = "ready";
 	snapshot.jobs = [fixtureJob({ state: "running", kind: "discover" })];
@@ -84,7 +84,7 @@ test("keeps other work visible when one project needs authentication", () => {
 	);
 	snapshot.jobs = [fixtureJob({ state: "running" })];
 	expect(collectorStatus(snapshot, null, fixtureNow).activity).toBe(
-		"Refreshing PR checks",
+		"Refreshing watched PRs",
 	);
 });
 test("describes queue, manual mode and per-PR scheduling precisely", () => {
@@ -117,7 +117,7 @@ test("describes queue, manual mode and per-PR scheduling precisely", () => {
 		snapshot.scheduling = {
 			strategy: "per_pr",
 			checksConcurrency: 2,
-			statusConcurrency: 2,
+			discoveryConcurrency: 1,
 			nextCheckDueAt: iso(fixtureNow + offset),
 			overdueChecks: 0,
 			oldestChecksAgeSeconds: 420,
@@ -128,9 +128,11 @@ test("describes queue, manual mode and per-PR scheduling precisely", () => {
 	}
 });
 test("formats task type, duration and freshness from the response clock", () => {
-	expect(jobOperation(fixtureJob())).toBe("PR checks");
-	expect(jobOperation(fixtureJob({ lane: "status" }))).toBe("PR state");
-	expect(jobOperation(fixtureJob({ kind: "discover" }))).toBe("PR discovery");
+	expect(jobOperation(fixtureJob())).toBe("Full PR refresh");
+	expect(jobOperation(fixtureJob({ lane: "checks" }))).toBe("Full PR refresh");
+	expect(jobOperation(fixtureJob({ kind: "discover" }))).toBe(
+		"Project PR list",
+	);
 	expect(jobDuration(fixtureJob(), fixtureNow)).toBe("20s");
 	expect(jobDuration(fixtureJob({ startedAt: null }), fixtureNow)).toBe(
 		"Not started",

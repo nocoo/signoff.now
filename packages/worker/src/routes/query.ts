@@ -3,6 +3,7 @@ import { jobHistoryFiltersSchema } from "@signoff/domain/query";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { isLocalhost } from "../middleware/entry-control.js";
+import { queryCollectorGroups } from "../monitoring/collector-groups.js";
 import {
 	lookupPull,
 	parseQuery,
@@ -109,6 +110,16 @@ queryRoutes.get("/jobs", async (c) =>
 			c.env.DB,
 			scope(c),
 			jobHistoryFiltersSchema.parse(c.req.query()),
+		),
+	),
+);
+queryRoutes.get("/collector/groups", async (c) =>
+	c.json(
+		await queryCollectorGroups(
+			c.env.DB,
+			scope(c),
+			z.string().max(300).optional().parse(c.req.query("cursor")),
+			now(),
 		),
 	),
 );

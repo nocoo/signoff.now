@@ -36,15 +36,14 @@ describe("collectProjectPulls", () => {
 	test.each([
 		"completed",
 		"abandoned",
-	])("publishes %s without waiting for policy, build or metrics endpoints", async (status) => {
+	])("collects complete details even when the watched PR has become %s", async (status) => {
 		const calls: string[] = [];
 		const client: AdoPagedClient = {
 			checkAuth: async () => {},
 			invalidateToken: () => {},
 			get: async (url) => {
 				calls.push(url);
-				if (!url.includes("/pullrequests/59382?"))
-					throw new AdoError("unauthenticated", "Unrelated check failed");
+				if (!url.includes("/pullrequests/59382?")) return { value: [] };
 				return {
 					pullRequestId: 59382,
 					status,
@@ -54,8 +53,9 @@ describe("collectProjectPulls", () => {
 					repository: { id: "repo", name: "app" },
 				};
 			},
-			getPage: async () => {
-				throw new Error("No inventory allowed");
+			getPage: async (url) => {
+				calls.push(url);
+				return { data: { value: [] }, continuationToken: null };
 			},
 			post: async () => {
 				throw new Error("No writes allowed");
@@ -76,56 +76,10 @@ describe("collectProjectPulls", () => {
 		expect(result.state).toBe("complete");
 		expect(result.pulls[0]).toMatchObject({
 			state: status === "completed" ? "merged" : "closed",
-			checksObservedAt: null,
+			checksObservedAt: expect.any(Number),
 		});
-		expect(result.pulls[0]?.collectionIssues).toBeUndefined();
-		expect(calls).toHaveLength(1);
-	});
-
-	test("the status lane reads only the selected draft summary and cannot discover an empty target list", async () => {
-		const calls: string[] = [];
-		const client: AdoPagedClient = {
-			checkAuth: async () => {},
-			invalidateToken: () => {},
-			get: async (url) => {
-				calls.push(url);
-				if (!url.includes("/pullrequests/1?"))
-					throw new Error("Slow check must not run");
-				return {
-					pullRequestId: 1,
-					status: "active",
-					isDraft: true,
-					creationDate: "2026-09-17T00:00:00Z",
-					repository: { id: "repo", name: "app" },
-				};
-			},
-			getPage: async () => {
-				throw new Error("No discovery allowed");
-			},
-			post: async () => ({}),
-		};
-		const options = {
-			project: makeMockProject(),
-			client,
-			now: 1789711800,
-			summaryOnly: true,
-			targets: [
-				{ id: "selected", number: 1, repository: { id: "repo", name: "app" } },
-			],
-		};
-		const result = await collectProjectPulls(options);
-		expect(result.pulls[0]).toMatchObject({
-			state: "open",
-			draft: true,
-			checksObservedAt: null,
-		});
-		expect(result.pulls[0]?.summaryObservedAt).toBeGreaterThanOrEqual(
-			options.now,
-		);
-		expect(calls).toHaveLength(1);
-		await expect(
-			collectProjectPulls({ ...options, targets: [] }),
-		).rejects.toThrow("target");
+		expect(calls.some((url) => url.includes("policy/evaluations"))).toBe(true);
+		expect(calls.some((url) => url.includes("/builds"))).toBe(true);
 	});
 
 	test("ambiguous Unicode repository names cannot silently select the first provider row", async () => {

@@ -98,121 +98,38 @@ test("discovery follows continuation pages and rejects cycles or foreign reposit
 	await expect(read()).rejects.toThrow(/identity/i);
 });
 
-test("incremental discovery uses a successful creation boundary with overlap, independent of page order", async () => {
-	const createdAt = Date.parse("2026-08-02T00:00:00Z") / 1000;
-	const history = Array.from({ length: 1000 }, (_, i) => ({
-		...raw(i + 1),
-		creationDate: new Date((createdAt - 1000 + i) * 1000).toISOString(),
-	}));
-	const recent = [
-		{ ...raw(1001), creationDate: new Date(createdAt * 1000).toISOString() },
-		{
-			...raw(1003),
-			creationDate: new Date((createdAt + 1) * 1000).toISOString(),
+test("each list refresh includes old PR state changes without per-PR requests", async () => {
+	let merged = false;
+	const urls: string[] = [];
+	const client = {
+		getPage: async (url: string) => {
+			urls.push(url);
+			return {
+				data: {
+					value: [{ ...raw(1), status: merged ? "completed" : "active" }],
+				},
+				continuationToken: null,
+			};
 		},
-		{ ...raw(1002), creationDate: new Date(createdAt * 1000).toISOString() },
-	];
-	let calls = 0;
-	const pulls = [];
-	for await (const page of discoverRepositoryPulls(
-		{
-			getPage: async (value) => {
-				calls++;
-				const url = new URL(value);
-				expect(url.searchParams.get("searchCriteria.status")).toBe("all");
-				expect(url.searchParams.get("searchCriteria.queryTimeRangeType")).toBe(
-					"created",
-				);
-				const since = Date.parse(
-					url.searchParams.get("searchCriteria.minTime")!,
-				);
-				expect(since).toBe((createdAt - 1) * 1000);
-				const values = [...recent, ...history].filter(
-					(pull) => Date.parse(pull.creationDate) > since,
-				);
-				const skip = Number(url.searchParams.get("$skip"));
-				return {
-					data: { value: values.slice(skip, skip + 100) },
-					continuationToken: null,
-				};
-			},
-		},
-		project,
-		repository,
-		1789646400,
-		{ number: 1001, createdAt },
-	))
-		pulls.push(...page);
-	expect(calls).toBe(1);
-	expect(pulls.map((pull) => pull.number)).toEqual([1001, 1003, 1002]);
-});
-
-test("a deleted boundary PR does not require scanning old history and continuation pages keep the boundary", async () => {
-	const boundary = {
-		number: 1001,
-		createdAt: Date.parse("2026-08-02T00:00:00Z") / 1000,
 	};
-	const seen: number[] = [];
-	let calls = 0;
-	for await (const page of discoverRepositoryPulls(
-		{
-			getPage: async (value) => {
-				const url = new URL(value);
-				expect(url.searchParams.get("searchCriteria.minTime")).toBe(
-					new Date((boundary.createdAt - 1) * 1000).toISOString(),
-				);
-				return {
-					data: { value: [raw(++calls + 1001)] },
-					continuationToken: calls === 1 ? "next" : null,
-				};
-			},
-		},
-		project,
-		repository,
-		1789646400,
-		boundary,
-	))
-		seen.push(...page.map((pull) => pull.number));
-	expect(seen).toEqual([1002, 1003]);
-});
-
-test("overlapping provider pages fail rather than advancing past a moving list", async () => {
 	const read = async () => {
-		for await (const _page of discoverRepositoryPulls(
-			{
-				getPage: async () => ({
-					data: { value: [raw(10)] },
-					continuationToken: "next",
-				}),
-			},
+		const result = [];
+		for await (const page of discoverRepositoryPulls(
+			client,
 			project,
 			repository,
 			1789646400,
-			{ number: 9, createdAt: 1 },
-		)) {
-			/* consume */
-		}
+		))
+			result.push(...page);
+		return result;
 	};
-	await expect(read()).rejects.toThrow(/Repeated PR while paging/);
-});
-test.each([
-	undefined,
-	"invalid date",
-])("invalid creation dates (%s) cannot establish an incremental boundary", async (creationDate) => {
-	const read = async () => {
-		for await (const _page of discoverRepositoryPulls(
-			{
-				getPage: async () => ({
-					data: { value: [{ ...raw(1), creationDate }] },
-					continuationToken: null,
-				}),
-			},
-			project,
-			repository,
-			1789646400,
-		)) {
-			/* consume */
-		}
-	};
-	await expect(read()).rejects.toThrow(/creation date/i);
+	expect((await read())[0]?.state).toBe("open");
+	merged = true;
+	expect((await read())[0]?.state).toBe("merged");
+	expect(urls).toHaveLength(2);
+	expect(
+		urls.every(
+			(url) => !new URL(url).searchParams.has("searchCriteria.minTime"),
+		),
+	).toBe(true);
 });

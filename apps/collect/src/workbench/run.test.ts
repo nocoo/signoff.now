@@ -215,7 +215,11 @@ describe("saved-task executor", () => {
 		const result = await runCollectionOnce({
 			...deps,
 			collect: async (opts) => {
-				expect(deps.events.slice(0, 3)).toEqual(["claim", "provider", "auth"]);
+				expect(
+					deps.events
+						.filter((event) => ["claim", "provider", "auth"].includes(event))
+						.slice(0, 3),
+				).toEqual(["claim", "provider", "auth"]);
 				expect(opts.targets).toEqual([
 					{ id: pull.id, number: pull.number, repository: pull.repository },
 				]);
@@ -277,7 +281,7 @@ describe("saved-task executor", () => {
 			},
 		});
 		expect(result.state).toBe("partial");
-		expect(progress).toEqual([2, 2]);
+		expect(progress).toEqual([0, 2, 2, 2]);
 	});
 	test("lost progress lease prevents all publication even when reporting failure also fails", async () => {
 		const deps = setup();
@@ -312,6 +316,7 @@ describe("saved-task executor", () => {
 			return pending.promise;
 		};
 		deps.api.progress = async () => {
+			if (!gets) return;
 			renewalFailed.resolve();
 			throw new Error("Lease lost");
 		};
@@ -448,12 +453,11 @@ describe("explicit repository discovery", () => {
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
 		expect(calls).toBe(1);
 	});
-	test("uses each frozen repository cursor rather than cached PRs or the job clock", async () => {
+	test("refreshes all PR states even when a saved discovery boundary exists", async () => {
 		const deps = discovery();
-		const cursor = { number: 123, createdAt: time - 1000 };
 		deps.api.repositories = async () => [
-			{ repository_id: "empty", state: "queued", discoveryCursor: cursor },
-			{ repository_id: "broken", state: "queued", discoveryCursor: null },
+			{ repository_id: "empty", state: "queued" },
+			{ repository_id: "broken", state: "queued" },
 		];
 		const original = deps.ado.getPage;
 		const calls: URL[] = [];
@@ -463,9 +467,7 @@ describe("explicit repository discovery", () => {
 			return { data: { value: [] }, continuationToken: null };
 		};
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
-		expect(calls[0]?.searchParams.get("searchCriteria.minTime")).toBe(
-			new Date((cursor.createdAt - 1) * 1000).toISOString(),
-		);
+		expect(calls[0]?.searchParams.get("searchCriteria.minTime")).toBeNull();
 		expect(calls[1]?.searchParams.has("searchCriteria.minTime")).toBe(false);
 	});
 	function discovery() {
@@ -535,38 +537,27 @@ describe("explicit repository discovery", () => {
 });
 
 describe("sample and daemon orchestration", () => {
-	test("reserved status workers publish while all check workers are blocked", async () => {
+	test("daemon schedules project discovery and complete watched PR checks without a status lane", async () => {
 		const deps = setup();
 		const controller = new AbortController();
-		const release = deferred<void>();
-		const claimed = new Set<string>();
+		const lanes: string[] = [];
 		deps.api.claim = async (_kind, _job, lane) => {
-			const key = lane ?? "checks";
-			if (claimed.has(key)) return null;
-			claimed.add(key);
-			return { ...claim, job: { ...claim.job, id: key, lane } };
-		};
-		const order: string[] = [];
-		deps.api.publish = async (lease) => {
-			order.push(lease.job.id);
-			if (lease.job.id === "status") {
-				controller.abort();
-				release.resolve();
-			}
-			return { ...claim.job, id: lease.job.id, state: "complete" };
+			lanes.push(lane ?? "checks");
+			if (lanes.length === 3) controller.abort();
+			return null;
 		};
 		await watchCollections({
 			...deps,
 			signal: controller.signal,
-			sleep: () => release.promise,
-			collect: async ({ summaryOnly }) => {
-				if (!summaryOnly) await release.promise;
-				return collected();
-			},
+			sleep: async () => {},
 		});
-		expect(order[0]).toBe("status");
-		expect(claimed.has("checks")).toBe(true);
+		expect(lanes.sort((a, b) => a.localeCompare(b))).toEqual([
+			"checks",
+			"checks",
+			"discover",
+		]);
 	});
+
 	test("Sample discovery keeps ID scope when another repository name equals that ID", async () => {
 		const deps = setup();
 		deps.api.claim = async () => ({
@@ -597,6 +588,29 @@ describe("sample and daemon orchestration", () => {
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
 		expect(planned).toEqual([pull.repository.id]);
 		expect(deps.events).not.toContain("provider");
+	});
+	test("sample discovery publishes complete enumeration even when cached checks are partial", async () => {
+		const deps = setup();
+		deps.api.claim = async () => ({
+			...claim,
+			project: { ...project, source: "demo" },
+			scope: [],
+			job: { ...claim.job, kind: "list" },
+		});
+		deps.api.load = async () => ({
+			...demo,
+			demoMode: true,
+			fetchedAt: time,
+			truncated: false,
+			pullRequests: [{ ...pull, coverage: "partial" }],
+		});
+		let published: string | undefined;
+		deps.api.publish = async (_lease, _repo, state) => {
+			published = state;
+			return { ...claim.job, state };
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect(published).toBe("complete");
 	});
 	test("sample discovery and refresh never initialize Azure", async () => {
 		for (const details of [false, true]) {

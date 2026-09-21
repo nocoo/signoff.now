@@ -218,7 +218,8 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 		pendingFirstResult: 0,
 		sampleCommandsEnabled: true,
 		detailCooldownSeconds: 300,
-		discovery: "on_demand",
+		listCooldownSeconds: 600,
+		discovery: "scheduled",
 		jobs: [],
 		rounds: [],
 	});

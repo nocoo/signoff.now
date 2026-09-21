@@ -24,15 +24,15 @@ const request = (path: string, body: unknown = {}, host = "localhost") =>
 		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
 	);
 
-test("idle heartbeat and scheduler neither discover nor revive authentication backoff", async () => {
+test("idle heartbeat and watch scheduler do not discover or revive authentication backoff", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
 	expect(
 		(await request("heartbeat", { state: "ready", message: "Idle" })).status,
 	).toBe(200);
 	await request("schedule");
 	expect(await (await request("claim")).json()).toBeNull();
-	await request("schedule", { kind: "details", lane: "status" });
-	expect(await (await request("claim?lane=status")).json()).toBeNull();
+	expect((await request("schedule", { lane: "status" })).status).toBe(400);
+	expect((await request("claim?lane=status")).status).toBe(400);
 	expect(
 		(await request("schedule", { kind: "details", lane: "unknown" })).status,
 	).toBe(400);

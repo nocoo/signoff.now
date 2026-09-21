@@ -1,51 +1,34 @@
 # 17 — Query 周期、采集周期与数据新鲜度
 
-> 当前实现，2026-09-18。网页和 CLI 共用一份关注清单；首次启用时清单为空，后续升级保留已有关注项；发现仅按需执行。
+> Current implementation, 2026-09-21. Web and CLI share one watch list. Project discovery and watched PR refresh use independent completion-based cooldowns.
 
-## 1. 三种独立的周期
+## 1. Independent clocks
 
-| 周期 | 谁决定 | 建议默认值 | 做什么 |
-| --- | --- | --- | --- |
-| 源站采集 | 观察刷新 Scheduler；显式发现命令 | status 每项完成后 30 秒；checks 项目整轮完成后默认 5 分钟；发现仅显式触发 | 两条通道只覆盖 active 观察项；发现结果不自动加入观察 |
-| 网页 Query | 各数据块 ViewModel | Collector 每次完成后 3 秒检测同来源版本，变化即合并重读；PR / pending / 详情 15 秒、目录 30 秒独立兜底 | 只读取缓存；持续发布不废弃有效在途读取，避免慢查询饥饿 |
-| 外部项目 Query | 消费项目自己的 cron / 进程 | 示例为每分钟一次，没有服务端强制周期 | 执行 `signoff pr list / get`，读取同一快照 |
+| Clock | Default | Effect |
+| --- | --- | --- |
+| Project discovery | 10 minutes after each project's completed attempt | Paginate repository PR lists and update all returned PR states. |
+| Watched PR refresh | 5 minutes after each PR's completed attempt | Fetch the full PR state, checks, builds and stages. |
+| Daemon queue polling | 3 seconds while idle; 10 seconds after transport errors | Read local scheduler state; contact ADO only after claiming eligible work. |
+| Running-task heartbeat | 20 seconds | Renew the local lease and report current phase. |
+| Collector dialog queries | 3 seconds while visible | Read cached groups, history and selected task details. |
+| Dialog elapsed/countdown clock | 1 second | Render existing timestamps locally; no request. |
+| PR/pending/detail queries | 15 seconds, plus publication-driven reload | Read the cache. |
+| Repository reference lookup | 30 seconds until resolved | Read cached repository identities. |
 
-网页隐藏时停止自动 Query，进入前台立即重新读取。只轮询已经挂载的数据块；Directory 保持手动 Reload，统计模块保持手动 Calculate / Refresh。本地分钟计时只更新相对时间和颜色。
+Closing the webpage does not stop the daemon. Hidden query blocks suspend automatic polling. Query failures back off to two and four times their base interval. External consumers choose their own read cadence. None of these reads bypasses collection cooldowns.
 
-仓库筛选仍是完整 URL 时，额外使用只读目录接口独立解析引用，间隔同目录为 30 秒。唯一解析成功后保存稳定 ID 并停止该块查询；歧义保留原引用供用户修正，不触发发现。
-
-网页读取失败按该块基础间隔的 2、4 倍退避，上限为 4 倍，恢复成功后回到正常读取间隔；后台不保留这些自动读取定时器。手动 Retry 和重新进入前台可以立即重试读取。
-
-**提高消费者查询频率不会提高 ADO 采集频率。** 需要持续检查时显式加入观察列表；需要提前更新时对观察项发 refresh；需要发现仓库 PR 时发 discover。三类动作分开，均不能藏在 GET 里。
-
-## 2. 时间线示例
-
-假设向某项目明确提交的 list 花了 35 秒，该项目观察项的 checks 轮次花了 80 秒。该项目的某个 active PR 另由 status 通道检查：
+## 2. Completion-based example
 
 ```text
-10:00:00  list 开始
-10:00:35  list 全部目标结束并发布
-          list 不自动重复；等待下一条显式 discover 命令
-
-10:00:35  同项目的 checks 开始
-10:01:55  checks 全部目标结束
-10:06:55  下一轮 checks 最早开始（80 秒完成 + 300 秒冷却）
-
-10:00:00  该 PR 的 status 开始，与 list / checks 独立
-10:00:02  status 发布 open
-10:00:32  该 PR 下一次 status 最早开始
-10:00:34  确认 merged → 保存终态、停止观察、取消旧检查
-          网页下一次 Collector Query 看到版本变化，安排列表 / 详情重读
-
-10:01:40  外部 CLI 查询 → 立即取得已发布快照，不等待本轮
-10:02:40  外部 CLI 查询 → 读取最近已发布的结果，不额外采集
+10:00:00  Project list starts; watched PR A starts independently.
+10:00:35  Project list finishes; next project list is due at 10:10:35.
+10:01:20  PR A finishes all details; next PR A refresh is due at 10:06:20.
+10:02:00  Manual PR A refresh queues for 10:06:20; it cannot run early.
+10:02:10  PR B finishes independently; next PR B refresh is due at 10:07:10.
+10:06:20  PR A becomes eligible, subject to available worker capacity.
 ```
 
-同项目的 list 与 checks 共用一个运行位置，status 使用独立位置；daemon 为每条通道各保留两个执行循环。队列等待、限流和任务耗时会让实际开始更晚，30 秒冷却和 3 秒版本轮询均不是端到端延迟保证。
-
-“5 分钟检查”不是“数据年龄永远小于 5 分钟”。单条 PR 在本轮较早被检查，其下一次观测还要等待其他观察目标完成、冷却和下一轮排队。接口必须暴露真实时间，不能向消费者承诺不成立的最大延迟。未加入观察的 PR 不享有周期 checks；被淘汰或主动移除后，最后检查时间会继续变老。
-
-后续 Discover 默认只枚举成功创建时间边界附近的新 PR，不会让所有旧候选的 `listObservedAt` 变新。较旧未关注 PR 的状态可能仍是上次缓存；显式 `discover --full` 才重新核对全部可访问历史。观察项的定向刷新不受这个增量边界限制。
+Cooldown is a minimum wait after completion, not a freshness SLA. Task duration, queues and provider availability can make data older. Every discovery fully rereads accessible lists, including old and terminal PRs; only watched PRs receive periodic detailed checks. The separate 30-second status lane has been removed.
 
 ## 3. 时间字段的唯一含义
 
@@ -54,11 +37,11 @@
 | 字段 | 含义 | 可以让它更新的事件 |
 | --- | --- | --- |
 | `pr.updatedAt` | 源 PR 自身提供的更新时间 | 成功取得新的源 PR 事实 |
-| `freshness.listObservedAt` | 最新成功摘要请求的开始时间；内部为可含毫秒精度的 `summaryObservedAt`，旧缓存兼容原 observedAt | 成功的发现、status 或 checks 中较新的基础事实；失败不推进 |
+| `freshness.listObservedAt` | 最新成功摘要请求的开始时间；内部为可含毫秒精度的 `summaryObservedAt`，旧缓存兼容原 observedAt | Successful discovery or full refresh 中较新的基础事实；失败不推进 |
 | `freshness.checksObservedAt` | 此 PR 的 policy / review / build / stage 检查观测时间 | 成功取得检查；部分取得还需配合完整性与缺失项解释 |
 | `publishedAt` | 该记录被原子发布到 SnapshotStore 的时间 | 通过租约和 revision 验证的发布 |
 | `generatedAt` | 本次 Query 响应产生时间 | 一次查询；不表示源数据更鲜 |
-| `lastCompletedAt` / `nextDueAt` | 对应项目、对应任务组的轮次完成 / 下次到期点 | 调度状态转移 |
+| `lastCompletedAt` / `nextDueAt` | Completion / due time for the individual PR generation or project discovery | 调度状态转移 |
 | `calculatedAt` | Repos / Insights 统计上次成功计算时间 | 用户显式刷新该统计模块 |
 | `observation.addedAt / stoppedAt` | 当前观察代次加入 / 停止的时间 | 明确增删、项目 / 范围移除或成功确认终态；与 PR 采集时间分开 |
 
@@ -115,7 +98,7 @@ ADO `targetSha` 仍来自源 PR 的 `lastMergeTargetCommit`，不是另外读取
 ## 6. 需要锁定的时间测试
 
 - 固定假时钟：相同快照连续查询 100 次，只有 `generatedAt` 和派生年龄变化，观测时间、队列和 provider 调用数不变。
-- 慢任务：checks 按最后完成时间加冷却；status 按每项完成时间加 30 秒，慢检查不能占满其执行位置；list 不自动重启，不按浏览器计时、不补偿式连跑。
+- Slow tasks: each PR refresh and each project discovery starts its cooldown after completion. Scheduler ticks and browser polling never bypass it.
 - 慢速认证、多个仓库发现及摘要读取期间 PR 新建 / 合并：摘要记录实际请求开始，内部完成时间覆盖响应期间的源变化；较旧摘要不能因补全检查耗时而冒充更新，终态通过真实 Worker 发布并淘汰观察。
 - 持续发布与慢网页 Query：同来源版本变化合并重读，有效在途结果仍能落地；命令前旧读取不能覆盖成功回执，来源切换的旧结果不串入新页。
 - 页面隐藏：停止 Query，观察项与后台刷新保持不变；重新进入前台立即读缓存，不发送观察增删或页面采集心跳。

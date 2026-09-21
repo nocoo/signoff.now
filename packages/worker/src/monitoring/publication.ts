@@ -1,7 +1,6 @@
 import {
 	adoPullId,
 	type CollectedRepository,
-	discoveryCursorSchema,
 } from "@signoff/domain/collection";
 import {
 	matchesRepositoryReference,
@@ -131,14 +130,11 @@ export async function registerJobRepositories(
 				timestamp,
 			),
 		db
-			.prepare(`INSERT INTO collection_job_repositories(job_id,repository_id,name,project_external_id,state,discovery_cursor_json)
-      SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),'queued',
-      (SELECT r.discovery_cursor_json FROM workbench_repositories r WHERE r.project_id=? AND r.repository_id=json_extract(value,'$.id') AND ?=0)
+			.prepare(`INSERT INTO collection_job_repositories(job_id,repository_id,name,project_external_id,state)
+      SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),'queued'
       FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=? ON CONFLICT(job_id,repository_id) DO NOTHING`)
 			.bind(
 				id,
-				project.id,
-				job.full_discovery,
 				JSON.stringify(repositories),
 				id,
 				token,
@@ -182,12 +178,7 @@ export async function registerJobRepositories(
 			)
 			.bind(id)
 			.all<JobRepositoryRow>()
-	).results.map((row) => ({
-		...row,
-		discoveryCursor: row.discovery_cursor_json
-			? discoveryCursorSchema.parse(JSON.parse(row.discovery_cursor_json))
-			: null,
-	}));
+	).results;
 }
 
 export async function stagePulls(
@@ -254,11 +245,7 @@ export async function stagePulls(
 			const versioned = raw.summaryObservedAt !== undefined;
 			const previous = cached.get(raw.id);
 			const pull = versioned
-				? mergeCollectedPull(
-						raw,
-						previous?.pull,
-						job.kind === "list" || job.summary_only === 1,
-					)
+				? mergeCollectedPull(raw, previous?.pull, job.kind === "list")
 				: job.kind === "list"
 					? mergeDiscoveredPull(raw, previous?.pull)
 					: raw;
@@ -333,7 +320,7 @@ async function reconcileStaging(
 					row.snapshot
 						? pullRequestSchema.parse(JSON.parse(row.snapshot))
 						: undefined,
-					job.kind === "list" || job.summary_only === 1,
+					job.kind === "list",
 				);
 				return db
 					.prepare(`UPDATE collection_staging SET snapshot=?,state=?,updated_at=?,base_version=?
@@ -412,10 +399,7 @@ export async function publishRepository(
 		counts?.total !== pullCount ||
 		(job.kind === "list" && state !== "complete") ||
 		(job.kind === "details" && pullCount !== 1) ||
-		(job.kind === "details" &&
-			!job.summary_only &&
-			state === "complete" &&
-			counts.raw_partial > 0)
+		(job.kind === "details" && state === "complete" && counts.raw_partial > 0)
 	)
 		throw new MonitoringError(
 			"INCOMPLETE_UPLOAD",
@@ -457,24 +441,10 @@ export async function publishRepository(
 			.bind(timestamp, id, repositoryId, ...receiptBinds),
 		db
 			.prepare(
-				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_state='complete',discovery_message=NULL,
-        discovery_cursor_json=(
-          SELECT json_object('number',number,'createdAt',createdAt) FROM (
-            SELECT CAST(s.external_id AS INTEGER) number,json_extract(s.snapshot,'$.createdAt') createdAt FROM collection_staging s WHERE s.job_id=? AND s.repository_id=?
-            UNION ALL SELECT json_extract(workbench_repositories.discovery_cursor_json,'$.number'),json_extract(workbench_repositories.discovery_cursor_json,'$.createdAt') WHERE workbench_repositories.discovery_cursor_json IS NOT NULL
-          ) ORDER BY createdAt DESC,number DESC LIMIT 1
-        )
+				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_state='complete',discovery_message=NULL
         WHERE project_id=? AND repository_id=? AND ?='list' AND ${receipt}`,
 			)
-			.bind(
-				timestamp,
-				id,
-				repositoryId,
-				project.id,
-				repositoryId,
-				job.kind,
-				...receiptBinds,
-			),
+			.bind(timestamp, project.id, repositoryId, job.kind, ...receiptBinds),
 		// A saved watch ref is a target, not a new provider observation. Publish
 		// refreshed metadata only alongside the validated PR snapshot and receipt.
 		db
@@ -516,10 +486,10 @@ export async function publishRepository(
 			),
 		// Finish the current refresh before retiring it: the observation trigger cancels only outstanding work.
 		db
-			.prepare(`UPDATE collection_jobs SET state=?,updated_at=?,completed_at=?,completed_pulls=?,total_pulls=?,message=?,lease_token=NULL,lease_expires_at=NULL
+			.prepare(`UPDATE collection_jobs SET state=?,updated_at=?,completed_at=?,completed_pulls=?,total_pulls=?,message=?,phase='finished',result_json=(SELECT raw_snapshot FROM collection_staging WHERE job_id=collection_jobs.id LIMIT 1),lease_token=NULL,lease_expires_at=NULL
       WHERE id=? AND kind='details' AND ${receipt}`)
 			.bind(
-				!job.summary_only && counts.partial > 0 ? "partial" : state,
+				counts.partial > 0 ? "partial" : state,
 				timestamp,
 				timestamp,
 				pullCount,
@@ -639,7 +609,7 @@ export async function completeJob(
       WHEN EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=collection_jobs.id AND r.state='succeeded') THEN 'partial' ELSE 'failed' END,
       updated_at=?,completed_at=?,completed_pulls=COALESCE((SELECT SUM(pull_count) FROM collection_job_repositories WHERE job_id=collection_jobs.id),0),
       total_pulls=(SELECT SUM(pull_count) FROM collection_job_repositories WHERE job_id=collection_jobs.id),
-      message='Repository discovery finished',lease_token=NULL,lease_expires_at=NULL
+      message='Project PR list refreshed',phase='finished',lease_token=NULL,lease_expires_at=NULL
       WHERE id=? AND repositories_resolved=1 AND ${RUNNING_JOB}
       AND NOT EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=collection_jobs.id AND r.state IN ('queued','running','canceled'))`)
 		.bind(timestamp, timestamp, id, id, token, timestamp)

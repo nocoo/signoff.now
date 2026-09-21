@@ -10,8 +10,8 @@ import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
 import {
+	scheduleDiscovery,
 	scheduleObservations,
-	scheduleSummaries,
 } from "../monitoring/scheduler.js";
 import type { AppEnv } from "../types.js";
 
@@ -68,23 +68,32 @@ export async function refreshSettingsRoute(c: Context<AppEnv>) {
 	if (denied) return denied;
 	const raw = await readJsonBodyWithSize(c, 8192);
 	const input = refreshSettingsSchema.safeParse(raw.ok ? raw.value : null);
-	if (
-		!input.success ||
-		(input.data.listCooldownSeconds && input.data.listCooldownSeconds > 0)
-	)
-		return c.json(
-			{
-				error:
-					"Discovery is on demand. Configure the watched PR check cooldown only.",
-			},
-			400,
-		);
-	if (input.data.detailCooldownSeconds !== undefined)
-		await c.env.DB.prepare(
-			"UPDATE collection_refresh SET cooldown_seconds=? WHERE kind='details'",
-		)
-			.bind(input.data.detailCooldownSeconds)
-			.run();
+	if (!input.success)
+		return c.json({ error: "Invalid collector cooldown settings" }, 400);
+	const settings = [
+		["list", input.data.listCooldownSeconds],
+		["details", input.data.detailCooldownSeconds],
+	] as const;
+	await c.env.DB.batch(
+		settings.flatMap(([kind, value]) =>
+			value === undefined
+				? []
+				: [
+						c.env.DB.prepare(
+							"UPDATE collection_refresh SET cooldown_seconds=? WHERE kind=?",
+						).bind(value, kind),
+						c.env.DB.prepare(`UPDATE collection_jobs SET not_before=MAX(requested_at,COALESCE((
+ SELECT MAX(previous.completed_at)+? FROM collection_jobs previous
+ WHERE previous.id<>collection_jobs.id AND previous.summary_only=0
+ AND previous.project_id=collection_jobs.project_id AND previous.revision=collection_jobs.revision AND previous.kind=collection_jobs.kind
+ AND (collection_jobs.kind='list' OR (previous.observation_id=collection_jobs.observation_id AND previous.observation_generation=collection_jobs.observation_generation))
+ ),requested_at)) WHERE kind=? AND state='queued' AND summary_only=0`).bind(
+							value,
+							kind,
+						),
+					],
+		),
+	);
 	return c.json(await queues(c));
 }
 /** Compatibility tombstone: a page can never schedule provider work. */
@@ -109,14 +118,13 @@ export async function collectorScheduleRoute(c: Context<AppEnv>) {
 		.strict()
 		.safeParse(raw.ok ? raw.value : null);
 	if (!input.success) return c.json({ error: "Invalid schedule request" }, 400);
-	if (input.data.kind !== "list")
-		await (input.data.lane === "status"
-			? scheduleSummaries
-			: scheduleObservations)(
-			c.env.DB,
-			Math.floor(Date.now() / 1000),
-			c.env.SIGNOFF_DEMO_MODE === "1" ? undefined : "cli",
-		);
+	await (input.data.kind === "list" || input.data.lane === "discover"
+		? scheduleDiscovery
+		: scheduleObservations)(
+		c.env.DB,
+		Math.floor(Date.now() / 1000),
+		c.env.SIGNOFF_DEMO_MODE === "1" ? undefined : "cli",
+	);
 	const result = await queues(c);
 	return c.json(
 		input.data.kind ? result.find((q) => q.kind === input.data.kind) : result,

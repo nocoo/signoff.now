@@ -55,6 +55,11 @@ vi.mock("@/models/monitoringApi", async (original) => ({
 	loadCatalog: vi.fn(),
 	loadPulls: vi.fn(),
 	loadCollector: vi.fn(),
+	loadCollectorGroups: vi.fn(async () => ({
+		data: [],
+		nextCursor: null,
+		generatedAt: new Date().toISOString(),
+	})),
 	loadCollectorHistory: vi.fn(),
 	loadPull: vi.fn(),
 	lookupPull: vi.fn(),
@@ -1842,13 +1847,13 @@ describe("project settings and explicit discovery", () => {
 		expect(deleteProject).toHaveBeenCalledWith(project.id, project.revision);
 		expect(api.discover).not.toHaveBeenCalled();
 	});
-	it("accepts only valid detail cooldowns and never re-enables automatic discovery", async () => {
+	it("accepts valid discovery and detail cooldowns", async () => {
 		const { result } = render();
 		await loaded(result);
 		expect(result.current.vm.detailCooldownSeconds).toBe(300);
 		await act(async () =>
 			expect(await result.current.vm.setRefreshCooldown("list", 120)).toBe(
-				false,
+				true,
 			),
 		);
 		await act(async () =>
@@ -1897,7 +1902,7 @@ describe("project settings and explicit discovery", () => {
 		});
 		fireEvent.click(interval);
 		fireEvent.click(screen.getByRole("option", { name: "Manual" }));
-		await screen.findByText("Watch refresh cooldown saved.");
+		await screen.findByText("Collector cooldown saved.");
 		expect(screen.queryByRole("alert")).toBeNull();
 		await waitFor(() => expect(interval.textContent).toBe("Manual"));
 	});
@@ -1923,7 +1928,7 @@ describe("project settings and explicit discovery", () => {
 		expect(result.current.vm.feedbackKind).toBe("refresh-settings");
 		expect(result.current.vm.busy).toBeNull();
 		if (outcome === "success")
-			expect(result.current.vm.notice).toBe("Watch refresh cooldown saved.");
+			expect(result.current.vm.notice).toBe("Collector cooldown saved.");
 		else
 			expect(result.current.vm.mutationError).toBe(
 				"Cannot save refresh cooldown",

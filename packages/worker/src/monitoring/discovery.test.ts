@@ -3,7 +3,7 @@ import { adoPullId } from "@signoff/domain/collection";
 import type { Project, PullRequest } from "@signoff/domain/workbench";
 import { PR_TEST_NOW as now, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
-import { addObservation, enqueueDiscovery } from "./observations";
+import { enqueueDiscovery } from "./observations";
 import {
 	completeJob,
 	publishRepository,
@@ -16,6 +16,9 @@ import { claimJob, failJob } from "./scheduler";
 let sqlite: SqliteD1;
 beforeEach(() => {
 	sqlite = createSqliteD1();
+	sqlite.raw.exec(
+		"UPDATE collection_refresh SET cooldown_seconds=0 WHERE kind='list'",
+	);
 });
 afterEach(() => sqlite.close());
 const repo = {
@@ -23,19 +26,14 @@ const repo = {
 	name: "web",
 	projectExternalId: "external-project",
 };
-const cursor = { number: 10, createdAt: now - 100 };
-const readCursor = (projectId: string, repositoryId = repo.id) => {
-	const row = sqlite.raw
-		.query(
-			"SELECT discovery_cursor_json FROM workbench_repositories WHERE project_id=? AND repository_id=?",
-		)
-		.get(projectId, repositoryId) as {
-		discovery_cursor_json: string | null;
-	} | null;
-	return row?.discovery_cursor_json
-		? JSON.parse(row.discovery_cursor_json)
-		: null;
-};
+const readDiscovery = (projectId: string) =>
+	(
+		sqlite.raw
+			.query(
+				"SELECT last_discovered_at FROM workbench_repositories WHERE project_id=? AND repository_id=?",
+			)
+			.get(projectId, repo.id) as { last_discovered_at: number } | null
+	)?.last_discovered_at;
 const discovered = (
 	pull: PullRequest,
 	number: number,
@@ -51,8 +49,8 @@ const discovered = (
 	observedAt: now,
 	checksObservedAt: null,
 });
-async function start(project: Project, at = now, full = false) {
-	const receipt = await enqueueDiscovery(sqlite.db, project, [], at, full);
+async function start(project: Project, at = now) {
+	const receipt = await enqueueDiscovery(sqlite.db, project, [], at);
 	const claim = (await claimJob(sqlite.db, at, { jobId: receipt.id }))!;
 	const plan = await registerJobRepositories(
 		sqlite.db,
@@ -82,84 +80,7 @@ async function publish(
 	await completeJob(sqlite.db, claim.job.id, claim.leaseToken, at);
 }
 
-test("legacy cache does not establish a discovery boundary; only a successfully published history does", async () => {
-	const project = seedProject(sqlite, { repositories: [] });
-	const cached = seedPull(sqlite, {
-		id: adoPullId(project.id, repo.id, "999"),
-		number: 999,
-		externalId: "999",
-		repository: repo,
-	});
-	const first = await start(project);
-	expect(first.plan[0]?.discoveryCursor).toBeNull();
-	await publish(first.claim, discovered(cached, 10));
-	expect(readCursor(project.id)).toEqual(cursor);
-	const next = await start(project, now + 1);
-	expect(next.plan[0]?.discoveryCursor).toEqual(cursor);
-	expect(
-		sqlite.raw.query("SELECT COUNT(*) n FROM pr_observations").get(),
-	).toEqual({ n: 0 });
-});
-
-test("each project and repository keeps its own successful boundary", async () => {
-	const project = seedProject(sqlite, { repositories: [] });
-	const pull = seedPull(sqlite);
-	await publish((await start(project)).claim, discovered(pull, 10));
-	const other = seedProject(sqlite, {
-		id: "other",
-		organization: "another",
-		repositories: [],
-	});
-	const next = await start(other);
-	expect(next.plan[0]?.discoveryCursor).toBeNull();
-	expect(readCursor(project.id)).toEqual(cursor);
-	await registerJobRepositories(
-		sqlite.db,
-		next.claim.job.id,
-		next.claim.leaseToken,
-		[repo],
-		now,
-	);
-	expect(readCursor(other.id)).toBeNull();
-});
-
-test("an individually watched newer PR never advances repository discovery", async () => {
-	const project = seedProject(sqlite, { repositories: [] });
-	const pull = seedPull(sqlite);
-	await publish((await start(project)).claim, discovered(pull, 10));
-	const newer = seedPull(sqlite, discovered(pull, 999, now - 10));
-	const added = await addObservation(
-		sqlite.db,
-		"cli",
-		{ pullId: newer.id },
-		now + 1,
-	);
-	const claim = (await claimJob(sqlite.db, now + 1, { jobId: added.job!.id }))!;
-	await registerJobRepositories(
-		sqlite.db,
-		claim.job.id,
-		claim.leaseToken,
-		[repo],
-		now + 1,
-	);
-	await stagePulls(sqlite.db, claim.job.id, claim.leaseToken, [newer], now + 1);
-	await publishRepository(
-		sqlite.db,
-		claim.job.id,
-		claim.leaseToken,
-		repo.id,
-		1,
-		"complete",
-		"Checks",
-		now + 1,
-	);
-	expect(readCursor(project.id)).toEqual(cursor);
-	expect((await start(project, now + 2)).plan[0]?.discoveryCursor).toEqual(
-		cursor,
-	);
-});
-
-test("cursor and candidate publication roll back together if the database write fails", async () => {
+test("repository completion and candidate publication roll back together on failure", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
 	const pull = seedPull(sqlite);
 	await publish((await start(project)).claim, discovered(pull, 10));
@@ -167,7 +88,7 @@ test("cursor and candidate publication roll back together if the database write 
 	const next = discovered(pull, 11, now - 50);
 	await stagePulls(sqlite.db, claim.job.id, claim.leaseToken, [next], now + 1);
 	sqlite.raw.exec(
-		"CREATE TRIGGER reject_cursor BEFORE UPDATE OF discovery_cursor_json ON workbench_repositories BEGIN SELECT RAISE(ABORT,'Injected cursor failure'); END",
+		"CREATE TRIGGER reject_publication BEFORE UPDATE OF last_discovered_at ON workbench_repositories BEGIN SELECT RAISE(ABORT,'Injected publication failure'); END",
 	);
 	await expect(
 		publishRepository(
@@ -180,8 +101,8 @@ test("cursor and candidate publication roll back together if the database write 
 			"Publish",
 			now + 1,
 		),
-	).rejects.toThrow("Injected cursor failure");
-	expect(readCursor(project.id)).toEqual(cursor);
+	).rejects.toThrow("Injected publication failure");
+	expect(readDiscovery(project.id)).toBe(now);
 	expect(
 		sqlite.raw.query("SELECT id FROM pull_requests WHERE id=?").get(next.id),
 	).toBeNull();
@@ -197,7 +118,7 @@ test.each([
 	"partial",
 	"canceled",
 	"snapshot_changed",
-] as const)("%s discovery cannot advance the last successful boundary", async (outcome) => {
+] as const)("%s discovery cannot advance the last successful completion", async (outcome) => {
 	const project = seedProject(sqlite, { repositories: [] });
 	const pull = seedPull(sqlite);
 	await publish((await start(project)).claim, discovered(pull, 10));
@@ -261,10 +182,10 @@ test.each([
 			),
 		).rejects.toMatchObject({ status: 409 });
 	}
-	expect(readCursor(project.id)).toEqual(cursor);
+	expect(readDiscovery(project.id)).toBe(now);
 });
 
-test("authentication retry freezes its original boundary and an old lease cannot publish", async () => {
+test("authentication retry retains its repository plan and an old lease cannot publish", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
 	const pull = seedPull(sqlite);
 	await publish((await start(project)).claim, discovered(pull, 10));
@@ -292,7 +213,7 @@ test("authentication retry freezes its original boundary and an old lease cannot
 		[{ ...repo, name: "renamed" }],
 		now + 20,
 	);
-	expect(plan[0]?.discoveryCursor).toEqual(cursor);
+	expect(plan[0]?.repository_id).toBe(repo.id);
 	await expect(
 		publishRepository(
 			sqlite.db,
@@ -305,39 +226,45 @@ test("authentication retry freezes its original boundary and an old lease cannot
 			now + 20,
 		),
 	).rejects.toMatchObject({ status: 409 });
-	expect(readCursor(project.id)).toEqual(cursor);
+	expect(readDiscovery(project.id)).toBe(now);
 	await publish(retry, discovered(pull, 11, now - 50), now + 20);
-	expect(readCursor(project.id)).toEqual({ number: 11, createdAt: now - 50 });
+	expect(readDiscovery(project.id)).toBe(now + 20);
 });
 
-test("full discovery bypasses the boundary without coalescing with an incremental command", async () => {
+test("manual discovery coalesces and waits for completion-based cooldown", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
 	const pull = seedPull(sqlite);
 	await publish((await start(project)).claim, discovered(pull, 10));
-	const incremental = await enqueueDiscovery(sqlite.db, project, [], now + 1);
-	const full = await enqueueDiscovery(sqlite.db, project, [], now + 1, true);
-	expect(full.id).not.toBe(incremental.id);
-	expect(
-		(await enqueueDiscovery(sqlite.db, project, [], now + 1, true)).id,
-	).toBe(full.id);
-	const claim = (await claimJob(sqlite.db, now + 1, { jobId: full.id }))!;
-	const plan = await registerJobRepositories(
+	sqlite.raw.exec(
+		"UPDATE collection_refresh SET cooldown_seconds=600 WHERE kind='list'",
+	);
+	const first = await enqueueDiscovery(sqlite.db, project, [], now + 1);
+	expect((await enqueueDiscovery(sqlite.db, project, [], now + 2)).id).toBe(
+		first.id,
+	);
+	expect(first.notBefore).toBe(new Date((now + 600) * 1000).toISOString());
+	expect(await claimJob(sqlite.db, now + 599, { jobId: first.id })).toBeNull();
+	const claim = (await claimJob(sqlite.db, now + 600, { jobId: first.id }))!;
+	await registerJobRepositories(
 		sqlite.db,
 		claim.job.id,
 		claim.leaseToken,
 		[repo],
-		now + 1,
+		now + 600,
 	);
-	expect(plan[0]?.discoveryCursor).toBeNull();
-	await publishRepository(
-		sqlite.db,
-		claim.job.id,
-		claim.leaseToken,
-		repo.id,
-		0,
-		"complete",
-		"No returned PRs",
-		now + 1,
+	await publish(
+		claim,
+		{
+			...discovered(pull, 10),
+			state: "merged",
+			observedAt: now + 600,
+			summaryObservedAt: now + 600,
+		},
+		now + 600,
 	);
-	expect(readCursor(project.id)).toEqual(cursor);
+	expect(
+		sqlite.raw
+			.query("SELECT state FROM pull_requests WHERE external_id='10'")
+			.get(),
+	).toEqual({ state: "merged" });
 });
