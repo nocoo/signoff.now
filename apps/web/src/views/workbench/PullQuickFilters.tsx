@@ -56,18 +56,12 @@ const watches = [
 	],
 ] as const;
 const readiness = [
-	[
-		"attention",
-		"Attention",
-		ShieldAlert,
-		"text-amber-600 hover:text-amber-600 basalt-dark:text-amber-400 basalt-dark:hover:text-amber-400",
-	],
-	[
-		"on_track",
-		"On Track",
-		CheckCheck,
-		"text-emerald-600 hover:text-emerald-600 basalt-dark:text-emerald-400 basalt-dark:hover:text-emerald-400",
-	],
+	["conflict", "Conflict", ShieldAlert, "text-basalt-destructive"],
+	["attention", "Attention", ShieldAlert, "text-basalt-destructive"],
+	["warning", "Warning", ShieldAlert, "text-basalt-warning"],
+	["running", "Running", CheckCheck, "text-basalt-primary"],
+	["ready", "Ready", CheckCheck, "text-basalt-success"],
+	["waiting", "Waiting", Eye, "text-basalt-muted-foreground"],
 ] as const;
 
 function FilterChip({
@@ -190,11 +184,7 @@ export function PullQuickFilters({
 							Icon={Icon}
 							color={color}
 							selected={filter.status === status}
-							count={
-								vm.pullsLoaded
-									? vm.metrics[status === "on_track" ? "onTrack" : status]
-									: null
-							}
+							count={vm.pullsLoaded ? vm.metrics[status] : null}
 							disabled={historical}
 							title={
 								historical

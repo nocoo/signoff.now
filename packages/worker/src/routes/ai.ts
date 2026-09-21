@@ -1,6 +1,7 @@
 import {
 	aiCooldownSchema,
 	aiPresenceSchema,
+	aiRuleWriteSchema,
 	aiSettingsSchema,
 	aiTickSchema,
 	JEV_MODEL,
@@ -9,6 +10,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { evaluateJev, JevError } from "../ai/jev.js";
+import { readAiRules } from "../ai/rules.js";
 import { readAiSchedule, updateAiPresence } from "../ai/schedule.js";
 import { readAiSettings, runAiOnce } from "../ai/scheduler.js";
 import { openKey, sealKey } from "../ai/secrets.js";
@@ -98,7 +100,7 @@ aiRoutes.post("/test", async (c) => {
 				connectionTest: true,
 				pr: { lifecycle: "open" },
 				evidence:
-					"Synthetic connection test only. No PR facts provided; unknown is appropriate.",
+					"Synthetic connection test only. No PR facts provided; Running means awaiting evidence.",
 			},
 			"connection-test",
 			Math.floor(Date.now() / 1000),
@@ -170,4 +172,34 @@ aiRoutes.put("/schedule", async (c) => {
 	return result.meta.changes
 		? c.json({ saved: true })
 		: c.json({ error: "AI cooldown changed. Reload before saving." }, 409);
+});
+
+aiRoutes.get("/rules", async (c) => c.json(await readAiRules(c.env.DB)));
+aiRoutes.put("/rules", async (c) => {
+	const body = await readJsonBodyWithSize(c, 64000);
+	const input = aiRuleWriteSchema.parse(body.ok ? body.value : null);
+	if (
+		input.scope !== "common" &&
+		!(await c.env.DB.prepare(
+			"SELECT id FROM projects WHERE id=? AND source='cli'",
+		)
+			.bind(input.scope)
+			.first())
+	)
+		return c.json({ error: "Project not found." }, 404);
+	const result =
+		input.revision === 0
+			? await c.env.DB.prepare(
+					"INSERT INTO ai_rules(scope,revision,text) VALUES(?,1,?) ON CONFLICT DO NOTHING",
+				)
+					.bind(input.scope, input.text)
+					.run()
+			: await c.env.DB.prepare(
+					"UPDATE ai_rules SET revision=revision+1,text=? WHERE scope=? AND revision=?",
+				)
+					.bind(input.text, input.scope, input.revision)
+					.run();
+	return result.meta.changes
+		? c.json({ saved: true })
+		: c.json({ error: "Rules changed. Reload before saving." }, 409);
 });

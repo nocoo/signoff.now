@@ -7,6 +7,7 @@ import { machinePageSchema, machineWriteSchema } from "@signoff/domain/query";
 import { pullRequestSchema } from "@signoff/domain/workbench";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { numberPolicies } from "../ai/policy-codes.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import {
 	MonitoringError,
@@ -81,6 +82,9 @@ async function context(c: Context<AppEnv>, repositoryId: string | null) {
 			repositoryId && !project.policyContext?.repositories[repositoryId],
 		),
 		catalog,
+		policyCodes: Object.fromEntries(
+			await numberPolicies(c.env.DB, project.id, catalog),
+		),
 		instructions,
 	});
 }

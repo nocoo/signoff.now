@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
-	ACTIONS,
+	CLASSIFICATION,
 	decisionFingerprint,
 	decisionState,
 	JEV_MODEL,
@@ -25,7 +25,7 @@ beforeEach(() => {
 		.run("test-view", now + 10000);
 });
 afterEach(() => sqlite.close());
-export function response(kind = "on_track", action = "investigate") {
+export function response(kind = "running") {
 	const choice = (selected: string, options: string[]) => ({
 		type: "choice",
 		choice: selected,
@@ -37,8 +37,7 @@ export function response(kind = "on_track", action = "investigate") {
 	return Response.json({
 		model: JEV_MODEL,
 		answers: {
-			p0_readiness: choice(kind, ["on_track", "attention", "unknown"]),
-			p0_action: choice(action, Object.keys(ACTIONS)),
+			p0_readiness: choice(kind, Object.keys(CLASSIFICATION)),
 		},
 	});
 }
@@ -81,7 +80,7 @@ test("only watches evaluate, identical facts dedupe, real facts and instructions
 	});
 	await setup();
 	await runAiOnce(env(), view, now, fetcher);
-	expect(evaluationOutput(row(), true).kind).toBe("on_track");
+	expect(evaluationOutput(row(), true).kind).toBe("running");
 	expect(evaluationOutput(row(), false).status).toBe("not_watched");
 	await runAiOnce(env(), view, now + 1, fetcher);
 	change("observedAt", now + 1);
@@ -89,7 +88,7 @@ test("only watches evaluate, identical facts dedupe, real facts and instructions
 	await runAiOnce(env(), view, now + 1, fetcher);
 	expect(calls).toBe(1);
 	change("headSha", "new-head");
-	expect(evaluationOutput(row(), true).previous?.kind).toBe("on_track");
+	expect(evaluationOutput(row(), true).previous?.kind).toBe("running");
 	await runAiOnce(env(), view, now + 300, fetcher);
 	expect(calls).toBe(2);
 	sqlite.raw.query("UPDATE projects SET policy_context_json=?").run(
@@ -113,6 +112,8 @@ test.each([
 	"facts",
 	"instructions",
 	"key",
+	"common rules",
+	"project rules",
 	"unwatch",
 	"rewatch",
 ])("late response cannot overwrite newer %s", async (mode) => {
@@ -138,6 +139,13 @@ test.each([
 				repositories: {},
 			}),
 		);
+	if (mode.endsWith("rules"))
+		sqlite.raw
+			.query("INSERT INTO ai_rules(scope,revision,text) VALUES(?,1,?)")
+			.run(
+				mode === "common rules" ? "common" : "live-project",
+				"A changed instruction",
+			);
 	if (mode === "key")
 		sqlite.raw.query("UPDATE ai_settings SET revision=revision+1").run();
 	if (mode === "unwatch" || mode === "rewatch") {
@@ -158,7 +166,7 @@ test.each([
 		expect(await runAiOnce(env(), view, now + 3)).toEqual({ processed: false });
 	else {
 		await runAiOnce(env(), view, now + 300, (async () =>
-			response("attention", "review")) as unknown as typeof fetch);
+			response("attention")) as unknown as typeof fetch);
 		expect(evaluationOutput(row(), true).kind).toBe("attention");
 	}
 });
@@ -185,8 +193,8 @@ test("bounded retry respects backoff and identical polling cannot restart exhaus
 	});
 	change("headSha", "changed");
 	await runAiOnce(env(), view, now + 900, (async () =>
-		response("unknown")) as unknown as typeof fetch);
-	expect(evaluationOutput(row(), true).kind).toBe("unknown");
+		response("running")) as unknown as typeof fetch);
+	expect(evaluationOutput(row(), true).kind).toBe("running");
 });
 test("missing key is an operational error, never a rule judgment or repeated request", async () => {
 	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now);
@@ -272,7 +280,7 @@ test.each([
 		true,
 		"complete",
 		"clear",
-		"on_track",
+		"running",
 		null,
 	],
 	[
@@ -298,13 +306,13 @@ test.each([
 		"rerun",
 	],
 	[
-		"conflict and queue",
+		"queued build with human gate",
 		"queued",
 		"queued",
 		false,
 		true,
 		"complete",
-		"conflicts",
+		"clear",
 		"attention",
 		"resolve_conflict",
 	],
@@ -316,7 +324,7 @@ test.each([
 		true,
 		"partial",
 		"unknown",
-		"unknown",
+		"running",
 		null,
 	],
 	[
@@ -327,7 +335,7 @@ test.each([
 		false,
 		"complete",
 		"clear",
-		"on_track",
+		"attention",
 		null,
 	],
 	[
@@ -338,10 +346,10 @@ test.each([
 		true,
 		"partial",
 		"clear",
-		"unknown",
+		"running",
 		null,
 	],
-] as const)("typed Jev judgment is authoritative for %s", async (_name, buildState, stageState, expired, required, coverage, mergeable, kind, action) => {
+] as const)("typed Jev judgment is authoritative for %s", async (_name, buildState, stageState, expired, required, coverage, mergeable, kind, _action) => {
 	seedPull(sqlite, {
 		mergeable,
 		coverage,
@@ -414,15 +422,18 @@ test.each([
 			...body.state.prs[0],
 			...body.state.contexts[body.state.prs[0].contextRef],
 		};
-		expect(state.policies[0].evidence).toMatchObject({
+		expect(body.state.policyFacts[state.policies[0]].evidence).toMatchObject({
 			isExpired: expired,
 			buildIsNotCurrent: true,
 		});
-		expect(state.policiesInPriorityOrder[0].description).toBeTruthy();
+		expect(
+			body.state.policyInstructions[state.policiesInPriorityOrder[0]]
+				.description,
+		).toBeTruthy();
 		expect(JSON.stringify(state)).not.toContain("Generated action");
-		return response(kind, action ?? "investigate");
+		return response(kind);
 	}) as unknown as typeof fetch);
-	expect(evaluationOutput(row(), true).current).toMatchObject({ kind, action });
+	expect(evaluationOutput(row(), true).current).toMatchObject({ kind });
 });
 
 test("foreground project batches include only changed watches and respect independent completion cooldowns", async () => {
@@ -437,7 +448,7 @@ test("foreground project batches include only changed watches and respect indepe
 			{ criteria: Record<string, string>; instructions: string }
 		>;
 	}[] = [];
-	const fetcher = (async (_url, init) => {
+	const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => {
 		const body = JSON.parse(String(init?.body));
 		payloads.push(body);
 		return Response.json({
@@ -446,7 +457,7 @@ test("foreground project batches include only changed watches and respect indepe
 			answers: Object.fromEntries(
 				Object.entries(body.questions).map(([id, q]) => {
 					const options = Object.keys((q as { criteria: object }).criteria),
-						choice = id.endsWith("readiness") ? "on_track" : "investigate";
+						choice = "running";
 					return [
 						id,
 						{
@@ -461,7 +472,7 @@ test("foreground project batches include only changed watches and respect indepe
 				}),
 			),
 		});
-	}) as typeof fetch;
+	}) as unknown as typeof fetch;
 	sqlite.raw.query("UPDATE ai_views SET visible=0").run();
 	expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
 		processed: false,
@@ -475,7 +486,7 @@ test("foreground project batches include only changed watches and respect indepe
 			.sort((a, b) => a.localeCompare(b)),
 	).toEqual(["pull-1", "pull-2"]);
 	expect(payloads[0]?.state.contexts).toHaveLength(1);
-	expect(Object.keys(payloads[0]?.questions ?? {})).toHaveLength(4);
+	expect(Object.keys(payloads[0]?.questions ?? {})).toHaveLength(2);
 	expect(payloads[0]?.questions.p1_readiness?.instructions).toContain("prs[1]");
 	change("headSha", "changed-head");
 	expect(await runAiOnce(env(), view, now + 299, fetcher)).toEqual({
@@ -521,29 +532,35 @@ test("foreground project batches include only changed watches and respect indepe
 
 test("oversized projects are split across cooldowns without truncation and one oversized PR fails locally", async () => {
 	await setup();
-	change("description", "a".repeat(15000));
+	change(
+		"collectionIssues",
+		Array.from({ length: 40 }, () => "a".repeat(1000)),
+	);
 	seedPull(sqlite, {
 		id: "pull-2",
 		number: 2,
 		externalId: "2",
-		description: "b".repeat(15000),
+		collectionIssues: Array.from({ length: 40 }, () => "b".repeat(1000)),
 	});
 	await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now);
 	let calls = 0;
-	const fetcher = (async (_url, init) => {
+	const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => {
 		const body = JSON.parse(String(init?.body));
 		expect(body.state.prs).toHaveLength(1);
-		expect(body.state.prs[0].pr.description).toHaveLength(15000);
+		expect(body.state.prs[0].collection.missing).toHaveLength(40);
 		calls++;
 		return response();
-	}) as typeof fetch;
+	}) as unknown as typeof fetch;
 	await runAiOnce(env(), view, now, fetcher);
 	expect(await runAiOnce(env(), view, now + 299, fetcher)).toEqual({
 		processed: false,
 	});
 	await runAiOnce(env(), view, now + 300, fetcher);
 	expect(calls).toBe(2);
-	change("description", "x".repeat(40000));
+	change(
+		"collectionIssues",
+		Array.from({ length: 70 }, () => "x".repeat(1000)),
+	);
 	await runAiOnce(env(), view, now + 600, fetcher);
 	expect(calls).toBe(2);
 	expect(
@@ -626,4 +643,76 @@ test("losing foreground during preparation releases work without calling Jev or 
 	sqlite.raw.query("UPDATE ai_views SET visible=1,sequence=1").run();
 	await runAiOnce(env(), view, now + 1, fetcher);
 	expect(calls).toBe(1);
+});
+
+test("conflicts bypass Jev and unwatched conflicts remain not evaluated", async () => {
+	await setup();
+	change("mergeable", "conflicts");
+	let calls = 0;
+	await runAiOnce(env(), view, now, (async () => {
+		calls++;
+		return response();
+	}) as unknown as typeof fetch);
+	expect(calls).toBe(0);
+	expect(
+		evaluationOutput(row(), true, { mergeable: "conflicts" }),
+	).toMatchObject({ kind: "conflict", current: null, status: "complete" });
+	expect(
+		evaluationOutput(row(), false, { mergeable: "conflicts" }).status,
+	).toBe("not_watched");
+	change("mergeable", "clear");
+	await runAiOnce(env(), view, now, (async () => {
+		calls++;
+		return response();
+	}) as unknown as typeof fetch);
+	expect(calls).toBe(1);
+});
+
+test("project rules invalidate and enter only that project's watched decision state", async () => {
+	await setup();
+	seedProject(sqlite, {
+		id: "second-project",
+		projectKey: "Second",
+		repositories: [],
+	});
+	seedPull(sqlite, {
+		id: "second-pull",
+		projectId: "second-project",
+		number: 2,
+		externalId: "2",
+	});
+	const second = await addObservation(
+		sqlite.db,
+		"cli",
+		{ pullId: "second-pull" },
+		now,
+	);
+	const firstRevision = row().input_revision;
+	sqlite.raw
+		.query(
+			"INSERT INTO ai_rules(scope,revision,text) VALUES('second-project',1,'Only the second project uses this instruction.')",
+		)
+		.run();
+	const revisions = sqlite.raw
+		.query("SELECT observation_id,input_revision FROM ai_evaluations")
+		.all() as { observation_id: string; input_revision: number }[];
+	expect(
+		revisions.find((r) => r.observation_id === second.observation.id)
+			?.input_revision,
+	).toBe(2);
+	expect(
+		revisions.find((r) => r.observation_id !== second.observation.id)
+			?.input_revision,
+	).toBe(firstRevision);
+	const seen: string[] = [];
+	const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body));
+		seen.push(JSON.stringify(body.state.ruleSets));
+		return response();
+	}) as unknown as typeof fetch;
+	await runAiOnce(env(), view, now, fetcher);
+	await runAiOnce(env(), view, now + 1, fetcher);
+	expect(seen).toHaveLength(2);
+	expect(seen[0]).not.toContain("Only the second project");
+	expect(seen[1]).toContain("Only the second project");
 });

@@ -7,10 +7,12 @@ import {
 	jevResultSchema,
 	presentReadiness,
 } from "@signoff/domain/ai-readiness";
-import { pullRequestSchema } from "@signoff/domain/workbench";
+import { type PullRequest, pullRequestSchema } from "@signoff/domain/workbench";
 import { mapProject, type ProjectRow } from "../monitoring/store.js";
 import type { Bindings } from "../types.js";
 import { batchFits, evaluateJevBatch, JevError } from "./jev.js";
+import { numberPolicies } from "./policy-codes.js";
+import { readAiRules } from "./rules.js";
 import { aiViewCurrent } from "./schedule.js";
 import { openKey } from "./secrets.js";
 export type EvaluationRow = {
@@ -30,8 +32,16 @@ export type EvaluationRow = {
 export function evaluationOutput(
 	row: EvaluationRow | undefined,
 	active: boolean,
+	pull?: Pick<PullRequest, "mergeable">,
 ): AiReadiness {
 	if (!active) return presentReadiness("not_watched");
+	if (pull?.mergeable === "conflicts")
+		return {
+			...presentReadiness("complete"),
+			kind: "conflict",
+			label: "Conflict",
+			nextAction: "Resolve the merge conflict.",
+		};
 	const parse = (value: string | null | undefined) =>
 		value ? jevResultSchema.parse(JSON.parse(value)) : null;
 	const status =
@@ -92,6 +102,7 @@ export async function runAiOnce(
 	if (!lock.meta.changes) return { processed: false };
 	try {
 		const settings = await readAiSettings(db);
+		const rules = await readAiRules(db);
 		const [projects, watches, cadence] = await db.batch([
 			db.prepare(
 				"SELECT p.* FROM projects p LEFT JOIN ai_project_schedule s ON s.project_id=p.id ORDER BY COALESCE(s.last_started_at,0),p.id",
@@ -115,6 +126,10 @@ export async function runAiOnce(
 				settings,
 				now,
 				detailCooldown,
+				{
+					common: rules.common.text,
+					project: rules.projects.find((p) => p.id === project.id)?.text ?? "",
+				},
 			);
 			if (!candidates.length) continue;
 			const selected: Candidate[] = [];
@@ -221,14 +236,30 @@ async function readCandidates(
 	settings: SettingsRow,
 	now: number,
 	detailCooldown: number,
+	rules: { common: string; project: string },
 ) {
 	const project = mapProject(projectRow),
 		candidates: Candidate[] = [];
-	for (const row of rows) {
-		if (row.project_id !== project.id) continue;
-		const pull = pullRequestSchema.parse(JSON.parse(row.snapshot));
-		const state = decisionState(pull, project, now, detailCooldown),
-			fingerprint = await decisionFingerprint(state);
+	const inputs = rows
+		.filter((row) => row.project_id === project.id)
+		.map((row) => ({
+			row,
+			pull: pullRequestSchema.parse(JSON.parse(row.snapshot)),
+		}))
+		.filter(({ pull }) => pull.mergeable !== "conflicts")
+		.map((item) => ({
+			...item,
+			state: decisionState(item.pull, project, now, detailCooldown, rules),
+		}));
+	const codes = await numberPolicies(
+		db,
+		project.id,
+		inputs.flatMap((item) => item.state.policiesInPriorityOrder),
+	);
+	for (const { row, pull, state } of inputs) {
+		for (const gate of state.policiesInPriorityOrder)
+			gate.code = codes.get(gate.id) ?? gate.code;
+		const fingerprint = await decisionFingerprint(state);
 		const unchanged =
 			row.fingerprint === fingerprint &&
 			row.config_revision === settings.revision;

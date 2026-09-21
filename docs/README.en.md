@@ -19,7 +19,7 @@ The existing Activity / Score APIs and ADO activity CLI remain available separat
 ## Features
 
 - **Manage projects:** add, edit, and remove ADO projects across organizations, with repository scopes and saved task history.
-- **Jev readiness:** configure the encrypted API key in AI Settings, explain project policies, and classify watched PRs as On Track / Attention / Unknown / Error. On Track does not mean ready to merge. See [the contract](19-pr-state-machines.md).
+- **Jev readiness:** configure the encrypted API key in AI Settings, explain project policies, and classify watched PRs as Conflict / Attention / Warning / Running / Ready / Waiting, with separate pending/error states. Rules are editable; provider merge requirements remain authoritative. See [the contract](19-pr-state-machines.md).
 - **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
 - **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
 - **Inspect builds:** expand each build to see all stages, durations, results, and owners.

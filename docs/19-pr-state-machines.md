@@ -1,66 +1,69 @@
-# Jev readiness and policy instructions
+# Jev developer readiness
 
-AI Settings (`/ai-settings`, directly above Settings) configures Jev. State machines (`/sm`) now edits project policy explanations and priority, with optional repository overrides. Deterministic state mappings, custom classification labels/colors, previews and replay endpoints have been removed.
+AI Settings (`/ai-settings`, directly above Settings) configures the encrypted Jev key and editable common/project rules. State machines (`/sm`) edits policy explanations and full priority ordering, including repository overrides. Readiness asks: **as this PR's developer, what should I do now?** It applies only to watched PRs.
 
-## Meaning and contract
+## Classification contract
 
-Readiness answers whether a person needs to act now. Only active watched PRs are evaluated. Classification comes exclusively from TypeSafe Jev Choice; no severity, first-gate or rule fallback remains.
+| Kind | Color | Meaning |
+| --- | --- | --- |
+| `conflict` | Red | Provider merge conflicts; determined directly, excluded from Jev requests. |
+| `attention` | Light red | Human inspection/action needed. Build failure belongs here; SignOff does not choose rerun versus code repair. |
+| `warning` | Yellow | Observe a known issue with evidence of possible automatic recovery. |
+| `running` | Blue | Work is progressing, or insufficient signal warrants waiting for more evidence. Includes ordinary queued policies. |
+| `ready` | Green | Mergeable with passed, unexpired applicable checks; the configured PoP-only final-step convention is an explicit exception. Confirm provider requirements before merging. |
+| `waiting` | Purple | Waiting for external reviewers after successful, unexpired builds. Not author changes, queued builds or PoP. |
+| `unknown` | Gray | Operational pending/evaluating or not evaluated, not a model choice. |
+| `error` | Red | Inference/configuration failure, not a failed CI build. |
 
-| Kind | Meaning |
-| --- | --- |
-| `on_track` | Normal automatic progress or expected waiting; no human intervention currently indicated. Never permission to merge. |
-| `attention` | Human intervention is needed. A separate bounded Choice selects the next action. |
-| `unknown` | Jev cannot usefully classify insufficient, ambiguous or conflicting evidence. |
-| `error` | Configuration, transport, request-budget or response validation failure; not a failed CI build. |
+Each non-conflicted PR gets one Jev Choice: Attention, Warning, Running, Ready or Waiting. There is no separate action question, generated explanation, severity override or rule fallback. Displayed next actions are category templates. Build failures are model evidence; code does not replace valid judgments. The configured common rules instruct Jev to classify failures as Attention. PoP comes last, after valid successful builds and reviews. Whiteboard's default project rule states that expired builds do not automatically rerun and require Attention when no replacement is underway.
 
-`readiness.status` distinguishes `not_watched`, `pending`, `running`, `complete` and `error`. Only `complete` has `current`; pending/running/error can retain `previous`, explicitly historical. Unwatched PRs display Not evaluated. Lifecycle, draft, raw checks, expiry and merge requirements remain separate facts. The old `ready` boolean, issue list, rule rank, owner and primary blocker fields are removed. API, web and cached CLI return the same stored judgment. Filters accept `on_track`, `attention`, `unknown`, `error`; counts use `onTrack`, `attention`, `unknown`, `error`.
+`readiness.status` is `not_watched`, `pending`, `running`, `complete` or `error`. Operational `running` means evaluating; business `kind=running` means the PR is progressing. Pending/evaluating/error may retain `previous`, explicitly historical; `current` contains only a completed current Jev result. Direct Conflict has `status=complete` and `current=null`, with no invented model judgment. Unwatched PRs are Not evaluated. Lifecycle, draft and provider merge requirements remain independent.
 
-A result records model `jev-1.13.0`, rubric `signoff-intervention-v3`, input fingerprint, evaluation time, observation provenance, Choice probabilities/confidence and the selected action with its distribution. Confidence is distribution concentration, not measured accuracy. Next actions are fixed templates for conflict resolution, build investigation, rerun, review, approval, merge, project instructions or evidence investigation; Jev does not generate prose. Consult the raw provider evidence before acting. SignOff performs no merge, approval, rerun or bypass.
+API filters accept the eight kinds above. Counts use the same camel-free keys (`conflict`, `attention`, `warning`, `running`, `ready`, `waiting`, `unknown`, `error`). The obsolete `on_track`, `onTrack`, action Choice fields and `readiness.ready` boolean are removed. Web and cached CLI read the same persisted result. No merge, approval, rerun or bypass is performed.
 
-## Credentials and requests
+Results persist model `jev-1.13.0`, rubric `signoff-developer-v4`, canonical input fingerprint, evaluation time, observation provenance and Choice probabilities/confidence. Confidence measures distribution concentration, not accuracy. Old-rubric results are invalidated by the local schema upgrade without resetting collected data or watches.
 
-The key is saved server-side, encrypted with AES-256-GCM in D1. `SIGNOFF_AI_ENCRYPTION_KEY` is a separate base64-encoded 32-byte Worker secret. Local development loads it from ignored `.dev.vars` with mode 0600. Retain this encryption secret to decrypt the saved key; replacing it requires re-entering the Jev key. Do not put either secret in Git, frontend storage, API reads, logs, URLs or model state.
+## State and fixed policy numbers
+
+A project request shares a `definitions` dictionary and deduplicated common/project/repository contexts. `ruleSets`, `policyInstructions`, `policyFacts`, `stageFacts`, `reviewerFacts` and `scopes` are shared once; index references reconstruct per-PR facts without losing duplicate or conflicting evaluations. Individual PRs refer to policy numbers, group policy outcomes in `policyStates`, and retain the underlying evaluation evidence separately. Names match exactly across projects; similar names are not merged. The approved C1–C13, W1–W12 and V1–V14 assignments never renumber. Newly discovered policies get persistent P numbers. Project/gate/source aliases preserve numbers after rediscovery or rename. Priority order remains separate from identity; moving a policy never changes its number. The State machines editor displays these fixed codes.
+
+Conflict PRs and the C1 definition are not sent to Jev. Shared numbering does not share project explanations: descriptions, priority and scopes remain project/repository specific. Each underlying policy evaluation, expiry flag, required/enabled/applicable status, provider message, scope and build association remains available. A same-named policy can therefore have conflicting evaluations without losing evidence.
+
+Other state includes PR lifecycle/mergeability and identity relationships, exact approval counts/requirements, reviewers, builds/stages/attempts, coverage and freshness. Code computes counts, hash comparisons and freshness boundaries. Generated collector action summaries are omitted. `isExpired` differs from `buildIsNotCurrent` and an older target. ADO target identity is lastMergeTargetCommit, not an independent target-ref lookup. Stage required flags are explicitly described as derived, not provider guarantees. Auto-complete is not assumed.
+
+## Configuration and credentials
+
+The API key is server-side AES-256-GCM ciphertext in D1. The encryption master is the separate `SIGNOFF_AI_ENCRYPTION_KEY` secret; local development loads the ignored `.dev.vars`. Neither secret appears in API reads, browser storage, URLs, model state or logs. Saving does not claim validity; Test connection makes one bounded synthetic request. It never reclassifies the watch list.
 
 Local authorized endpoints:
 
-- `GET /api/ai/settings`: configured/storage/test metadata only.
-- `PUT /api/ai/settings`: `{revision, apiKey}`; null clears, nonempty replaces; revision CAS protects concurrent changes.
-- `POST /api/ai/test`: one bounded synthetic connection request, no PR reclassification. Saving alone does not claim validity.
-- `POST /api/ai/retry`: explicitly retries operational errors.
-- `POST /api/ai/presence`: ordered, source-specific foreground tab heartbeat.
-- `GET /api/ai/schedule?source=cli|demo`: cooldown and per-project timing/token usage.
-- `PUT /api/ai/schedule`: `{revision,cooldownSeconds}` (60–3600 seconds), revision CAS.
-- `POST /api/ai/tick`: foreground browser request `{id,sequence,source}`, gated by that exact tab presence revision and cooldown. Empty/unscoped daemon requests are rejected.
+- `GET/PUT /api/ai/settings`: metadata / `{revision,apiKey}`; null clears. Revision CAS.
+- `POST /api/ai/test`: bounded explicit synthetic connection test.
+- `GET /api/ai/rules`: common instructions and project-specific modules.
+- `PUT /api/ai/rules`: `{scope,revision,text}`; `common` or a live project ID. Revision CAS, project validation. Only affected watched PRs are invalidated, including responses already in flight.
+- `POST /api/ai/retry`: queue failed evaluations, respecting cooldown.
+- `POST /api/ai/presence`: ordered `{id,sequence,source,visible}` foreground heartbeat.
+- `POST /api/ai/tick`: `{id,sequence,source}` bound to the exact foreground tab revision. Unscoped daemon calls are rejected.
+- `GET/PUT /api/ai/schedule`: project timings/usage and `{revision,cooldownSeconds}` (60–3600 seconds).
 
-The integration posts `{model,state,questions}` to `https://api.typesafe.ai/v1/systemone` with Bearer authentication. It uses a 30-second timeout and refuses redirects; project batches are bounded to 28,000 UTF-8 state bytes and 56,000 complete request bytes, conservative bounds below the official 32k state-plus-question / 64k total token limits. A large project is split across cooldown intervals; an individually oversized PR fails explicitly. Bytes are not measured tokens; returned usage reports actual input/output tokens. Official references: [API](https://docs.typesafe.ai/api), [Choice](https://docs.typesafe.ai/primitives/choice), [state](https://docs.typesafe.ai/concepts/state), [models](https://docs.typesafe.ai/models).
+Policy explanations and priorities retain existing project-wide revision CAS and repository scopes. New policies append after saved order. Editing rules or policy descriptions schedules new classification even when provider facts do not change.
 
-## Input and policy scope
+## Foreground scheduling
 
-English rubrics consume structured evidence: lifecycle, draft/mergeability, branch/head/target identities and exact hash comparisons; exact approval counts and requirements; reviewer votes and required reviewers; all policy evaluations, flags, scope, explicit expiry, descriptions and build associations; all builds and stage attempts, raw status/results and available provider messages; coverage, missing checks and validity.
+Only a visible **and focused** dashboard initiates inference. The collector daemon and cached CLI have no inference loop. Each project independently waits 300 seconds after completion by default; configure it in Connector details. Only changed watched PRs are included. Background time counts; returning foreground requests overdue work immediately. Discovery remains 10 minutes/project; full watched detail collection remains 5 minutes/PR, both counted after completion.
 
-The v2 input shares a deduplicated `scopes` array across the catalog and raw evaluations. Each `scopeRefs` array contains zero-based indices into it; absent scope remains uncollected and an empty array remains explicitly empty. Catalog entries appear directly in priority order, highest first. Provider descriptions occur only in raw evidence, and the stage required provenance is stated once for all stages. No descriptions, evaluations, scopes, attempts or lower-priority evidence are truncated. The shorter rubric retains the same intervention semantics and changes the fingerprint version so old-format judgments are not reused.
+The browser publishes a 5-second heartbeat with a defensive 15-second expiry. Blur/hide aborts pending ticks and revokes presence. The server checks the requesting tab's exact ID, source and sequence before reserving work and immediately before dispatch. Another foreground tab cannot authorize a revoked request. Revocation during preparation releases claims without consuming cooldown. A request already dispatched to Jev may complete after a focus change; it cannot be unsent. There is a network delivery race between physical focus loss and server receipt of revocation; no server can observe client focus synchronously.
 
-A local comparison of the same 15 watched snapshots measured complete request bodies at approximately 30.9 KB before and 22.1 KB after, a 28.6% reduction in UTF-8 bytes. This is a payload measurement, not a provider token or billing estimate; measurement and regression tests require no Jev calls. Tests verify scope reconstruction, missing/empty/false/zero distinctions, deduplication and fingerprint stability under reordered observations.
+Canonical fingerprints cover facts, relevant editable rules, model and rubric. Poll clocks, request IDs, avatar URLs and ticking durations do not trigger repeated inference. Freshness changes when summary/check age exceeds max(20 minutes, three detail cooldowns). Exact-equal facts reuse results. Watch generation, input revision and lease token reject late responses after new facts/instructions/key, unwatch or rewatch. One runner lease bounds concurrency. Transient failures get at most three attempts with backoff, still subject to project cooldown. Operational Error remains distinct from business Attention.
 
-Project instructions include the full user priority order, highest first. Order supplies context, never a coded blocker selection. Policy meanings are not inferred from names. Generated collector action summaries are omitted from model state. `isExpired` and `buildIsNotCurrent` remain distinct. ADO target identity is `lastMergeTargetCommit`, not an independent target-ref read. Stage required flags are identified as collector-derived, not provider guarantees. Auto-complete is not collected and is explicitly unknown.
+The HTTP request is `POST https://api.typesafe.ai/v1/systemone` with Bearer authentication and `{model,state,questions}`. Timeout is 30 seconds; redirects are refused. State/request budgets are 56,000/80,000 UTF-8 bytes. Oversized projects split across cooldown intervals; individually oversized PRs fail explicitly. Provider evidence is not silently truncated. PR title/body, event IDs and event times are excluded from this policy-state decision; raw snapshots retain them. Validity, expiry, current attempts and source/merge comparisons remain explicit. Returned usage provides actual tokens; bytes are not token estimates. A malformed sibling answer does not discard valid siblings.
 
-Project and repository instructions are saved through the existing project-wide revision CAS. Scope defaults inherit from the project; clearing an override restores inheritance. Logical policy catalogs preserve underlying source identities, scopes and evaluations. New gates append after saved priorities; existing descriptions are not copied across projects.
+## Validation
 
-## Background consistency
+Deterministic tests exercise credential masking/CAS, watched-only scheduling, identical-state dedupe, conflict exclusion, common/project rule changes, fixed numbers and rename aliases, expiry/failed/queued/advisory evidence, bounded retries and stale-response fences. Mocked Choice outputs verify application behavior, not model accuracy.
 
-Jev evaluates changed watched PRs together by project only while at least one same-source SignOff tab is visible and focused. Each project has an independent cooldown, default 300 seconds after batch completion (or a start reservation after interruption). Connector details configures the interval. Background time counts; returning foreground immediately requests eligible work. A 5-second heartbeat renews a 15-second presence lease; blur, hide and normal close retire presence immediately. An in-flight request may finish after backgrounding. A crash is bounded by the lease expiry. Only the foreground browser initiates inference; the collector daemon has no inference loop. Each tick is bound to its initiating tab ID, source and exact presence sequence, and this is rechecked immediately before the Jev request. Other visible tabs cannot authorize a revoked tab. Blur/hide aborts pending browser ticks, and losing foreground during preparation releases claims without consuming cooldown. Closing all browsers stops new inference; the presence expiry remains a defensive check. Cached CLI queries do not register presence or invoke inference. The explicit synthetic connection test is exempt from scheduling. Discovery retains its 10-minute per-project completion cooldown. Full watched detail collection retains its 5-minute per-PR completion cooldown. Jev adds no provider collection lane.
+Browser tests use an isolated database and synthetic credentials. The foreground test launches a real window with Playwright focus emulation disabled (`connectOverCDP` with `noDefaults`): switching away sends no ticks, returning resumes. Settings tests cover reload persistence and 390px layout. Local live-model evidence is recorded separately from mocks in the delivery report.
 
-Watch activation, provider evidence changes, policy explanation/order changes and key revisions schedule evaluation. A canonical fingerprint covers decision state, project instructions, model and rubric. Poll clocks, request IDs, avatar URLs and ticking stage durations are excluded. Freshness becomes a decision fact when the summary/check age exceeds max(20 minutes, 3 detail cooldowns); crossing that boundary reevaluates. Observation timestamps remain result provenance.
+Official references: [TypeSafe skill](https://docs.typesafe.ai/llms.txt), [Choice](https://docs.typesafe.ai/primitives/choice), [state](https://docs.typesafe.ai/concepts/state), [HTTP API](https://docs.typesafe.ai/api). The offline [Jev Input Lab](../apps/web/public/learn/jev-input.html) demonstrates state efficiency and makes no model calls.
 
-One database runner lease bounds inference concurrency to one. An already-dispatched Jev request may complete after a focus change; backgrounding cannot undo a provider request already sent. Identical inputs reuse completed judgments, including after a normal collection poll. Transient transport/429/5xx errors get at most three attempts with backoff and bounded Retry-After; retries and manual retry also respect the project cooldown. Shared exact-equal project/repository contexts are included once, with per-PR questions explicitly referencing their context. A malformed sibling answer does not discard valid results for other PRs. Exhausted or nontransient failures persist as Error until facts/config change or explicit retry. Generation, input revision and lease token fence late responses after changes, unwatch or rewatch. Removed watches never receive a late current result.
-
-## Verification
-
-Deterministic SQLite and API tests cover encryption/masking/removal, CAS/scope, all policy evidence, canonical dedupe, retries and late facts/instructions/key/unwatch/rewatch races. Browser verification covers AI Settings placement and reload, desktop/mobile layouts, policy editing and cached result parity. A real user-supplied key was configured through the local UI; the bounded connection request and classifications of the existing 15 watched PRs succeeded on 2026-09-21. These requests demonstrate the real integration, not an accuracy benchmark.
-
-Before foreground batching, local validation passed: repository lint, typecheck, all seven coverage tasks, the web production build, and all seven isolated Playwright E2E tests. That earlier browser-independent inference behavior is superseded by the foreground requirement. Web/API and cached CLI share persisted judgments. Desktop and 390-pixel mobile layouts were checked for horizontal overflow.
-
-The standalone [Jev Input Lab](../apps/web/public/learn/jev-input.html), served locally at `/learn/jev-input.html`, explains the official skill's input-efficiency guidance in Chinese. It includes an independent-question batching calculator, source-linked lessons, reversible synthetic state compression, and evidence-retention questions. It works offline and makes no model requests; simulated token counts and measured JSON bytes are explicitly distinguished.
-
-
-Foreground batching validation (2026-09-21): repository lint and typecheck, all seven coverage tasks, production build, and all seven isolated Playwright tests passed. Tests cover watched-only batch membership, shared contexts, source-specific foreground leases, per-project cooldowns, return after background, dedupe, partial answer failure and late-response fences. Desktop and 390px mobile checks at the local HTTPS URL showed no horizontal overflow or page errors. Connector cooldown changes persisted across reloads. Browser verification intercepted inference triggers to avoid spending credits on the old rubric while the replacement policy definitions are being clarified; no new live-model batching claim is made.
+Validation on 2026-09-21: lint, typecheck, build, all seven coverage tasks and all eight isolated browser tests passed. The local configured credential passed the explicit synthetic connection test. A real project request classified 13 non-conflicted watched PRs together (28,721 input tokens, 695 output tokens); one provider-conflicted PR was excluded. The sampled expired-build and failed-build PRs returned Attention. This validates integration and those cases, not general accuracy. Another review-pending example returned Running and remains a calibration case. Desktop/mobile reloads and a real background tab check were verified; no new ticks occurred during the measured background interval. Runtime observation snapshots and provider responses remain outside Git.

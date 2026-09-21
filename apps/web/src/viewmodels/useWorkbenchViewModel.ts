@@ -62,7 +62,11 @@ const PAGE_SIZE = 20;
 const emptyMetrics = {
 	open: 0,
 	attention: 0,
-	onTrack: 0,
+	running: 0,
+	conflict: 0,
+	warning: 0,
+	ready: 0,
+	waiting: 0,
 	unknown: 0,
 	error: 0,
 	draft: 0,

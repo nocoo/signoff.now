@@ -402,7 +402,9 @@ function PullDetail({
 									{readiness.nextAction}
 								</p>
 								<p className="mt-2 text-xs text-basalt-muted-foreground">
-									Jev classification · On Track does not mean ready to merge.
+									{readiness.kind === "conflict"
+										? "Provider merge conflict · Not sent to Jev."
+										: "Jev classification · Provider merge requirements remain authoritative."}
 								</p>
 								{Boolean(readiness.error) && (
 									<p

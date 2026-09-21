@@ -29,14 +29,14 @@ describe("persisted PR filters", () => {
 			expect(
 				updatePullFilter(history, { watching: "unwatched" }),
 			).toMatchObject({ state, watching: "unwatched" });
-			expect(updatePullFilter(history, { status: "on_track" })).toMatchObject({
+			expect(updatePullFilter(history, { status: "running" })).toMatchObject({
 				state: "open",
-				status: "on_track",
+				status: "running",
 			});
 		}
 		const ready = {
 			...DEFAULT_PULL_FILTER,
-			status: "on_track" as const,
+			status: "running" as const,
 			watching: "watching" as const,
 		};
 		expect(updatePullFilter(ready, { state: "all" })).toMatchObject({

@@ -114,24 +114,44 @@ export function ProjectsPage() {
 					{vm.projects.map(({ project, metrics, repositories, total, job }) => {
 						const states = [
 							{
+								count: metrics.conflict,
+								color: heatmapColor(4, "red"),
+								label: "Conflict",
+							},
+							{
 								count: metrics.attention,
-								color: heatmapColor(3, "orange"),
-								label: "Need attention",
+								color: heatmapColor(2, "red"),
+								label: "Attention",
+							},
+							{
+								count: metrics.warning,
+								color: "bg-[hsl(var(--basalt-chart-yellow))]",
+								label: "Warning",
+							},
+							{
+								count: metrics.running,
+								color: heatmapColor(3, "blue"),
+								label: "Running",
+							},
+							{
+								count: metrics.ready,
+								color: heatmapColor(3, "green"),
+								label: "Ready",
+							},
+							{
+								count: metrics.waiting,
+								color: "bg-[hsl(var(--basalt-badge-purple))]",
+								label: "Waiting",
 							},
 							{
 								count: metrics.unknown,
-								color: heatmapColor(3, "blue"),
-								label: "Unknown",
-							},
-							{
-								count: metrics.onTrack,
-								color: heatmapColor(3, "green"),
-								label: "On Track",
-							},
-							{
-								count: metrics.draft,
 								color: "bg-basalt-muted-foreground/20",
-								label: "Draft",
+								label: "Pending",
+							},
+							{
+								count: metrics.error,
+								color: heatmapColor(3, "red"),
+								label: "Error",
 							},
 						];
 						return (
@@ -210,13 +230,13 @@ export function ProjectsPage() {
 												color: "text-basalt-warning",
 											},
 											{
-												label: "Unknown",
-												count: metrics.unknown,
+												label: "Running",
+												count: metrics.running,
 												color: "text-basalt-primary",
 											},
 											{
-												label: "On Track",
-												count: metrics.onTrack,
+												label: "Ready",
+												count: metrics.ready,
 												color: "text-basalt-heatmap-green-4",
 											},
 										].map((metric) => (
@@ -239,7 +259,9 @@ export function ProjectsPage() {
 												label: state.label,
 											})),
 										)}
-										ariaLabel={`${metrics.open} open PRs: ${metrics.attention} need attention, ${metrics.unknown} in progress, ${metrics.onTrack} onTrack, ${metrics.draft} drafts`}
+										ariaLabel={states
+											.map((state) => `${state.count} ${state.label}`)
+											.join(", ")}
 										heightClass="h-1.5"
 										gapClass="gap-0"
 									/>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { ACTIONS, JEV_MODEL } from "@signoff/domain/ai-readiness";
+import { CLASSIFICATION, JEV_MODEL } from "@signoff/domain/ai-readiness";
 import app from "../index";
+import { seedProject } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 import { aiRoutes } from "./ai";
 
@@ -165,8 +166,7 @@ test("bounded connection request handles invalid keys, typed success and key rep
 			return Response.json({
 				model: JEV_MODEL,
 				answers: {
-					readiness: answer("unknown", ["on_track", "attention", "unknown"]),
-					action: answer("investigate", Object.keys(ACTIONS)),
+					readiness: answer("running", Object.keys(CLASSIFICATION)),
 				},
 			});
 		});
@@ -183,7 +183,7 @@ test("bounded connection request handles invalid keys, typed success and key rep
 });
 
 test("presence is ordered per tab and source, expires, and cooldown saves use CAS", async () => {
-	const { seedProject, seedPull } = await import("../test/pr-fixture");
+	const { seedPull } = await import("../test/pr-fixture");
 	const { addObservation } = await import("../monitoring/observations");
 	seedProject(sqlite, { repositories: [] });
 	seedPull(sqlite);
@@ -258,4 +258,32 @@ test("presence is ordered per tab and source, expires, and cooldown saves use CA
 			{ nextEligibleAt: now + 600, inputTokens: 100, lastBatchSize: 2 },
 		],
 	});
+});
+
+test("editable common and project rules persist with CAS and isolate invalidations", async () => {
+	seedProject(sqlite);
+	const get = await request("/rules");
+	const rules = (await get.json()) as {
+		common: { revision: number; text: string };
+		projects: { id: string; text: string }[];
+	};
+	expect(rules.common.text).toContain("Build failure means Attention");
+	const put = (scope: string, revision: number, text: string) =>
+		request("/rules", "PUT", { scope, revision, text });
+	expect(
+		(await put("common", 0, "Use these common instructions.")).status,
+	).toBe(200);
+	expect((await put("common", 0, "Stale")).status).toBe(409);
+	expect((await put("missing-project", 0, "Private rules")).status).toBe(404);
+	const projectId = rules.projects[0]!.id;
+	expect((await put(projectId, 0, "Build expiry needs a person.")).status).toBe(
+		200,
+	);
+	const saved = (await (await request("/rules")).json()) as typeof rules & {
+		projects: { id: string; text: string }[];
+	};
+	expect(saved.common.text).toBe("Use these common instructions.");
+	expect(saved.projects.find((p) => p.id === projectId)?.text).toBe(
+		"Build expiry needs a person.",
+	);
 });

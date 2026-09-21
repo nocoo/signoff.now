@@ -78,7 +78,7 @@ it("shows expired build evidence and its next action despite a generic saved Bui
 	show(queryRow(publicPull(pull, fixtureProject)));
 	expect(screen.getAllByText("Not evaluated").length).toBeGreaterThan(0);
 	expect(
-		screen.getByText("Watch this PR to request Jev classification."),
+		screen.getByText("Watch this PR to request classification."),
 	).toBeTruthy();
 	fireEvent.mouseDown(screen.getByRole("tab", { name: /Checks & builds/ }), {
 		button: 0,

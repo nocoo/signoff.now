@@ -155,7 +155,8 @@ function PolicyEditor({
 									<div className="flex items-start justify-between gap-3">
 										<div className="min-w-0">
 											<h2 className="text-sm font-semibold">
-												{index + 1}. {gate?.name ?? item.gateId}
+												{page?.policyCodes[item.gateId]} ·{" "}
+												{gate?.name ?? item.gateId}
 											</h2>
 											<p className="break-all text-xs text-basalt-muted-foreground">
 												{item.gateId}

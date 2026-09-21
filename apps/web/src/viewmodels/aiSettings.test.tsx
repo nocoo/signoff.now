@@ -22,6 +22,7 @@ const machine = {
 	revision: 1,
 	inherited: false,
 	catalog: [],
+	policyCodes: {},
 	instructions: [
 		{ gateId: "a", description: "" },
 		{ gateId: "b", description: "" },

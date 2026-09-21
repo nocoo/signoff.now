@@ -2,6 +2,7 @@ import { Badge, Button, Field, Input, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { AlertBanner } from "@/components/AlertBanner";
 import { useAiSettingsViewModel } from "@/viewmodels/useAiSettingsViewModel";
+import { AiRulesEditor } from "./AiRulesEditor";
 export function AiSettingsPage() {
 	const vm = useAiSettingsViewModel(),
 		data = vm.settings.data;
@@ -38,8 +39,8 @@ export function AiSettingsPage() {
 				<p className="text-sm text-basalt-muted-foreground">
 					Stored encrypted on the server. Saving a key enables automatic
 					evaluation of watched PR facts, including PR and policy descriptions.
-					On Track means no human action currently indicated; it never means
-					permission to merge.
+					Running means wait for progress. Ready still requires confirming the
+					provider merge requirements.
 				</p>
 				{data && !data.storageReady && (
 					<AlertBanner variant="error">
@@ -105,6 +106,7 @@ export function AiSettingsPage() {
 					model's distribution, not accuracy.
 				</p>
 			</LayerCard>
+			<AiRulesEditor />
 		</div>
 	);
 }

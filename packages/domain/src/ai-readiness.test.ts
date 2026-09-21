@@ -51,20 +51,17 @@ const policy: Policy = {
 	},
 };
 const result = jevResultSchema.parse({
-	kind: "on_track",
-	action: null,
+	kind: "running",
 	model: JEV_MODEL,
 	rubric: JEV_RUBRIC,
 	fingerprint: "test",
 	evaluatedAt: new Date(now * 1000).toISOString(),
-	probabilities: { on_track: 1, attention: 0, unknown: 0 },
+	probabilities: { running: 1, attention: 0, unknown: 0 },
 	confidence: 1,
-	actionProbabilities: null,
-	actionConfidence: null,
 });
 test("operational states cannot masquerade as a current model judgment", () => {
 	expect(presentReadiness("complete", result)).toMatchObject({
-		kind: "on_track",
+		kind: "running",
 		current: result,
 		previous: null,
 	});
@@ -72,12 +69,11 @@ test("operational states cannot masquerade as a current model judgment", () => {
 		presentReadiness("complete", {
 			...result,
 			kind: "attention",
-			action: "approve",
 		}).nextAction,
-	).toContain("approval");
+	).toContain("inspection");
 	expect(
-		presentReadiness("complete", { ...result, kind: "unknown" }).kind,
-	).toBe("unknown");
+		presentReadiness("complete", { ...result, kind: "waiting" }).kind,
+	).toBe("waiting");
 	for (const status of [
 		"pending",
 		"running",
@@ -455,7 +451,9 @@ test("project batches share identical context but retain repository instructions
 			policyContext: {
 				default: [
 					{
-						gateId: "merge-conflicts",
+						gateId: first.policiesInPriorityOrder.find(
+							(g) => g.id !== "merge-conflicts",
+						)!.id,
 						description: "Repository-specific instructions",
 					},
 				],
@@ -468,10 +466,17 @@ test("project batches share identical context but retain repository instructions
 	expect(batch.contexts).toHaveLength(2);
 	expect(batch.prs.map((p) => p.contextRef)).toEqual([0, 0, 1]);
 	expect(batch.prs.map((p) => p.pr.number)).toEqual([pull.number, 2, 3]);
-	expect(batch.prs[0]?.policies).toEqual(first.policies);
-	expect(batch.prs[1]?.builds).toEqual(second.builds);
-	expect(batch.contexts[1]?.policiesInPriorityOrder[0]?.description).toBe(
-		"Repository-specific instructions",
+	expect(
+		batch.prs[0]?.policies.map(
+			(ref) => (batch.policyFacts[ref] as { evidence: unknown }).evidence,
+		),
+	).toEqual(first.policies.map((p) => p.evidence));
+	expect(batch.prs[1]?.builds.map((b) => b.stages.length)).toEqual(
+		second.builds.map((b) => b.stages.length),
 	);
+	expect(
+		batch.policyInstructions[batch.contexts[1]!.policiesInPriorityOrder[0]!]!
+			.description,
+	).toBe("Repository-specific instructions");
 	expect(batchDecisionState([]).prs).toEqual([]);
 });

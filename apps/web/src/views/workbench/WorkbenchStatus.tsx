@@ -40,7 +40,11 @@ export function LifecycleBadge({
 	);
 }
 const READINESS_ICONS = {
-	on_track: Check,
+	conflict: X,
+	warning: ShieldAlert,
+	running: LoaderCircle,
+	ready: Check,
+	waiting: UserRoundCheck,
 	attention: ShieldAlert,
 	unknown: CircleHelp,
 	error: Ban,
@@ -57,14 +61,18 @@ export function ReadinessBadge({
 			: READINESS_ICONS[readiness.kind];
 	const color = (
 		{
-			on_track: "green",
-			attention: "orange",
+			conflict: "red",
+			warning: "yellow",
+			running: "blue",
+			ready: "green",
+			waiting: "purple",
+			attention: "red",
 			unknown: "gray",
 			error: "red",
 		} as const
 	)[readiness.kind];
 	return (
-		<ReadinessSwatch color={color}>
+		<ReadinessSwatch color={color} subtle={readiness.kind === "attention"}>
 			<Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
 			<span className="truncate" title={readiness.nextAction}>
 				{readiness.label}
@@ -85,8 +93,10 @@ const COLOR_VARIANTS = {
 export function ReadinessSwatch({
 	color,
 	children,
+	subtle = false,
 }: {
 	color: ReadinessColor;
+	subtle?: boolean;
 	children: ReactNode;
 }) {
 	return (
@@ -94,7 +104,9 @@ export function ReadinessSwatch({
 			variant={COLOR_VARIANTS[color]}
 			className={cn(
 				"max-w-full gap-1.5 whitespace-nowrap font-medium",
-				color === "yellow" && "bg-basalt-heatmap-orange-4",
+				color === "yellow" &&
+					"bg-[hsl(var(--basalt-chart-yellow))] text-basalt-foreground",
+				subtle && "bg-basalt-destructive/10 text-basalt-destructive",
 				color === "gray" && "bg-basalt-muted-foreground text-white",
 			)}
 		>

@@ -86,7 +86,17 @@ const querySchema = z.object({
 	includeStopped: z.enum(["true", "false"]).default("false"),
 	q: z.string().max(1000).default(""),
 	status: z
-		.enum(["all", "on_track", "attention", "unknown", "error"])
+		.enum([
+			"all",
+			"conflict",
+			"attention",
+			"warning",
+			"running",
+			"ready",
+			"waiting",
+			"unknown",
+			"error",
+		])
 		.default("all"),
 	sort: z
 		.enum([
@@ -368,6 +378,7 @@ function pullOutput(
 				e.generation === observation.generation,
 		),
 		Boolean(observation?.active),
+		pr,
 	);
 	const checks =
 		pr.checksObservedAt === undefined ? pr.observedAt : pr.checksObservedAt;
@@ -583,6 +594,7 @@ async function readPullPage(
 					e.generation === observation.generation,
 			),
 			Boolean(observation?.active),
+			pull,
 		);
 		return {
 			id: pull.id,
@@ -590,8 +602,17 @@ async function readPullPage(
 				readiness.status === "not_watched" ? "not_evaluated" : readiness.kind,
 			rank:
 				readiness.status === "not_watched"
-					? 4
-					: { error: 0, attention: 1, unknown: 2, on_track: 3 }[readiness.kind],
+					? 8
+					: {
+							conflict: 0,
+							error: 1,
+							attention: 2,
+							warning: 3,
+							unknown: 4,
+							running: 5,
+							waiting: 6,
+							ready: 7,
+						}[readiness.kind],
 			action: readiness.nextAction,
 			owner: "",
 			completion:
@@ -686,7 +707,7 @@ async function readPullPage(
 		db
 			.prepare(`${cte} SELECT COALESCE(SUM(state='open'),0) open,
       COALESCE(SUM(readiness_kind='attention'),0) attention,
- COALESCE(SUM(readiness_kind='on_track'),0) onTrack,COALESCE(SUM(readiness_kind='unknown'),0) unknown,COALESCE(SUM(readiness_kind='error'),0) error,
+ COALESCE(SUM(readiness_kind='running'),0) running,COALESCE(SUM(readiness_kind='conflict'),0) conflict,COALESCE(SUM(readiness_kind='warning'),0) warning,COALESCE(SUM(readiness_kind='ready'),0) ready,COALESCE(SUM(readiness_kind='waiting'),0) waiting,COALESCE(SUM(readiness_kind='unknown'),0) unknown,COALESCE(SUM(readiness_kind='error'),0) error,
       COALESCE(SUM(state='open' AND draft=1),0) draft,COALESCE(SUM(state='merged'),0) merged,COALESCE(SUM(state='closed'),0) closed FROM filtered`)
 			.bind(...binds),
 		db
@@ -925,74 +946,49 @@ async function readRepositoryPage(
 							o.ref.projectId === project.id &&
 							o.ref.repository.id === id,
 					).length,
-					attention: prs.filter((p) => {
-						const o = observationFor(
-							snapshot,
-							project,
-							makeWatchRef(project, p.repository, p.number),
-						);
-						return (
-							o?.active &&
-							evaluationOutput(
-								snapshot.evaluations.find(
-									(e) =>
-										e.observation_id === o.id && e.generation === o.generation,
-								),
-								true,
-							).kind === "attention"
-						);
-					}).length,
-					onTrack: prs.filter((p) => {
-						const o = observationFor(
-							snapshot,
-							project,
-							makeWatchRef(project, p.repository, p.number),
-						);
-						return (
-							o?.active &&
-							evaluationOutput(
-								snapshot.evaluations.find(
-									(e) =>
-										e.observation_id === o.id && e.generation === o.generation,
-								),
-								true,
-							).kind === "on_track"
-						);
-					}).length,
-					unknown: prs.filter((p) => {
-						const o = observationFor(
-							snapshot,
-							project,
-							makeWatchRef(project, p.repository, p.number),
-						);
-						return (
-							o?.active &&
-							evaluationOutput(
-								snapshot.evaluations.find(
-									(e) =>
-										e.observation_id === o.id && e.generation === o.generation,
-								),
-								true,
-							).kind === "unknown"
-						);
-					}).length,
-					error: prs.filter((p) => {
-						const o = observationFor(
-							snapshot,
-							project,
-							makeWatchRef(project, p.repository, p.number),
-						);
-						return (
-							o?.active &&
-							evaluationOutput(
-								snapshot.evaluations.find(
-									(e) =>
-										e.observation_id === o.id && e.generation === o.generation,
-								),
-								true,
-							).kind === "error"
-						);
-					}).length,
+					...(Object.fromEntries(
+						[
+							"conflict",
+							"attention",
+							"warning",
+							"running",
+							"ready",
+							"waiting",
+							"unknown",
+							"error",
+						].map((kind) => [
+							kind,
+							prs.filter((p) => {
+								const o = observationFor(
+									snapshot,
+									project,
+									makeWatchRef(project, p.repository, p.number),
+								);
+								return (
+									o?.active &&
+									evaluationOutput(
+										snapshot.evaluations.find(
+											(e) =>
+												e.observation_id === o.id &&
+												e.generation === o.generation,
+										),
+										true,
+										p,
+									).kind === kind
+								);
+							}).length,
+						]),
+					) as Record<
+						| "conflict"
+						| "attention"
+						| "warning"
+						| "running"
+						| "ready"
+						| "waiting"
+						| "unknown"
+						| "error",
+						number
+					>),
 				},
 			});
 		}

@@ -100,6 +100,7 @@ export const machinePageSchema = z.object({
 	revision: z.number(),
 	inherited: z.boolean(),
 	catalog: z.array(mergeRequirementSchema),
+	policyCodes: z.record(z.string(), z.string()),
 	instructions: policyInstructionsSchema,
 });
 export type MachinePage = z.infer<typeof machinePageSchema>;
@@ -131,7 +132,11 @@ export const repositoryQuerySchema = z.object({
 		closed: z.number(),
 		watching: z.number(),
 		attention: z.number(),
-		onTrack: z.number(),
+		running: z.number(),
+		conflict: z.number(),
+		warning: z.number(),
+		ready: z.number(),
+		waiting: z.number(),
 		unknown: z.number(),
 		error: z.number(),
 	}),
@@ -159,7 +164,11 @@ export const pullListSchema = envelopeSchema.extend({
 	metrics: z.object({
 		open: z.number(),
 		attention: z.number(),
-		onTrack: z.number(),
+		running: z.number(),
+		conflict: z.number(),
+		warning: z.number(),
+		ready: z.number(),
+		waiting: z.number(),
 		unknown: z.number(),
 		error: z.number(),
 		draft: z.number(),

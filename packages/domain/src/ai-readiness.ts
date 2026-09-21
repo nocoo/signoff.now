@@ -1,3 +1,11 @@
+import { POLICY_CODES } from "./policy-codes.js";
+
+export * from "./policy-codes.js";
+
+import { COMMON_RULES, defaultProjectRules } from "./ai-rules.js";
+
+export * from "./ai-rules.js";
+
 import { z } from "zod";
 import { checksValidity, interpretPull } from "./state-machine.js";
 import {
@@ -9,10 +17,26 @@ import {
 } from "./workbench.js";
 
 export const JEV_MODEL = "jev-1.13.0";
-export const JEV_RUBRIC = "signoff-intervention-v3";
+export const JEV_RUBRIC = "signoff-developer-v4";
+export const CLASSIFICATION = {
+	attention:
+		"A person must inspect or act now. Build failure or explicit expiry needing intervention belongs here. Do not decide rerun versus repair.",
+	warning:
+		"A known issue deserves observation and has evidence it may resolve automatically; no human action now.",
+	running:
+		"Automatic work is progressing, or there is not enough signal to require action. Includes queued policies and ordinary waits other than external review.",
+	ready:
+		"Builds succeeded and remain valid, PR is mergeable, all applicable policies passed; a configured PoP-only final-step exception may apply. Provider merge requirements remain authoritative.",
+	waiting:
+		"Only waiting for external reviewers, after successful unexpired builds. Never author changes, queued builds or PoP.",
+} as const;
 export const aiKindSchema = z.enum([
-	"on_track",
+	"conflict",
 	"attention",
+	"warning",
+	"running",
+	"ready",
+	"waiting",
 	"unknown",
 	"error",
 ]);
@@ -22,26 +46,20 @@ export {
 	policyInstructionSchema,
 	policyInstructionsSchema,
 } from "./workbench.js";
-export const ACTIONS = {
-	resolve_conflict: "Resolve the merge conflict.",
-	fix_build: "Investigate and fix the failing build or stage.",
-	rerun: "Initiate the required build or stage rerun.",
-	review: "Address the requested review or obtain reviewer input.",
-	approve: "Provide the required approval.",
-	merge:
-		"Review the provider requirements and complete the merge when appropriate.",
-	follow_instructions:
-		"Perform the action described in the project's policy instructions.",
-	investigate:
-		"Inspect the conflicting or incomplete policy evidence before acting.",
+export const NEXT_ACTIONS = {
+	conflict: "Resolve the merge conflict.",
+	attention: "Human inspection is needed. Review the PR evidence.",
+	warning: "Observe the issue for automatic recovery.",
+	running: "Wait for ongoing work or more evidence.",
+	ready:
+		"Complete any final PoP step, then confirm provider requirements before merging.",
+	waiting: "Wait for external reviewer input.",
+	unknown: "Waiting for a current evaluation.",
+	error: "Check AI Settings and retry the evaluation.",
 } as const;
-export const actionSchema = z.enum(
-	Object.keys(ACTIONS) as [keyof typeof ACTIONS, ...(keyof typeof ACTIONS)[]],
-);
 const probability = z.number().finite().min(0).max(1);
 export const jevResultSchema = z.object({
-	kind: z.enum(["on_track", "attention", "unknown"]),
-	action: actionSchema.nullable(),
+	kind: z.enum(["attention", "warning", "running", "ready", "waiting"]),
 	model: z.string(),
 	rubric: z.string(),
 	fingerprint: z.string(),
@@ -51,8 +69,6 @@ export const jevResultSchema = z.object({
 		.optional(),
 	probabilities: z.record(z.string(), probability),
 	confidence: probability,
-	actionProbabilities: z.record(z.string(), probability).nullable(),
-	actionConfidence: probability.nullable(),
 });
 export const aiReadinessSchema = z.object({
 	kind: aiKindSchema,
@@ -75,8 +91,12 @@ export const aiSettingsSchema = z.object({
 	rubric: z.string(),
 });
 export const AI_LABELS = {
-	on_track: "On Track",
+	conflict: "Conflict",
 	attention: "Attention",
+	warning: "Warning",
+	running: "Running",
+	ready: "Ready",
+	waiting: "Waiting",
 	unknown: "Unknown",
 	error: "Error",
 } as const;
@@ -99,22 +119,14 @@ export function presentReadiness(
 			status === "not_watched"
 				? "Not evaluated"
 				: status === "pending"
-					? "Unknown · Pending"
+					? "Pending"
 					: status === "running"
-						? "Unknown · Evaluating"
+						? "Evaluating"
 						: AI_LABELS[kind],
 		nextAction:
 			status === "not_watched"
-				? "Watch this PR to request Jev classification."
-				: status === "error"
-					? "Check AI Settings and retry the evaluation."
-					: status === "pending" || status === "running"
-						? "Waiting for Jev to evaluate the current facts."
-						: kind === "attention" && result?.action
-							? ACTIONS[result.action]
-							: kind === "on_track"
-								? "No human action currently indicated. This is not permission to merge."
-								: "Inspect the available evidence; Jev could not determine a useful next action.",
+				? "Watch this PR to request classification."
+				: NEXT_ACTIONS[kind],
 		error,
 		current: status === "complete" ? result : null,
 		previous: status === "complete" ? null : previous,
@@ -143,6 +155,7 @@ export function decisionState(
 	project: Project,
 	now: number,
 	cooldown = 300,
+	rules = { common: COMMON_RULES, project: defaultProjectRules(project.id) },
 ) {
 	const pull = interpretPull(snapshot);
 	const instructions = policyInstructions(project, pull.repository.id);
@@ -190,6 +203,7 @@ export function decisionState(
 	const staleAfter = Math.max(1200, cooldown * 3);
 	return {
 		version: JEV_RUBRIC,
+		rules,
 		project: {
 			id: project.id,
 			name: project.name,
@@ -206,12 +220,11 @@ export function decisionState(
 			...i.gate,
 			id: i.gateId,
 			...(i.description ? { description: i.description } : {}),
+			code: POLICY_CODES[i.gate?.name ?? ""] ?? i.gateId,
 		})),
 		pr: {
 			id: pull.id,
 			number: pull.number,
-			title: pull.title,
-			description: pull.description,
 			lifecycle: pull.state,
 			draft: pull.draft,
 			mergeable: pull.mergeable,
@@ -247,7 +260,14 @@ export function decisionState(
 		},
 		policies: policies
 			.map(({ detail, owner, evidence, ...p }) => {
-				const { scope, ...facts } = evidence ?? {};
+				const {
+					scope,
+					evaluationId,
+					typeId,
+					startedAt,
+					completedAt,
+					...facts
+				} = evidence ?? {};
 				return {
 					...p,
 					applicable: evidence?.status?.toLowerCase() !== "notapplicable",
@@ -329,26 +349,144 @@ export const aiScheduleSchema = z.object({
 });
 export type DecisionState = ReturnType<typeof decisionState>;
 export function batchDecisionState(states: DecisionState[]) {
-	const contexts: Omit<
-		DecisionState,
-		"pr" | "collection" | "reviews" | "policies" | "builds"
+	const definitions: Record<string, { name: string; kind?: string }> = {};
+	const policyFacts: unknown[] = [];
+	const stageFacts: unknown[] = [],
+		reviewerFacts: unknown[] = [];
+	const reference = (facts: unknown[], fact: unknown) => {
+		const key = canonicalJson(fact),
+			index = facts.findIndex((item) => canonicalJson(item) === key);
+		if (index >= 0) return index;
+		facts.push(fact);
+		return facts.length - 1;
+	};
+	const policyFactIds = new Map<string, number>();
+	const internPolicy = (fact: unknown) => {
+		const key = canonicalJson(fact);
+		let ref = policyFactIds.get(key);
+		if (ref === undefined) {
+			ref = policyFacts.length;
+			policyFactIds.set(key, ref);
+			policyFacts.push(fact);
+		}
+		return ref;
+	};
+	const scopes: DecisionState["scopes"] = [];
+	const ruleSets: DecisionState["rules"][] = [];
+	const instructionFacts: Omit<
+		DecisionState["policiesInPriorityOrder"][number],
+		"id" | "name" | "sourceIds"
 	>[] = [];
+	const contexts: {
+		project: DecisionState["project"];
+		ruleRef: number;
+		policiesInPriorityOrder: number[];
+	}[] = [];
 	const ids = new Map<string, number>();
-	const prs = states.map(
-		({ pr, collection, reviews, policies, builds, ...context }) => {
-			const key = canonicalJson(context);
-			let contextRef = ids.get(key);
-			if (contextRef === undefined) {
-				contextRef = contexts.length;
-				ids.set(key, contextRef);
-				contexts.push(context);
-			}
-			return { contextRef, pr, collection, reviews, policies, builds };
-		},
-	);
+	const prs = states.map((state) => {
+		const {
+			pr,
+			collection,
+			reviews,
+			policies,
+			builds,
+			policiesInPriorityOrder,
+			...common
+		} = state;
+		const gates = policiesInPriorityOrder.filter(
+			(g) => g.id !== "merge-conflicts",
+		);
+		for (const gate of gates)
+			definitions[gate.code] ??= {
+				name: gate.name ?? gate.id,
+				kind: gate.kind,
+			};
+		const codeFor = (p: (typeof policies)[number]) =>
+			gates.find(
+				(g) =>
+					g.sourceIds?.includes(p.id) ||
+					g.id === p.id ||
+					(p.definitionId && g.definitionId === p.definitionId) ||
+					g.name === p.name,
+			)?.code ?? p.id;
+
+		const scopeRefs = (refs: number[] | undefined) =>
+			refs?.map((ref) => reference(scopes, state.scopes[ref]));
+		const context = {
+			project: common.project,
+			ruleRef: reference(ruleSets, common.rules),
+			policiesInPriorityOrder: gates.map(
+				({ id, name, code, sourceIds, ...gate }) =>
+					reference(instructionFacts, {
+						...gate,
+						code,
+						scopeRefs: scopeRefs(gate.scopeRefs),
+					}),
+			),
+		};
+		const key = canonicalJson(context);
+		let contextRef = ids.get(key);
+		if (contextRef === undefined) {
+			contextRef = contexts.length;
+			ids.set(key, contextRef);
+			contexts.push(context);
+		}
+		return {
+			contextRef,
+			pr,
+			collection,
+			reviews: {
+				...reviews,
+				reviewers: reviews.reviewers.map((reviewer) =>
+					reference(reviewerFacts, reviewer),
+				),
+			},
+			policyStates: Object.fromEntries(
+				[...new Set(policies.map((p) => p.state))]
+					.sort()
+					.map((status) => [
+						status,
+						[
+							...new Set(
+								policies.filter((p) => p.state === status).map(codeFor),
+							),
+						],
+					]),
+			),
+			policies: policies.map(({ name, id, ...p }) =>
+				internPolicy({
+					...p,
+					code: codeFor({ ...p, id, name }),
+					evidence: {
+						...p.evidence,
+						scopeRefs: scopeRefs(p.evidence.scopeRefs),
+					},
+				}),
+			),
+			builds: builds.map(({ name, policyIds, stages, ...b }) => ({
+				...b,
+				stages: stages.map(({ id, evidence, ...stage }) => {
+					const { startedAt, completedAt, ...facts } = evidence ?? {};
+					return reference(stageFacts, { ...stage, evidence: facts });
+				}),
+				...(policyIds.length ? {} : { name }),
+				policies: policyIds.map((id) => {
+					const p = policies.find((item) => item.id === id);
+					return p ? codeFor(p) : id;
+				}),
+			})),
+		};
+	});
 	return {
+		definitions,
+		policyFacts,
+		stageFacts,
+		reviewerFacts,
+		scopes,
+		ruleSets,
+		policyInstructions: instructionFacts,
 		contextMeaning:
-			"Each prs entry uses contexts[contextRef] for project instructions, priorities and scopes. Its scopeRefs index that context's scopes. Judge only the named PR; other PRs are not its evidence.",
+			"Each PR uses contexts[contextRef]; ruleRef indexes ruleSets and policiesInPriorityOrder indexes policyInstructions (highest first, not a blocker rule). Policy codes reference definitions once; policyStates groups outcomes only, policies lists indices into policyFacts, retaining each underlying evaluation and scope. Duplicate references remain separate evaluations. Build stages index stageFacts; reviewers index reviewerFacts. Event IDs/times are provenance, not decision signals; expiry/freshness/attempts remain explicit. scopeRefs index shared scopes; missing means uncollected, [] explicitly empty. Stage required flags are derived, not provider guarantees. Judge only the named PR.",
 		contexts,
 		prs,
 	};

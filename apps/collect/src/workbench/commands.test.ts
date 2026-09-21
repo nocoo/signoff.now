@@ -64,7 +64,11 @@ const list = {
 	metrics: {
 		open: 1,
 		draft: 0,
-		onTrack: 0,
+		running: 0,
+		conflict: 0,
+		warning: 0,
+		ready: 0,
+		waiting: 0,
 		unknown: 0,
 		error: 0,
 		attention: 1,

@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 import type { AdoPagedClient } from "../../apps/collect/src/ado/client";
 import { createCollectionClient } from "../../apps/collect/src/workbench/client";
 import { runCollectionOnce } from "../../apps/collect/src/workbench/run";
@@ -17,8 +18,6 @@ import {
 	repoListSchema,
 } from "../../packages/domain/src/query";
 import { projectSchema } from "../../packages/domain/src/workbench";
-
-test.use({ headless: false });
 
 const base = process.env.SIGNOFF_E2E_API_BASE!;
 const marker = JSON.parse(
@@ -1571,24 +1570,67 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 });
 
 test("background tabs send no inference ticks and returning foreground resumes immediately", async ({
-	page,
-	context,
-}) => {
-	let ticks = 0;
-	page.on("request", (request) => {
-		if (new URL(request.url()).pathname === "/api/ai/tick") ticks++;
-	});
-	await page.goto("/prs");
-	await page.bringToFront();
-	await expect.poll(() => ticks).toBeGreaterThan(0);
-	const other = await context.newPage();
-	await other.goto("about:blank");
-	await other.bringToFront();
-	await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(false);
-	const before = ticks;
-	await page.waitForTimeout(6000);
-	expect(ticks).toBe(before);
-	await page.bringToFront();
-	await expect.poll(() => ticks).toBeGreaterThan(before);
-	await other.close();
+	browserName,
+}, testInfo) => {
+	expect(browserName).toBe("chromium");
+	const directory = mkdtempSync(path.join(tmpdir(), "signoff-focus-"));
+	const child = spawn(
+		testInfo.project.use.launchOptions?.executablePath ??
+			chromium.executablePath(),
+		[
+			"--remote-debugging-port=0",
+			`--user-data-dir=${directory}`,
+			"--no-first-run",
+			"--no-default-browser-check",
+			"about:blank",
+		],
+		{ stdio: "ignore" },
+	);
+	try {
+		let port = "";
+		await expect
+			.poll(() => {
+				try {
+					port = readFileSync(
+						path.join(directory, "DevToolsActivePort"),
+						"utf8",
+					).split("\n")[0]!;
+					return !!port;
+				} catch {
+					return false;
+				}
+			})
+			.toBe(true);
+		const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, {
+			noDefaults: true,
+		});
+		const context = browser.contexts()[0]!;
+		const page = context.pages()[0]!;
+		let ticks = 0;
+		page.on("request", (request) => {
+			if (new URL(request.url()).pathname === "/api/ai/tick") ticks++;
+		});
+		await page.goto(`${base}/prs`);
+		await page.bringToFront();
+		await expect.poll(() => ticks).toBeGreaterThan(0);
+		const other = await context.newPage();
+		await other.goto("about:blank");
+		await other.bringToFront();
+		await expect
+			.poll(() => page.evaluate(() => document.hasFocus()))
+			.toBe(false);
+		const before = ticks;
+		await page.waitForTimeout(6000);
+		expect(ticks).toBe(before);
+		await page.bringToFront();
+		await expect.poll(() => ticks).toBeGreaterThan(before);
+		await browser.close();
+	} finally {
+		child.kill("SIGTERM");
+		await new Promise<void>((resolve) => {
+			if (child.exitCode !== null) resolve();
+			else child.once("exit", () => resolve());
+		});
+		rmSync(directory, { recursive: true, force: true });
+	}
 });

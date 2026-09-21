@@ -365,7 +365,7 @@ export function PullsPage() {
 				<StageLegend />
 				<p className="text-xs text-basalt-muted-foreground">
 					Jev Readiness indicates whether a watched PR needs human intervention.
-					On Track is not permission to merge.
+					Running is not permission to merge.
 				</p>
 			</div>
 			<PullDetailSheet

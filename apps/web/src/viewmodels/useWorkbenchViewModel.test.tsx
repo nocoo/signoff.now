@@ -144,16 +144,16 @@ it("combines independent quick filters and clears incompatible historical select
 		});
 	};
 	click("Watched");
-	click("On Track");
-	await queryMatches({ state: "open", watching: "true", status: "on_track" });
-	for (const name of ["Open", "Watched", "On Track"])
+	click("Running");
+	await queryMatches({ state: "open", watching: "true", status: "running" });
+	for (const name of ["Open", "Watched", "Running"])
 		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
 			"true",
 		);
 	click("Unwatched");
 	click("Attention");
 	await queryMatches({ state: "open", watching: "false", status: "attention" });
-	for (const name of ["Watched", "On Track"])
+	for (const name of ["Watched", "Running"])
 		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
 			"false",
 		);
@@ -161,10 +161,10 @@ it("combines independent quick filters and clears incompatible historical select
 	click("Unwatched");
 	await queryMatches({ status: "all", watching: null });
 	click("Watched");
-	click("On Track");
+	click("Running");
 	click("Merged");
 	await queryMatches({ state: "merged", status: "all", watching: null });
-	expect(bar.getByRole("button", { name: "On Track" })).toHaveProperty(
+	expect(bar.getByRole("button", { name: "Running" })).toHaveProperty(
 		"disabled",
 		true,
 	);

@@ -61,7 +61,7 @@ Cooldown is a minimum wait after completion, not a freshness SLA. Task duration,
 | 内容是否完整 | `complete / partial / not_collected`，附缺失项 | 缺少 timeline 或 policy 与“没有失败项”含义不同 |
 | 是否持续更新 | Collector ready / offline / auth_required / error，附上次心跳 | 采集停止时旧快照仍可读，但时间继续变老 |
 
-`valid` 只表示检查适用于**最后已知**的提交与目标，不是对当前源站状态的保证。Readiness is evaluated asynchronously by Jev for watched PRs and persisted separately. API reads never invoke inference. Pending/previous results are distinct, and On Track never means ready to merge.
+`valid` 只表示检查适用于**最后已知**的提交与目标，不是对当前源站状态的保证。Readiness is evaluated asynchronously by Jev for watched PRs and persisted separately. API reads never invoke inference. Pending/previous results are distinct, and Ready includes the configured PoP-only final-step convention and still requires provider merge requirements.
 
 ADO `targetSha` 仍来自源 PR 的 `lastMergeTargetCommit`，不是另外读取的当前目标 ref；`valid` 因此不能单独证明 CI 覆盖当前主分支。执行合并或 stage retry 的消费者仍需其明确操作前的证据读取。build policy 的明确到期标记显示为红色 `Build Expired`，不与一般构建排队状态混淆，也不改变上述证据边界。
 

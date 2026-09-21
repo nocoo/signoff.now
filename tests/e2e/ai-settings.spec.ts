@@ -35,6 +35,45 @@ test("AI Settings persist masked credentials, replace and clear without classify
 	expect(testResult.status()).toBe(400);
 	await page.reload();
 	await expect(page.getByText("Test failed", { exact: true })).toBeVisible();
+	const rules = page.getByLabel("General rules", { exact: true });
+	await expect(rules).toHaveValue(/Build failure means Attention/);
+	await rules.fill(
+		"Build failure means Attention. Do not decide rerun versus repair.",
+	);
+	await page.getByRole("button", { name: "Save rules", exact: true }).click();
+	await expect(
+		page.getByRole("status").filter({ hasText: "Rules saved" }),
+	).toBeVisible();
+	await page.reload();
+	await expect(rules).toHaveValue(
+		"Build failure means Attention. Do not decide rerun versus repair.",
+	);
+	const available = (await (
+		await page.request.get("/api/ai/rules")
+	).json()) as { projects: { id: string; name: string }[] };
+	const project = available.projects[0];
+	if (project) {
+		await page.getByRole("combobox", { name: "AI rule scope" }).click();
+		await page.getByRole("option", { name: project.name, exact: true }).click();
+		await page
+			.getByLabel("Project-specific rules", { exact: true })
+			.fill("Expired builds require inspection before requesting review.");
+		await page.getByRole("button", { name: "Save rules", exact: true }).click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Rules saved" }),
+		).toBeVisible();
+		await page.reload();
+		await expect(rules).toHaveValue(
+			"Build failure means Attention. Do not decide rerun versus repair.",
+		);
+		await page.getByRole("combobox", { name: "AI rule scope" }).click();
+		await page.getByRole("option", { name: project.name, exact: true }).click();
+		await expect(
+			page.getByLabel("Project-specific rules", { exact: true }),
+		).toHaveValue(
+			"Expired builds require inspection before requesting review.",
+		);
+	}
 	await page.setViewportSize({ width: 390, height: 844 });
 	expect(
 		await page.evaluate(
