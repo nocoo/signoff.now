@@ -698,7 +698,9 @@ async function fetchPrBuilds(
 			ev.configuration.isEnabled === false ||
 			status === "notapplicable" ||
 			!ev.context ||
-			typeof ev.context.buildId !== "number"
+			typeof ev.context.buildId !== "number" ||
+			!Number.isSafeInteger(ev.context.buildId) ||
+			ev.context.buildId <= 0
 		) {
 			continue;
 		}

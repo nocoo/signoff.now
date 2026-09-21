@@ -1295,7 +1295,9 @@ describe("collectProjectPulls", () => {
 		expect(result.pulls[0]?.builds[0]?.state).toBe("passed");
 	});
 
-	test("keeps retained policy builds as partial unavailable without fabricating success", async () => {
+	test.each([
+		0, 888,
+	])("distinguishes an unassigned build ID from a missing real build (%s)", async (buildId) => {
 		const repoId = "repo-guid-1";
 		const project = makeMockProject();
 		const client: AdoPagedClient = {
@@ -1313,10 +1315,14 @@ describe("collectProjectPulls", () => {
 									isBlocking: true,
 									isEnabled: true,
 								},
-								context: { buildId: 888 },
+								status: "queued",
+								context: { buildId },
 							},
 						],
 					};
+				}
+				if (url.includes("/_apis/build/builds/0")) {
+					throw new Error("Unassigned builds must not be requested");
 				}
 				if (url.includes("/_apis/build/builds/888")) {
 					throw new AdoError("not_found", "not found: build 888", 404);
@@ -1364,11 +1370,15 @@ describe("collectProjectPulls", () => {
 			client,
 			now: 1_789_632_000,
 		});
-		expect(result.state).toBe("partial");
+		expect(result.state).toBe(buildId === 0 ? "complete" : "partial");
 		expect(result.pulls[0]?.builds).toEqual([]);
-		expect(
-			result.pulls[0]?.collectionIssues?.some((i) => i.includes("unavailable")),
-		).toBe(true);
+		expect(result.pulls[0]?.policies[0]?.state).toBe("queued");
+		if (buildId === 0)
+			expect(result.pulls[0]?.collectionIssues ?? []).toEqual([]);
+		else
+			expect(result.pulls[0]?.collectionIssues).toContain(
+				"Build 888 is unavailable",
+			);
 	});
 
 	test("records timeline failures except expected 404s on queued builds", async () => {
