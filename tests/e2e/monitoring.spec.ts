@@ -239,6 +239,14 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	).toBeVisible();
 	await expect(loadingTable.getByRole("checkbox")).toBeDisabled();
 	const skeletonTable = await loadingTable.elementHandle();
+	const skeletonHeight = (await loadingTable
+		.locator("tbody tr")
+		.first()
+		.boundingBox())!.height;
+	expect(skeletonHeight).toBe(64);
+	await expect(
+		loadingTable.locator("tbody tr").first().locator("td"),
+	).toHaveCount(13);
 	await page.screenshot({
 		path: test.info().outputPath("pull-loading.png"),
 		fullPage: true,
@@ -246,6 +254,9 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	releaseList();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(20);
 	await expect(loadingTable).toHaveAttribute("aria-busy", "false");
+	expect(
+		(await page.locator("tr[data-pull-id]").first().boundingBox())!.height,
+	).toBe(skeletonHeight);
 	expect(await skeletonTable!.evaluate((element) => element.isConnected)).toBe(
 		true,
 	);

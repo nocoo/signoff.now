@@ -401,26 +401,70 @@ export function PullsPage() {
 
 function PullTableSkeleton() {
 	return [1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
-		<TableRow key={row} aria-hidden="true" className="pointer-events-none">
-			{[
-				"select",
-				"watch",
-				"title",
-				"repository",
-				"author",
-				"target",
-				"readiness",
-				"progress",
-				"action",
-				"evaluated",
-				"updated",
-				"stateChecked",
-				"checksChecked",
-			].map((column) => (
-				<TableCell key={column} className="py-2">
-					<Skeleton className="h-4 w-full" />
-				</TableCell>
-			))}
+		<TableRow
+			key={row}
+			aria-hidden="true"
+			className="pointer-events-none h-16 [&_td]:py-2 [&_td]:align-middle [&_div[aria-hidden=true]]:bg-basalt-muted-foreground/10"
+		>
+			<TableCell>
+				<Skeleton className="mx-auto h-4 w-4 [&>div]:rounded" />
+			</TableCell>
+			<TableCell>
+				<div className="mx-auto flex h-8 w-8 items-center justify-center rounded-md bg-basalt-primary/5">
+					<Skeleton className="h-4 w-4 [&>div]:rounded-full" />
+				</div>
+			</TableCell>
+			<TableCell>
+				<div className="w-[32rem] space-y-2">
+					<Skeleton
+						className={cn("h-3", row % 3 === 0 ? "w-3/4" : "w-11/12")}
+					/>
+					<div className="flex items-center gap-2">
+						<Skeleton className="h-2.5 w-10" />
+						<Skeleton className="h-5 w-12 [&>div]:rounded-full" />
+					</div>
+				</div>
+			</TableCell>
+			<TableCell>
+				<Skeleton className="h-2.5 w-44" />
+			</TableCell>
+			<TableCell>
+				<div className="flex items-center gap-2">
+					<Skeleton className="h-5 w-5 [&>div]:rounded-full" />
+					<Skeleton className="h-2.5 w-16" />
+				</div>
+			</TableCell>
+			<TableCell>
+				<div className="flex items-center gap-1.5">
+					<Skeleton className="h-3.5 w-3.5" />
+					<Skeleton className="h-2.5 w-28" />
+				</div>
+			</TableCell>
+			<TableCell>
+				<Skeleton className="h-6 w-24 [&>div]:rounded-full" />
+			</TableCell>
+			<TableCell>
+				<div className="mb-1 flex items-center justify-between gap-4">
+					<Skeleton className="h-3 w-20" />
+					<Skeleton className="h-2.5 w-10" />
+				</div>
+				<div className="flex gap-1">
+					{[1, 2, 3, 4, 5, 6, 7, 8].map((stage) => (
+						<Skeleton key={stage} className="h-1.5 min-w-0 flex-1" />
+					))}
+				</div>
+				<Skeleton className="mt-1 h-2.5 w-28" />
+			</TableCell>
+			<TableCell>
+				<Skeleton className="h-2.5 w-64" />
+			</TableCell>
+			{["evaluated", "updated", "stateChecked", "checksChecked"].map(
+				(column) => (
+					<TableCell key={column}>
+						<Skeleton className="ml-auto h-2.5 w-14" />
+					</TableCell>
+				),
+			)}
 		</TableRow>
 	));
 }
@@ -623,7 +667,7 @@ function PullTableRow({
 		<TableRow
 			data-pull-id={pull.id}
 			className={cn(
-				"group",
+				"group h-16",
 				vm.selectedIds.has(pull.id) && "bg-basalt-primary/4",
 			)}
 		>
