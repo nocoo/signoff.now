@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light" />
+<title>Jev Input Lab · 少传重复，多留证据</title>
+<style>
+:root{--paper:#f4f5f0;--card:#fff;--ink:#172d2c;--muted:#596d69;--line:#dce3db;--green:#135e4a;--mint:#d9f0cc;--orange:#aa531e;--soft:#edf2ea;--radius:18px;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.65 system-ui,-apple-system,"PingFang SC",sans-serif}a{color:var(--green);text-underline-offset:4px}button,input{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--orange);outline-offset:4px}button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 14px}button:hover{background:var(--soft)}h1,h2,h3,p{margin:0}h1{font-size:clamp(32px,4vw,52px);line-height:1.2;letter-spacing:-1.5px}h2{font-size:24px;line-height:1.4;letter-spacing:-.5px}h3{font-size:17px}small,.small{font-size:12px}.muted{color:var(--muted)}.wrap{max-width:1240px;margin:auto;padding:0 32px}.masthead{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:76px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:10px;font-weight:750;letter-spacing:.2px}.mark{display:grid;place-items:center;width:32px;height:32px;background:var(--ink);color:var(--mint);border-radius:9px;font-family:var(--mono)}.masthead a{font-size:13px}.hero{display:grid;grid-template-columns:1.5fr 1fr;gap:40px;align-items:center;padding:42px 0 30px}.eyebrow{font:12px var(--mono);letter-spacing:1.8px;color:var(--green);margin-bottom:14px}.intro{max-width:670px;margin-top:18px;color:var(--muted);font-size:16px}.hero-note{border-left:2px solid var(--green);padding:6px 0 6px 24px}.hero-note strong{display:block;font-size:18px;margin:8px 0}.pill{display:inline-flex;align-items:center;gap:6px;background:var(--soft);color:var(--green);border-radius:20px;font-size:12px;font-weight:650;padding:3px 10px}.pill.practice{background:#f7eadc;color:var(--orange)}.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px;margin-bottom:22px}.section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:24px}.section-head p{color:var(--muted);margin-top:6px}.num{font:12px var(--mono);color:var(--green);display:block;margin-bottom:5px}.batch{background:var(--ink);color:white;border:0}.batch .muted,.batch .section-head p{color:#bbcfc7}.batch .num{color:var(--mint)}.batch .pill{background:#294a43;color:var(--mint)}.batch-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:38px}.control{margin-bottom:19px}.control label{display:flex;justify-content:space-between;gap:12px;margin-bottom:6px;font-size:14px}.control output{font-family:var(--mono);color:var(--mint)}input[type=range]{width:100%;accent-color:var(--mint);cursor:pointer}.bar-row{margin:0 0 20px}.bar-label{display:flex;justify-content:space-between;gap:16px;font-size:13px;margin-bottom:7px}.bar-track{height:32px;background:#29413e;border-radius:7px;overflow:hidden}.bar{height:100%;min-width:3px;transition:width .18s ease;background:#829b91}.bar.best{background:var(--mint)}.calculation{border-top:1px solid #426057;padding-top:16px;display:flex;gap:24px;align-items:baseline;flex-wrap:wrap}.calculation strong{font:32px var(--mono);color:var(--mint)}.batch-note{margin-top:20px;font-size:12px;color:#bbcfc7}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}.tabs button[aria-selected=true]{background:var(--green);border-color:var(--green);color:white}.lesson{display:grid;grid-template-columns:1fr 1.1fr;gap:30px;min-height:275px}.lesson h3{font-size:21px;margin:12px 0}.lesson p{color:var(--muted);margin-bottom:14px}.lesson ul{padding-left:20px;margin:12px 0}.lesson li{margin-bottom:7px}.source{font-size:12px}.code-box{min-width:0;background:#f3f6f0;border:1px solid var(--line);border-radius:12px;overflow:hidden}.code-label{display:flex;justify-content:space-between;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line);font-size:12px;font-weight:650;color:var(--muted)}pre{font:12px/1.6 var(--mono);margin:0;padding:16px;overflow:auto;tab-size:2;max-height:350px;white-space:pre-wrap;overflow-wrap:anywhere}.lab-controls{display:flex;align-items:center;gap:12px 24px;flex-wrap:wrap;padding:12px 0 20px}.lab-controls label{display:inline-flex;gap:8px;align-items:center;font-size:14px;cursor:pointer}.lab-controls input{accent-color:var(--green);width:17px;height:17px}.lab-controls button{margin-left:auto;font-size:13px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}.metric{background:var(--soft);padding:14px 18px;border-radius:12px}.metric span{font-size:12px;color:var(--muted);display:block}.metric strong{font:25px var(--mono);display:block;margin-top:4px}.metric:last-child{background:var(--mint)}.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}.proof{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--green);margin-top:14px}.proof b{font-family:var(--mono)}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:22px}.bottom .panel{margin-bottom:0}.quiz-choices{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.quiz-choices button{font-size:13px}.feedback{min-height:72px;background:var(--soft);padding:13px;border-radius:10px;font-size:14px}.reference-list{margin:14px 0 0;padding-left:20px;font-size:13px}.reference-list li{margin-bottom:8px}details{border-top:1px solid var(--line);margin-top:18px;padding-top:12px}summary{cursor:pointer;font-size:13px;font-weight:650}details p{font-size:13px;color:var(--muted);margin-top:10px}footer{display:flex;justify-content:space-between;gap:20px;padding:28px 0 36px;color:var(--muted);font-size:12px}code{font-family:var(--mono);font-size:.9em}noscript{display:block;padding:20px;background:var(--mint)}@media(max-width:760px){.wrap{padding:0 18px}.masthead{min-height:64px}.masthead .small{display:none}.hero{grid-template-columns:1fr;gap:22px;padding:28px 0}.hero-note{padding-left:16px}.batch-grid,.lesson,.bottom,.compare{grid-template-columns:1fr;gap:20px}.panel{padding:19px}.section-head{gap:10px}.section-head>.pill{white-space:nowrap}.metrics{gap:7px}.metric{padding:10px}.metric strong{font-size:21px}.tabs{gap:6px}.tabs button{font-size:13px;padding:8px 10px}.lab-controls button{margin-left:0}footer{flex-direction:column;gap:5px}.calculation{gap:14px}.lesson{min-height:0}}@media(prefers-reduced-motion:reduce){.bar{transition:none}}@media print{body{background:white}.wrap{max-width:none}.panel,.code-box{break-inside:avoid}.batch{color:var(--ink);background:var(--soft)}.batch .muted,.batch .section-head p,.batch-note{color:var(--muted)}button,input{display:none}pre{max-height:none}}
+</style>
+</head>
+<body>
+<noscript>请启用 JavaScript 使用滑块与示例开关。官方资料链接和正文可直接阅读。</noscript>
+<div class="wrap">
+<header class="masthead"><div class="brand"><span class="mark">J</span> JEV / INPUT LAB</div><span class="small muted">TypeSafe skill · 交互学习笔记</span><a href="#sources">查阅依据 ↗</a></header>
+<main>
+<section class="hero" aria-labelledby="title"><div><div class="eyebrow">LESS REPETITION. SAME EVIDENCE.</div><h1 id="title">少传重复，<br>多留证据。</h1><p class="intro">用更少的 state input，让 Jev 做同一个判断。先减少重复发送，再整理上下文，最后用真实 usage 验证收益。</p></div><aside class="hero-note"><span class="pill">官方建议 + 本地实践</span><strong>省下的是冗余，保留的是判断依据。</strong><p class="muted">官方 skill 强调相关 state、结构化输入、独立问题合并与结果复用。字段去重是这些原则在 SignOff 中的实现，不是官方规定的压缩格式。</p></aside></section>
+<section class="panel batch" aria-labelledby="batch-title"><div class="section-head"><div><span class="num">01 / THE BIGGEST LEVER</span><h2 id="batch-title">一份 state，问一次就够</h2><p>同一份证据上的独立问题，一次请求并行判断。</p></div><span class="pill">官方明确建议</span></div><div class="batch-grid"><div><div class="control"><label for="questions">独立问题数量 <output id="questions-value" for="questions">6</output></label><input id="questions" type="range" min="1" max="16" value="6" /></div><div class="control"><label for="state-size">每份 state 的假设 token 数 <output id="state-value" for="state-size">4,000</output></label><input id="state-size" type="range" min="500" max="16000" step="500" value="4000" /></div><div class="control"><label for="question-size">每个问题的假设 token 数 <output id="question-value" for="question-size">150</output></label><input id="question-size" type="range" min="50" max="1000" step="50" value="150" /></div></div><div aria-live="polite" aria-atomic="true"><div class="bar-row"><div class="bar-label"><span>逐个请求 · <span id="separate-calls">6</span> 次</span><strong id="separate-total">24,900 tokens</strong></div><div class="bar-track"><div class="bar" style="width:100%"></div></div></div><div class="bar-row"><div class="bar-label"><span>合并独立问题 · 1 次</span><strong id="batch-total">4,900 tokens</strong></div><div class="bar-track"><div class="bar best" id="batch-bar"></div></div></div><div class="calculation"><strong id="batch-saving">80.3%</strong><span>示意输入节省<br><span class="small muted" id="batch-formula">6 × (4,000 + 150) → 4,000 + 6 × 150</span></span></div></div></div><p class="batch-note">简化模型：逐个 Q × (S + I)，合并 S + Q × I。未计固定开销、输出和服务端计量，不是账单预测。问题互相看不到答案；依赖上一步结果的问题仍需分步请求。<a href="https://docs.typesafe.ai/cookbooks/parallel_questions" style="color:var(--mint)">官方 cookbook ↗</a></p></section>
+<section class="panel" aria-labelledby="lesson-title"><div class="section-head"><div><span class="num">02 / THE PLAYBOOK</span><h2 id="lesson-title">五个值得先做的调整</h2></div></div><div class="tabs" role="tablist" aria-label="节约输入技巧"><button type="button" id="tab-focus" role="tab" aria-selected="true" aria-controls="lesson-panel" data-lesson="focus">相关证据</button><button type="button" id="tab-code" role="tab" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-lesson="code">计算留给代码</button><button type="button" id="tab-structure" role="tab" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-lesson="structure">结构分工</button><button type="button" id="tab-reuse" role="tab" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-lesson="reuse">复用判断</button><button type="button" id="tab-measure" role="tab" aria-selected="false" aria-controls="lesson-panel" tabindex="-1" data-lesson="measure">测量 usage</button></div><div class="lesson" id="lesson-panel" role="tabpanel" aria-labelledby="tab-focus" tabindex="0"><div><span class="pill" id="lesson-origin"></span><h3 id="lesson-heading"></h3><p id="lesson-description"></p><ul id="lesson-points"></ul><a class="source" id="lesson-source" href="https://docs.typesafe.ai/concepts/state">阅读官方资料 ↗</a></div><div class="code-box"><div class="code-label"><span id="lesson-caption"></span><span>示例 / English state</span></div><pre id="lesson-code"></pre></div></div></section>
+<section class="panel" aria-labelledby="lab-title"><div class="section-head"><div><span class="num">03 / TRY IT YOURSELF</span><h2 id="lab-title">亲手压缩一份 PR state</h2><p>切换三种做法，看看发给模型的 JSON 怎样变化。</p></div><span class="pill practice">应用层实践</span></div><div class="lab-controls"><label><input type="checkbox" id="trim-ui" checked /> 去掉展示字段</label><label><input type="checkbox" id="share-scope" checked /> 共用 scope</label><label><input type="checkbox" id="share-note" checked /> 共用来源说明</label><button id="reset" type="button">恢复原始输入</button><button id="download" type="button">下载当前 state</button></div><div class="metrics" aria-live="polite"><div class="metric"><span>原始 JSON / UTF-8</span><strong id="bytes-before"></strong></div><div class="metric"><span>当前 JSON / UTF-8</span><strong id="bytes-after"></strong></div><div class="metric"><span>实际字节减少</span><strong id="bytes-saving"></strong></div></div><div class="compare"><div class="code-box"><div class="code-label"><span>BEFORE · 重复上下文</span><span>合成数据</span></div><pre id="before-code" tabindex="0" aria-label="原始输入"></pre></div><div class="code-box"><div class="code-label"><span>AFTER · 当前发送内容</span><span>没有删掉判断证据</span></div><pre id="after-code" tabindex="0" aria-label="压缩后的输入"></pre></div></div><p class="proof"><b id="proof-icon">✓</b><span id="proof-text"></span></p><p class="small muted" style="margin-top:8px">按紧凑 JSON 计算字节；界面为便于阅读添加缩进。没有将字符数或字节数换算成 token。scopeRefs 是本示例约定，需要向模型说明，官方没有要求采用此格式。</p></section>
+<div class="bottom"><section class="panel" aria-labelledby="quiz-title"><span class="num">04 / CHECK YOUR INSTINCT</span><h2 id="quiz-title">这条字段，可以删吗？</h2><p class="muted" id="quiz-question" style="margin-top:12px"></p><div class="quiz-choices"><button type="button" data-answer="remove">可以省略</button><button type="button" data-answer="keep">必须保留</button><button type="button" id="next-quiz">换一题 →</button></div><div class="feedback" id="quiz-feedback" role="status">先选一个答案，再看依据。</div><details><summary>三种常见误区</summary><p>① JSON 去空格或把字段名改成单字母，不保证同比例省 token，还可能损害理解。② 合并请求不代表额外问题免费。③ confidence 是分布特征，不是“压缩后依然正确”的证明。</p></details></section><section class="panel" id="sources" aria-labelledby="source-title"><span class="num">05 / READ THE SOURCE</span><h2 id="source-title">每个建议，都有出处</h2><ol class="reference-list"><li><a href="https://docs.typesafe.ai/concepts/state">State</a> — 相关证据、具名 JSON、state 与 questions 分工。</li><li><a href="https://docs.typesafe.ai/concepts/how-to-build-with-system-one">Building with System One</a> — 分解判断、结构化输入、计算与代码组合。</li><li><a href="https://docs.typesafe.ai/cookbooks/parallel_questions">Parallel questions cookbook</a> — 一份文档重复发送的成本。其 12.2× 结果仅属于该示例。</li><li><a href="https://docs.typesafe.ai/patterns/fan-out">Speculative fan-out</a> — 独立并行，消费结果前检查前提。</li><li><a href="https://docs.typesafe.ai/api">HTTP API</a> — 使用 <code>usage.input_tokens</code> 与 <code>usage.output_tokens</code> 核实消耗。</li></ol><details><summary>关于 skill 与这份笔记</summary><p>依据 TypeSafe 官方 typesafe-ai skill 的 “Design the judgments” 与 “Compose and verify”，以及上述实时文档整理，核对日期 2026-09-21。skill 本地来源：<code>/Users/nocoo/workspace/references/typesafe-skills/skills/typesafe-ai/SKILL.md</code>。</p><p>SignOff 已实现的 scope 去重等优化，在同批 15 个 watched PR 上将请求体平均从 30.9 KB 降到 22.1 KB（−28.6% 字节）。这不是 token 节省或准确率基准；本页面的演示数据与这些真实 PR 无关。</p></details></section></div>
+</main><footer><span>本页离线可用 · 所有计算都在浏览器内完成 · 不调用 Jev</span><span>Jev Input Lab / SignOff · 2026</span></footer>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const format = (number) => number.toLocaleString("en-US");
+function renderBatch() {
+  const q = Number($("questions").value), s = Number($("state-size").value), i = Number($("question-size").value);
+  const separate = q * (s + i), combined = s + q * i;
+  $("questions-value").textContent = q;
+  $("state-value").textContent = format(s);
+  $("question-value").textContent = format(i);
+  $("separate-calls").textContent = q;
+  $("separate-total").textContent = `${format(separate)} tokens`;
+  $("batch-total").textContent = `${format(combined)} tokens`;
+  $("batch-bar").style.width = `${100 * combined / separate}%`;
+  $("batch-saving").textContent = `${(100 * (1 - combined / separate)).toFixed(1)}%`;
+  $("batch-formula").textContent = `${q} × (${format(s)} + ${format(i)}) → ${format(s)} + ${q} × ${format(i)}`;
+}
+for (const id of ["questions", "state-size", "question-size"]) $(id).addEventListener("input", renderBatch);
+const lessons = {
+  focus: {
+    origin: "官方原则 / 应用层裁剪", title: "先问：这个字段会改变判断吗？",
+    description: "官方要求提供足够的相关 state。把应用对象原封不动塞进去，通常会夹带展示信息；裁剪应围绕判断任务，而不是只看长度。",
+    points: ["保留实际描述、身份关系、policy 说明和当前事实。", "PR 是否需要人行动，与头像 URL、展开面板状态无关。", "冲突、optional failure 与反面证据都可能改变判断，不能只保留第一条失败。"],
+    source: "concepts/state", caption: "保留证据，剥离 UI",
+    code: '{\n  "pr": {"mergeable": "conflicts"},\n  "policy": {\n    "required": false,\n    "status": "failed",\n    "instruction": "An advisory failure may still need investigation."\n  }\n}\n\n// Omit avatarUrl and expandedPanel.\n// Keep the advisory failure and its context.'
+  },
+  code: {
+    origin: "官方 skill 明确建议", title: "代码算得准，就别让模型数",
+    description: "skill 把已知规则、计算、精确查找交给代码。给 Jev 明确的数量和身份比较，让它专注“这些事实意味着什么”。预计算主要提升可靠性，不保证输入必然变短。",
+    points: ["先计算 approvalCount、remainingApprovals 和 hash 是否相符。", "保留 required reviewer、反对票等语义事实；总数不能代替它们。", "SignOff 的 Readiness 仍由 Jev 决定，预计算不是规则分类回退。"],
+    source: "concepts/how-to-build-with-system-one", caption: "精确计算 + 必要细节",
+    code: '{\n  "reviews": {\n    "approvalCount": 2,\n    "requiredApprovals": 3,\n    "remainingApprovals": 1,\n    "requiredReviewerVote": "changes_requested"\n  },\n  "build": {\n    "headMatchesSource": true,\n    "isExpired": true\n  }\n}'
+  },
+  structure: {
+    origin: "官方文档明确建议", title: "事实放 state，判断放 questions",
+    description: "使用具名结构，让字段关系清晰。说明判断的 instructions 与定义选项的 criteria 各司其职，无须把同一事实重新写进每个问题。",
+    points: ["复杂上下文用具名 JSON；简单任务可以直接用字符串。", "在问题中用反引号引用路径，例如 `pr.lifecycle`。", "问题 ID 只供代码定位，不会发给模型；不要只靠 ID 表达问题含义。"],
+    source: "concepts/state", caption: "请求结构示意",
+    code: '{\n  "state": {\n    "pr": {"lifecycle": "open", "mergeable": "conflicts"}\n  },\n  "questions": {\n    "intervention": {\n      "type": "choice",\n      "instructions": "Does `pr` need human intervention now?",\n      "criteria": {\n        "yes": "Human action is needed now.",\n        "no": "Automatic progress; no human action now.",\n        "unknown": "Insufficient evidence."\n      }\n    }\n  }\n}'
+  },
+  reuse: {
+    origin: "官方 skill 原则 / SignOff 实现", title: "只改展示，不必重新判断",
+    description: "skill 指出：证据与问题含义不变时，显示筛选或某些下游权重变化无需重跑推理。应用可以复用已保存的原始判断。",
+    points: ["SignOff 用决策输入、policy 指令、模型与 rubric 版本生成 fingerprint。", "轮询时钟、头像变化不会触发新调用；policy 优先级变更需要重判。", "复用有时效前提。真正的状态变化或证据失效，不能继续冒用旧结果。"],
+    source: "concepts/how-to-build-with-system-one", caption: "应用逻辑示意 / 非 API 缓存承诺",
+    code: 'const key = fingerprint({\n  facts,\n  policyInstructions,\n  priorityOrder,\n  model,\n  rubricVersion\n});\n\nif (key === saved.fingerprint && evidenceIsCurrent) {\n  return saved.judgment;\n}\nreturn evaluateCurrentFacts();'
+  },
+  measure: {
+    origin: "官方 API + skill", title: "用 usage 验证，不靠字数猜账单",
+    description: "字节数适合做本地反馈；官方 API 的 usage 才反映请求 token 消耗。减少重复后，也要检查代表性案例是否仍得到有用判断。",
+    points: ["记录 input_tokens、output_tokens 和延迟；额外问题也会消耗 token。", "固定模型、任务与样本比较前后，不能只比较一次答案。", "示例数字不是实时费率；高 confidence 也不能证明答案正确。"],
+    source: "api", caption: "官方响应字段 / 数字仅为示例",
+    code: '{\n  "usage": {\n    "input_tokens": 296,\n    "output_tokens": 20\n  }\n}\n\n// Compare measured usage on the same cases.\n// Cost uses current provider pricing.\n// Also check decision quality and latency.'
+  }
+};
+const tabs = [...document.querySelectorAll("[data-lesson]")];
+function selectLesson(id) {
+  const lesson = lessons[id];
+  for (const tab of tabs) { const selected = tab.dataset.lesson === id; tab.setAttribute("aria-selected", String(selected)); tab.tabIndex = selected ? 0 : -1; }
+  $("lesson-panel").setAttribute("aria-labelledby", `tab-${id}`);
+  $("lesson-origin").textContent = lesson.origin;
+  $("lesson-heading").textContent = lesson.title;
+  $("lesson-description").textContent = lesson.description;
+  $("lesson-points").replaceChildren(...lesson.points.map((text) => { const li = document.createElement("li"); li.textContent = text; return li; }));
+  $("lesson-source").href = `https://docs.typesafe.ai/${lesson.source}`;
+  $("lesson-caption").textContent = lesson.caption;
+  $("lesson-code").textContent = lesson.code;
+}
+for (const [index, tab] of tabs.entries()) {
+  tab.addEventListener("click", () => selectLesson(tab.dataset.lesson));
+  tab.addEventListener("keydown", (event) => {
+    const positions = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 };
+    if (!(event.key in positions)) return;
+    event.preventDefault(); const next = tabs[positions[event.key]]; selectLesson(next.dataset.lesson); next.focus();
+  });
+}
+const original = {
+  pr: { lifecycle: "open", draft: false, mergeable: "clear", avatarUrl: "https://example.invalid/avatars/person.png", expandedPanel: "builds", badgeColor: "orange" },
+  policyOrder: ["ci", "security", "review"],
+  policies: [
+    { id: "ci", required: true, status: "succeeded", isExpired: true, buildIsNotCurrent: false, scope: [{ repositoryId: "repo-example", refName: "refs/heads/main", matchKind: "Exact" }], instruction: "An expired build needs a human to request a rerun." },
+    { id: "security", required: false, status: "failed", scope: [{ repositoryId: "repo-example", refName: "refs/heads/main", matchKind: "Exact" }], instruction: "Inspect advisory failures before deciding whether action is needed." },
+    { id: "review", required: true, status: "queued", scope: [{ repositoryId: "repo-example", refName: "refs/heads/main", matchKind: "Exact" }], minimumApproverCount: 0, description: "Reviewer vote evidence is missing." }
+  ],
+  stages: ["Compile", "Unit tests", "Package"].map((name) => ({ name, status: "succeeded", attempt: 2, required: true, requiredProvenance: "Derived from build policy and stage status; not a provider guarantee." })),
+  checksValidity: "current"
+};
+let current;
+function renderState() {
+  current = structuredClone(original);
+  if ($("trim-ui").checked) for (const field of ["avatarUrl", "expandedPanel", "badgeColor"]) delete current.pr[field];
+  if ($("share-scope").checked) {
+    current.scopes = [structuredClone(original.policies[0].scope[0])];
+    current.scopeMeaning = "scopeRefs lists zero-based indices into scopes.";
+    for (const policy of current.policies) { delete policy.scope; policy.scopeRefs = [0]; }
+  }
+  if ($("share-note").checked) { current.stageRequiredMeaning = original.stages[0].requiredProvenance; for (const stage of current.stages) delete stage.requiredProvenance; }
+  const bytes = (value) => new TextEncoder().encode(JSON.stringify(value)).length;
+  const before = bytes(original), after = bytes(current);
+  $("bytes-before").textContent = `${format(before)} B`;
+  $("bytes-after").textContent = `${format(after)} B`;
+  $("bytes-saving").textContent = `${(100 * (1 - after / before)).toFixed(1)}%`;
+  $("before-code").textContent = JSON.stringify(original, null, 2);
+  $("after-code").textContent = JSON.stringify(current, null, 2);
+  const intact = current.policies.every((policy, index) => {
+    const restored = { ...policy };
+    if (restored.scopeRefs) { restored.scope = restored.scopeRefs.map((ref) => current.scopes[ref]); delete restored.scopeRefs; }
+    return Object.keys(original.policies[index]).every((key) => JSON.stringify(restored[key]) === JSON.stringify(original.policies[index][key]));
+  });
+  $("proof-icon").textContent = intact ? "✓" : "!";
+  $("proof-text").textContent = intact ? "3 条 policy 的事实和 scope 均可完整还原；明确过期、advisory failure、缺失证据、false 和 0 均保留。" : "证据还原检查失败。";
+}
+for (const id of ["trim-ui", "share-scope", "share-note"]) $(id).addEventListener("change", renderState);
+$("reset").addEventListener("click", () => { for (const id of ["trim-ui", "share-scope", "share-note"]) $(id).checked = false; renderState(); });
+$("download").addEventListener("click", () => { const url = URL.createObjectURL(new Blob([JSON.stringify(current, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "jev-state-example.json"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
+const quiz = [
+  { question: "buildIsNotCurrent = false，但 isExpired = true。可以删掉 isExpired，让模型自己从旧 target 推断吗？", answer: "keep", explanation: "必须保留。明确的 policy expiry 与 build 是否来自当前提交是不同证据；不能用推测取代已采集事实。" },
+  { question: "PR 的头像 URL 变了；这次任务只判断是否需要人的介入。这个 URL 可以不发吗？", answer: "remove", explanation: "可以省略。头像属于展示信息，不改变当前任务的判断。不要因此删掉 reviewer 身份和投票。" },
+  { question: "某条 advisory policy 失败了。因为不是 required，可以直接不传这条 policy 吗？", answer: "keep", explanation: "必须保留。是否需要人行动取决于项目说明和实际证据，advisory 不等于一定无需处理。" },
+  { question: "十个 stage 都有同一句 required 来源说明；可以去掉每行重复文本，统一说明一次吗？", answer: "remove", explanation: "可以去掉重复文本，但保留全局说明及适用范围。这是应用层去重，不是删掉来源事实。" }
+];
+let quizIndex = 0;
+function renderQuiz() { $("quiz-question").textContent = quiz[quizIndex].question; $("quiz-feedback").textContent = "先选一个答案，再看依据。"; }
+for (const button of document.querySelectorAll("[data-answer]")) button.addEventListener("click", () => { const item = quiz[quizIndex]; $("quiz-feedback").textContent = (button.dataset.answer === item.answer ? "答对了。" : "再想一下。") + item.explanation; });
+$("next-quiz").addEventListener("click", () => { quizIndex = (quizIndex + 1) % quiz.length; renderQuiz(); });
+renderBatch(); selectLesson("focus"); renderState(); renderQuiz();
+</script>
+</body>
+</html>
