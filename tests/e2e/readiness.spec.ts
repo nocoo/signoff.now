@@ -200,7 +200,33 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 	});
 	await page.reload();
 	await expect(row.getByText("Skipped", { exact: true })).toBeVisible();
+	const authorHeader = page.getByRole("button", {
+		name: "Sort by Author",
+		exact: true,
+	});
+	const repositoryHeader = page.getByRole("button", {
+		name: "Sort by Repository",
+		exact: true,
+	});
+	await page.setViewportSize({ width: 1700, height: 1080 });
+	await expect(authorHeader).toBeHidden();
+	await expect(row.locator("td").nth(4)).toBeHidden();
+	await expect(repositoryHeader).toBeVisible();
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await expect(authorHeader).toBeHidden();
+	await expect(repositoryHeader).toBeHidden();
+	await expect(row.locator("td").nth(3)).toBeHidden();
+	await page
+		.getByRole("button", { name: "Collapse sidebar", exact: true })
+		.click();
+	await expect(repositoryHeader).toBeVisible();
+	await expect(authorHeader).toBeHidden();
+	await page.setViewportSize({ width: 1920, height: 1080 });
+	await expect(authorHeader).toBeVisible();
+	await expect(repositoryHeader).toBeVisible();
 	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(authorHeader).toBeHidden();
+	await expect(repositoryHeader).toBeHidden();
 	await row.getByText(branch, { exact: true }).scrollIntoViewIfNeeded();
 	await expect(row.getByText(branch, { exact: true })).toBeVisible();
 	expect(

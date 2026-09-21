@@ -61,6 +61,9 @@ import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
 import { LifecycleBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
+const repositoryColumn = "hidden @min-[80rem]/pulls:table-cell";
+const authorColumn = "hidden @min-[96rem]/pulls:table-cell";
+
 export function PullsPage() {
 	const vm = useWorkbench();
 	const now = useMinuteNow();
@@ -287,7 +290,7 @@ export function PullsPage() {
 							}
 						/>
 					) : (
-						<div className="overflow-x-auto">
+						<div className="@container/pulls overflow-x-auto">
 							<Table
 								aria-label="Pull requests"
 								aria-busy={vm.loading}
@@ -317,8 +320,8 @@ export function PullsPage() {
 
 										{(
 											[
-												["repository", "Repository", ""],
-												["author", "Author", ""],
+												["repository", "Repository", repositoryColumn],
+												["author", "Author", authorColumn],
 												["target", "Target branch", ""],
 												["readiness", "Readiness", ""],
 												["progress", "Checks & stages", "!w-full min-w-56"],
@@ -425,10 +428,10 @@ function PullTableSkeleton() {
 					</div>
 				</div>
 			</TableCell>
-			<TableCell>
+			<TableCell className={repositoryColumn}>
 				<Skeleton className="h-2.5 w-44" />
 			</TableCell>
-			<TableCell>
+			<TableCell className={authorColumn}>
 				<div className="flex items-center gap-2">
 					<Skeleton className="h-5 w-5 [&>div]:rounded-full" />
 					<Skeleton className="h-2.5 w-16" />
@@ -756,10 +759,12 @@ function PullTableRow({
 					) : null}
 				</div>
 			</TableCell>
-			<TableCell className="py-2 align-middle text-[11px]">
+			<TableCell
+				className={cn(repositoryColumn, "py-2 align-middle text-[11px]")}
+			>
 				<RepositoryScopeLinks project={project} repository={pull.repository} />
 			</TableCell>
-			<TableCell className="py-2 align-middle text-[11px]">
+			<TableCell className={cn(authorColumn, "py-2 align-middle text-[11px]")}>
 				<EntityLabel
 					name={pull.author.name}
 					avatarUrl={pull.author.avatarUrl}
