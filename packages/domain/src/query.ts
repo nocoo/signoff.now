@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { observationSchema, querySourceSchema } from "./monitoring.js";
+import {
+	observationSchema,
+	querySourceSchema,
+	watchRefSchema,
+} from "./monitoring.js";
 import {
 	checkStateSchema,
 	mergeRequirementSchema,
@@ -289,6 +293,7 @@ export const observationDetailSchema = envelopeSchema.extend({
 
 export const jobQuerySchema = z.object({
 	id: z.string(),
+	target: watchRefSchema.nullable().optional(),
 	source: querySourceSchema,
 	kind: z.enum(["discover", "refresh"]),
 	lane: z.enum(["checks", "status"]).optional(),
@@ -324,6 +329,21 @@ export const jobQuerySchema = z.object({
 	),
 });
 export type JobQueryItem = z.infer<typeof jobQuerySchema>;
+export const jobHistoryFiltersSchema = z.object({
+	lane: z.enum(["all", "checks", "status", "discover"]).default("all"),
+	outcome: z.enum(["all", "issues"]).default("all"),
+	cursor: z.string().max(4096).optional(),
+});
+export type JobHistoryFilters = z.infer<typeof jobHistoryFiltersSchema>;
+export const jobHistoryItemSchema = jobQuerySchema.extend({
+	projectName: z.string(),
+	target: watchRefSchema.nullable(),
+});
+export type JobHistoryItem = z.infer<typeof jobHistoryItemSchema>;
+export const jobHistorySchema = z.object({
+	data: z.array(jobHistoryItemSchema),
+	nextCursor: z.string().nullable(),
+});
 export const collectorQuerySchema = z.object({
 	schemaVersion: z.literal(1),
 	source: querySourceSchema,

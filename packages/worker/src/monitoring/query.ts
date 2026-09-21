@@ -7,8 +7,10 @@ import {
 	publicSource,
 	referenceLinks,
 	type WatchRef,
+	watchRefSchema,
 } from "@signoff/domain/monitoring";
 import {
+	type JobHistoryFilters,
 	observationItemSchema,
 	type PullQueryItem,
 	projectQuerySchema,
@@ -1144,9 +1146,15 @@ async function readObservationPage(
 			};
 }
 
-export function publicJob(row: JobRow, repositories: JobRepositoryRow[]) {
+export function publicJob(
+	row: JobRow & { ref_json?: string | null },
+	repositories: JobRepositoryRow[],
+) {
 	return {
 		id: row.id,
+		target: row.ref_json
+			? watchRefSchema.parse(JSON.parse(row.ref_json))
+			: null,
 		source: publicSource(row.source),
 		kind: row.kind === "list" ? ("discover" as const) : ("refresh" as const),
 		...(row.summary_only ? { lane: "status" as const } : {}),
@@ -1202,6 +1210,71 @@ export async function queryJob(
 	if (!job) throw new MonitoringError("NOT_FOUND", "Job not found", 404);
 	return publicJob(job, (results[1]?.results ?? []) as JobRepositoryRow[]);
 }
+export async function queryJobHistory(
+	db: QueryDatabase,
+	source: DataSource,
+	filters: JobHistoryFilters,
+) {
+	const signature = JSON.stringify([source, filters.lane, filters.outcome]);
+	const where = [
+		"j.source=?",
+		"j.state IN ('complete','partial','failed','canceled')",
+	];
+	const values: (string | number)[] = [source];
+	if (filters.lane === "discover") where.push("j.kind='list'");
+	else if (filters.lane !== "all") {
+		where.push("j.kind<>'list' AND j.summary_only=?");
+		values.push(Number(filters.lane === "status"));
+	}
+	if (filters.outcome === "issues")
+		where.push("j.state IN ('partial','failed')");
+	if (filters.cursor) {
+		try {
+			const cursor = z
+				.object({
+					signature: z.literal(signature),
+					at: z.number().int().nonnegative(),
+					id: z.string().min(1).max(240),
+				})
+				.parse(JSON.parse(decodeURIComponent(atob(filters.cursor))));
+			where.push("(j.requested_at<? OR (j.requested_at=? AND j.id<?))");
+			values.push(cursor.at, cursor.at, cursor.id);
+		} catch {
+			throw new MonitoringError(
+				"INVALID_CURSOR",
+				"History cursor is invalid for this query",
+			);
+		}
+	}
+	const rows = (
+		await db
+			.prepare(`SELECT j.*,COALESCE(p.name,json_extract(j.project_json,'$.name'),j.project_id) AS project_name,o.ref_json
+		FROM collection_jobs j LEFT JOIN projects p ON p.id=j.project_id
+		LEFT JOIN pr_observations o ON o.id=j.observation_id
+		WHERE ${where.join(" AND ")} ORDER BY j.requested_at DESC,j.id DESC LIMIT 51`)
+			.bind(...values)
+			.all<JobRow & { project_name: string; ref_json: string | null }>()
+	).results;
+	const historyRows = rows.slice(0, 50);
+	const last = historyRows.at(-1);
+	return {
+		data: historyRows.map((row) => ({
+			...publicJob(row, []),
+			projectName: row.project_name,
+			target: row.ref_json
+				? watchRefSchema.parse(JSON.parse(row.ref_json))
+				: null,
+		})),
+		nextCursor:
+			rows.length > 50 && last
+				? btoa(
+						encodeURIComponent(
+							JSON.stringify({ signature, at: last.requested_at, id: last.id }),
+						),
+					)
+				: null,
+	};
+}
 export async function queryCollector(
 	db: QueryDatabase,
 	source: DataSource,
@@ -1212,9 +1285,11 @@ export async function queryCollector(
 		db
 			.prepare(
 				`WITH latest AS (
-        SELECT *,ROW_NUMBER() OVER (
+        SELECT *, (SELECT ref_json FROM pr_observations o WHERE o.id=collection_jobs.observation_id) ref_json,ROW_NUMBER() OVER (
           PARTITION BY project_id,kind,summary_only,observation_id,scope_key ORDER BY requested_at DESC,rowid DESC
-        ) AS newest FROM collection_jobs WHERE source=?
+        ) AS newest FROM collection_jobs WHERE source=? AND (kind='list' OR EXISTS (
+          SELECT 1 FROM pr_observations o WHERE o.id=collection_jobs.observation_id
+          AND o.active=1 AND o.generation=collection_jobs.observation_generation))
       ) SELECT * FROM latest WHERE newest=1
       ORDER BY CASE WHEN state IN ('queued','running','auth_required') THEN 0
         WHEN state IN ('failed','partial') AND updated_at>=? THEN 1 ELSE 2 END,updated_at DESC LIMIT 200`,

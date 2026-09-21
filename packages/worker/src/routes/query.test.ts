@@ -4,6 +4,7 @@ import {
 	makeWatchRef,
 } from "@signoff/domain/monitoring";
 import {
+	jobHistorySchema,
 	observationListSchema,
 	pullDetailSchema,
 	pullListSchema,
@@ -53,6 +54,93 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test("history retains successive attempts and paginates without duplicates while new jobs arrive", async () => {
+		const { project, pull } = seed();
+		const observation = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			PR_TEST_NOW,
+		);
+		const insert = (
+			id: string,
+			source = "cli",
+			lane = 0,
+			state = "complete",
+			kind = "details",
+		) =>
+			sqlite.raw
+				.query(`INSERT INTO collection_jobs(id,project_id,revision,source,state,requested_at,updated_at,completed_at,kind,summary_only,observation_id,observation_generation,message)
+			VALUES(?,?,1,?,?,?,?,?,?,?,?,1,?)`)
+				.run(
+					id,
+					project.id,
+					source,
+					state,
+					PR_TEST_NOW,
+					PR_TEST_NOW + 1,
+					PR_TEST_NOW + 1,
+					kind,
+					lane,
+					observation.observation.id,
+					`Task ${id}`,
+				);
+		for (let i = 0; i < 55; i++) insert(`job-${String(i).padStart(3, "0")}`);
+		insert("sample-only", "demo");
+		insert("status-failure", "cli", 1, "failed");
+		insert("discovery-partial", "cli", 0, "partial", "list");
+		const read = async (query = "") =>
+			jobHistorySchema.parse(
+				await (await request(`/api/query/v1/jobs?source=live${query}`)).json(),
+			);
+		const first = await read();
+		expect(first.data).toHaveLength(50);
+		expect(first.data[0]).toMatchObject({
+			id: "status-failure",
+			projectName: project.name,
+			target: { number: pull.number },
+		});
+		insert("zz-new-arrival");
+		const second = await read(
+			`&cursor=${encodeURIComponent(first.nextCursor!)}`,
+		);
+		expect(second.data).toHaveLength(7);
+		expect(second.nextCursor).toBeNull();
+		expect(
+			new Set([...first.data, ...second.data].map((job) => job.id)).size,
+		).toBe(57);
+		expect(
+			(await read("&lane=status&outcome=issues")).data.map((job) => job.id),
+		).toEqual(["status-failure"]);
+		expect((await read("&lane=discover")).data.map((job) => job.id)).toEqual([
+			"discovery-partial",
+		]);
+		expect((await read("&lane=checks&outcome=issues")).data).toEqual([]);
+		const sample = jobHistorySchema.parse(
+			await (await request("/api/query/v1/jobs?source=sample")).json(),
+		);
+		expect(sample.data.map((job) => job.id)).toEqual(["sample-only"]);
+		for (const query of [
+			"cursor=bad",
+			`source=sample&cursor=${encodeURIComponent(first.nextCursor!)}`,
+			`lane=status&cursor=${encodeURIComponent(first.nextCursor!)}`,
+			"lane=invalid",
+		]) {
+			expect((await request(`/api/query/v1/jobs?${query}`)).status).toBe(400);
+		}
+		await removeObservation(
+			sqlite.db,
+			"cli",
+			observation.observation.id,
+			observation.observation.generation,
+			PR_TEST_NOW + 10,
+		);
+		const current = await queryCollector(sqlite.db, "cli", PR_TEST_NOW + 11);
+		expect(current.jobs.some((job) => job.kind === "refresh")).toBe(false);
+		expect(
+			(await read("&lane=status&outcome=issues")).data.map((job) => job.id),
+		).toEqual(["status-failure"]);
+	});
 	test("cached build expiry is preserved in the shared API's policies, readiness, and requirements", async () => {
 		seedProject(sqlite, {
 			repositories: [],

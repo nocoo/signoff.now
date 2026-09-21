@@ -7,6 +7,9 @@ import {
 	batchCommandSchema,
 	collectorQuerySchema,
 	commandReceiptSchema,
+	type JobHistoryFilters,
+	jobHistorySchema,
+	jobQuerySchema,
 	observationListSchema,
 	type PullQueryItem,
 	pullDetailSchema,
@@ -134,6 +137,33 @@ export async function loadCollector(
 	return collectorQuerySchema.parse(
 		await apiFetch(
 			`/api/query/v1/collector?source=${publicSource(source)}`,
+			init(signal),
+		),
+	);
+}
+export async function loadCollectorHistory(
+	source: PullFilter["source"],
+	filters: JobHistoryFilters,
+	signal: AbortSignal,
+) {
+	const params = new URLSearchParams({
+		source: publicSource(source),
+		lane: filters.lane,
+		outcome: filters.outcome,
+	});
+	if (filters.cursor) params.set("cursor", filters.cursor);
+	return jobHistorySchema.parse(
+		await apiFetch(`/api/query/v1/jobs?${params}`, init(signal)),
+	);
+}
+export async function loadCollectionJob(
+	source: PullFilter["source"],
+	id: string,
+	signal: AbortSignal,
+) {
+	return jobQuerySchema.parse(
+		await apiFetch(
+			`/api/query/v1/jobs/${encodeURIComponent(id)}?source=${publicSource(source)}`,
 			init(signal),
 		),
 	);

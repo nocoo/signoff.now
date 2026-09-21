@@ -1,5 +1,4 @@
 import { TooltipProvider } from "@nocoo/basalt";
-import type { JobQueryItem } from "@signoff/domain/query";
 import {
 	cleanup,
 	fireEvent,
@@ -9,8 +8,16 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import {
+	loadCollectionJob,
+	loadCollectorHistory,
+} from "@/models/monitoringApi";
 import { DEFAULT_PULL_FILTER } from "@/models/workbench";
-import { fixtureProject, iso, queryFixture } from "@/test/monitoring-fixture";
+import {
+	fixtureJob,
+	fixtureNow,
+	queryFixture,
+} from "@/test/monitoring-fixture";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 import { Sidebar } from "./sidebar";
 
@@ -42,6 +49,10 @@ const vm: Pick<
 	projects: [],
 	repositories: [],
 };
+vi.mock("@/models/monitoringApi", () => ({
+	loadCollectionJob: vi.fn(),
+	loadCollectorHistory: vi.fn(),
+}));
 vi.mock("@/viewmodels/WorkbenchProvider", () => ({ useWorkbench: () => vm }));
 beforeEach(() => {
 	vm.collector = queryFixture().collector;
@@ -56,6 +67,11 @@ beforeEach(() => {
 	vm.projects = [];
 	vm.repositories = [];
 	vi.clearAllMocks();
+	vi.mocked(loadCollectorHistory).mockResolvedValue({
+		data: [],
+		nextCursor: null,
+	});
+	vi.mocked(loadCollectionJob).mockResolvedValue(fixtureJob());
 });
 afterEach(cleanup);
 const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
@@ -68,228 +84,130 @@ const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
 	);
 
 const panel = () => screen.getByRole("region", { name: "Connector status" });
-function job(overrides: Partial<JobQueryItem> = {}): JobQueryItem {
-	return {
-		id: "job-1",
-		source: "live",
-		kind: "refresh",
-		state: "running",
-		projectId: fixtureProject.id,
-		projectRevision: 1,
-		scope: [],
-		reason: null,
-		error: null,
-		message: "Collecting",
-		requestedAt: iso(Date.now() / 1000 - 30),
-		startedAt: iso(Date.now() / 1000 - 20),
-		updatedAt: iso(Date.now() / 1000),
-		completedAt: null,
-		notBefore: iso(Date.now() / 1000),
-		progress: { completed: 3, total: 8 },
-		observation: { id: "watch-1", generation: 1 },
-		repositories: [],
-		...overrides,
-	};
-}
-
-it("keeps one connector panel and refresh control above the sidebar user while idle", () => {
-	renderSidebar();
-	const status = panel();
-	expect(status.closest("aside")).not.toBeNull();
-	expect(
-		status.compareDocumentPosition(screen.getByText("Dev")) &
-			Node.DOCUMENT_POSITION_FOLLOWING,
-	).not.toBe(0);
-	expect(within(status).getByText("Online")).toBeTruthy();
-	expect(within(status).getByText("Ready to watch")).toBeTruthy();
-	expect(within(status).queryByRole("progressbar")).toBeNull();
+const openDetails = () =>
 	fireEvent.click(
-		within(status).getByRole("combobox", {
+		within(panel()).getByRole("button", { name: /Open details and history/ }),
+	);
+
+it("keeps the sidebar compact and moves settings and history into the dialog", async () => {
+	renderSidebar();
+	expect(within(panel()).getByText("Online")).toBeTruthy();
+	expect(within(panel()).queryByRole("combobox")).toBeNull();
+	expect(loadCollectorHistory).not.toHaveBeenCalled();
+	openDetails();
+	const dialog = await screen.findByRole("dialog", {
+		name: "Collector details",
+	});
+	expect(within(dialog).getByText("Current work")).toBeTruthy();
+	await within(dialog).findByText("No completed tasks match these filters.");
+	fireEvent.click(
+		within(dialog).getByRole("combobox", {
 			name: "Watched PR refresh cooldown",
 		}),
 	);
 	fireEvent.click(screen.getByRole("option", { name: "10 min" }));
 	expect(vm.setRefreshCooldown).toHaveBeenCalledWith("details", 600);
+	fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+	expect(screen.queryByRole("dialog")).toBeNull();
 });
-it("keeps connection failures visible without hiding the connector or cached counts", () => {
-	vm.collectionError = "Collector unavailable";
-	vm.collector!.watching = 6;
-	renderSidebar();
-	const status = panel();
-	expect(status.textContent).toContain("Collector unavailable");
-	expect(within(status).getByText("Unavailable")).toBeTruthy();
-	expect(
-		within(status).getByText("Watching").parentElement?.textContent,
-	).toContain("6");
-	expect(within(status).queryByRole("progressbar")).toBeNull();
-});
-it("does not present unrelated watch errors as cooldown save failures", () => {
-	vm.feedbackKind = "watch";
-	vm.mutationError = "Watch could not be added";
-	renderSidebar();
-	expect(screen.queryByText(vm.mutationError)).toBeNull();
-	expect(within(panel()).getByText("Online")).toBeTruthy();
-});
-it("keeps a compact status above the avatar when collapsed", () => {
-	vm.collectionError = "Collector unavailable";
+it("opens details directly from a collapsed sidebar", async () => {
 	const expand = vi.fn();
 	renderSidebar(true, expand);
+	openDetails();
+	expect(await screen.findByRole("dialog")).toBeTruthy();
+	expect(expand).not.toHaveBeenCalled();
+});
+it("distinguishes partial collection from connectivity failure and exposes complete task evidence", async () => {
+	const task = fixtureJob({
+		state: "partial",
+		message: "Build 123 is unavailable",
+		error: "unavailable",
+	});
+	vm.collector!.jobs = [task];
+	vi.mocked(loadCollectorHistory).mockResolvedValue({
+		data: [{ ...task, projectName: "Intent", target: null }],
+		nextCursor: "older",
+	});
+	vi.mocked(loadCollectionJob).mockResolvedValue({
+		...task,
+		repositories: [
+			{
+				repository: { id: "repo", name: "whiteboard-app" },
+				state: "failed",
+				pullCount: null,
+				error: "Build expired",
+			},
+		],
+	});
+	renderSidebar();
+	expect(within(panel()).getByText("Partial data")).toBeTruthy();
+	expect(panel().textContent).not.toContain("Build 123 is unavailable");
+	openDetails();
+	const history = await screen.findByRole("region", {
+		name: "Collection history",
+	});
 	fireEvent.click(
-		screen.getByRole("button", {
-			name: /Connector unavailable.*Expand sidebar for details/i,
-		}),
+		await within(history).findByRole("button", { name: /Intent/ }),
 	);
-	expect(expand).toHaveBeenCalledOnce();
+	await within(history).findByText(/Build expired/);
+	expect(within(history).getByText("Build 123 is unavailable")).toBeTruthy();
+	expect(within(history).getByText("Error: unavailable")).toBeTruthy();
+	fireEvent.click(within(history).getByRole("button", { name: "Older" }));
+	await within(history).findByText(/Page 2/);
+	fireEvent.click(
+		within(history).getByRole("combobox", { name: "History result" }),
+	);
+	fireEvent.click(screen.getByRole("option", { name: "Issues only" }));
+	await within(history).findByText(/Page 1/);
 });
-it("shows queue totals and real task progress without treating queued work as running", () => {
+it("shows connection errors clearly and retains the cached watch count", async () => {
+	vm.collectionError = "Local Worker unavailable";
 	vm.collector!.watching = 16;
-	vm.collector!.queue = { running: 1, queued: 4, authRequired: 0 };
-	vm.collector!.jobs = [job()];
-	const view = renderSidebar();
-	expect(within(panel()).getByText("Refreshing PR checks")).toBeTruthy();
-	expect(
-		within(panel()).getByText("Running").parentElement?.textContent,
-	).toContain("1");
-	expect(
-		within(panel()).getByText("Queued").parentElement?.textContent,
-	).toContain("4");
-	expect(
-		within(panel()).getByRole("progressbar").getAttribute("aria-valuenow"),
-	).toBe("3");
-	expect(
-		within(panel()).getByRole("progressbar").getAttribute("aria-valuemax"),
-	).toBe("8");
-	vm.collector!.queue = { running: 0, queued: 4, authRequired: 0 };
-	vm.collector!.jobs = [job({ state: "queued" })];
-	view.rerender(
-		<MemoryRouter>
-			<TooltipProvider>
-				<Sidebar collapsed={false} onToggle={vi.fn()} userLabel="Dev" />
-			</TooltipProvider>
-		</MemoryRouter>,
+	renderSidebar();
+	expect(panel().textContent).toContain("Unavailable");
+	expect(panel().textContent).toContain("16 watching");
+	openDetails();
+	expect(await screen.findByText("Local Worker unavailable")).toBeTruthy();
+});
+it("reports history errors with a retry control without hiding current health", async () => {
+	vi.mocked(loadCollectorHistory).mockRejectedValueOnce(
+		new Error("History unavailable"),
 	);
-	expect(within(panel()).getByText("Waiting to start")).toBeTruthy();
-	expect(within(panel()).queryByRole("progressbar")).toBeNull();
+	renderSidebar();
+	openDetails();
+	await screen.findByText("History unavailable");
+	fireEvent.click(
+		screen.getByRole("button", { name: "Reload collection history" }),
+	);
+	await screen.findByText("No completed tasks match these filters.");
 });
-it("shows discovery as indeterminate when the provider has not reported a total", () => {
+it("shows current progress and freshness in the dialog", async () => {
 	vm.collector!.queue.running = 1;
 	vm.collector!.jobs = [
-		job({ kind: "discover", progress: { completed: 32, total: null } }),
+		fixtureJob({
+			state: "running",
+			completedAt: null,
+			progress: { completed: 3, total: 8 },
+			lane: "status",
+		}),
 	];
-	renderSidebar();
-	expect(within(panel()).getByText("Discovering PRs")).toBeTruthy();
-	expect(
-		within(panel()).getByRole("progressbar").hasAttribute("aria-valuenow"),
-	).toBe(false);
-	expect(panel().textContent).toContain("32 collected");
-});
-it.each([
-	"offline",
-	"auth_required",
-	"error",
-] as const)("pauses the operation display while the connector is %s", (state) => {
-	vm.connection = {
-		state,
-		lastSeenAt: null,
-		message: "Connection needs attention",
-	};
-	vm.collector!.queue.running = 1;
-	vm.collector!.jobs = [job()];
-	renderSidebar();
-	expect(within(panel()).queryByRole("progressbar")).toBeNull();
-	expect(panel().textContent).toContain("Connection needs attention");
-});
-it("shows running checks alongside a different project's authentication warning", () => {
-	vm.connection = {
-		state: "auth_required",
-		lastSeenAt: iso(Date.now() / 1000),
-		message: "Project A needs sign-in",
-	};
-	vm.collector!.queue = { running: 1, queued: 0, authRequired: 1 };
-	vm.collector!.jobs = [
-		job({ state: "auth_required", message: "Project A needs sign-in" }),
-		job({ id: "job-2", projectId: "another-project" }),
-	];
-	renderSidebar();
-	expect(within(panel()).getByText("Sign-in required")).toBeTruthy();
-	expect(within(panel()).getByText("Refreshing PR checks")).toBeTruthy();
-	expect(
-		within(panel()).getByRole("progressbar").getAttribute("aria-valuenow"),
-	).toBe("3");
-	expect(panel().textContent).toContain("Project A needs sign-in");
-	expect(panel().textContent).not.toContain("Collection paused");
-});
-it("distinguishes initial status loading and sample data from a connected live collector", () => {
-	vm.collector = null;
-	vm.filter.source = "demo";
-	renderSidebar();
-	expect(within(panel()).getByText("Connecting")).toBeTruthy();
-	expect(within(panel()).getByText("Sample")).toBeTruthy();
-});
-it("does not claim a scheduled round when automatic checks are disabled", () => {
-	vm.collector!.watching = 2;
-	vm.detailCooldownSeconds = 0;
-	renderSidebar();
-	expect(within(panel()).getByText("Manual checks")).toBeTruthy();
-});
-it.each([
-	[180, "Next check in 3 min", true],
-	[30, "Next check in <1 min", true],
-	[-10, "Next check due", true],
-	[180, "Next check in 3 min", false],
-] as const)("uses source-wide per-PR due times despite PR filters and legacy enabled flags (%s seconds, %s, enabled %s)", (seconds, label, enabled) => {
-	const repo = queryFixture().catalog.data[0]!;
-	const repositories = [
-		{
-			key: repo.key,
-			id: repo.repository.id!,
-			identityResolved: true,
-			name: repo.repository.name,
-			project: { ...fixtureProject, enabled: Boolean(enabled) },
-			metrics: { ...repo.counts, watching: 2 },
-			total: 2,
-			url: repo.repository.url,
-			coverage: repo.coverage,
-			lastDiscoveredAt: repo.lastDiscoveredAt,
-		},
-	];
-	vm.repositories = [];
-	vm.projects = [
-		{
-			project: repositories[0]!.project,
-			repositories,
-			metrics: { ...repo.counts },
-			total: 2,
-			job: null,
-			scans: [],
-		},
-	];
-	vm.filter.organization = "another-organization";
-	vm.collector!.watching = 2;
 	vm.collector!.scheduling = {
 		strategy: "per_pr",
 		checksConcurrency: 2,
 		statusConcurrency: 2,
-		nextCheckDueAt: iso(Math.floor(Date.now() / 1000) + Number(seconds)),
-		overdueChecks: Number(seconds) <= 0 ? 1 : 0,
+		nextCheckDueAt: null,
 		oldestChecksAgeSeconds: 420,
 		oldestSummaryAgeSeconds: 20,
-		missingChecks: 0,
+		overdueChecks: 2,
+		missingChecks: 1,
 	};
+	vm.collector!.generatedAt = new Date(fixtureNow * 1000).toISOString();
 	renderSidebar();
-	expect(within(panel()).getByText(label)).toBeTruthy();
-});
-it("retains a recent failed watch when a different watch in the project succeeds", () => {
-	vm.collector!.jobs = [
-		job({ state: "failed", message: "Build status could not be read" }),
-		job({
-			id: "job-2",
-			state: "succeeded",
-			requestedAt: iso(Date.now() / 1000),
-			observation: { id: "different-watch", generation: 1 },
-		}),
-	];
-	renderSidebar();
-	expect(within(panel()).getByText("Needs attention")).toBeTruthy();
-	expect(panel().textContent).toContain("Build status could not be read");
+	expect(within(panel()).getByText("Checking PR state")).toBeTruthy();
+	openDetails();
+	const work = await screen.findByRole("region", {
+		name: "Current collection work",
+	});
+	expect(work.textContent).toContain("3 / 8");
+	expect(screen.getByText("Oldest checks")).toBeTruthy();
 });

@@ -177,7 +177,7 @@ export function Sidebar({
 						})}
 					</SidebarNav>
 					<SidebarFooter className="flex w-full flex-col items-center px-0">
-						<CollectionStatus collapsed onExpand={onToggle} />
+						<CollectionStatus collapsed />
 						<Tooltip delayDuration={0}>
 							<TooltipTrigger asChild>
 								<span

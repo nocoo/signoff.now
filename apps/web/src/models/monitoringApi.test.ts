@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
+	fixtureJob,
 	fixtureObservation,
 	fixturePull,
 	publicPull,
@@ -10,7 +11,9 @@ import {
 	addWatches,
 	discover,
 	loadCatalog,
+	loadCollectionJob,
 	loadCollector,
+	loadCollectorHistory,
 	loadPending,
 	loadPull,
 	loadPulls,
@@ -28,6 +31,41 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 	apiFetch: vi.fn(),
 }));
 afterEach(() => vi.clearAllMocks());
+
+test("collector history and detail reads validate payloads and encode scoped cursors", async () => {
+	vi.mocked(apiFetch).mockResolvedValueOnce({ data: [], nextCursor: null });
+	await loadCollectorHistory(
+		"demo",
+		{ lane: "status", outcome: "issues", cursor: "a+/=" },
+		new AbortController().signal,
+	);
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe(
+		"/api/query/v1/jobs?source=sample&lane=status&outcome=issues&cursor=a%2B%2F%3D",
+	);
+	vi.mocked(apiFetch).mockResolvedValueOnce({ data: [], nextCursor: null });
+	await loadCollectorHistory(
+		"cli",
+		{ lane: "all", outcome: "all" },
+		new AbortController().signal,
+	);
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).not.toContain("cursor");
+	vi.mocked(apiFetch).mockResolvedValueOnce(fixtureJob());
+	expect(
+		(await loadCollectionJob("cli", "job / 1", new AbortController().signal))
+			.id,
+	).toBe("job-1");
+	expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe(
+		"/api/query/v1/jobs/job%20%2F%201?source=live",
+	);
+	vi.mocked(apiFetch).mockResolvedValueOnce({ data: [{ state: "invalid" }] });
+	await expect(
+		loadCollectorHistory(
+			"cli",
+			{ lane: "all", outcome: "all" },
+			new AbortController().signal,
+		),
+	).rejects.toThrow();
+});
 
 test("friendly PR links resolve from the scoped cache without invoking collection", async () => {
 	const fixture = queryFixture();

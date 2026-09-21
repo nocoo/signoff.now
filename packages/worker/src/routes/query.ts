@@ -1,4 +1,5 @@
 import { storageSource } from "@signoff/domain/monitoring";
+import { jobHistoryFiltersSchema } from "@signoff/domain/query";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { isLocalhost } from "../middleware/entry-control.js";
@@ -7,6 +8,7 @@ import {
 	parseQuery,
 	queryCollector,
 	queryJob,
+	queryJobHistory,
 	queryObservations,
 	queryPull,
 	queryPulls,
@@ -100,6 +102,15 @@ queryRoutes.get("/collector", async (c) =>
 			c.env.SIGNOFF_DEMO_MODE === "1" &&
 			isLocalhost(c.req.header("host") ?? ""),
 	}),
+);
+queryRoutes.get("/jobs", async (c) =>
+	c.json(
+		await queryJobHistory(
+			c.env.DB,
+			scope(c),
+			jobHistoryFiltersSchema.parse(c.req.query()),
+		),
+	),
 );
 queryRoutes.get("/jobs/:id", async (c) =>
 	c.json(await queryJob(c.env.DB, scope(c), c.req.param("id"))),

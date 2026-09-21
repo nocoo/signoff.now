@@ -354,3 +354,24 @@ signoff watch remove '<PR URL>'
 - daemon 与短命客户端共同做一次隔离系统验收：注册 → 发现 → 添加观察 → 首次结果 → 查询 → completed / abandoned 淘汰 → 最终快照查询，以及主动移除路径。
 
 测试与文档、CLI help 同步交付；分层测试入口见 [14](14-collector-architecture.md)，既有完整 6DQ 门禁差距见 [CLAUDE.md](../CLAUDE.md)。
+
+## Collector details and history
+
+The sidebar Connector opens a read-only status dialog. Connection failures,
+incomplete PR collection, current tasks, and data age are shown separately.
+Current refresh issues only include active observation generations; stopped
+watches remain available in history.
+
+`GET /api/query/v1/jobs?source=live&lane=all&outcome=all` returns up to 50 terminal
+tasks as `{ data, nextCursor }`, ordered by request time and ID descending.
+`lane` accepts `all`, `checks`, `status`, or `discover`; `outcome` accepts `all`
+or `issues` (failed or partial). Pass `nextCursor` as `cursor` for older results.
+Cursors are scoped to the source and filters and remain stable as new tasks
+arrive. Each row includes the project name and the retained PR reference, when
+available. `GET /api/query/v1/jobs/:id` supplies repository results and complete
+error details. These reads never enqueue work or contact the provider.
+
+State-probe history retains the existing 24-hour window. A successful newer
+attempt clears the current warning without erasing the failed historical task.
+An ADO build policy with an unassigned build ID (`0`) remains queued; it does not
+cause an HTTP request for build 0 or an incomplete-collection warning.

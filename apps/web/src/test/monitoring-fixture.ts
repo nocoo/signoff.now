@@ -7,6 +7,7 @@ import {
 } from "@signoff/domain/monitoring";
 import {
 	collectorQuerySchema,
+	type JobQueryItem,
 	pullListSchema,
 	pullQuerySchema,
 	repoListSchema,
@@ -34,6 +35,31 @@ export const fixturePull = {
 	state: "open" as const,
 };
 export const iso = (value: number) => new Date(value * 1000).toISOString();
+export function fixtureJob(
+	overrides: Partial<JobQueryItem> = {},
+): JobQueryItem {
+	return {
+		id: "job-1",
+		source: "live",
+		kind: "refresh",
+		state: "succeeded",
+		projectId: fixtureProject.id,
+		projectRevision: 1,
+		scope: [],
+		reason: null,
+		error: null,
+		message: "Collected 1 PR completely",
+		requestedAt: iso(fixtureNow - 30),
+		startedAt: iso(fixtureNow - 20),
+		updatedAt: iso(fixtureNow),
+		completedAt: iso(fixtureNow),
+		notBefore: iso(fixtureNow - 30),
+		progress: { completed: 1, total: 1 },
+		observation: { id: "watch-1", generation: 1 },
+		repositories: [],
+		...overrides,
+	};
+}
 export function publicProject(project = fixtureProject as Project) {
 	return {
 		...project,

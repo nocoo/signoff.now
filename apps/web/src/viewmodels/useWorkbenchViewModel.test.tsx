@@ -55,6 +55,7 @@ vi.mock("@/models/monitoringApi", async (original) => ({
 	loadCatalog: vi.fn(),
 	loadPulls: vi.fn(),
 	loadCollector: vi.fn(),
+	loadCollectorHistory: vi.fn(),
 	loadPull: vi.fn(),
 	lookupPull: vi.fn(),
 	loadPending: vi.fn(),
@@ -261,6 +262,10 @@ it("a failed second PR page keeps Previous available and returns to the working 
 beforeEach(() => {
 	vi.resetAllMocks();
 	localStorage.clear();
+	vi.mocked(api.loadCollectorHistory).mockResolvedValue({
+		data: [],
+		nextCursor: null,
+	});
 	vi.mocked(api.loadCatalog).mockImplementation(
 		async (source) => queryFixture(source).catalog,
 	);
@@ -1865,6 +1870,9 @@ describe("project settings and explicit discovery", () => {
 					<CollectionStatus />
 				</WorkbenchProvider>
 			</MemoryRouter>,
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: /Open details and history/ }),
 		);
 		const interval = await screen.findByRole("combobox", {
 			name: "Watched PR refresh cooldown",
