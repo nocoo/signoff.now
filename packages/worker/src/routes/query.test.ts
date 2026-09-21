@@ -979,6 +979,10 @@ describe("v1 cache queries", () => {
 			...common,
 			id: "a",
 			title: "Zulu",
+			targetBranch: "main",
+			author: { id: "alice", name: "Alice" },
+			repository: { id: "repo-1", name: "web-app" },
+			summaryObservedAt: PR_TEST_NOW - 10,
 			updatedAt: PR_TEST_NOW - 10,
 			createdAt: PR_TEST_NOW - 100,
 		});
@@ -988,17 +992,31 @@ describe("v1 cache queries", () => {
 			number: 2,
 			externalId: "2",
 			title: "Alpha",
+			targetBranch: "release/example/long-branch",
+			author: { id: "bob", name: "Bob" },
+			repository: { id: "repo-2", name: "zulu-app" },
+			summaryObservedAt: PR_TEST_NOW - 5,
 			checksObservedAt: null,
 			checksInvalidated: true,
 			updatedAt: PR_TEST_NOW - 5,
 			createdAt: PR_TEST_NOW - 80,
 		});
 		for (const [sort, direction, expected] of [
+			["repository", "asc", ["a", "b"]],
+			["repository", "desc", ["b", "a"]],
+			["author", "asc", ["a", "b"]],
+			["author", "desc", ["b", "a"]],
+			["target", "asc", ["a", "b"]],
+			["target", "desc", ["b", "a"]],
+			["stateChecked", "asc", ["a", "b"]],
+			["stateChecked", "desc", ["b", "a"]],
+			["checksChecked", "asc", ["b", "a"]],
+			["checksChecked", "desc", ["a", "b"]],
 			["title", "asc", ["b", "a"]],
 			["title", "desc", ["a", "b"]],
-			["readiness", "asc", ["a", "b"]],
+			["readiness", "asc", ["b", "a"]],
 			["progress", "asc", ["b", "a"]],
-			["action", "asc", ["a", "b"]],
+			["action", "asc", ["b", "a"]],
 			["updated", "asc", ["a", "b"]],
 			["oldest", "desc", ["b", "a"]],
 		] as const) {
@@ -1700,4 +1718,36 @@ test("collector group queries are read-only, source-scoped and validate cursors"
 	expect(
 		sqlite.raw.query("SELECT COUNT(*) n FROM collection_jobs").get(),
 	).toEqual({ n: 1 });
+});
+
+test("non-main PRs expose Skipped consistently in lists, details, filters and repository counts", async () => {
+	seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite, { targetBranch: "release/test", mergeable: "conflicts" });
+	const list = pullListSchema.parse(
+		await (await request("/api/query/v1/prs?status=skipped")).json(),
+	);
+	expect(list.data).toHaveLength(1);
+	expect(list.metrics.skipped).toBe(1);
+	expect(list.data[0]?.readiness).toMatchObject({
+		kind: "skipped",
+		status: "complete",
+		current: null,
+		previous: null,
+	});
+	const detail = pullDetailSchema.parse(
+		await (await request("/api/query/v1/prs/pull-1")).json(),
+	);
+	expect(detail.data.readiness).toEqual(list.data[0]!.readiness);
+	const repos = repoListSchema.parse(
+		await (await request("/api/query/v1/repos")).json(),
+	);
+	expect(repos.data[0]?.counts.skipped).toBe(1);
+	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, PR_TEST_NOW);
+	const watched = pullListSchema.parse(
+		await (
+			await request("/api/query/v1/prs?status=skipped&watching=true")
+		).json(),
+	);
+	expect(watched.data).toHaveLength(1);
+	expect(watched.metrics.skipped).toBe(1);
 });

@@ -733,10 +733,16 @@ test("conflicts bypass Jev and unwatched conflicts remain not evaluated", async 
 	}) as unknown as typeof fetch);
 	expect(calls).toBe(0);
 	expect(
-		evaluationOutput(row(), true, { mergeable: "conflicts" }),
+		evaluationOutput(row(), true, {
+			mergeable: "conflicts",
+			targetBranch: "main",
+		}),
 	).toMatchObject({ kind: "conflict", current: null, status: "complete" });
 	expect(
-		evaluationOutput(row(), false, { mergeable: "conflicts" }).status,
+		evaluationOutput(row(), false, {
+			mergeable: "conflicts",
+			targetBranch: "main",
+		}).status,
 	).toBe("not_watched");
 	change("mergeable", "clear");
 	await runAiOnce(env(), view, now, (async () => {
@@ -793,4 +799,76 @@ test("project rules invalidate and enter only that project's watched decision st
 	expect(seen).toHaveLength(2);
 	expect(seen[0]).not.toContain("Only the second project");
 	expect(seen[1]).toContain("Only the second project");
+});
+
+test("non-main targets skip inference, hide past judgments and allow main-target siblings", async () => {
+	await setup();
+	let calls = 0;
+	const fetcher = (async (_url: string | URL | Request, init?: RequestInit) => {
+		calls++;
+		expect(String(init?.body)).not.toContain("release/do-not-send");
+		return response();
+	}) as unknown as typeof fetch;
+	for (const targetBranch of [
+		"release/do-not-send",
+		"feature/main",
+		"MAIN",
+		"refs/heads/user/topic",
+	]) {
+		change("targetBranch", targetBranch);
+		const pull = { targetBranch, mergeable: "conflicts" as const };
+		expect(evaluationOutput(row(), true, pull)).toMatchObject({
+			kind: "skipped",
+			status: "complete",
+			current: null,
+			previous: null,
+		});
+		expect(evaluationOutput(row(), false, pull).kind).toBe("skipped");
+		expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
+			processed: false,
+		});
+	}
+	expect(calls).toBe(0);
+	seedPull(sqlite, {
+		id: "sibling",
+		externalId: "2",
+		number: 2,
+		targetBranch: "master",
+	});
+	await addObservation(sqlite.db, "cli", { pullId: "sibling" }, now);
+	expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
+		processed: true,
+	});
+	expect(calls).toBe(1);
+});
+
+test("retargeting during inference fences the late result and returning to main evaluates again", async () => {
+	await setup();
+	let calls = 0;
+	const fetcher = (async () => {
+		calls++;
+		if (calls === 1) change("targetBranch", "release/new-target");
+		return response("ready");
+	}) as unknown as typeof fetch;
+	await runAiOnce(env(), view, now, fetcher);
+	expect(row().result_json).toBeNull();
+	expect(
+		evaluationOutput(row(), true, {
+			targetBranch: "release/new-target",
+			mergeable: "clear",
+		}).kind,
+	).toBe("skipped");
+	await runAiOnce(env(), view, now + 300, fetcher);
+	expect(calls).toBe(1);
+	change("targetBranch", "refs/heads/main");
+	await runAiOnce(env(), view, now + 301, fetcher);
+	expect(calls).toBe(2);
+	expect(row().status).toBe("complete");
+	change("targetBranch", "release/new-target");
+	expect(
+		evaluationOutput(row(), true, {
+			targetBranch: "release/new-target",
+			mergeable: "clear",
+		}),
+	).toMatchObject({ kind: "skipped", previous: null, current: null });
 });

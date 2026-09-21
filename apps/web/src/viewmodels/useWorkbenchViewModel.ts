@@ -64,6 +64,7 @@ const emptyMetrics = {
 	attention: 0,
 	running: 0,
 	conflict: 0,
+	skipped: 0,
 	warning: 0,
 	ready: 0,
 	waiting: 0,

@@ -102,3 +102,87 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 	await expect(row.getByText("Attention", { exact: true })).toBeVisible();
 	await expect(row.getByRole("button", { name: /Last result/ })).toHaveCount(0);
 });
+
+test("compact sortable columns preserve full branches and cyan Skipped across reloads", async ({
+	page,
+}) => {
+	const fixture = queryFixture();
+	const branch =
+		"users/example/integration/a-long-target-branch-with-full-identity";
+	await page.route("**/api/ai/tick", (route) =>
+		route.fulfill({ json: { processed: false } }),
+	);
+	await page.route("**/api/query/v1/repos?*", (route) =>
+		route.fulfill({ json: fixture.catalog }),
+	);
+	await page.route("**/api/query/v1/prs?*", (route) =>
+		route.fulfill({
+			json: {
+				...fixture.pulls,
+				metrics: { ...fixture.pulls.metrics, skipped: 1 },
+				data: [
+					{
+						...publicPull(fixturePull, fixtureProject, fixtureObservation()),
+						targetBranch: branch,
+						readiness: {
+							...presentReadiness("complete"),
+							kind: "skipped",
+							label: "Skipped",
+							nextAction: "Non-main target branch; Jev evaluation skipped.",
+						},
+					},
+				],
+			},
+		}),
+	);
+	await page.setViewportSize({ width: 1920, height: 1080 });
+	await page.goto("/prs");
+	const row = page.locator(`[data-pull-id="${fixturePull.id}"]`);
+	await expect(
+		row.getByText("Skipped", { exact: true }).locator(".."),
+	).toHaveClass(/bg-basalt-badge-teal/);
+	await expect(row.getByText(branch, { exact: true })).toBeVisible();
+	await expect(row.getByText(branch, { exact: true })).not.toHaveClass(
+		/truncate/,
+	);
+	await expect(
+		row.getByRole("button", { name: /Last result|Jev ·/ }),
+	).toHaveCount(0);
+	await expect(page.getByRole("columnheader")).toHaveCount(12);
+	for (const [label, key] of [
+		["Repository", "repository"],
+		["Author", "author"],
+		["Target branch", "target"],
+		["State checked", "stateChecked"],
+		["Checks collected", "checksChecked"],
+	]) {
+		const sortedRequest = page.waitForRequest(
+			(request) =>
+				request.url().includes("/api/query/v1/prs?") &&
+				new URL(request.url()).searchParams.get("sort") === key,
+		);
+		await page
+			.getByRole("button", { name: `Sort by ${label}`, exact: true })
+			.click();
+		await sortedRequest;
+		await expect(
+			page.getByRole("table", { name: "Pull requests" }),
+		).toHaveAttribute("aria-busy", "false");
+	}
+	await page.screenshot({
+		path: test.info().outputPath("compact-pr-list-desktop.png"),
+	});
+	await page.reload();
+	await expect(row.getByText("Skipped", { exact: true })).toBeVisible();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await row.getByText(branch, { exact: true }).scrollIntoViewIfNeeded();
+	await expect(row.getByText(branch, { exact: true })).toBeVisible();
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth > innerWidth,
+		),
+	).toBe(false);
+	await page.screenshot({
+		path: test.info().outputPath("compact-pr-list-mobile.png"),
+	});
+});

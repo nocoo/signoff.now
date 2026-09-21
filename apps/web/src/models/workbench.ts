@@ -26,7 +26,18 @@ export type PullFilter = {
 	authors: string[];
 	state: "open" | "merged" | "closed" | "all";
 	status: "all" | AiReadiness["kind"];
-	sort: "readiness" | "title" | "progress" | "action" | "updated" | "oldest";
+	sort:
+		| "repository"
+		| "author"
+		| "target"
+		| "stateChecked"
+		| "checksChecked"
+		| "readiness"
+		| "title"
+		| "progress"
+		| "action"
+		| "updated"
+		| "oldest";
 	sortDirection: "asc" | "desc";
 	watching: "all" | "watching" | "unwatched";
 };
@@ -91,6 +102,11 @@ export function readPullFilter(
 	const status = legacyStatus === "draft" ? "all" : legacyStatus;
 	const requestedSort = params.get("sort");
 	const sort = [
+		"repository",
+		"author",
+		"target",
+		"stateChecked",
+		"checksChecked",
 		"readiness",
 		"title",
 		"progress",
@@ -167,7 +183,9 @@ export function matchesRepository(
 function defaultSortDirection(
 	sort: PullFilter["sort"],
 ): PullFilter["sortDirection"] {
-	return sort === "updated" || sort === "progress" ? "desc" : "asc";
+	return ["updated", "progress", "stateChecked", "checksChecked"].includes(sort)
+		? "desc"
+		: "asc";
 }
 export function nextPullSort(
 	filter: PullFilter,

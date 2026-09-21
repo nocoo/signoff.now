@@ -40,6 +40,7 @@ export function LifecycleBadge({
 	);
 }
 const READINESS_ICONS = {
+	skipped: CircleDashed,
 	conflict: X,
 	warning: ShieldAlert,
 	running: LoaderCircle,
@@ -61,6 +62,7 @@ export function ReadinessBadge({
 			: READINESS_ICONS[readiness.kind];
 	const color = (
 		{
+			skipped: "cyan",
 			conflict: "red",
 			warning: "yellow",
 			running: "blue",
@@ -82,6 +84,7 @@ export function ReadinessBadge({
 }
 
 const COLOR_VARIANTS = {
+	cyan: "teal",
 	green: "success",
 	yellow: "orange",
 	orange: "orange",
@@ -95,7 +98,7 @@ export function ReadinessSwatch({
 	children,
 	subtle = false,
 }: {
-	color: ReadinessColor;
+	color: ReadinessColor | "cyan";
 	subtle?: boolean;
 	children: ReactNode;
 }) {

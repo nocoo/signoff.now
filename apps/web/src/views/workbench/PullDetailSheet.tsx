@@ -404,7 +404,9 @@ function PullDetail({
 								<p className="mt-2 text-xs text-basalt-muted-foreground">
 									{readiness.kind === "conflict"
 										? "Provider merge conflict · Not sent to Jev."
-										: "Jev classification · Provider merge requirements remain authoritative."}
+										: readiness.kind === "skipped"
+											? "Non-main target branch · Not sent to Jev."
+											: "Jev classification · Provider merge requirements remain authoritative."}
 								</p>
 								{Boolean(readiness.error) && (
 									<p

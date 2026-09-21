@@ -31,6 +31,7 @@ export const CLASSIFICATION = {
 		"Only waiting for external reviewers, after successful unexpired builds. Never author changes, queued builds or PoP.",
 } as const;
 export const aiKindSchema = z.enum([
+	"skipped",
 	"conflict",
 	"attention",
 	"warning",
@@ -47,6 +48,7 @@ export {
 	policyInstructionsSchema,
 } from "./workbench.js";
 export const NEXT_ACTIONS = {
+	skipped: "Non-main target branch; Jev evaluation skipped.",
 	conflict: "Resolve the merge conflict.",
 	attention: "Human inspection is needed. Review the PR evidence.",
 	warning: "Observe the issue for automatic recovery.",
@@ -91,6 +93,7 @@ export const aiSettingsSchema = z.object({
 	rubric: z.string(),
 });
 export const AI_LABELS = {
+	skipped: "Skipped",
 	conflict: "Conflict",
 	attention: "Attention",
 	warning: "Warning",
@@ -100,6 +103,9 @@ export const AI_LABELS = {
 	unknown: "Unknown",
 	error: "Error",
 } as const;
+export function isMainTarget(pull: Pick<PullRequest, "targetBranch">): boolean {
+	return /^(?:refs\/heads\/)?(?:main|master)$/.test(pull.targetBranch);
+}
 export function presentReadiness(
 	status: AiReadiness["status"],
 	result: z.infer<typeof jevResultSchema> | null = null,

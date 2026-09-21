@@ -330,13 +330,19 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		await page.setViewportSize({ width, height: 1080 });
 		const titleWidth = (await titleColumn.boundingBox())!.width;
 		expect(titleWidth).toBeGreaterThanOrEqual(239);
-		expect(titleWidth).toBeLessThanOrEqual(401);
+		expect((await checksColumn.boundingBox())!.width).toBeLessThanOrEqual(145);
+		expect((await actionColumn.boundingBox())!.width).toBeLessThanOrEqual(161);
 		expect(
-			Math.abs(
-				(await checksColumn.boundingBox())!.width -
-					(await actionColumn.boundingBox())!.width,
-			),
-		).toBeLessThan(2);
+			await page.evaluate(() => {
+				const table = document.querySelector(
+					'table[aria-label="Pull requests"]',
+				)!;
+				return (
+					table.getBoundingClientRect().width <=
+					table.parentElement!.clientWidth
+				);
+			}),
+		).toBe(true);
 		await page.screenshot({
 			path: test.info().outputPath(`pull-wide-layout-${width}.png`),
 			fullPage: true,

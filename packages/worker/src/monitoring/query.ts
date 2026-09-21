@@ -88,6 +88,7 @@ const querySchema = z.object({
 	status: z
 		.enum([
 			"all",
+			"skipped",
 			"conflict",
 			"attention",
 			"warning",
@@ -101,6 +102,11 @@ const querySchema = z.object({
 	sort: z
 		.enum([
 			"identity",
+			"repository",
+			"author",
+			"target",
+			"stateChecked",
+			"checksChecked",
 			"readiness",
 			"title",
 			"progress",
@@ -602,8 +608,9 @@ async function readPullPage(
 				readiness.status === "not_watched" ? "not_evaluated" : readiness.kind,
 			rank:
 				readiness.status === "not_watched"
-					? 8
+					? 9
 					: {
+							skipped: 8,
 							conflict: 0,
 							error: 1,
 							attention: 2,
@@ -691,6 +698,13 @@ async function readPullPage(
 	];
 	const sort = {
 		identity: "id",
+		repository: "json_extract(snapshot,'$.repository.name') COLLATE NOCASE",
+		author: "author_name COLLATE NOCASE",
+		target: "json_extract(snapshot,'$.targetBranch') COLLATE NOCASE",
+		stateChecked:
+			"COALESCE(json_extract(snapshot,'$.summaryObservedAt'),json_extract(snapshot,'$.observedAt'))",
+		checksChecked:
+			"CASE WHEN json_type(snapshot,'$.checksObservedAt')='null' THEN -1 ELSE COALESCE(json_extract(snapshot,'$.checksObservedAt'),json_extract(snapshot,'$.observedAt')) END",
 		readiness: "readiness_rank",
 		title: "json_extract(snapshot,'$.title') COLLATE NOCASE",
 		progress: "completion",
@@ -706,7 +720,7 @@ async function readPullPage(
 		db.prepare(`${cte} SELECT COUNT(*) total FROM matched`).bind(...binds),
 		db
 			.prepare(`${cte} SELECT COALESCE(SUM(state='open'),0) open,
-      COALESCE(SUM(readiness_kind='attention'),0) attention,
+      COALESCE(SUM(readiness_kind='attention'),0) attention,COALESCE(SUM(readiness_kind='skipped'),0) skipped,
  COALESCE(SUM(readiness_kind='running'),0) running,COALESCE(SUM(readiness_kind='conflict'),0) conflict,COALESCE(SUM(readiness_kind='warning'),0) warning,COALESCE(SUM(readiness_kind='ready'),0) ready,COALESCE(SUM(readiness_kind='waiting'),0) waiting,COALESCE(SUM(readiness_kind='unknown'),0) unknown,COALESCE(SUM(readiness_kind='error'),0) error,
       COALESCE(SUM(state='open' AND draft=1),0) draft,COALESCE(SUM(state='merged'),0) merged,COALESCE(SUM(state='closed'),0) closed FROM filtered`)
 			.bind(...binds),
@@ -948,6 +962,7 @@ async function readRepositoryPage(
 					).length,
 					...(Object.fromEntries(
 						[
+							"skipped",
 							"conflict",
 							"attention",
 							"warning",
@@ -965,20 +980,21 @@ async function readRepositoryPage(
 									makeWatchRef(project, p.repository, p.number),
 								);
 								return (
-									o?.active &&
+									(o?.active || kind === "skipped") &&
 									evaluationOutput(
 										snapshot.evaluations.find(
 											(e) =>
-												e.observation_id === o.id &&
+												e.observation_id === o?.id &&
 												e.generation === o.generation,
 										),
-										true,
+										Boolean(o?.active),
 										p,
 									).kind === kind
 								);
 							}).length,
 						]),
 					) as Record<
+						| "skipped"
 						| "conflict"
 						| "attention"
 						| "warning"

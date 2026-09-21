@@ -291,7 +291,7 @@ export function PullsPage() {
 							<Table
 								aria-label="Pull requests"
 								aria-busy={vm.loading}
-								className="min-w-[1100px] table-fixed"
+								className="min-w-[1520px] table-fixed [&_th]:px-2 [&_td]:px-2"
 							>
 								<TableHeader>
 									<TableRow>
@@ -307,20 +307,29 @@ export function PullsPage() {
 										<SortableHead
 											sort="title"
 											label="Pull request"
-											className="w-[clamp(240px,20vw,400px)]"
+											className=""
 											filter={vm.filter}
 											disabled={vm.loading}
 											onSort={() =>
 												vm.setFilter(nextPullSort(vm.filter, "title"))
 											}
 										/>
-										<TableHead className="w-32">Target branch</TableHead>
+
 										{(
 											[
-												["readiness", "Readiness", "w-40"],
-												["progress", "Checks & stages", ""],
-												["action", "Next action", ""],
-												["updated", "PR updated", "w-28 text-right"],
+												["repository", "Repository", "w-32"],
+												["author", "Author", "w-28"],
+												["target", "Target branch", "w-44"],
+												["readiness", "Readiness", "w-36"],
+												["progress", "Checks & stages", "w-36"],
+												["action", "Next action", "w-40"],
+												["updated", "PR updated", "w-24 text-right"],
+												["stateChecked", "State checked", "w-24 text-right"],
+												[
+													"checksChecked",
+													"Checks collected",
+													"w-28 text-right",
+												],
 											] as const
 										).map(([sort, label, className]) => (
 											<SortableHead
@@ -396,50 +405,24 @@ export function PullsPage() {
 function PullTableSkeleton() {
 	return [1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
 		<TableRow key={row} aria-hidden="true" className="pointer-events-none">
-			<TableCell className="px-2 py-3.5 align-middle">
-				<Skeleton className="mx-auto h-4 w-4" />
-			</TableCell>
-			<TableCell className="px-1 py-3.5 align-middle">
-				<Skeleton className="mx-auto h-5 w-5" />
-			</TableCell>
-			<TableCell className="py-3.5">
-				<div className="space-y-2">
-					<Skeleton
-						className={cn("h-4", row % 3 === 0 ? "w-3/5" : "w-11/12")}
-					/>
-					<Skeleton className="h-2.5 w-3/4" />
-					<div className="flex items-center gap-1.5">
-						<Skeleton className="h-4 w-4 overflow-hidden rounded-full" />
-						<Skeleton className="h-2.5 w-20" />
-					</div>
-				</div>
-			</TableCell>
-			<TableCell className="align-middle">
-				<Skeleton className="h-3 w-20" />
-			</TableCell>
-			<TableCell className="py-3.5 align-top">
-				<Skeleton className="h-5 w-24" />
-				<Skeleton className="mt-2 h-2.5 w-16" />
-			</TableCell>
-			<TableCell className="py-3.5 align-top">
-				<Skeleton className="mb-3 h-3 w-20" />
-				<div className="grid grid-cols-6 gap-1">
-					{[1, 2, 3, 4, 5, 6].map((stage) => (
-						<Skeleton key={stage} className="h-1.5" />
-					))}
-				</div>
-				<Skeleton className="mt-2 h-2.5 w-24" />
-			</TableCell>
-			<TableCell className="py-3.5 align-top">
-				<Skeleton className="h-3 w-full" />
-				<Skeleton className="mt-2 h-3 w-2/3" />
-				<Skeleton className="mt-2 h-2.5 w-20" />
-			</TableCell>
-			<TableCell className="space-y-2 py-3.5 align-top">
-				<Skeleton className="ml-auto h-2.5 w-12" />
-				<Skeleton className="ml-auto h-2.5 w-16" />
-				<Skeleton className="ml-auto h-2.5 w-20" />
-			</TableCell>
+			{[
+				"select",
+				"watch",
+				"title",
+				"repository",
+				"author",
+				"target",
+				"readiness",
+				"progress",
+				"action",
+				"updated",
+				"stateChecked",
+				"checksChecked",
+			].map((column) => (
+				<TableCell key={column} className="py-2">
+					<Skeleton className="h-4 w-full" />
+				</TableCell>
+			))}
 		</TableRow>
 	));
 }
@@ -642,7 +625,7 @@ function PullTableRow({
 				vm.selectedIds.has(pull.id) && "bg-basalt-primary/4",
 			)}
 		>
-			<TableCell className="w-10 px-2 py-3.5 align-middle">
+			<TableCell className="w-10 px-2 py-2 align-middle">
 				<div className="flex items-center justify-center">
 					<Checkbox
 						aria-label={`Select PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
@@ -657,7 +640,7 @@ function PullTableRow({
 					/>
 				</div>
 			</TableCell>
-			<TableCell className="w-12 px-1 py-3.5 align-middle">
+			<TableCell className="w-12 px-1 py-2 align-middle">
 				<div className="flex items-center justify-center">
 					<Button
 						variant="ghost"
@@ -695,7 +678,7 @@ function PullTableRow({
 					</Button>
 				</div>
 			</TableCell>
-			<TableCell className="py-3.5 align-top">
+			<TableCell className="py-2 align-top">
 				<div className="flex items-start gap-1.5">
 					<Button
 						variant="link"
@@ -719,28 +702,25 @@ function PullTableRow({
 					>
 						#{pull.number}
 					</a>
-					<LifecycleBadge pull={pull} /> <span aria-hidden>·</span>
-					<span>
-						<RepositoryScopeLinks
-							project={project}
-							repository={pull.repository}
-						/>
-					</span>
-				</div>
-				<div className="mt-1 flex items-center text-[11px] text-basalt-muted-foreground">
-					<EntityLabel
-						name={pull.author.name}
-						avatarUrl={pull.author.avatarUrl}
-						size="xs"
-					/>
+					<LifecycleBadge pull={pull} />
 					{pull.labels.includes("release blocker") ? (
-						<Badge variant="error" className="ml-2 px-1.5 py-0 text-[9px]">
+						<Badge variant="error" className="ml-2 px-1.5 py-0 text-[11px]">
 							release blocker
 						</Badge>
 					) : null}
 				</div>
 			</TableCell>
-			<TableCell className="py-3.5 align-middle">
+			<TableCell className="break-words py-2 align-middle text-[11px]">
+				<RepositoryScopeLinks project={project} repository={pull.repository} />
+			</TableCell>
+			<TableCell className="py-2 align-middle text-[11px]">
+				<EntityLabel
+					name={pull.author.name}
+					avatarUrl={pull.author.avatarUrl}
+					size="xs"
+				/>
+			</TableCell>
+			<TableCell className="py-2 align-middle">
 				<a
 					href={repositoryBranchUrl(
 						project,
@@ -754,10 +734,12 @@ function PullTableRow({
 					className="flex min-w-0 items-center gap-1.5 rounded-sm font-mono text-[11px] text-basalt-muted-foreground underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
 				>
 					<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
-					<span className="truncate">{pull.targetBranch}</span>
+					<span className="min-w-0 whitespace-normal break-all">
+						{pull.targetBranch}
+					</span>
 				</a>
 			</TableCell>
-			<TableCell className="py-3.5 align-top">
+			<TableCell className="py-2 align-top">
 				<ReadinessCell
 					display={readinessDisplay(
 						readiness,
@@ -768,15 +750,17 @@ function PullTableRow({
 					failed={readiness.status === "error"}
 				/>
 			</TableCell>
-			<TableCell className="py-3.5 align-top">
+			<TableCell className="py-2 align-top">
 				{pull.checksObservedAt === null ? (
-					<div className="space-y-1 text-xs text-basalt-muted-foreground">
-						<p>Checks not collected</p>
-						<p className="text-[11px]">Add to watch list to collect checks</p>
-					</div>
+					<p
+						className="text-[11px] text-basalt-muted-foreground"
+						title="Add to watch list to collect policies, builds and stages"
+					>
+						Checks not collected
+					</p>
 				) : (
 					<>
-						<div className="mb-2 flex items-baseline justify-between gap-1 text-xs">
+						<div className="mb-1 flex items-baseline justify-between gap-1 text-xs">
 							<span className="font-medium tabular-nums">
 								{progress.checksPassed}/{progress.checksTotal} required
 							</span>
@@ -785,7 +769,7 @@ function PullTableRow({
 							</span>
 						</div>
 						<StageBar builds={pull.builds} />
-						<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
+						<p className="mt-1 text-[11px] text-basalt-muted-foreground">
 							{progress.stagesPassed}/{progress.stagesTotal} stages passed
 							{progress.optionalFailures
 								? ` · ${progress.optionalFailures} advisory`
@@ -794,51 +778,43 @@ function PullTableRow({
 					</>
 				)}
 			</TableCell>
-			<TableCell className="py-3.5 align-top">
-				<p className="text-xs leading-5">{readiness.nextAction}</p>
-				<EntityLabel
-					name="Jev"
-					size="xs"
-					className="mt-1 text-[11px] text-basalt-muted-foreground"
-				/>
+			<TableCell className="py-2 align-top">
+				<p
+					className="line-clamp-2 text-[11px] leading-4"
+					title={readiness.nextAction}
+				>
+					{readiness.nextAction}
+				</p>
 			</TableCell>
-			<TableCell className="py-3.5 align-top text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
+			<TableCell className="py-2 align-top text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
 				<time
 					dateTime={new Date(pull.updatedAt * 1000).toISOString()}
 					title={new Date(pull.updatedAt * 1000).toLocaleString()}
 				>
 					{relativeAge(pull.updatedAt, now)}
 				</time>
-				<p className="mt-1.5">
-					State{" "}
-					<time
-						dateTime={new Date(stateAt * 1000).toISOString()}
-						title={`PR state checked: ${new Date(stateAt * 1000).toLocaleString()}`}
-					>
-						{relativeAge(stateAt, now)}
-					</time>
-				</p>
-				<p
-					className="mt-0.5"
-					title="Policies, builds and stages have an independent refresh interval."
+			</TableCell>
+			<TableCell className="py-2 align-middle text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
+				<time
+					dateTime={new Date(stateAt * 1000).toISOString()}
+					title={`PR state checked: ${new Date(stateAt * 1000).toLocaleString()}`}
 				>
-					Checks{" "}
-					{checksAt === null ? (
-						<abbr
-							title="Checks have not been collected"
-							className="no-underline"
-						>
-							—
-						</abbr>
-					) : (
-						<time
-							dateTime={new Date(checksAt * 1000).toISOString()}
-							title={`Checks collected: ${new Date(checksAt * 1000).toLocaleString()}${pull.checksInvalidated ? " · PR changed; checks need refreshing" : ""}`}
-						>
-							{pull.checksInvalidated ? "outdated" : relativeAge(checksAt, now)}
-						</time>
-					)}
-				</p>
+					{relativeAge(stateAt, now)}
+				</time>
+			</TableCell>
+			<TableCell className="py-2 align-middle text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
+				{checksAt === null ? (
+					<abbr title="Checks have not been collected" className="no-underline">
+						—
+					</abbr>
+				) : (
+					<time
+						dateTime={new Date(checksAt * 1000).toISOString()}
+						title={`Checks collected: ${new Date(checksAt * 1000).toLocaleString()}${pull.checksInvalidated ? " · PR changed; checks need refreshing" : ""}`}
+					>
+						{pull.checksInvalidated ? "outdated" : relativeAge(checksAt, now)}
+					</time>
+				)}
 			</TableCell>
 		</TableRow>
 	);

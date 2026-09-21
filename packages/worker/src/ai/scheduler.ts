@@ -1,10 +1,13 @@
 import {
+	AI_LABELS,
 	type AiReadiness,
 	type AiTick,
 	type DecisionState,
 	decisionFingerprint,
 	decisionState,
+	isMainTarget,
 	jevResultSchema,
+	NEXT_ACTIONS,
 	presentReadiness,
 } from "@signoff/domain/ai-readiness";
 import { type PullRequest, pullRequestSchema } from "@signoff/domain/workbench";
@@ -32,8 +35,15 @@ export type EvaluationRow = {
 export function evaluationOutput(
 	row: EvaluationRow | undefined,
 	active: boolean,
-	pull?: Pick<PullRequest, "mergeable">,
+	pull?: Pick<PullRequest, "mergeable" | "targetBranch">,
 ): AiReadiness {
+	if (pull && !isMainTarget(pull))
+		return {
+			...presentReadiness("complete"),
+			kind: "skipped",
+			label: AI_LABELS.skipped,
+			nextAction: NEXT_ACTIONS.skipped,
+		};
 	if (!active) return presentReadiness("not_watched");
 	if (pull?.mergeable === "conflicts")
 		return {
@@ -246,7 +256,7 @@ async function readCandidates(
 			row,
 			pull: pullRequestSchema.parse(JSON.parse(row.snapshot)),
 		}))
-		.filter(({ pull }) => pull.mergeable !== "conflicts")
+		.filter(({ pull }) => isMainTarget(pull) && pull.mergeable !== "conflicts")
 		.map((item) => ({
 			...item,
 			state: decisionState(item.pull, project, now, detailCooldown, rules),

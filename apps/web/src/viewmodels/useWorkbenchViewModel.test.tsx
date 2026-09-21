@@ -215,6 +215,48 @@ it("keeps PR columns mounted during loading and links the target branch after th
 	expect(link.getAttribute("rel")).toBe("noopener noreferrer");
 });
 
+it("sorts each compact metadata column through the API", async () => {
+	renderView(
+		<MemoryRouter>
+			<WorkbenchProvider>
+				<PullsPage />
+			</WorkbenchProvider>
+		</MemoryRouter>,
+	);
+	await screen.findByRole("link", {
+		name: `Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`,
+	});
+	const table = screen.getByRole("table", { name: "Pull requests" });
+	for (const [label, sort, first] of [
+		["Repository", "repository", "asc"],
+		["Author", "author", "asc"],
+		["Target branch", "target", "asc"],
+		["State checked", "stateChecked", "desc"],
+		["Checks collected", "checksChecked", "desc"],
+	]) {
+		const head = within(table).getByRole("columnheader", { name: label });
+		fireEvent.click(within(head).getByRole("button"));
+		await waitFor(() =>
+			expect(head.getAttribute("aria-sort")).toBe(
+				first === "asc" ? "ascending" : "descending",
+			),
+		);
+		await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
+		const query = new URLSearchParams(
+			vi.mocked(api.loadPulls).mock.calls.slice(-1)[0]![0],
+		);
+		expect(query.get("sort")).toBe(sort);
+		expect(query.get("direction")).toBe(first);
+		fireEvent.click(within(head).getByRole("button"));
+		await waitFor(() =>
+			expect(head.getAttribute("aria-sort")).toBe(
+				first === "asc" ? "descending" : "ascending",
+			),
+		);
+		await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
+	}
+});
+
 it("a failed second pending page keeps Previous available and returns to the working first page", async () => {
 	const items = Array.from({ length: 21 }, (_, i) => ({
 		...publicPull(pull, project, fixtureObservation()).observation!,

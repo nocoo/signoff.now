@@ -4,6 +4,7 @@ import {
 	canonicalJson,
 	decisionFingerprint,
 	decisionState,
+	isMainTarget,
 	JEV_MODEL,
 	JEV_RUBRIC,
 	jevResultSchema,
@@ -479,4 +480,23 @@ test("project batches share identical context but retain repository instructions
 			.description,
 	).toBe("Repository-specific instructions");
 	expect(batchDecisionState([]).prs).toEqual([]);
+});
+
+test("only exact main/master target names are eligible for Jev", () => {
+	for (const targetBranch of [
+		"main",
+		"master",
+		"refs/heads/main",
+		"refs/heads/master",
+	])
+		expect(isMainTarget({ targetBranch })).toBe(true);
+	for (const targetBranch of [
+		"release/main",
+		"MAIN",
+		"master/feature",
+		"refs/heads/mainline",
+		"users/topic",
+		"",
+	])
+		expect(isMainTarget({ targetBranch })).toBe(false);
 });

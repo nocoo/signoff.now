@@ -62,6 +62,7 @@ const readiness = [
 	["running", "Running", CheckCheck, "text-basalt-primary"],
 	["ready", "Ready", CheckCheck, "text-basalt-success"],
 	["waiting", "Waiting", Eye, "text-basalt-muted-foreground"],
+	["skipped", "Skipped", EyeOff, "text-basalt-badge-teal"],
 ] as const;
 
 function FilterChip({
