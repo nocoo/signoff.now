@@ -1,50 +1,5 @@
-import {
-	type AiTick,
-	type aiPresenceSchema,
-	aiScheduleSchema,
-} from "@signoff/domain/ai-readiness";
-import type { z } from "zod";
-
-export async function updateAiPresence(
-	db: D1Database,
-	input: z.infer<typeof aiPresenceSchema>,
-	now: number,
-) {
-	await db
-		.prepare(`INSERT INTO ai_views(id,sequence,source,visible,expires_at) VALUES(?,?,?,?,?)
- ON CONFLICT(id) DO UPDATE SET sequence=excluded.sequence,source=excluded.source,visible=excluded.visible,expires_at=excluded.expires_at WHERE excluded.sequence>ai_views.sequence`)
-		.bind(
-			input.id,
-			input.sequence,
-			input.source,
-			Number(input.visible),
-			now + 15,
-		)
-		.run();
-	await db
-		.prepare("DELETE FROM ai_views WHERE expires_at<?")
-		.bind(now - 86400)
-		.run();
-}
-export async function aiForeground(
-	db: D1Database,
-	source: string,
-	now: number,
-) {
-	return Boolean(
-		await db
-			.prepare(
-				"SELECT 1 FROM ai_views WHERE source=? AND visible=1 AND expires_at>? LIMIT 1",
-			)
-			.bind(source, now)
-			.first(),
-	);
-}
-export async function readAiSchedule(
-	db: D1Database,
-	source: string,
-	now: number,
-) {
+import { aiScheduleSchema } from "@signoff/domain/ai-readiness";
+export async function readAiSchedule(db: D1Database, source: string) {
 	const settings = await db
 		.prepare(
 			"SELECT cooldown_seconds,schedule_revision FROM ai_settings WHERE id=1",
@@ -68,7 +23,6 @@ export async function readAiSchedule(
 	return aiScheduleSchema.parse({
 		revision: settings.schedule_revision,
 		cooldownSeconds: settings.cooldown_seconds,
-		foreground: await aiForeground(db, source, now),
 		projects: results.map((p) => ({
 			id: p.id,
 			name: p.name,
@@ -84,15 +38,4 @@ export async function readAiSchedule(
 			outputTokens: p.output_tokens,
 		})),
 	});
-}
-
-export async function aiViewCurrent(db: D1Database, view: AiTick, now: number) {
-	return Boolean(
-		await db
-			.prepare(
-				"SELECT 1 FROM ai_views WHERE id=? AND sequence=? AND source=? AND visible=1 AND expires_at>? LIMIT 1",
-			)
-			.bind(view.id, view.sequence, view.source, now)
-			.first(),
-	);
 }

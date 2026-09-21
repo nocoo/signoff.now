@@ -18,7 +18,7 @@ const previous: NonNullable<AiReadiness["previous"]> = {
 const schedule: AiSchedule = {
 	revision: 1,
 	cooldownSeconds: 300,
-	foreground: true,
+
 	projects: [
 		{
 			id: "project",
@@ -85,11 +85,8 @@ it("replaces history on completion, respects direct conflicts and hides stopped-
 	expect(display(stopped)).toEqual({ badge: stopped, note: null, detail: "" });
 });
 
-it("shows paused and unavailable schedules honestly instead of promising a request", () => {
-	const paused = display(pending, { ...schedule, foreground: false });
-	expect(paused.note).toBe("Last result · paused");
-	expect(paused.detail).toContain("Earliest Jev request");
-	expect(paused.detail).toContain("visible and focused");
+it("shows daemon scheduling and unavailable timing honestly", () => {
+	expect(display().detail).toContain("daemon availability");
 	expect(display(pending, null).detail).toContain("time is unavailable");
 	const first = {
 		...schedule,

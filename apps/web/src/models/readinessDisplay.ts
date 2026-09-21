@@ -41,13 +41,8 @@ export function readinessDisplay(
 	const timing = eta
 		? `Earliest Jev request: ${new Date(eta * 1000).toLocaleString()}.`
 		: "The project cooldown has elapsed; waiting for the next available batch.";
-	if (!schedule.foreground)
-		return explain(
-			"paused",
-			`${timing} Evaluation resumes when a SignOff tab is visible and focused. Background time counts toward cooldown.`,
-		);
 	return explain(
 		eta ? `~${Math.ceil((eta - now) / 60)}m` : "queued",
-		`New evidence or instructions await evaluation. ${timing} Timing depends on foreground presence and queued work; this is not a completion estimate.`,
+		`New evidence or instructions await evaluation. ${timing} Timing depends on daemon availability and queued work; this is not a completion estimate.`,
 	);
 }

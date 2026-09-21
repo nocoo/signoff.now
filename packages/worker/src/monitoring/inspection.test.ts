@@ -34,7 +34,7 @@ async function setup() {
 		{ pullId: pull.id },
 		now,
 	);
-	const context = await inspectionContext(sqlite.db, "cli", [watch], now);
+	const context = await inspectionContext(sqlite.db, "cli", [watch]);
 	context.settings.configured = 1;
 	return { project, pull, watch, context };
 }
@@ -283,12 +283,11 @@ test("current means cached decision equality, with historical results retained t
 		state: "attention",
 		isCurrent: false,
 		update: {
-			state: "blocked",
-			reason: "background",
+			state: "scheduled",
+			reason: null,
 			notBefore: new Date((now + 200) * 1000).toISOString(),
 		},
 	});
-	context.foreground = true;
 	expect((await read()).readiness.update.state).toBe("scheduled");
 	row.status = "running";
 	expect((await read()).readiness.update.state).toBe("evaluating");
@@ -359,7 +358,7 @@ test("read-only query exposes failed attempts without replacing old evidence and
 		{ pullId: pull.id },
 		now + 4,
 	);
-	const context = await inspectionContext(sqlite.db, "cli", [next], now + 5);
+	const context = await inspectionContext(sqlite.db, "cli", [next]);
 	const rewatch = await inspectObservation(
 		next,
 		pull,
@@ -412,9 +411,8 @@ test("saved policy codes and project instructions share the scheduler fingerprin
 			"INSERT INTO ai_project_schedule(project_id,last_started_at,last_completed_at) VALUES(?,?,?)",
 		)
 		.run(project.id, now - 100, now - 20);
-	const context = await inspectionContext(sqlite.db, "cli", [watch], now);
+	const context = await inspectionContext(sqlite.db, "cli", [watch]);
 	context.settings.configured = 1;
-	context.foreground = true;
 	const state = decisionState(pull, project, now, context.detailCooldown, {
 		common: "Common instructions",
 		project: "Project instructions",

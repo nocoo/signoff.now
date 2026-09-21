@@ -96,9 +96,7 @@ export const inspectionSchema = z.object({
 				"error",
 				"stopped",
 			]),
-			reason: z
-				.enum(["background", "awaiting_collection", "unwatched"])
-				.nullable(),
+			reason: z.enum(["awaiting_collection", "unwatched"]).nullable(),
 			notBefore: timestamp,
 			error: text,
 		}),

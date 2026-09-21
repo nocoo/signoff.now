@@ -433,3 +433,18 @@ describe("local collection API client", () => {
 		});
 	});
 });
+
+test("daemon ticks live inference without browser metadata and does not retry ambiguous failures", async () => {
+	const calls: { url: string; init?: RequestInit }[] = [];
+	const api = createCollectionClient({
+		fetchImpl: async (url, init) => {
+			calls.push({ url, init });
+			return Response.json({}, { status: 503 });
+		},
+	});
+	await expect(api.tickAi()).rejects.toMatchObject({ status: 503 });
+	expect(calls).toHaveLength(1);
+	expect(calls[0]?.url).toBe("http://127.0.0.1:37042/api/ai/tick");
+	expect(calls[0]?.init?.method).toBe("POST");
+	expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ source: "cli" });
+});

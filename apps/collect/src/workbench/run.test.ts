@@ -55,6 +55,9 @@ function setup() {
 	const events: string[] = [];
 	const api: CollectionClient = {
 		recordNetwork: async () => ({}),
+		tickAi: async () => {
+			events.push("ai");
+		},
 		job: async () => claim.job,
 		schedule: async (kind) => ({
 			kind,
@@ -559,6 +562,63 @@ describe("sample and daemon orchestration", () => {
 		]);
 	});
 
+	test("daemon inference stays independent of collection and waits for its in-flight tick on shutdown", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		const inference = deferred<void>();
+		const collections = deferred<void>();
+		let ticks = 0,
+			claims = 0;
+		deps.api.tickAi = async () => {
+			ticks++;
+			await inference.promise;
+		};
+		deps.api.claim = async () => {
+			if (++claims === 3) collections.resolve();
+			return null;
+		};
+		const running = watchCollections({
+			...deps,
+			signal: controller.signal,
+			sleep: async () => {
+				await inference.promise;
+			},
+		});
+		await collections.promise;
+		expect(ticks).toBe(1);
+		controller.abort();
+		inference.resolve();
+		await running;
+		expect(ticks).toBe(1);
+	});
+	test("inference transport failures back off and do not stop collection", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		const release = deferred<void>();
+		const claimed = deferred<void>();
+		const delays: number[] = [];
+		deps.api.tickAi = async () => {
+			throw Error("Inference unavailable");
+		};
+		deps.api.claim = async () => {
+			claimed.resolve();
+			return null;
+		};
+		const running = watchCollections({
+			...deps,
+			signal: controller.signal,
+			sleep: async (ms) => {
+				delays.push(ms);
+				await release.promise;
+			},
+		});
+		await claimed.promise;
+		expect(delays).toContain(10000);
+		controller.abort();
+		release.resolve();
+		await running;
+	});
+
 	test("Sample discovery keeps ID scope when another repository name equals that ID", async () => {
 		const deps = setup();
 		deps.api.claim = async () => ({
@@ -706,6 +766,8 @@ describe("sample and daemon orchestration", () => {
 			const deps = setup();
 			const controller = new AbortController();
 			const sleeps: number[] = [];
+			const aiWait = deferred<void>();
+			deps.api.tickAi = () => aiWait.promise;
 			if (auth)
 				deps.ado.checkAuth = async () => {
 					throw new AdoError("unauthenticated", "Run az login");
@@ -720,6 +782,7 @@ describe("sample and daemon orchestration", () => {
 				sleep: async (ms) => {
 					sleeps.push(ms);
 					controller.abort();
+					aiWait.resolve();
 				},
 			});
 			expect(sleeps).toContain(auth ? 3000 : 10000);

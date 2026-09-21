@@ -8,6 +8,8 @@
 | --- | --- | --- |
 | Project discovery | 10 minutes after each project's completed attempt | Paginate repository PR lists and update all returned PR states. |
 | Watched PR refresh | 5 minutes after each PR's completed attempt | Fetch the full PR state, checks, builds and stages. |
+| Jev readiness | 5 minutes after each project batch completes | The daemon evaluates only changed live watched PRs, even with the dashboard closed. Configure in Connector details. |
+| Jev scheduler polling | 3 seconds after each awaited local tick; 10 seconds after transport errors | Independent of ADO lanes. Unchanged decision fingerprints make no Jev request. |
 | Daemon queue polling | 3 seconds while idle; 10 seconds after transport errors | Read local scheduler state; contact ADO only after claiming eligible work. |
 | Running-task heartbeat | 20 seconds | Renew the local lease and report current phase. |
 | Collector dialog queries | 3 seconds while visible | Read cached groups, history and selected task details. |

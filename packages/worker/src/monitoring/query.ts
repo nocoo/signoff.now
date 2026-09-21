@@ -1191,7 +1191,7 @@ async function readObservationPage(
 			: [],
 	);
 	const observations = rows.map(mapObservation);
-	const context = await inspectionContext(db, source, observations, timestamp);
+	const context = await inspectionContext(db, source, observations);
 	const evaluations = results[3]?.results as EvaluationRow[];
 	const output = await Promise.all(
 		observations.map((o) =>

@@ -53,7 +53,7 @@ vi.mock("@/models/aiScheduleApi", () => ({
 	loadAiSchedule: vi.fn(async () => ({
 		revision: 1,
 		cooldownSeconds: 300,
-		foreground: false,
+
 		projects: [],
 	})),
 	sendAiPresence: vi.fn(async () => undefined),

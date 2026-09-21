@@ -33,7 +33,7 @@ export function useAiRulesViewModel() {
 				await rules.reload();
 				setDraft(null);
 				setMessage(
-					"Rules saved. Affected watched PRs will be evaluated when foreground and eligible.",
+					"Rules saved. Affected watched PRs will be evaluated when their cooldown allows.",
 				);
 			} catch (e) {
 				setMessage(e instanceof Error ? e.message : "Cannot save rules.");

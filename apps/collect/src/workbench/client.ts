@@ -87,7 +87,9 @@ export function createCollectionClient(
 				return await pipelineRequest(
 					path === "/api/collector/network"
 						? { ...config, timeoutMs: 2000 }
-						: config,
+						: path === "/api/ai/tick"
+							? { ...config, timeoutMs: 60_000 }
+							: config,
 					method,
 					path,
 					body,
@@ -112,6 +114,7 @@ export function createCollectionClient(
 			["progress", "batch", "repositories"].includes(action),
 		);
 	return {
+		tickAi: () => request("POST", "/api/ai/tick", { source: "cli" }),
 		recordNetwork: (event: NetworkEvent) =>
 			request("POST", "/api/collector/network", event, true),
 		job: async (id: string) =>

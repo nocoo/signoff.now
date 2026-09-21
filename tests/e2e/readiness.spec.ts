@@ -33,7 +33,7 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 			json: {
 				revision: 1,
 				cooldownSeconds: 300,
-				foreground: true,
+
 				projects: [
 					{
 						id: fixtureProject.id,

@@ -37,14 +37,9 @@ export function AiScheduleSettings({
 				</SelectControl>
 			</div>
 			<p className="text-xs text-basalt-muted-foreground">
-				Only changed watched PRs, grouped by project. Runs while a SignOff tab
-				is visible and focused. Each project waits from batch completion;
-				returning resumes overdue work immediately.
-			</p>
-			<p className="text-xs text-basalt-muted-foreground">
-				{vm.data?.foreground
-					? "Foreground · Evaluation enabled"
-					: "Background · Evaluation paused"}
+				Only changed watched PRs, grouped by project. The daemon evaluates in
+				the background, even with the dashboard closed. Each project waits from
+				batch completion.
 			</p>
 			{Boolean(vm.error || vm.mutationError) && (
 				<p role="alert" className="text-xs text-basalt-destructive">
@@ -66,7 +61,7 @@ export function AiScheduleSettings({
 							? "Awaiting first evaluation"
 							: project.nextEligibleAt > now
 								? `Eligible in ${Math.ceil(project.nextEligibleAt - now)}s`
-								: "Cooldown elapsed · Waiting for changed PRs / foreground"}
+								: "Cooldown elapsed · Waiting for changed PRs"}
 					</p>
 					{project.lastBatchSize > 0 && (
 						<p className="text-basalt-muted-foreground">

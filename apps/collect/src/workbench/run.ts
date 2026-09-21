@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { advanceDemoPull, makeDemoPulls } from "@signoff/domain/demo";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
@@ -346,11 +347,21 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 export async function watchCollections(
 	opts: RunOptions & { sleep?: (ms: number) => Promise<unknown> },
 ): Promise<void> {
-	const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
+	const sleep =
+		opts.sleep ??
+		((ms: number) =>
+			delay(ms, undefined, { signal: opts.signal }).catch((error: unknown) => {
+				if (!opts.signal?.aborted) throw error;
+			}));
 	await Promise.all(
-		(["checks", "checks", "discover"] as const).map(async (lane) => {
+		(["checks", "checks", "discover", "ai"] as const).map(async (lane) => {
 			while (!opts.signal?.aborted) {
 				try {
+					if (lane === "ai") {
+						await opts.api.tickAi();
+						if (!opts.signal?.aborted) await sleep(3000);
+						continue;
+					}
 					await opts.api.heartbeat("ready", "Watching the shared PR list");
 					await opts.api.schedule(
 						lane === "discover" ? "list" : "details",

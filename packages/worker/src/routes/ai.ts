@@ -1,6 +1,5 @@
 import {
 	aiCooldownSchema,
-	aiPresenceSchema,
 	aiRuleWriteSchema,
 	aiSettingsSchema,
 	aiTickSchema,
@@ -11,7 +10,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { evaluateJev, JevError } from "../ai/jev.js";
 import { readAiRules } from "../ai/rules.js";
-import { readAiSchedule, updateAiPresence } from "../ai/schedule.js";
+import { readAiSchedule } from "../ai/schedule.js";
 import { readAiSettings, runAiOnce } from "../ai/scheduler.js";
 import { openKey, sealKey } from "../ai/secrets.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
@@ -132,8 +131,8 @@ aiRoutes.post("/test", async (c) => {
 });
 aiRoutes.post("/tick", async (c) => {
 	const body = await readJsonBodyWithSize(c, 2048);
-	const view = aiTickSchema.parse(body.ok ? body.value : null);
-	return c.json(await runAiOnce(c.env, view));
+	const input = aiTickSchema.parse(body.ok ? body.value : null);
+	return c.json(await runAiOnce(c.env, input.source));
 });
 aiRoutes.post("/retry", async (c) => {
 	await c.env.DB.prepare(
@@ -142,18 +141,11 @@ aiRoutes.post("/retry", async (c) => {
 	return c.json({ scheduled: true });
 });
 
-aiRoutes.post("/presence", async (c) => {
-	const body = await readJsonBodyWithSize(c, 2048);
-	const input = aiPresenceSchema.parse(body.ok ? body.value : null);
-	await updateAiPresence(c.env.DB, input, Math.floor(Date.now() / 1000));
-	return c.json({ saved: true });
-});
 aiRoutes.get("/schedule", async (c) =>
 	c.json(
 		await readAiSchedule(
 			c.env.DB,
 			z.enum(["cli", "demo"]).parse(c.req.query("source") ?? "cli"),
-			Math.floor(Date.now() / 1000),
 		),
 	),
 );

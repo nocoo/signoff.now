@@ -326,20 +326,12 @@ export async function decisionFingerprint(state: unknown) {
 }
 
 export const aiCooldownSchema = z.number().int().min(60).max(3600);
-export const aiPresenceSchema = z
-	.object({
-		id: z.uuid(),
-		sequence: z.number().int().nonnegative(),
-		source: z.enum(["cli", "demo"]),
-		visible: z.boolean(),
-	})
+export const aiTickSchema = z
+	.object({ source: z.enum(["cli", "demo"]) })
 	.strict();
-export const aiTickSchema = aiPresenceSchema.omit({ visible: true });
-export type AiTick = z.infer<typeof aiTickSchema>;
 export const aiScheduleSchema = z.object({
 	revision: z.number().int(),
 	cooldownSeconds: aiCooldownSchema,
-	foreground: z.boolean(),
 	projects: z.array(
 		z.object({
 			id: z.string(),

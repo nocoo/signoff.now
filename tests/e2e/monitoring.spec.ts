@@ -958,9 +958,6 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	const projectId = pull.project.id;
 
 	const machineUrl = `${base}/api/state-machines/${projectId}?source=live&repositoryId=${repo.id}`;
-	await page.route("**/api/ai/presence", (route) =>
-		route.fulfill({ json: { ok: true } }),
-	);
 	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
 	const area = page
 		.getByRole("textbox", { name: "Meaning and human action instructions" })
@@ -982,13 +979,10 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 		await (await page.request.get(machineUrl)).json(),
 	);
 	expect(configured.inherited).toBe(false);
-	const aiView = { id: crypto.randomUUID(), sequence: 1, source: "cli" };
-	await page.request.post(`${base}/api/ai/presence`, {
-		data: { ...aiView, visible: true },
-	});
+	const aiInput = { source: "cli" };
 	for (let i = 0; i < 30; i++) {
 		const tick = await (
-			await page.request.post(`${base}/api/ai/tick`, { data: aiView })
+			await page.request.post(`${base}/api/ai/tick`, { data: aiInput })
 		).json();
 		if (!tick.processed) break;
 	}
@@ -1007,7 +1001,7 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	await expect(
 		page.getByRole("status").filter({ hasText: "Policy instructions saved" }),
 	).toBeVisible();
-	await page.request.post(`${base}/api/ai/tick`, { data: aiView });
+	await page.request.post(`${base}/api/ai/tick`, { data: aiInput });
 	const pending = pullDetailSchema.parse(await cli("pr", "get", pull.id));
 	expect(pending.data.readiness.status).toBe("pending");
 	expect(pending.data.readiness.current).toBeNull();
@@ -1371,7 +1365,7 @@ test("discovery refreshes full history, retries partial pages and respects manua
 	).toHaveAttribute("aria-pressed", "false");
 });
 
-test("collector dialog persists all three cooldowns with foreground presence and mobile layout", async ({
+test("collector dialog persists all three cooldowns with background evaluation and mobile layout", async ({
 	page,
 }) => {
 	await page.goto("/prs");
@@ -1381,6 +1375,9 @@ test("collector dialog persists all three cooldowns with foreground presence and
 	await panel.getByRole("button").click();
 	const dialog = page.getByRole("dialog", { name: "Collector details" });
 	await expect(dialog).toBeVisible();
+	await expect(
+		dialog.getByRole("region", { name: "Jev scheduling" }),
+	).toContainText("dashboard closed");
 	await expect(
 		dialog.getByRole("combobox", { name: "Project discovery cooldown" }),
 	).toBeVisible();
@@ -1578,13 +1575,13 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 
 	expect(providerRequests).toBe(providerReads);
 	const after = await watchList();
-	// Foreground inference can publish a new readiness revision without changing watch membership.
+	// Daemon inference can publish a new readiness revision without changing watch membership.
 	expect(after.data.map(({ pull: _pull, ...watch }) => watch)).toEqual(
 		watches.data.map(({ pull: _pull, ...watch }) => watch),
 	);
 });
 
-test("background tabs send no inference ticks and returning foreground resumes immediately", async ({
+test("browsers never drive inference on focus changes or reload", async ({
 	browserName,
 }, testInfo) => {
 	expect(browserName).toBe("chromium");
@@ -1623,11 +1620,20 @@ test("background tabs send no inference ticks and returning foreground resumes i
 		const page = context.pages()[0]!;
 		let ticks = 0;
 		page.on("request", (request) => {
-			if (new URL(request.url()).pathname === "/api/ai/tick") ticks++;
+			if (
+				["/api/ai/tick", "/api/ai/presence"].includes(
+					new URL(request.url()).pathname,
+				)
+			)
+				ticks++;
 		});
 		await page.goto(`${base}/prs`);
+		await expect(
+			page.getByRole("heading", { name: "Pull requests", exact: true }),
+		).toBeVisible();
 		await page.bringToFront();
-		await expect.poll(() => ticks).toBeGreaterThan(0);
+		await page.waitForTimeout(6000);
+		expect(ticks).toBe(0);
 		const other = await context.newPage();
 		await other.goto("about:blank");
 		await other.bringToFront();
@@ -1638,7 +1644,12 @@ test("background tabs send no inference ticks and returning foreground resumes i
 		await page.waitForTimeout(6000);
 		expect(ticks).toBe(before);
 		await page.bringToFront();
-		await expect.poll(() => ticks).toBeGreaterThan(before);
+		await page.reload();
+		await expect(
+			page.getByRole("heading", { name: "Pull requests", exact: true }),
+		).toBeVisible();
+		await page.waitForTimeout(6000);
+		expect(ticks).toBe(0);
 		await browser.close();
 	} finally {
 		child.kill("SIGTERM");

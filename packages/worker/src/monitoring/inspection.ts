@@ -37,11 +37,10 @@ export async function inspectionContext(
 	db: Database,
 	source: string,
 	observations: Observation[],
-	now: number,
 ) {
 	const projects = [...new Set(observations.map((o) => o.ref.projectId))];
-	const [settings, cadence, rules, codes, schedules, foreground, attempts] =
-		await db.batch([
+	const [settings, cadence, rules, codes, schedules, attempts] = await db.batch(
+		[
 			db.prepare(
 				"SELECT revision,encrypted_key IS NOT NULL AS configured,cooldown_seconds FROM ai_settings WHERE id=1",
 			),
@@ -60,11 +59,6 @@ export async function inspectionContext(
 				)
 				.bind(JSON.stringify(projects)),
 			db
-				.prepare(
-					"SELECT 1 FROM ai_views WHERE source=? AND visible=1 AND expires_at>? LIMIT 1",
-				)
-				.bind(source, now),
-			db
 				.prepare(`SELECT * FROM (
    SELECT observation_id,observation_generation,project_id,kind,scope_json,state,updated_at,completed_at,error_kind,message,
    ROW_NUMBER() OVER(PARTITION BY project_id,kind,scope_json,observation_id,observation_generation ORDER BY updated_at DESC,id DESC) rank
@@ -76,7 +70,8 @@ export async function inspectionContext(
 					JSON.stringify(projects),
 					JSON.stringify(observations.map((o) => o.id)),
 				),
-		]);
+		],
+	);
 	return {
 		settings: settings?.results[0] as {
 			revision: number;
@@ -107,7 +102,6 @@ export async function inspectionContext(
 			last_completed_at: number | null;
 			updated_at: number;
 		}[],
-		foreground: Boolean(foreground?.results.length),
 		attempts: attempts?.results as Attempt[],
 	};
 }
@@ -523,8 +517,8 @@ function inspectUpdate(
 			error: null,
 		};
 	return {
-		state: context.foreground ? "scheduled" : "blocked",
-		reason: context.foreground ? null : "background",
+		state: "scheduled",
+		reason: null,
 		notBefore: iso(notBefore),
 		error: null,
 	};
