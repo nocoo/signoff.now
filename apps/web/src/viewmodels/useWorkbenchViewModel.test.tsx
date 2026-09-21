@@ -30,6 +30,7 @@ import {
 import { pullHref } from "@/models/workspaceLocation";
 import {
 	fixtureObservation,
+	pendingInspection,
 	fixtureProject as project,
 	publicProject,
 	publicPull,
@@ -94,6 +95,7 @@ const draft: ProjectWrite = {
 	repositories: [],
 };
 const fixture = queryFixture();
+const pendingEnvelope = { ...fixture.envelope, schemaVersion: 2 as const };
 function deferred<T>() {
 	let resolve!: (value: T) => void;
 	let reject!: (reason: unknown) => void;
@@ -259,17 +261,14 @@ it("sorts each compact metadata column through the API", async () => {
 });
 
 it("a failed second pending page keeps Previous available and returns to the working first page", async () => {
-	const items = Array.from({ length: 21 }, (_, i) => ({
-		...publicPull(pull, project, fixtureObservation()).observation!,
-		id: `pending-${i}`,
-		pull: null,
-		pullId: null,
-	}));
+	const items = Array.from({ length: 21 }, (_, i) =>
+		pendingInspection({ ...fixtureObservation(), id: `pending-${i}` }),
+	);
 	vi.mocked(api.loadPending).mockImplementation(
 		async (_source, _signal, _scope, page = 1) => {
 			if (page === 2) throw new Error("Pending page 2 failed");
 			return {
-				...fixture.envelope,
+				...pendingEnvelope,
 				data: items.slice(0, 20),
 				page: { ...fixture.page, total: 21 },
 			};
@@ -357,7 +356,7 @@ beforeEach(() => {
 		},
 	}));
 	vi.mocked(api.loadPending).mockResolvedValue({
-		...fixture.envelope,
+		...pendingEnvelope,
 		data: [],
 		page: { ...fixture.page, total: 0 },
 	});
@@ -1683,13 +1682,9 @@ describe("shared watch mutations", () => {
 	});
 	it("pending refs stay visible and removals surface conflicts and rejections", async () => {
 		const watch = fixtureObservation();
-		const item = {
-			...publicPull(pull, project, watch).observation!,
-			pull: null,
-			pullId: null,
-		};
+		const item = pendingInspection(watch);
 		vi.mocked(api.loadPending).mockResolvedValue({
-			...fixture.envelope,
+			...pendingEnvelope,
 			data: [item],
 			page: { ...fixture.page, total: 1 },
 		});
@@ -1707,14 +1702,8 @@ describe("shared watch mutations", () => {
 	it("pending-reference removal is optimistic and rolls back a rejected generation without locking the page", async () => {
 		const watch = fixtureObservation();
 		vi.mocked(api.loadPending).mockResolvedValue({
-			...fixture.envelope,
-			data: [
-				{
-					...publicPull(pull, project, watch).observation!,
-					pull: null,
-					pullId: null,
-				},
-			],
+			...pendingEnvelope,
+			data: [pendingInspection(watch)],
 			page: { ...fixture.page, total: 1 },
 		});
 		const response = deferred<Awaited<ReturnType<typeof api.removeWatches>>>();
@@ -1734,19 +1723,13 @@ describe("shared watch mutations", () => {
 			await write;
 		});
 		expect(result.current.vm.pendingTotal).toBe(1);
-		expect(result.current.vm.pendingObservations[0]?.id).toBe(watch.id);
+		expect(result.current.vm.pendingObservations[0]?.watch.id).toBe(watch.id);
 		expect(result.current.vm.mutationError).toContain("generation changed");
 	});
 	it("pending errors are visible and retried independently while retaining the last good page", async () => {
 		const response = {
-			...fixture.envelope,
-			data: [
-				{
-					...publicPull(pull, project, fixtureObservation()).observation!,
-					pull: null,
-					pullId: null,
-				},
-			],
+			...pendingEnvelope,
+			data: [pendingInspection(fixtureObservation())],
 			page: { ...fixture.page, total: 1 },
 		};
 		vi.mocked(api.loadPending)
@@ -1771,13 +1754,9 @@ describe("shared watch mutations", () => {
 	});
 	it("a delayed pending removal never hides a newly re-added generation", async () => {
 		const watch = fixtureObservation();
-		const item = {
-			...publicPull(pull, project, watch).observation!,
-			pull: null,
-			pullId: null,
-		};
+		const item = pendingInspection(watch);
 		vi.mocked(api.loadPending).mockResolvedValue({
-			...fixture.envelope,
+			...pendingEnvelope,
 			data: [item],
 			page: { ...fixture.page, total: 1 },
 		});
@@ -1792,8 +1771,8 @@ describe("shared watch mutations", () => {
 			write = result.current.vm.removePending(watch);
 		});
 		vi.mocked(api.loadPending).mockResolvedValueOnce({
-			...fixture.envelope,
-			data: [{ ...item, generation: 2 }],
+			...pendingEnvelope,
+			data: [{ ...item, watch: { ...item.watch, generation: 2 } }],
 			page: { ...fixture.page, total: 1 },
 		});
 		await act(() => result.current.vm.reloadPending());
@@ -1802,24 +1781,27 @@ describe("shared watch mutations", () => {
 		await act(async () => {
 			response.resolve({
 				results: [
-					{ status: "removed", observation: { ...item, active: false } },
+					{
+						status: "removed",
+						observation: {
+							...publicPull(pull, project, watch).observation!,
+							active: false,
+						},
+					},
 				],
 			});
 			await write;
 		});
-		expect(result.current.vm.pendingObservations[0]?.generation).toBe(2);
+		expect(result.current.vm.pendingObservations[0]?.watch.generation).toBe(2);
 		expect(result.current.vm.pendingTotal).toBe(1);
 	});
 	it("all 21 pending watches are reachable, and removing the last page or changing scope resets its page", async () => {
-		let items = Array.from({ length: 21 }, (_, i) => ({
-			...publicPull(pull, project, fixtureObservation()).observation!,
-			id: `pending-${i}`,
-			pull: null,
-			pullId: null,
-		}));
+		let items = Array.from({ length: 21 }, (_, i) =>
+			pendingInspection({ ...fixtureObservation(), id: `pending-${i}` }),
+		);
 		vi.mocked(api.loadPending).mockImplementation(
 			async (_source, _signal, _scope, page = 1) => ({
-				...fixture.envelope,
+				...pendingEnvelope,
 				data: items.slice((page - 1) * 20, page * 20),
 				page: { ...fixture.page, total: items.length },
 			}),
@@ -1830,15 +1812,17 @@ describe("shared watch mutations", () => {
 		expect(result.current.vm.pendingObservations).toHaveLength(20);
 		act(() => result.current.vm.setPendingPage(2));
 		await waitFor(() =>
-			expect(result.current.vm.pendingObservations[0]?.id).toBe("pending-20"),
+			expect(result.current.vm.pendingObservations[0]?.watch.id).toBe(
+				"pending-20",
+			),
 		);
 		vi.mocked(api.removeWatches).mockImplementation(async (_source, refs) => {
-			items = items.filter((item) => item.id !== refs[0]?.id);
+			items = items.filter((item) => item.watch.id !== refs[0]?.id);
 			return { results: [{ status: "removed" }] };
 		});
 		await act(() =>
 			result.current.vm.removePending(
-				result.current.vm.pendingObservations[0]!,
+				result.current.vm.pendingObservations[0]!.watch,
 			),
 		);
 		await waitFor(() => expect(result.current.vm.pendingPage).toBe(1));

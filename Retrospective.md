@@ -110,3 +110,7 @@ The PR snapshot trigger invalidated evaluations for every JSON change, including
 ## 2026-09-21 — Sidebar clipped the network tooltip
 
 The network chart allowed its tooltip to escape the chart view box but left it inside Basalt's overflow-hidden sidebar. The initial E2E checked tooltip text without checking whether the part outside the sidebar was painted. The tooltip now uses Recharts' body portal with viewport-bounded positioning that follows scroll and resize. The regression checks a point outside the sidebar with browser hit testing. Local desktop and mobile navigation checks confirm the entire tooltip is visible; Escape still dismisses it.
+
+### 2026-09-21 — Provider timeline timestamp sentinel rejected collection
+
+Adding cached stage `lastModified` exposed a pre-epoch provider placeholder that the date parser accepted as a negative timestamp. The upload schema correctly rejected it, leaving earlier snapshots intact but causing watched refreshes to fail. The shared provider date parser now treats pre-epoch values as unavailable (`null`). A regression test parses a normalized stage with the ADO year-one placeholder through the full build schema. Temporary diagnostics recorded field paths only and were removed after diagnosis. Live refresh must be verified after restarting the collector, in addition to mocked normalization tests.

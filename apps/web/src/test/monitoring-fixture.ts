@@ -9,6 +9,7 @@ import {
 import {
 	collectorQuerySchema,
 	type JobQueryItem,
+	observationItemSchema,
 	pullListSchema,
 	pullQuerySchema,
 	repoListSchema,
@@ -233,4 +234,71 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 		rounds: [],
 	});
 	return { envelope, page, pulls, catalog, collector };
+}
+
+export function pendingInspection(observation = fixtureObservation()) {
+	const quality = {
+		observedAt: null,
+		coverage: "not_collected",
+		missing: [],
+		lastAttempt: null,
+	};
+	return observationItemSchema.parse({
+		watch: {
+			...observation,
+			addedAt: iso(observation.addedAt),
+			stoppedAt: null,
+		},
+		pr: {
+			id: null,
+			number: observation.ref.number,
+			title: null,
+			url: observation.ref.url,
+			provider: observation.ref.provider,
+			organization: observation.ref.organization,
+			project: {
+				signoffId: observation.ref.projectId,
+				providerId: null,
+				name: observation.ref.projectKey,
+			},
+			repository: observation.ref.repository,
+			author: null,
+			lifecycle: null,
+			draft: null,
+			providerStatus: null,
+			providerMergeStatus: null,
+			sourceBranch: null,
+			targetBranch: null,
+			headSha: null,
+			targetSha: null,
+			targetShaSource: "unknown",
+			mergeSha: null,
+			mergeability: "unknown",
+			createdAt: null,
+			collection: quality,
+		},
+		readiness: {
+			state: null,
+			source: null,
+			evaluatedAt: null,
+			isCurrent: false,
+			update: {
+				state: "blocked",
+				reason: "awaiting_collection",
+				notBefore: null,
+				error: null,
+			},
+		},
+		nextAction: null,
+		checks: { ...quality, validity: "missing", items: [] },
+		builds: [],
+		reviews: {
+			observedAt: null,
+			individualApproved: 0,
+			groupApproved: 0,
+			unclassifiedApproved: 0,
+			requirementsSource: "checks",
+			reviewers: [],
+		},
+	});
 }

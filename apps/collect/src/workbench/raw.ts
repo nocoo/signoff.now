@@ -250,6 +250,7 @@ export const adoTimelineRecordSchema = z
 		startTime: z.string().nullable().optional(),
 		finishTime: z.string().nullable().optional(),
 		attempt: z.number().optional(),
+		lastModified: z.string().optional(),
 		errorCount: z.number().optional(),
 		warningCount: z.number().optional(),
 	})

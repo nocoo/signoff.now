@@ -95,89 +95,54 @@ signoff pr get 59382 \
 
 CLI 列表默认按稳定身份排序，不受个人网页的排序设置影响。网页额外的 readiness / updated 等排序参数仍由同一查询服务处理，并带稳定 ID 作为同值排序的后备条件。
 
-## 3. 机器输出
+## 3. Inspection output (observations schema version 2)
 
-stdout 默认只有一个 JSON 文档，stderr 承载诊断；无需消费者过滤动画、进度条或登录提示。`schemaVersion: 1` 表示外部契约，新增可选字段不改变版本；删除、改名、改变类型或语义需要新版本。
+`watch list`, `GET /api/query/v1/observations` and its `/lookup` endpoint now return **schemaVersion: 2** on the existing route. This is a breaking replacement, without legacy fields. stdout remains one JSON document; diagnostics use stderr. List envelopes contain `source`, `dataRevision`, `generatedAt`, `page` and `data`; lookup returns one object in `data`. There is no global coverage field: quality belongs to each evidence collection.
 
-以下是**合成格式示例**，不是对 whiteboard-app #59382 当前状态的报告。项目与仓库 ID 为示意值，时间也不是实际采集结果。
+Each item has exactly seven sections:
 
-```json
-{
-  "schemaVersion": 1,
-  "source": "live",
-  "dataRevision": "42",
-  "generatedAt": "2026-09-18T02:03:00Z",
-  "coverage": { "state": "complete", "missing": [] },
-  "page": { "limit": 100, "total": 1, "nextCursor": null },
-  "data": [
-    {
-      "id": "ado:example-project:example-repository:59382",
-      "provider": "ado",
-      "organization": {
-        "key": "intentional",
-        "url": "https://dev.azure.com/intentional"
-      },
-      "project": {
-        "id": "example-project",
-        "key": "intent",
-        "url": "https://dev.azure.com/intentional/intent"
-      },
-      "repository": {
-        "id": "example-repository",
-        "name": "whiteboard-app",
-        "url": "https://dev.azure.com/intentional/intent/_git/example-repository"
-      },
-      "number": 59382,
-      "url": "https://dev.azure.com/intentional/intent/_git/example-repository/pullrequest/59382",
-      "title": "Example pull request",
-      "state": "open",
-      "updatedAt": "2026-09-18T01:50:00Z",
-      "publishedAt": "2026-09-18T02:02:10Z",
-      "freshness": {
-        "listObservedAt": "2026-09-18T02:02:00Z",
-        "checksObservedAt": "2026-09-18T02:01:00Z",
-        "checksValidity": "valid",
-        "ageSeconds": { "list": 60, "checks": 120 },
-        "clockSkew": false
-      },
-      "observation": {
-        "id": "example-observation",
-        "generation": 1,
-        "active": true,
-        "addedAt": "2026-09-18T01:55:00Z",
-        "stoppedAt": null,
-        "stopReason": null
-      },
-      "readiness": {
-        "kind": "unknown",
-        "label": "Unknown · Pending",
-        "status": "pending",
-        "nextAction": "Waiting for Jev to evaluate the current facts.",
-        "error": null,
-        "current": null,
-        "previous": null
-      }
-    }
-  ]
-}
-```
+| Section | Purpose and fields |
+| --- | --- |
+| `watch` | `id`, `generation`, `active`, `addedAt`, `stoppedAt`, `stopReason`. A stopped watch does not imply a merged PR. |
+| `pr` | Opaque SignOff `id`, provider PR `number`, title, canonical URL, provider, organization, `project: {signoffId, providerId, name}`, provider repository `{id,name}`, author `{id,name}`, draft, lifecycle, raw `providerStatus` / `providerMergeStatus`, source/target branches, head/target/merge SHAs, mergeability, created time, collection quality. |
+| `readiness` | One last business `state`, `source`, `evaluatedAt`, `isCurrent`, and independent operational `update`. No duplicated labels, previous/current objects, model probabilities or rule-generated readiness. |
+| `nextAction` | Coarse `{code,text,evidenceRefs,url}` advice, or null when no judgment exists or watching stopped. Never write authorization. |
+| `checks` | Collection quality, `validity`, and individual `items`: stable policy code, provider evaluation/configuration IDs and revision, states, nullable required/enabled/applicable/expiry flags, build association, scope, real provider message, timestamps, validity duration and review requirements. |
+| `builds` | Build ID, definition ID, number, state/result, source SHA/branch, source URL, independent SHA comparisons, check references, observation/execution timestamps and current stages. Stages retain raw identifier, record ID/type, attempt, state/result and timestamps. |
+| `reviews` | Reviewer stable identities, nullable group identity, raw votes and declined state; separate personal/group/unclassified approval counts. Requirements remain authoritative in `checks`, not a single approval threshold. |
 
-字段规则：
+### Judgment and freshness are separate
 
-- `id` 是 SignOff 内部不透明身份；`number` 是源 PR 编号；`project.id` 是 SignOff 项目 ID；`repository.id` 是 provider 的仓库身份。消费者不要解析内部 `id` 的拼接格式。
-- ADO 的组织 / 项目 / 仓库为 `msdata / Vienna / online-meetings` 等三级结构；GitHub Sample 按 `github.com / nocoo / signoff.now` 表达，项目 key 对应 owner。
-- 列表还返回作者身份、分支 / SHA、检查完成摘要与内容完整性。`pr get` 的 `data` 为一个对象，补全描述、全部 merge requirements、reviewers、policies、builds / stages、下一步和缺失原因。
-- Readiness is a persisted Jev judgment (direct provider Conflict is excluded from Jev) for watched PRs. Changed PRs are batched by project only during visible, focused SignOff presence, with an independent 5-minute completion cooldown per project configured in Connector details. Background time counts; returning resumes overdue work. Cached CLI reads never invoke inference. Raw requirements retain source IDs, states and provider links. Ready includes the configured PoP-only final-step convention and still requires provider merge requirements; see [Jev contract](19-pr-state-machines.md).
-- Explicit build expiry remains in `policies[].expired` and raw requirements. It does not force an AI classification; Jev interprets all evidence and user instructions.
-- `freshness.listObservedAt` 使用成功摘要请求的开始时间，检查保留独立 `checksObservedAt`；慢检查不能把旧 open 覆盖较新 merged。`targetSha` 仍是 ADO PR 的 `lastMergeTargetCommit`，不是当前目标 ref 的独立读取。`checksValidity: valid` 只关联最后已知提交，不能单独作为当前目标 CI 或 stage retry 的操作证据；缓存没有完整 raw build / stage attempt / policy evaluation 操作上下文。
-- `coverage.state=complete` describes collection coverage, not freshness. Every discovery paginates accessible history and all states; watched PR refreshes independently collect full details. Inspect the actual observation timestamps.
-- `watch list` 每项返回观察元数据、完整 `ref`、可空的 `pullId` 和可空的 `pull` 摘要，首次采集前不会伪造一个 PR 快照。
-- 每个规范 PR 只保留一条观察记录；inactive 首版不自动清理。`--include-stopped` 返回所有保留行的当前 generation，不按“最近 N 天 / N 条”截断，也不是每次增删的事件日志。重新加入覆盖该行启停字段并推进 generation；lookup 始终取当前一代，不查历史代次。`stopReason` 为 null、manual、completed、abandoned、project_deleted 或 scope_changed。项目删除后停止记录仍保留，`pull` 可为空。
-- 观察查询按内部 `projectId`（或 `project` 指定内部 ID）筛选时，仅返回该次注册下的记录；删除后重新注册相同外部项目，不会把旧注册的停止项混入新项目。未指定内部 ID 的外部范围查询仍可包含该范围的保留记录。
-- 无匹配结果是 `data: []`；未采集范围另标 `not_collected`。缺失检查 / 计数 / 时间使用 null 或明确 unknown；不能填 0 / passed。
-- 已停止观察的 PR 仍能在普通 `pr list --state all` 或 `pr get` 中查询；默认 `watch list` 排除它，可通过 `--include-stopped` 查看原因。
+`readiness.state` is `conflict`, `skipped`, `attention`, `warning`, `running`, `ready`, `waiting`, or null. Non-main targets are directly Skipped; active provider conflicts are directly Conflict; other categories use the saved Jev Choice. Ready retains the configured final PoP convention and cannot override provider merge requirements.
 
-时间与有效性的完整含义以 [17](17-query-cadence.md) 为准。
+`isCurrent` means the saved judgment matches **cached decision evidence and current instructions/configuration**. The read-only projection recomputes the decision fingerprint, including meaningful freshness/validity changes, but never calls Jev. A ten-minute-old collection can still be consistent; consistency is not proof of source freshness. `generatedAt` is query time, not collection time.
+
+Changed evidence retains the last state with `isCurrent:false`. `update.state` distinguishes `idle`, `scheduled`, `evaluating`, `blocked`, `error`, and `stopped`; `reason` distinguishes background presence, awaiting collection and unwatched. `notBefore` is the earliest eligibility time from retry/project cooldown, **not a promised execution time**. Only a visible focused dashboard can start Jev work. Missing credentials or failed inference appear in `update.error`, separately from a failed CI check.
+
+`pr.collection` and `checks` independently expose `observedAt`, `coverage` (`complete`, `partial`, `not_collected`), `missing` reasons and `lastAttempt: {kind,state,updatedAt,completedAt,error} | null`. Failed collection can leave earlier cached evidence available. The PR attempt is the newest relevant discovery or full refresh; the checks attempt is the newest full refresh for the current watch generation. Authentication-blocked attempts are included even without completion. Successful coverage describes the stored evidence, not whether a later attempt succeeded. Checks additionally expose `validity: valid | invalidated | missing`, relative to cached commit identity.
+
+### Evidence for verification
+
+- `pr.targetShaSource=ado_lastMergeTargetCommit` means ADO's PR record target commit. It is **not** an independently fetched current target branch tip. That tip is not provided by this collector. Unknown provenance is explicit.
+- Build `headMatch` and `mergeMatch` each contain `{actualSha,expectedSha,status}`, where status is `match`, `mismatch`, or `unknown`. A merge build may mismatch the PR head while matching the recorded merge SHA. Neither comparison proves current target-branch validity.
+- `isExpired` and `buildIsNotCurrent` remain separate nullable evidence. A missing flag is null, not false; `buildIsNotCurrent:false` does not prove target matching. Provider timestamps and `validDurationMinutes` remain nullable rather than inventing expiry dates.
+- `checks.items[].reviewRule` retains each applicable policy's minimum approver count, creator-vote treatment, downvote treatment, required reviewer IDs and filename patterns. Scope and CRC/status checks remain separate. Approval counts are descriptive, not a verdict that all review requirements passed. `countsTowardApproval` is a derived cached summary; `approvalRevision` is null because the current ADO reviewer response supplies no approval revision.
+- Stage `requiredSource=derived` records the limitation of the collector's stage requirement inference. Provider messages are preserved; generated “resolve/rerun” summaries are omitted.
+- Check/build/stage `ref` values identify evidence within this response; build `checkRefs` link back to returned checks. `nextAction.evidenceRefs` is empty because the current Jev integration selects a classification, not evidence items. No attribution is fabricated.
+- Advice codes are `resolve_conflict`, `inspect_pr`, `observe`, `wait_ci`, `verify_merge`, `wait_review`, `none`. Attention only advises inspection; it does not decide repair versus CI rerun. A stale judgment's advice remains historical and must be considered together with `isCurrent`. Before writing to ADO, the consumer verifies relevant facts live under its own authorization.
+
+Full project configuration, repeated observation metadata, PR/comment bodies, Job/Task timelines and logs are excluded. Existing `pr list` / `pr get` and other query families retain schemaVersion 1 and their richer dashboard contracts; use observations v2 for routine watched-PR inspection. Command receipts retain their existing schema and generation checks.
+
+A watch without a snapshot has null PR facts and `not_collected` quality, never fabricated facts. One record is retained per canonical PR identity. Rewatch increments `generation`; stopped records retain `manual`, `completed`, `abandoned`, `project_deleted` or `scope_changed` reasons. `--include-stopped` returns current generations, not an event history. Internal project filters isolate separate registrations even if external project names match.
+
+All new evidence is extracted during existing discovery/full-refresh requests and cached. Old caches return null for previously uncollected fields until their normal refresh. Queries never fetch provider data, start inference, or alter cache state. Pagination retains the source revision fence and reads only selected PR snapshots. See [freshness](17-query-cadence.md) and [Jev semantics](19-pr-state-machines.md).
+
+### Validation evidence (2026-09-21)
+
+- Full repository coverage gates, lint, typecheck and build passed; all 11 disposable-database browser E2E tests passed, including shared CLI/web watches, generation races, policy configuration and foreground/cooldown behavior.
+- Inspection boundary tests cover cached fingerprint consistency, instruction/config changes, historical results, error/background states, separate collection clocks, unknown flags/SHA comparisons, scoped policy evidence, group votes, authentication failures and rewatch isolation. Query total-write counts remain unchanged.
+- The actual local HTTPS dashboard was checked at 1440px and 390px widths with reloads: 13 watched rows, no page errors, and all returned evidence references resolve. Live HTTP and CLI both return observations schemaVersion 2. Browser verification intercepted inference ticks; no extra Jev requests were required.
+- Existing daemon refreshes successfully published newly retained configuration IDs after the provider timestamp sentinel fix. Uncollected approval revisions and independently read target tips remain unavailable by design; old snapshots gain additional optional evidence on their next normal refresh.
 
 ## 4. HTTP 对应关系
 
@@ -213,7 +178,7 @@ A discovery freezes one project revision and repository scope. Matching unfinish
 
 项目级发现与仓库 URL 发现采用相同的别名唯一性校验。名称复用导致多个稳定 ID 匹配时，返回 HTTP 409 / `REFERENCE_AMBIGUOUS`，不入队；可通过仓库 ID 消除歧义。固定范围内的 provider ID 不能由另一个仓库的名称替代。`repo add` 遇到 Unicode 大小写等价的多个项目注册时，也以 exit 3 / `REFERENCE_AMBIGUOUS` 拒绝，不任意编辑其中一个项目。
 
-`job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果；可选 `lane: "status"` 表示仅检查 PR 摘要，省略 lane 的旧 / 完整任务按 checks 理解。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消其他任务为 observation_retired。项目删除不主动清除摘要；状态探测仍受 24 小时回执保留期约束。
+`job get` 返回任务 kind、固定 scope / projectRevision、state、updatedAt、进度及结果；`lane` 为 `discover` 或 `checks`，没有独立的 status lane。状态为 queued、running、auth_required，或终结状态 succeeded、partial、failed、canceled；canceled 带 reason。项目删除为 project_deleted，范围或 revision 变化分别为 scope_changed / project_changed，观察移除为 observation_removed，终态取消其他任务为 observation_retired。项目删除不主动清除摘要；状态探测仍受 24 小时回执保留期约束。
 
 Collector returns `listCooldownSeconds` and `detailCooldownSeconds`. Zero disables automatic scheduling for that task type. Its job preview contains up to 200 latest tasks; grouped history provides full pagination. Queue and connection status are computed separately. Cached snapshots and stopped watch records remain available.
 

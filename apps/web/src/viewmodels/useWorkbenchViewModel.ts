@@ -450,7 +450,8 @@ export function useWorkbenchViewModel() {
 							location.pathname),
 			) ?? null);
 	const pendingObservations = (pending.data?.data ?? []).filter(
-		(item) => !optimisticWatches.has(pendingWatchKey(filter.source, item)),
+		(item) =>
+			!optimisticWatches.has(pendingWatchKey(filter.source, item.watch)),
 	);
 	const pendingRemoved =
 		(pending.data?.data.length ?? 0) - pendingObservations.length;
@@ -867,7 +868,8 @@ export function useWorkbenchViewModel() {
 					pending.update((cache) => {
 						if (cache.source !== publicSource(source)) return cache;
 						const pendingItems = cache.data.filter(
-							(item) => !removed.has(`${item.id}:${item.generation}`),
+							(item) =>
+								!removed.has(`${item.watch.id}:${item.watch.generation}`),
 						);
 						return {
 							...cache,

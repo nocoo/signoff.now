@@ -40,7 +40,7 @@ export function mapMergeable(
 export function parseSeconds(isoStr: string | null | undefined): number | null {
 	if (!isoStr) return null;
 	const ms = Date.parse(isoStr);
-	return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+	return Number.isFinite(ms) && ms >= 0 ? Math.floor(ms / 1000) : null;
 }
 
 export function normalizePolicy(evaluation: AdoEvaluation): Policy {
@@ -102,6 +102,17 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 			status: evaluation.status,
 			description: evaluation.description?.slice(0, 4000),
 			evaluationId: evaluation.evaluationId,
+			configurationId: String(cfg.id),
+			requiredReviewerIds: Array.isArray(cfg.settings?.requiredReviewerIds)
+				? cfg.settings.requiredReviewerIds.filter(
+						(id): id is string => typeof id === "string",
+					)
+				: undefined,
+			filenamePatterns: Array.isArray(cfg.settings?.filenamePatterns)
+				? cfg.settings.filenamePatterns.filter(
+						(pattern): pattern is string => typeof pattern === "string",
+					)
+				: undefined,
 			typeId: cfg.type?.id,
 			configurationRevision: evidenceNumber(cfg.revision),
 			isBlocking: cfg.isBlocking,
@@ -165,6 +176,13 @@ export function normalizeStatusPolicy(
 		kind: "status",
 		evidence: {
 			status: status.state,
+			updatedAt: parseSeconds(status.updatedDate),
+			url:
+				status.targetUrl &&
+				URL.canParse(status.targetUrl) &&
+				["http:", "https:"].includes(new URL(status.targetUrl).protocol)
+					? status.targetUrl
+					: undefined,
 			description: status.description?.slice(0, 4000),
 		},
 		state,
@@ -226,6 +244,8 @@ export function normalizeBuildStages(
 						.slice(0, 4000),
 					result: r.result,
 					identifier: r.identifier,
+					recordType: r.type,
+					updatedAt: parseSeconds(r.lastModified),
 					attempt: r.attempt,
 					startedAt: start,
 					completedAt: finish,
@@ -411,7 +431,7 @@ export function normalizePullRequest(opts: {
 		providerVote: r.vote,
 		hasDeclined: r.hasDeclined,
 		required: r.isRequired === true,
-		isGroup: r.isContainer === true,
+		isGroup: r.isContainer,
 		countsTowardApproval:
 			r.isContainer !== true &&
 			!(excludeCreator && r.id === rawPr.createdBy?.id),

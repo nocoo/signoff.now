@@ -959,23 +959,23 @@ function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 				) : null}
 				{vm.pendingObservations.map((item) => (
 					<div
-						key={item.id}
+						key={item.watch.id}
 						className="flex items-center justify-between gap-3 text-xs"
 					>
 						<a
-							href={item.ref.url}
+							href={item.pr.url}
 							target="_blank"
 							rel="noopener noreferrer"
 							className="break-all hover:underline"
 						>
-							{item.ref.organization} / {item.ref.projectKey} /{" "}
-							{item.ref.repository.name} #{item.ref.number}
+							{item.pr.organization} / {item.pr.project.name} /{" "}
+							{item.pr.repository.name} #{item.pr.number}
 						</a>
 						<Button
 							size="sm"
 							variant="ghost"
 							disabled={Boolean(vm.busy)}
-							onClick={() => void vm.removePending(item)}
+							onClick={() => void vm.removePending(item.watch)}
 						>
 							Remove
 						</Button>

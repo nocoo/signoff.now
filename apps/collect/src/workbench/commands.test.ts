@@ -89,6 +89,79 @@ const observation = {
 	stopReason: null,
 	pull: null,
 };
+const inspection = {
+	watch: {
+		id: observation.id,
+		generation: 3,
+		active: true,
+		addedAt: iso(now),
+		stoppedAt: null,
+		stopReason: null,
+	},
+	pr: {
+		id: pull.id,
+		number: pull.number,
+		title: null,
+		url: ref.url,
+		provider: "ado",
+		organization: ref.organization,
+		project: {
+			signoffId: project.id,
+			providerId: null,
+			name: project.projectKey,
+		},
+		repository: pull.repository,
+		author: null,
+		lifecycle: null,
+		draft: null,
+		providerStatus: null,
+		providerMergeStatus: null,
+		sourceBranch: null,
+		targetBranch: null,
+		headSha: null,
+		targetSha: null,
+		targetShaSource: "unknown",
+		mergeSha: null,
+		mergeability: "unknown",
+		createdAt: null,
+		collection: {
+			observedAt: null,
+			coverage: "not_collected",
+			missing: [],
+			lastAttempt: null,
+		},
+	},
+	readiness: {
+		state: null,
+		source: null,
+		evaluatedAt: null,
+		isCurrent: false,
+		update: {
+			state: "blocked",
+			reason: "awaiting_collection",
+			notBefore: null,
+			error: null,
+		},
+	},
+	nextAction: null,
+	checks: {
+		observedAt: null,
+		coverage: "not_collected",
+		missing: [],
+		lastAttempt: null,
+		validity: "missing",
+		items: [],
+	},
+	builds: [],
+	reviews: {
+		observedAt: null,
+		individualApproved: 0,
+		groupApproved: 0,
+		unclassifiedApproved: 0,
+		requirementsSource: "checks",
+		reviewers: [],
+	},
+};
 const status = {
 	schemaVersion: 1,
 	source: "live",
@@ -222,7 +295,7 @@ test("PR and watch lookup support cached IDs, scoped numbers and URLs", async ()
 	reply = (url) =>
 		Response.json(
 			url.pathname.includes("observations")
-				? { ...envelope, data: observation }
+				? { ...envelope, schemaVersion: 2, data: inspection }
 				: { ...envelope, data: pullDto },
 		);
 	await cli("pr", "get", pull.id);
@@ -240,7 +313,7 @@ test("PR and watch lookup support cached IDs, scoped numbers and URLs", async ()
 	reply = (_url, _body, method) =>
 		Response.json(
 			method === "GET"
-				? { ...envelope, data: observation }
+				? { ...envelope, schemaVersion: 2, data: inspection }
 				: { results: [{ status: "removed", observation }] },
 		);
 	await cli("watch", "remove", ref.url, pull.id);
@@ -287,7 +360,12 @@ test("cached status, job and observation list need only local GET requests", asy
 				? status
 				: url.pathname.includes("jobs")
 					? job
-					: { ...envelope, data: [observation], page: { ...page, total: 1 } },
+					: {
+							...envelope,
+							schemaVersion: 2,
+							data: [inspection],
+							page: { ...page, total: 1 },
+						},
 		);
 	await cli("status");
 	stdout = "";
@@ -313,7 +391,7 @@ test("batch removal reports a middle ambiguous lookup and continues independent 
 			);
 		return Response.json(
 			method === "GET"
-				? { ...envelope, data: observation }
+				? { ...envelope, schemaVersion: 2, data: inspection }
 				: { results: [{ status: "removed", observation }] },
 		);
 	};
@@ -352,7 +430,7 @@ test.each([
 		}
 		return Response.json(
 			method === "GET"
-				? { ...envelope, data: observation }
+				? { ...envelope, schemaVersion: 2, data: inspection }
 				: { results: [{ status: "removed", observation }] },
 		);
 	};
@@ -434,7 +512,8 @@ test("table output escapes control characters and includes readable PR data", as
 	reply = () =>
 		Response.json({
 			...envelope,
-			data: [observation],
+			schemaVersion: 2,
+			data: [inspection],
 			page: { ...page, total: 1 },
 		});
 	await cli("watch", "list", "--format", "table");

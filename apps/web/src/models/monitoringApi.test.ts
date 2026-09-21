@@ -156,6 +156,7 @@ test("pending watches have independent page navigation", async () => {
 	const fixture = queryFixture();
 	vi.mocked(apiFetch).mockResolvedValue({
 		...fixture.envelope,
+		schemaVersion: 2,
 		data: [],
 		page: { ...fixture.page, total: 21 },
 	});
@@ -174,6 +175,7 @@ test("unresolved repository URLs are never sent as stable provider IDs", async (
 	expect(params.has("repositoryId")).toBe(false);
 	vi.mocked(apiFetch).mockResolvedValue({
 		...fixture.envelope,
+		schemaVersion: 2,
 		data: [],
 		page: { ...fixture.page, total: 0 },
 	});
@@ -195,6 +197,7 @@ test("independent query endpoints validate responses and do not issue commands",
 		.mockResolvedValueOnce(fixture.collector)
 		.mockResolvedValueOnce({
 			...fixture.envelope,
+			schemaVersion: 2,
 			data: [],
 			page: { ...fixture.page, total: 0 },
 		});
@@ -244,6 +247,7 @@ test("pending first results follow the repository scope, including escaped proje
 	const fixture = queryFixture();
 	vi.mocked(apiFetch).mockResolvedValue({
 		...fixture.envelope,
+		schemaVersion: 2,
 		data: [],
 		page: { ...fixture.page, total: 0 },
 	});

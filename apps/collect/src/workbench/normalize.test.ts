@@ -24,6 +24,8 @@ describe("workbench normalizer", () => {
 					settings: {
 						validDuration: -1,
 						minimumApproverCount: 2,
+						requiredReviewerIds: ["reviewer-id", 7],
+						filenamePatterns: ["/src/*", null],
 						creatorVoteCounts: false,
 						allowDownvotes: true,
 						scope: [
@@ -47,6 +49,9 @@ describe("workbench normalizer", () => {
 			}),
 		);
 		expect(policy.evidence).toMatchObject({
+			configurationId: "1",
+			requiredReviewerIds: ["reviewer-id"],
+			filenamePatterns: ["/src/*"],
 			minimumApproverCount: 2,
 			creatorVoteCounts: false,
 			allowDownvotes: true,
@@ -72,6 +77,7 @@ describe("workbench normalizer", () => {
 			},
 			{
 				id: "new",
+				lastModified: "2026-09-17T01:00:00Z",
 				name: "CI",
 				type: "Stage",
 				identifier: "ci",
@@ -98,6 +104,12 @@ describe("workbench normalizer", () => {
 			sourceSha: "merge-sha",
 		});
 		expect(build.stages).toHaveLength(1);
+		expect(build.stages[0]?.evidence).toMatchObject({
+			identifier: "ci",
+			recordType: "Stage",
+			attempt: 2,
+			updatedAt: Date.parse("2026-09-17T01:00:00Z") / 1000,
+		});
 		expect(build.stages[0]?.evidence).toMatchObject({
 			attempt: 2,
 			identifier: "ci",
@@ -127,6 +139,7 @@ describe("workbench normalizer", () => {
 			context: { buildId: 753506, isExpired: false, buildIsNotCurrent: true },
 		});
 		expect(policy.evidence).toEqual({
+			configurationId: "896",
 			typeId: "0609b952-1397-4640-95ec-e00a01b2c241",
 			status: "approved",
 			evaluationId: "evaluation-59380",
@@ -371,6 +384,19 @@ describe("workbench normalizer", () => {
 	test("parseSeconds handles null, invalid and valid dates", () => {
 		expect(parseSeconds(null)).toBeNull();
 		expect(parseSeconds("invalid")).toBeNull();
+		expect(parseSeconds("0001-01-01T00:00:00")).toBeNull();
+		const stage = normalizeBuildStages([
+			{
+				id: "sentinel",
+				name: "Build",
+				type: "Stage",
+				lastModified: "0001-01-01T00:00:00",
+			},
+		]);
+		expect(
+			buildSchema.parse(normalizeBuild({ build: { id: 1 }, stages: stage }))
+				.stages[0]?.evidence?.updatedAt,
+		).toBeNull();
 		expect(parseSeconds("2026-09-17T01:00:00Z")).toBe(1789606800);
 	});
 

@@ -60,16 +60,24 @@ function print(value: unknown, command: Command) {
 				: [obj.data ?? obj];
 	const rows = data.map((item) => {
 		const row = item as Record<string, unknown>;
-		const ref = (row.ref ?? row) as Record<string, unknown>;
+		const ref = (row.pr ?? row) as Record<string, unknown>;
+		const watch = row.watch as
+			| { id: string; active: boolean; stopReason: string | null }
+			| undefined;
+		const readiness = row.readiness as { state?: string | null } | undefined;
 		const repo = ref.repository as { name?: string } | undefined;
 		return [
-			row.id ?? (row.observation as { id?: string } | undefined)?.id ?? "—",
-			row.state ??
+			watch?.id ??
+				row.id ??
+				(row.observation as { id?: string } | undefined)?.id ??
+				"—",
+			readiness?.state ??
+				row.state ??
 				row.status ??
-				(row.active === undefined ? "—" : row.active ? "watching" : "stopped"),
+				(watch ? (watch.active ? "watching" : "stopped") : "—"),
 			repo?.name ?? "—",
 			ref.number ?? "—",
-			row.title ?? row.message ?? row.stopReason ?? "",
+			ref.title ?? row.message ?? watch?.stopReason ?? "",
 		]
 			.map((cell) => String(cell).replace(/\p{Cc}/gu, " "))
 			.join("\t");
@@ -384,7 +392,12 @@ export function registerWorkbenchCommands(program: Command) {
 							"/api/commands/v1/observations/remove",
 							{
 								source: options(command).source,
-								items: [{ id: current.id, generation: current.generation }],
+								items: [
+									{
+										id: current.watch.id,
+										generation: current.watch.generation,
+									},
+								],
 							},
 						),
 					);

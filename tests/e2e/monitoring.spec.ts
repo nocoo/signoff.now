@@ -388,7 +388,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await page.unroute("**/api/commands/v1/observations");
 	expect((await table.boundingBox())!.y).toBe(tableTop);
 	await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
-	expect((await watchList()).data.map((watch) => watch.pullId)).toEqual([
+	expect((await watchList()).data.map((watch) => watch.pr.id)).toEqual([
 		ids[0],
 	]);
 	const collection = page.getByRole("region", { name: "Connector status" });
@@ -450,17 +450,17 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(
 		page.getByText("2 PRs added to the shared watch list.", { exact: true }),
 	).toBeVisible();
-	expect((await watchList()).data.map((w) => w.pullId).sort()).toEqual(
+	expect((await watchList()).data.map((w) => w.pr.id).sort()).toEqual(
 		ids.sort(),
 	);
 	const draftUrl = `${repoUrl(repos[1]!)}/pullrequest/2`;
 	await cli("watch", "add", draftUrl);
 	const watched = await watchList();
 	expect(watched.data).toHaveLength(3);
-	expect(watched.data.find((w) => w.ref.number === 2)?.ref).toMatchObject({
+	expect(watched.data.find((w) => w.pr.number === 2)?.pr).toMatchObject({
 		provider: "ado",
 		organization: "e2e-two",
-		projectKey: "Équipe",
+		project: { name: "Équipe" },
 		repository: { id: "repository-two", name: "Éditeur" },
 	});
 	await page.reload();
@@ -479,8 +479,8 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		.first()
 		.getAttribute("data-pull-id");
 	const staleGeneration = (await watchList()).data.find(
-		(watch) => watch.pullId === staleId,
-	)!.generation;
+		(watch) => watch.pr.id === staleId,
+	)!.watch.generation;
 	await page.locator("tr[data-pull-id]").first().getByRole("checkbox").check();
 	await cli("watch", "remove", staleId!);
 	await cli("watch", "add", staleId!);
@@ -489,7 +489,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		.click();
 	await expect(page.getByText(/Watch generation changed/)).toBeVisible();
 	expect(
-		(await watchList()).data.find((w) => w.pullId === staleId)?.generation,
+		(await watchList()).data.find((w) => w.pr.id === staleId)?.watch.generation,
 	).toBe(staleGeneration + 1);
 	await page.reload();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(3);
@@ -549,19 +549,12 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	]) {
 		await patchUnicodeProject(changes);
 		expect(
-			(await watchList()).data.map(({ id, generation, active, pullId }) => ({
-				id,
-				generation,
-				active,
-				pullId,
+			(await watchList()).data.map(({ watch, pr }) => ({
+				watch,
+				pullId: pr.id,
 			})),
 		).toEqual(
-			watchesBeforeEdit.map(({ id, generation, active, pullId }) => ({
-				id,
-				generation,
-				active,
-				pullId,
-			})),
+			watchesBeforeEdit.map(({ watch, pr }) => ({ watch, pullId: pr.id })),
 		);
 		expect(
 			pullListSchema.parse(
@@ -681,9 +674,9 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	).toBe("Éditeur-renamed");
 	expect(catalogAfterRefresh.page.total).toBe(2);
 	expect(catalogAfterRefresh.coverage.state).toBe("complete");
-	expect((await watchList()).data[0]).toMatchObject({
-		id: retainedWatch.id,
-		generation: retainedWatch.generation,
+	expect((await watchList()).data[0]?.watch).toMatchObject({
+		id: retainedWatch.watch.id,
+		generation: retainedWatch.watch.generation,
 		active: true,
 	});
 	await page.reload();
@@ -700,19 +693,20 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await cli("watch", "add", draftUrl, renamedUrl, renamedPull.data.id);
 	const renamedWatch = (await watchList()).data;
 	expect(renamedWatch).toHaveLength(2);
-	expect(renamedWatch[0]!.ref.repository).toEqual({
+	expect(renamedWatch[0]!.pr.repository).toEqual({
 		id: "repository-two",
 		name: "Éditeur-renamed",
-		projectExternalId: "project-guid-two",
 	});
 	await patchUnicodeProject({
 		description: "Metadata edit after provider rename",
 	});
 	expect((await watchList()).data[0]).toMatchObject({
-		id: renamedWatch[0]!.id,
-		generation: renamedWatch[0]!.generation,
-		active: true,
-		pullId: renamedPull.data.id,
+		watch: {
+			id: renamedWatch[0]!.watch.id,
+			generation: renamedWatch[0]!.watch.generation,
+			active: true,
+		},
+		pr: { id: renamedPull.data.id },
 	});
 	await cli("watch", "remove", renamedUrl, retainedUrl);
 	expect((await watchList()).data).toEqual([]);
@@ -795,7 +789,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		pullDetailSchema.parse(await cli("pr", "get", currentProjectUrl)).data
 			.observation,
 	).toMatchObject({
-		id: currentWatch.id,
+		id: currentWatch.watch.id,
 		active: true,
 		ref: { projectKey: "Zulu" },
 	});
@@ -1215,7 +1209,7 @@ test("repository IDs remain scoped across cold discovery, mixed watch batches, C
 	const remaining = observationListSchema.parse(
 		await cli("watch", "list", "--org", organization),
 	);
-	expect(remaining.data.map((watch) => watch.ref.repository.id)).toEqual([id]);
+	expect(remaining.data.map((watch) => watch.pr.repository.id)).toEqual([id]);
 	await page.reload();
 	await expect(rows).toHaveCount(1);
 	await rows.getByRole("checkbox").check();

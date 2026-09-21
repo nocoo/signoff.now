@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { aiReadinessSchema, policyInstructionsSchema } from "./ai-readiness.js";
+import { inspectionSchema } from "./inspection.js";
 import {
 	observationSchema,
 	querySourceSchema,
@@ -143,9 +144,7 @@ export const repositoryQuerySchema = z.object({
 	}),
 });
 export type RepositoryQueryItem = z.infer<typeof repositoryQuerySchema>;
-export const observationItemSchema = observationQuerySchema.extend({
-	pull: pullQuerySchema.nullable(),
-});
+export const observationItemSchema = inspectionSchema;
 export type ObservationQueryItem = z.infer<typeof observationItemSchema>;
 export const pageSchema = z.object({
 	limit: z.number().int().positive(),
@@ -193,13 +192,19 @@ export const repoListSchema = envelopeSchema.extend({
 	projects: z.array(projectQuerySchema),
 	page: pageSchema,
 });
-export const observationListSchema = envelopeSchema.extend({
-	data: z.array(observationItemSchema),
-	page: pageSchema,
-});
-export const observationDetailSchema = envelopeSchema.extend({
-	data: observationItemSchema,
-});
+export const observationListSchema = envelopeSchema
+	.omit({ coverage: true })
+	.extend({
+		schemaVersion: z.literal(2),
+		data: z.array(observationItemSchema),
+		page: pageSchema,
+	});
+export const observationDetailSchema = envelopeSchema
+	.omit({ coverage: true })
+	.extend({
+		schemaVersion: z.literal(2),
+		data: observationItemSchema,
+	});
 
 export const jobQuerySchema = z.object({
 	id: z.string(),

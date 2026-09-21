@@ -91,8 +91,8 @@ test("real query CLI and web share watches, including Draft; every command works
 	expect(added.json.results[0].status).toBe("added");
 	const browser = (await fetch(
 		`http://127.0.0.1:${server.port}/api/query/v1/observations`,
-	).then((r) => r.json())) as { data: { id: string }[] };
-	expect(browser.data[0]?.id).toBe(added.json.results[0].observation.id);
+	).then((r) => r.json())) as { data: { watch: { id: string } }[] };
+	expect(browser.data[0]?.watch.id).toBe(added.json.results[0].observation.id);
 	expect(
 		(await cli("pr", "list", "--watching", "--draft", "include", "--all")).json
 			.data[0].state,
@@ -108,7 +108,7 @@ test("real query CLI and web share watches, including Draft; every command works
 		"removed",
 	);
 	expect(
-		(await cli("watch", "list", "--include-stopped")).json.data[0].active,
+		(await cli("watch", "list", "--include-stopped")).json.data[0].watch.active,
 	).toBe(false);
 	const repositoryUrl = `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.name}`;
 	expect((await cli("repo", "add", repositoryUrl)).code).toBe(0);

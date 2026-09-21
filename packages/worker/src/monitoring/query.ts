@@ -29,6 +29,7 @@ import {
 } from "@signoff/domain/workbench";
 import { z } from "zod";
 import { type EvaluationRow, evaluationOutput } from "../ai/scheduler.js";
+import { inspectionContext, inspectObservation } from "./inspection.js";
 import {
 	type JobRepositoryRow,
 	type JobRow,
@@ -1189,37 +1190,53 @@ async function readObservationPage(
 				]
 			: [],
 	);
-	const snapshot: Snapshot = {
-		...scope,
-		evaluations: results[3]?.results as EvaluationRow[],
-		pulls,
-		observations: rows.map(mapObservation),
-		counts: [],
-		searchRows: [],
-		projects: scope.projects.map((p) => ({
-			...p,
-			mergeRequirements: projectMergeRequirements(
-				p,
-				pulls.map((r) => r.pull),
+	const observations = rows.map(mapObservation);
+	const context = await inspectionContext(db, source, observations, timestamp);
+	const evaluations = results[3]?.results as EvaluationRow[];
+	const output = await Promise.all(
+		observations.map((o) =>
+			inspectObservation(
+				o,
+				pulls.find((r) => r.pull.id === o.pullId)?.pull,
+				scope.projects.find((p) => p.id === o.ref.projectId),
+				scope.repositories.find(
+					(r) =>
+						r.project_id === o.ref.projectId &&
+						r.repository_id === o.ref.repository.id,
+				)?.project_external_id ?? null,
+				evaluations.find(
+					(e) => e.observation_id === o.id && e.generation === o.generation,
+				),
+				context,
+				timestamp,
 			),
-		})),
+		),
+	);
+	const finalRevision = await db
+		.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
+		.bind(source)
+		.first<{ revision: number }>();
+	if (String(finalRevision?.revision) !== scope.revision)
+		throw new MonitoringError(
+			"SNAPSHOT_CHANGED",
+			"Data changed while preparing the watch page; retry the query",
+			409,
+		);
+	const metadata = {
+		schemaVersion: 2 as const,
+		source: publicSource(source),
+		dataRevision: scope.revision,
+		generatedAt: iso(timestamp),
 	};
-	const output = snapshot.observations.map((o) => {
-		const row = pulls.find((r) => r.pull.id === o.pullId);
-		return {
-			...publicObservation(o),
-			pull: row ? pullOutput(snapshot, row, timestamp) : null,
-		};
-	});
 	return lookup
 		? {
-				...envelope(snapshot, source, timestamp),
+				...metadata,
 				data: observationItemSchema.parse(output[0]),
 			}
 		: {
-				...envelope(snapshot, source, timestamp),
+				...metadata,
 				data: output,
-				page: pageMetadata(total, filters, snapshot.revision, position),
+				page: pageMetadata(total, filters, scope.revision, position),
 			};
 }
 

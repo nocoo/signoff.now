@@ -512,7 +512,7 @@ describe("v1 cache queries", () => {
 				const result = observationListSchema.parse(
 					await (await request(`/api/query/v1/observations?${filters}`)).json(),
 				);
-				expect(result.data.map((o) => o.ref.projectId)).toEqual([id]);
+				expect(result.data.map((o) => o.pr.project.signoffId)).toEqual([id]);
 				expect(result.page.total).toBe(1);
 			}
 		}
@@ -588,7 +588,9 @@ describe("v1 cache queries", () => {
 			PR_TEST_NOW,
 			{ pullId: "watched-1500" },
 		);
-		expect(lookup.data).toMatchObject({ id: "watch-1500", active: false });
+		expect(lookup.data).toMatchObject({
+			watch: { id: "watch-1500", active: false },
+		});
 		expect(snapshotsRead).toBe(1);
 	});
 	test("Unicode project and repository references agree across discovery, watches, lookup and scope filters", async () => {
@@ -1152,7 +1154,7 @@ describe("v1 cache queries", () => {
 			parseQuery(new URLSearchParams()),
 			PR_TEST_NOW,
 		);
-		expect(reads.pop()).toBe(1);
+		expect(reads.splice(0).reduce((n, count) => n + count, 0)).toBe(1);
 		await queryPulls(
 			db,
 			"cli",
@@ -1281,7 +1283,7 @@ describe("v1 cache queries", () => {
 		);
 		expect(watches.page.total).toBe(2);
 		expect(
-			watches.data.some((o) => o.pull === null && o.ref.number === 999),
+			watches.data.some((o) => o.pr.id === null && o.pr.number === 999),
 		).toBe(true);
 	});
 	test("repo navigation includes configured but undiscovered and empty repositories", async () => {
@@ -1571,7 +1573,7 @@ describe("v1 commands", () => {
 				await (
 					await request("/api/query/v1/observations?includeStopped=true")
 				).json(),
-			).data[0]?.stopReason,
+			).data[0]?.watch.stopReason,
 		).toBe("manual");
 	});
 	test("malformed encoding rejects only its batch item and preserves successful job receipts", async () => {

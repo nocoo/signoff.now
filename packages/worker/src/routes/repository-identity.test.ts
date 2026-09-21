@@ -124,7 +124,7 @@ test.each([
 	const watches = observationListSchema.parse(
 		await (await request("/api/query/v1/observations")).json(),
 	);
-	expect(watches.data[0]?.ref.url).toBe(cached.url);
+	expect(watches.data[0]?.pr.url).toBe(cached.url);
 	expect(
 		JSON.parse(
 			(
@@ -155,12 +155,12 @@ test.each([
 				page: { total: number };
 				data: {
 					repository?: { id: string };
-					ref?: { repository: { id: string } };
+					pr?: { repository: { id: string } };
 				}[];
 			};
 			expect(result.page.total).toBe(1);
 			expect(
-				result.data.map((r) => r.repository?.id ?? r.ref?.repository.id),
+				result.data.map((r) => r.repository?.id ?? r.pr?.repository.id),
 			).toEqual([id]);
 		}
 	}
@@ -257,7 +257,10 @@ test.each([
 			`/api/query/v1/observations/lookup?${new URLSearchParams({ repositoryUrl: url, number: "1" })}`,
 		);
 		expect(await stopped.json()).toMatchObject({
-			data: { id: watch.observation.id, active: false, pull: null },
+			data: {
+				watch: { id: watch.observation.id, active: false },
+				pr: { title: null },
+			},
 		});
 	} else {
 		// Even an uncached URL watch must preserve A's identity rather than B's PR #2.
