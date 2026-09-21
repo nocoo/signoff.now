@@ -1,10 +1,9 @@
+import { type AiReadiness, aiKindSchema } from "@signoff/domain/ai-readiness";
 import type { Observation } from "@signoff/domain/monitoring";
-import {
-	type Project,
-	type PullReadiness,
-	type PullRequest,
-	type pullProgress,
-	readinessKindSchema,
+import type {
+	Project,
+	PullRequest,
+	pullProgress,
 } from "@signoff/domain/workbench";
 import { sourceFromParams } from "./workspaceLocation";
 
@@ -14,7 +13,7 @@ export type PullRow = {
 	watchPending?: boolean;
 	pull: PullRequest;
 	project: Project;
-	readiness: PullReadiness;
+	readiness: AiReadiness;
 	progress: ReturnType<typeof pullProgress>;
 };
 export type PullFilter = {
@@ -26,7 +25,7 @@ export type PullFilter = {
 	draft: "exclude" | "include" | "only";
 	authors: string[];
 	state: "open" | "merged" | "closed" | "all";
-	status: "all" | "attention" | PullReadiness["kind"];
+	status: "all" | AiReadiness["kind"];
 	sort: "readiness" | "title" | "progress" | "action" | "updated" | "oldest";
 	sortDirection: "asc" | "desc";
 	watching: "all" | "watching" | "unwatched";
@@ -74,11 +73,6 @@ export function updatePullFilter(
 			(next.state === "merged" || next.state === "closed"))
 	)
 		next.state = "open";
-	// Old readiness links used terminal states as readiness values.
-	if (next.status === "merged" || next.status === "closed") {
-		next.state = next.status;
-		next.status = "all";
-	}
 	if (next.state === "merged" || next.state === "closed") {
 		next.status = "all";
 		if (next.watching === "watching") next.watching = "all";
@@ -127,9 +121,7 @@ export function readPullFilter(
 		state: ["open", "merged", "closed", "all"].includes(state)
 			? (state as PullFilter["state"])
 			: "open",
-		status: ["all", "attention", ...readinessKindSchema.options].includes(
-			status,
-		)
+		status: ["all", "attention", ...aiKindSchema.options].includes(status)
 			? (status as PullFilter["status"])
 			: "all",
 		sort,

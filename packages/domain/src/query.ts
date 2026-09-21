@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiReadinessSchema, policyInstructionsSchema } from "./ai-readiness.js";
 import {
 	observationSchema,
 	querySourceSchema,
@@ -10,8 +11,6 @@ import {
 	projectSchema,
 	pullRequestSchema,
 	readinessColorSchema,
-	readinessKindSchema,
-	stateMachineSchema,
 } from "./workbench.js";
 
 const iso = z.iso.datetime();
@@ -73,33 +72,7 @@ export const pullQuerySchema = pullRequestSchema
 			}),
 			clockSkew: z.boolean(),
 		}),
-		readiness: z.object({
-			stateId: z.string().optional(),
-			machineRevision: z.number().int().positive().optional(),
-			matchedRuleId: z.string().optional(),
-			kind: readinessKindSchema,
-			ready: z.boolean(),
-			label: z.string(),
-			primaryRequirementId: z.string().nullable(),
-			nextAction: z.string(),
-			owner: z.string(),
-			issues: z.array(
-				z.object({
-					kind: z.string(),
-					label: z.string(),
-					action: z.string(),
-					owner: z.string(),
-					gateId: z.string().optional(),
-					gateName: z.string().optional(),
-					reason: z.literal("build_expired").optional(),
-					color: readinessColorSchema.optional(),
-				}),
-			),
-			rank: z.number().optional(),
-			color: z
-				.enum(["green", "yellow", "orange", "blue", "red", "purple", "gray"])
-				.optional(),
-		}),
+		readiness: aiReadinessSchema,
 		checks: z.object({
 			checksPassed: z.number(),
 			checksTotal: z.number(),
@@ -120,97 +93,21 @@ export const pullQuerySchema = pullRequestSchema
 	});
 export type PullQueryItem = z.infer<typeof pullQuerySchema>;
 
-const machineTraceSchema = z.object({
-	ruleId: z.string(),
-	stateId: z.string(),
-	matched: z.boolean(),
-	selected: z.boolean(),
-	results: z.array(z.boolean()),
-	guard: z.string().optional(),
-});
-const machineEvaluationSchema = z.object({
-	id: z.string(),
-	number: z.number(),
-	title: z.string(),
-	repositoryId: z.string(),
-	lifecycle: z.enum(["open", "merged", "closed"]),
-	watched: z.boolean(),
-	summaryObservedAt: z.number(),
-	checksObservedAt: z.number().nullable(),
-	readiness: pullQuerySchema.shape.readiness,
-	requirements: pullQuerySchema.shape.requirements,
-	trace: z.array(machineTraceSchema),
-});
 export const machinePageSchema = z.object({
 	project: projectSchema,
 	repositoryId: z.string().nullable(),
 	repositories: z.array(z.object({ id: z.string(), name: z.string() })),
-	config: stateMachineSchema,
 	revision: z.number(),
 	inherited: z.boolean(),
-	configured: z.boolean(),
-	dataRevision: z.string(),
-	total: z.number(),
-	evaluatedCount: z.number(),
-	truncated: z.boolean(),
 	catalog: z.array(mergeRequirementSchema),
-	evaluations: z.array(machineEvaluationSchema),
-	selectedPull: pullRequestSchema.nullable(),
-	history: z.array(z.object({ revision: z.number(), createdAt: z.number() })),
-	transitions: z.array(
-		z.object({
-			id: z.number(),
-			at: z.number(),
-			cause: z.literal("observation"),
-			ruleRevision: z.number(),
-			from: pullQuerySchema.shape.readiness.nullable(),
-			to: pullQuerySchema.shape.readiness,
-		}),
-	),
+	instructions: policyInstructionsSchema,
 });
 export type MachinePage = z.infer<typeof machinePageSchema>;
-export const machinePullPageSchema = z.object({
-	data: z.array(
-		machineEvaluationSchema.pick({
-			id: true,
-			number: true,
-			title: true,
-			watched: true,
-		}),
-	),
-	nextCursor: z.string().nullable(),
-});
-export type MachinePullOption = z.infer<
-	typeof machinePullPageSchema
->["data"][number];
-export const machinePreviewSchema = z.object({
-	revision: z.number(),
-	dataRevision: z.string(),
-	evaluatedCount: z.number(),
-	total: z.number(),
-	truncated: z.boolean(),
-	changed: z.number(),
-	changes: z.array(
-		z.object({
-			id: z.string(),
-			number: z.number(),
-			title: z.string(),
-			before: pullQuerySchema.shape.readiness,
-			after: pullQuerySchema.shape.readiness,
-		}),
-	),
-	evaluations: z.array(machineEvaluationSchema),
-});
-export type MachinePreview = z.infer<typeof machinePreviewSchema>;
-export const machineVersionSchema = z.object({
-	revision: z.number().int().positive(),
-	config: stateMachineSchema.nullable(),
-});
 export const machineWriteSchema = z
 	.object({
 		revision: z.number().int().positive(),
 		repositoryId: z.string().min(1).max(240).nullable(),
-		config: stateMachineSchema.nullable(),
+		instructions: policyInstructionsSchema.nullable(),
 	})
 	.strict();
 export const repositoryQuerySchema = z.object({
@@ -234,8 +131,9 @@ export const repositoryQuerySchema = z.object({
 		closed: z.number(),
 		watching: z.number(),
 		attention: z.number(),
-		running: z.number(),
-		ready: z.number(),
+		onTrack: z.number(),
+		unknown: z.number(),
+		error: z.number(),
 	}),
 });
 export type RepositoryQueryItem = z.infer<typeof repositoryQuerySchema>;
@@ -261,8 +159,9 @@ export const pullListSchema = envelopeSchema.extend({
 	metrics: z.object({
 		open: z.number(),
 		attention: z.number(),
-		running: z.number(),
-		ready: z.number(),
+		onTrack: z.number(),
+		unknown: z.number(),
+		error: z.number(),
 		draft: z.number(),
 		merged: z.number(),
 		closed: z.number(),

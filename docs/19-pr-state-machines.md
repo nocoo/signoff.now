@@ -1,56 +1,54 @@
-# PR state machines
+# Jev readiness and policy instructions
 
-Workspace → State machines owns classification, requirement priority, labels, colors and mappings. The daemon collects provider facts. The shared domain evaluator interprets those facts for both the cached CLI queries and the web. Filters only select rows; they never update facts, rules or watches.
+AI Settings (`/ai-settings`, directly above Settings) configures Jev. State machines (`/sm`) now edits project policy explanations and priority, with optional repository overrides. Deterministic state mappings, custom classification labels/colors, previews and replay endpoints have been removed.
 
-## Model
+## Meaning and contract
 
-Lifecycle (open, draft, completed, abandoned) is independent of concurrent review, build, status and policy gates. Requirement priority selects the primary next action; it does not prescribe pipeline execution. All blocking issues remain in the result.
+Readiness answers whether a person needs to act now. Only active watched PRs are evaluated. Classification comes exclusively from TypeSafe Jev Choice; no severity, first-gate or rule fallback remains.
 
-Primary status can follow blocker severity or explicit gate order. New machines preserve the existing strategy: projects without saved readiness order use severity; existing ordered settings use gate order. Editing a state name does not switch strategy. Reordering a gate explicitly selects gate order. Gate names, colors and diagram groups remain editable under either strategy.
+| Kind | Meaning |
+| --- | --- |
+| `on_track` | Normal automatic progress or expected waiting; no human intervention currently indicated. Never permission to merge. |
+| `attention` | Human intervention is needed. A separate bounded Choice selects the next action. |
+| `unknown` | Jev cannot usefully classify insufficient, ambiguous or conflicting evidence. |
+| `error` | Configuration, transport, request-budget or response validation failure; not a failed CI build. |
 
-Projects have a default machine; stable repository IDs can override it. Existing readiness settings supply the initial defaults. Newly discovered requirements are appended without deleting saved mappings. Policy repository/branch scope and underlying evaluation IDs remain available alongside logical grouped gates.
+`readiness.status` distinguishes `not_watched`, `pending`, `running`, `complete` and `error`. Only `complete` has `current`; pending/running/error can retain `previous`, explicitly historical. Unwatched PRs display Not evaluated. Lifecycle, draft, raw checks, expiry and merge requirements remain separate facts. The old `ready` boolean, issue list, rule rank, owner and primary blocker fields are removed. API, web and cached CLI return the same stored judgment. Filters accept `on_track`, `attention`, `unknown`, `error`; counts use `onTrack`, `attention`, `unknown`, `error`.
 
-Each mapping has an ordered position, an enabled flag, an output state and typed AND/OR conditions. Conditions can inspect lifecycle, draft, mergeability, coverage, check validity, the baseline classification, a gate state, provider policy status, explicit build expiry and target currency. The first eligible mapping wins. There is no executable user code. The evaluator returns the match results and protection reason for every mapping.
+A result records model `jev-1.13.0`, rubric `signoff-intervention-v1`, input fingerprint, evaluation time, observation provenance, Choice probabilities/confidence and the selected action with its distribution. Confidence is distribution concentration, not measured accuracy. Next actions are fixed templates for conflict resolution, build investigation, rerun, review, approval, merge, project instructions or evidence investigation; Jev does not generate prose. Consult the raw provider evidence before acting. SignOff performs no merge, approval, rerun or bypass.
 
-Provider terminal states and draft cannot be manufactured or overridden. A mapping cannot declare ready while any required gate, incomplete collection, unknown mergeability or invalidated check prevents readiness. `buildIsNotCurrent` is independent of `isExpired`; being behind the target alone does not expire an accepted ADO build. Raw evidence is retained so interpretations can be replayed after rule changes.
+## Credentials and requests
 
-## Persistence and replay
+The key is saved server-side, encrypted with AES-256-GCM in D1. `SIGNOFF_AI_ENCRYPTION_KEY` is a separate base64-encoded 32-byte Worker secret. Local development loads it from ignored `.dev.vars` with mode 0600. Retain this encryption secret to decrypt the saved key; replacing it requires re-entering the Jev key. Do not put either secret in Git, frontend storage, API reads, logs, URLs or model state.
 
-Machine revisions are independent of collection revisions and leases. Configuration updates use project-wide compare-and-swap, so concurrent repository/default edits cannot silently overwrite one another. Saves invalidate the shared query revision but never rewrite PR snapshots or create collection work. Old readiness writes are rejected once a machine is configured, with a link to the new editor.
+Local authorized endpoints:
 
-The API provides read-only preview against cached PRs, version history and version loading for a previewable rollback. Replay is bounded to 2,000 cached PRs in the selected scope: the selected PR is included first, then recent open PRs, then recent terminal PRs. Reads and previews use the same selected-PR scope. Responses expose total/evaluated counts and truncation. Configuration bodies and combined saved settings are bounded to 256 KiB. The latest 30 configuration versions are listed; earlier versions remain addressable by revision.
+- `GET /api/ai/settings`: configured/storage/test metadata only.
+- `PUT /api/ai/settings`: `{revision, apiKey}`; null clears, nonempty replaces; revision CAS protects concurrent changes.
+- `POST /api/ai/test`: one bounded synthetic connection request, no PR reclassification. Saving alone does not claim validity.
+- `POST /api/ai/retry`: explicitly retries operational errors.
+- `POST /api/ai/tick`: daemon scheduler tick, not a browser query.
 
-The PR selector defaults to watched PRs and searches the full cache independently of the replay sample. Its scrollable menu loads 20 lightweight choices at a time, using PR number and identity as a scoped cursor so background status updates do not reset pagination. Search and scope changes cancel old requests; opening the menu refreshes watch membership. Choosing a PR outside the replay sample includes it in the next evaluation.
+The integration posts `{model,state,questions}` to `https://api.typesafe.ai/v1/systemone` with Bearer authentication. It uses a 30-second timeout and refuses redirects; requests over 96 KB fail explicitly without silently truncating evidence. Official references: [API](https://docs.typesafe.ai/api), [Choice](https://docs.typesafe.ai/primitives/choice), [state](https://docs.typesafe.ai/concepts/state), [models](https://docs.typesafe.ai/models).
 
-Snapshot mutations atomically record observed evidence changes using D1 triggers. A rejected publication or rolled-back transaction creates no event. Polling clocks and content-only changes do not create state events. Each event retains the before/after facts and the rule context used at observation time. Rule saves are version events, separate from provider observations. The latest 30 observations per PR are retained. History starts when the migration is applied; polling may skip intermediate provider states.
+## Input and policy scope
 
-All `/api/state-machines/:projectId` routes require the same browser/Access boundary as other project management APIs. Pipeline credentials cannot manage machines. Live and Sample scopes are explicit.
+English rubrics consume structured evidence: lifecycle, draft/mergeability, branch/head/target identities and exact hash comparisons; exact approval counts and requirements; reviewer votes and required reviewers; all policy evaluations, flags, scope, explicit expiry, descriptions and build associations; all builds and stage attempts, raw status/results and available provider messages; coverage, missing checks and validity.
 
-| Method / suffix | Behavior |
-|---|---|
-| GET | Effective machine, gate catalog, cached classifications and selected PR history |
-| GET `/pulls` | Watched-by-default PR choices with scoped search and stable keyset pagination |
-| POST `/preview` | Evaluate a draft without writes or provider calls |
-| PATCH | Save a validated configuration at the expected revision |
-| GET `/versions/:revision` | Load the selected scope from an earlier version into a draft |
+Project instructions include the full user priority order, highest first. Order supplies context, never a coded blocker selection. Policy meanings are not inferred from names. Generated collector action summaries are omitted from model state. `isExpired` and `buildIsNotCurrent` remain distinct. ADO target identity is `lastMergeTargetCommit`, not an independent target-ref read. Stage required flags are identified as collector-derived, not provider guarantees. Auto-complete is not collected and is explicitly unknown.
 
-Graph layout is a local view preference. Moving graph nodes changes no mapping or priority; edits in the inspector and priority editor are previewed and explicitly saved.
+Project and repository instructions are saved through the existing project-wide revision CAS. Scope defaults inherit from the project; clearing an override restores inheritance. Logical policy catalogs preserve underlying source identities, scopes and evaluations. New gates append after saved priorities; existing descriptions are not copied across projects.
 
-The graph fills the remaining viewport below two compact scope/PR toolbars. Graph modes and navigation controls float inside the canvas; freshness and replay coverage share a single status line. The inspector starts collapsed unless a tab is linked explicitly. Selecting a node or an inspector tab opens it; closing it retains the draft. On narrow screens the inspector overlays the graph, with its own scroll area and pinned preview/save actions.
+## Background consistency
 
-## Browser URLs
+The existing daemon independently drives inference even with all browsers closed. Discovery retains its 10-minute per-project completion cooldown. Full watched detail collection retains its 5-minute per-PR completion cooldown. Jev adds no provider collection lane.
 
-The web uses React Router's History API routing. Resource identity belongs in the path; filters and view selections belong in query parameters. ADO scopes use `ado/:organization/:project`; GitHub scopes use `github/:owner`. Each name is URL-encoded separately and resolved through the existing cache, including retained repository aliases. Unknown or ambiguous resources show an error instead of selecting another resource.
+Watch activation, provider evidence changes, policy explanation/order changes and key revisions schedule evaluation. A canonical fingerprint covers decision state, project instructions, model and rubric. Poll clocks, request IDs, avatar URLs and ticking stage durations are excluded. Freshness becomes a decision fact when the summary/check age exceeds max(20 minutes, 3 detail cooldowns); crossing that boundary reevaluates. Observation timestamps remain result provenance.
 
-| URL | Meaning |
-|---|---|
-| `/sm/ado/intentional/intent` | Project default rules |
-| `/sm/ado/intentional/intent/whiteboard-app?pr=59380` | Repository rules, tracing PR 59380 |
-| `/sm/ado/intentional/intent?pr=whiteboard-app%2F59380` | Project default rules, tracing the same PR without changing the rule scope |
-| `/prs/ado/intentional/intent/whiteboard-app/59380` | PR details |
-| `/prs/github/nocoo/signoff.now/123?source=sample` | Sample GitHub PR details |
-| `/prs?source=live&watching=watching` | Watched PR list |
+One database runner lease bounds inference concurrency to one. Identical inputs reuse completed judgments, including after a normal collection poll. Transient transport/429/5xx errors get at most three attempts with backoff and bounded Retry-After. Exhausted or nontransient failures persist as Error until facts/config change or explicit retry. Generation, input revision and lease token fence late responses after changes, unwatch or rewatch. Removed watches never receive a late current result.
 
-State machine view parameters are `tab=inspect|priority|states|mappings|history`, `view=transitions` (default: rule model), and `gates=pr` (default: all gates). Resource links default to Live independently of saved filters; Sample is explicit as `source=sample`. List links include their source. Old `source=cli|demo`, `/state-machines?project=…&repo=…&trace=…`, and `/?pr=…` links still work and are replaced with the resolved friendly URL. ADO repository names that look like UUIDs use the stable repository ID to avoid name/ID collisions.
+## Verification
 
-Scope changes, PR selections, discrete filters, pagination, tabs and graph modes add history entries. Automatic selections and URL normalization replace the current entry; typing in the PR list search also replaces it. Back/Forward, reload and shared links restore the URL's scope and view without provider calls or changes to facts, watches or rules.
+Deterministic SQLite and API tests cover encryption/masking/removal, CAS/scope, all policy evidence, canonical dedupe, retries and late facts/instructions/key/unwatch/rewatch races. Browser verification covers AI Settings placement and reload, desktop/mobile layouts, policy editing and cached result parity. A real user-supplied key was configured through the local UI; the bounded connection request and classifications of the existing 15 watched PRs succeeded on 2026-09-21. These requests demonstrate the real integration, not an accuracy benchmark.
+
+Final local validation passed: repository lint, typecheck, all seven coverage tasks, the web production build, and all seven isolated Playwright E2E tests. Live browser checks also confirmed that policy edits trigger reevaluation with the browser closed and that web/API and cached CLI judgments agree. Desktop and 390-pixel mobile layouts were checked for horizontal overflow.

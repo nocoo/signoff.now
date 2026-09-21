@@ -1,9 +1,24 @@
 import { z } from "zod";
+export const policyInstructionSchema = z
+	.object({
+		gateId: z.string().min(1).max(500),
+		description: z.string().max(4000),
+	})
+	.strict();
+export const policyInstructionsSchema = z
+	.array(policyInstructionSchema)
+	.max(1000)
+	.refine(
+		(items) => new Set(items.map((i) => i.gateId)).size === items.length,
+		"Policy identities must be unique",
+	);
+export const policyContextSchema = z.object({
+	default: policyInstructionsSchema,
+	repositories: z.record(z.string(), policyInstructionsSchema),
+});
+export type PolicyContext = z.infer<typeof policyContextSchema>;
 
-export {
-	evaluateReadiness as pullReadiness,
-	evaluateRequirements as pullRequirements,
-} from "./state-machine.js";
+export { evaluateRequirements as pullRequirements } from "./state-machine.js";
 
 const name = z.string().trim().min(1).max(240);
 const instant = z.number().int().nonnegative();
@@ -20,18 +35,6 @@ export const checkStateSchema = z.enum([
 ]);
 export type CheckState = z.infer<typeof checkStateSchema>;
 
-export const readinessKindSchema = z.enum([
-	"ready",
-	"approval",
-	"review",
-	"running",
-	"unknown",
-	"blocked",
-	"draft",
-	"merged",
-	"closed",
-]);
-export type ReadinessKind = z.infer<typeof readinessKindSchema>;
 export const readinessColorSchema = z.enum([
 	"green",
 	"yellow",
@@ -65,196 +68,6 @@ export const mergeRequirementSchema = z.object({
 	scope: z.array(policyScopeSchema).max(1000).optional(),
 });
 export type MergeRequirement = z.infer<typeof mergeRequirementSchema>;
-const readinessRuleSchema = z
-	.object({
-		gateId: gateIdSchema,
-		label: name,
-		color: readinessColorSchema,
-	})
-	.strict();
-export type ReadinessRule = z.infer<typeof readinessRuleSchema>;
-export const READINESS_LABELS: Record<ReadinessKind, string> = {
-	ready: "Ready to merge",
-	approval: "Awaiting approval",
-	review: "Review needed",
-	running: "In progress",
-	unknown: "Unknown / incomplete",
-	blocked: "Blocked",
-	draft: "Draft",
-	merged: "Merged",
-	closed: "Closed",
-};
-const READINESS_COLORS: Record<ReadinessKind, ReadinessColor> = {
-	ready: "green",
-	approval: "yellow",
-	review: "orange",
-	running: "blue",
-	unknown: "gray",
-	blocked: "red",
-	draft: "gray",
-	merged: "purple",
-	closed: "gray",
-};
-export const readinessRuleKey = (rule: ReadinessRule): string => rule.gateId;
-export const readinessRulesSchema = z
-	.array(readinessRuleSchema)
-	.max(1000)
-	.refine(
-		(rules) => new Set(rules.map(readinessRuleKey)).size === rules.length,
-		"Merge requirement IDs must be unique",
-	);
-export const readinessWriteSchema = z
-	.object({
-		revision: z.number().int().positive(),
-		rules: readinessRulesSchema,
-	})
-	.strict();
-
-const machineId = z
-	.string()
-	.trim()
-	.min(1)
-	.max(120)
-	.regex(/^[a-zA-Z0-9][a-zA-Z0-9_:-]*$/);
-const values = <T extends z.ZodType>(schema: T) =>
-	z.array(schema).min(1).max(30);
-export const machineConditionSchema = z.discriminatedUnion("fact", [
-	z
-		.object({
-			fact: z.literal("lifecycle"),
-			oneOf: values(z.enum(["open", "merged", "closed"])),
-		})
-		.strict(),
-	z.object({ fact: z.literal("draft"), equals: z.boolean() }).strict(),
-	z
-		.object({
-			fact: z.literal("mergeable"),
-			oneOf: values(z.enum(["clear", "conflicts", "unknown"])),
-		})
-		.strict(),
-	z
-		.object({
-			fact: z.literal("coverage"),
-			oneOf: values(z.enum(["complete", "partial"])),
-		})
-		.strict(),
-	z
-		.object({
-			fact: z.literal("checksValidity"),
-			oneOf: values(z.enum(["valid", "missing", "invalidated"])),
-		})
-		.strict(),
-	z
-		.object({ fact: z.literal("baseline"), oneOf: values(readinessKindSchema) })
-		.strict(),
-	z
-		.object({
-			fact: z.literal("gate"),
-			gateId: gateIdSchema,
-			oneOf: values(checkStateSchema),
-		})
-		.strict(),
-	z
-		.object({
-			fact: z.literal("policyStatus"),
-			gateId: gateIdSchema,
-			oneOf: values(z.string().min(1).max(120)),
-		})
-		.strict(),
-	z
-		.object({
-			fact: z.literal("buildExpired"),
-			gateId: gateIdSchema,
-			equals: z.boolean(),
-		})
-		.strict(),
-	z
-		.object({
-			fact: z.literal("buildNotCurrent"),
-			gateId: gateIdSchema,
-			equals: z.boolean(),
-		})
-		.strict(),
-]);
-export type MachineCondition = z.infer<typeof machineConditionSchema>;
-export const stateMachineSchema = z
-	.object({
-		/** Older saved machines used explicit gate order. */
-		priority: z.enum(["severity", "gate"]).optional(),
-		states: z
-			.array(
-				z
-					.object({
-						id: machineId,
-						label: name,
-						kind: readinessKindSchema,
-						color: readinessColorSchema,
-						group: name,
-					})
-					.strict(),
-			)
-			.min(9)
-			.max(60),
-		mappings: z
-			.array(
-				z
-					.object({
-						id: machineId,
-						name,
-						stateId: machineId,
-						enabled: z.boolean(),
-						match: z.enum(["all", "any"]),
-						conditions: z.array(machineConditionSchema).min(1).max(20),
-					})
-					.strict(),
-			)
-			.max(100),
-		gates: z
-			.array(readinessRuleSchema.extend({ group: name }).strict())
-			.max(1000),
-	})
-	.strict()
-	.superRefine((config, ctx) => {
-		for (const [key, ids] of [
-			["states", config.states.map((state) => state.id)],
-			["mappings", config.mappings.map((rule) => rule.id)],
-			["gates", config.gates.map((gate) => gate.gateId)],
-		] as const) {
-			if (new Set(ids).size !== ids.length)
-				ctx.addIssue({
-					code: "custom",
-					path: [key],
-					message: `${key} IDs must be unique`,
-				});
-		}
-		for (const kind of readinessKindSchema.options) {
-			if (
-				!config.states.some((state) => state.id === kind && state.kind === kind)
-			)
-				ctx.addIssue({
-					code: "custom",
-					path: ["states"],
-					message: `Keep the protected ${kind} state and its kind`,
-				});
-		}
-		for (const [index, rule] of config.mappings.entries()) {
-			if (!config.states.some((state) => state.id === rule.stateId))
-				ctx.addIssue({
-					code: "custom",
-					path: ["mappings", index, "stateId"],
-					message: "Choose an existing state",
-				});
-		}
-	});
-export type StateMachine = z.infer<typeof stateMachineSchema>;
-export const stateMachineSettingsSchema = z
-	.object({
-		default: stateMachineSchema.nullable(),
-		repositories: z.record(z.string().min(1).max(240), stateMachineSchema),
-	})
-	.strict();
-export type StateMachineSettings = z.infer<typeof stateMachineSettingsSchema>;
-
 export const repositoryNameSchema = z
 	.string()
 	.trim()
@@ -277,10 +90,8 @@ export const projectSchema = z.object({
 	organization: name,
 	projectKey: name,
 	repositories: repositoryScopeSchema.optional(),
-	readinessRules: readinessRulesSchema.optional(),
+	policyContext: policyContextSchema.optional(),
 	mergeRequirements: z.array(mergeRequirementSchema).max(1000).optional(),
-	readinessRevision: z.number().int().positive().optional(),
-	stateMachine: stateMachineSettingsSchema.optional(),
 	stateMachineRevision: z.number().int().positive().optional(),
 	description: z.string(),
 	owner: name,
@@ -354,6 +165,7 @@ const actorSchema = z.object({
 });
 /** Bounded provider evidence, retained independently of its interpretation. */
 export const policyEvidenceSchema = z.object({
+	description: z.string().max(4000).optional(),
 	status: z.string().max(120).optional(),
 	evaluationId: name.optional(),
 	typeId: name.optional(),
@@ -372,6 +184,7 @@ export const policyEvidenceSchema = z.object({
 	completedAt: instant.nullable().optional(),
 });
 export const buildEvidenceSchema = z.object({
+	description: z.string().max(4000).optional(),
 	status: z.string().max(120).optional(),
 	result: z.string().max(120).nullable().optional(),
 	sourceSha: z.string().max(240).optional(),
@@ -578,25 +391,6 @@ export const workbenchSchema = z.object({
 });
 export type Workbench = z.infer<typeof workbenchSchema>;
 
-export type PullIssue = {
-	kind: "blocked" | "approval" | "review" | "running" | "unknown";
-	label: string;
-	action: string;
-	owner: string;
-	gateId?: string;
-	gateName?: string;
-	reason?: "build_expired";
-	color?: ReadinessColor;
-};
-export type PullReadiness = Omit<PullIssue, "kind"> & {
-	kind: ReadinessKind;
-	issues: PullIssue[];
-	rank?: number;
-	color?: ReadinessColor;
-	stateId?: string;
-	machineRevision?: number;
-	matchedRuleId?: string;
-};
 const CONFLICT_GATE: MergeRequirement = {
 	id: "merge-conflicts",
 	name: "Resolve merge conflicts",
@@ -645,7 +439,7 @@ export function projectMergeRequirements(
 			requirements.set(policy.id, {
 				...previous,
 				id: policy.id,
-				name: previous?.name ?? policy.name,
+				name: policy.name,
 				kind: previous?.kind ?? policyKind(policy),
 				definitionId: policy.definitionId ?? previous?.definitionId,
 				scope: policy.evidence?.scope ?? previous?.scope,
@@ -693,13 +487,19 @@ export function projectMergeRequirements(
 		}
 	>();
 	for (const gate of requirements.values()) {
-		const id = requirementKey(gate);
+		const id =
+			project.mergeRequirements?.find((existing) =>
+				existing.sourceIds?.some(
+					(source) => gate.id === source || gate.sourceIds?.includes(source),
+				),
+			)?.id ?? requirementKey(gate);
 		const group = groups.get(id) ?? {
 			gate: { ...gate, id },
 			sources: new Set<string>(),
 			details: new Set<string>(),
 			scopes: new Map<string, z.infer<typeof policyScopeSchema>>(),
 		};
+		if (gate.id !== id) group.gate.name = gate.name;
 		for (const sourceId of gate.sourceIds ?? [gate.id])
 			group.sources.add(sourceId);
 		if (gate.detail) group.details.add(gate.detail);
@@ -722,83 +522,6 @@ export function projectMergeRequirements(
 		);
 }
 
-function configuredReadinessRules(
-	project: Project,
-	gates: MergeRequirement[],
-): ReadinessRule[] {
-	const configured = new Map<string, ReadinessRule>();
-	for (const rule of project.readinessRules ?? []) {
-		const gate = gates.find(
-			(candidate) =>
-				candidate.id === rule.gateId ||
-				candidate.sourceIds?.includes(rule.gateId),
-		);
-		if (gate && !configured.has(gate.id))
-			configured.set(gate.id, { ...rule, gateId: gate.id });
-	}
-	return [...configured.values()];
-}
-
-/** Display priority for concurrent requirements, independent of their execution. */
-export function projectReadinessRules(
-	project: Project,
-	pulls: PullRequest[] = [],
-): ReadinessRule[] {
-	const gates = projectMergeRequirements(project, pulls);
-	const configured = configuredReadinessRules(project, gates);
-	const configuredIds = new Set(configured.map((rule) => rule.gateId));
-	return [
-		...gates
-			.filter((gate) => !configuredIds.has(gate.id))
-			.map(
-				(gate): ReadinessRule => ({
-					gateId: gate.id,
-					label: gate.name,
-					color:
-						gate.kind === "review"
-							? "orange"
-							: gate.kind === "build"
-								? "blue"
-								: "red",
-				}),
-			),
-		...configured,
-	];
-}
-
-/** Zero is merge-ready. Later remaining gates sort ahead of earlier unmet requirements. */
-export function readinessPriority(
-	readiness: Pick<PullReadiness, "kind" | "gateId" | "rank">,
-	project: Project,
-): number {
-	if (readiness.rank !== undefined) return readiness.rank;
-	if (readiness.kind === "ready") return 0;
-	const rules = projectReadinessRules(project);
-	const index = rules.findIndex((rule) => rule.gateId === readiness.gateId);
-	if (index >= 0) return (rules.length - index) / rules.length;
-	return {
-		approval: 1,
-		review: 1,
-		running: 1,
-		blocked: 1,
-		unknown: 2,
-		draft: 3,
-		merged: 4,
-		closed: 5,
-	}[readiness.kind];
-}
-export function readinessColor(
-	readiness: Pick<PullReadiness, "kind" | "gateId" | "color">,
-	project: Project,
-): ReadinessColor {
-	return (
-		readiness.color ??
-		project.readinessRules?.find((rule) => rule.gateId === readiness.gateId)
-			?.color ??
-		READINESS_COLORS[readiness.kind]
-	);
-}
-
 export function isFailed(state: CheckState): boolean {
 	return state === "failed" || state === "canceled";
 }
@@ -817,372 +540,57 @@ export function approvalCount(
 	).length;
 }
 
-function buildIssues(build: Build, author: string, owner: string): PullIssue[] {
-	const issues: PullIssue[] = [];
-	const required = build.stages.filter((stage) => stage.required);
-	const failed = required.find((stage) => isFailed(stage.state));
-	const waiting = required.find((stage) => stage.state === "waiting");
-	const active = required.find(
-		(stage) => stage.state === "running" || stage.state === "queued",
-	);
-	const unknown = required.find(
-		(stage) => stage.state === "unknown" || stage.state === "skipped",
-	);
-	if (failed || isFailed(build.state))
-		issues.push({
-			kind: "blocked",
-			label: build.state === "canceled" ? "Build canceled" : "Build failed",
-			action: failed?.detail ?? `Rerun ${build.name}`,
-			owner: failed?.owner ?? author,
-		});
-	if (waiting || build.state === "waiting")
-		issues.push({
-			kind: "approval",
-			label: "Approval needed",
-			action: waiting?.detail ?? `Approve ${build.name}`,
-			owner: waiting?.owner ?? owner,
-		});
-	const inProgress =
-		active || build.state === "running" || build.state === "queued";
-	if (
-		unknown ||
-		build.state === "unknown" ||
-		build.state === "skipped" ||
-		(!required.length && build.state === "passed")
-	)
-		issues.push({
-			kind: "unknown",
-			label: "Build unavailable",
-			action: `Rescan ${build.name} to verify its stages`,
-			owner,
-		});
-	if (inProgress)
-		issues.push({
-			kind: "running",
-			label:
-				active?.state === "queued" || build.state === "queued"
-					? "Build queued"
-					: "Building",
-			action: active
-				? `${active.name} · ${active.detail}`
-				: `Wait for ${build.name}`,
-			owner: active?.owner ?? "Build agents",
-		});
-	return issues;
-}
-
-function buildRequirementIssues(pr: PullRequest, owner: string): PullIssue[] {
-	const issues: PullIssue[] = [];
-	for (const build of pr.builds.filter((b) => b.required)) {
+export function basePullRequirements(pr: PullRequest, project: Project) {
+	return projectMergeRequirements({ ...project, mergeRequirements: [] }, [
+		pr,
+	]).map((gate) => {
 		const policies = pr.policies.filter(
-			(policy) =>
-				policy.required &&
-				policyKind(policy) === "build" &&
-				build.definitionId &&
-				policy.definitionId === build.definitionId,
+			(p) => p.id === gate.id || gate.sourceIds?.includes(p.id),
 		);
-		const gates = policies.length
-			? policies
-			: [{ id: buildGateId(build), name: build.name }];
-		for (const gate of gates)
-			issues.push(
-				...buildIssues(build, pr.author.name, owner).map((issue) => ({
-					...issue,
-					gateId: gate.id,
-					gateName: gate.name,
-				})),
-			);
-	}
-	return issues;
-}
-
-const severity = {
-	blocked: 0,
-	unknown: 1,
-	review: 2,
-	approval: 3,
-	running: 4,
-};
-
-function groupRequirementIssues(
-	issues: PullIssue[],
-	requirements: MergeRequirement[],
-): PullIssue[] {
-	const byGate = new Map<string, PullIssue>();
-	for (const issue of issues) {
-		const gate = requirements.find(
-			(candidate) =>
-				candidate.id === issue.gateId ||
-				(issue.gateId && candidate.sourceIds?.includes(issue.gateId)),
+		const builds = pr.builds.filter(
+			(b) =>
+				b.required &&
+				(b.definitionId === gate.definitionId || buildGateId(b) === gate.id),
 		);
-		if (gate) {
-			issue.gateId = gate.id;
-			issue.gateName = gate.name;
-		}
-		const key = issue.gateId ?? issue.label;
-		const previous = byGate.get(key);
-		if (
-			!previous ||
-			severity[issue.kind] < severity[previous.kind] ||
-			(severity[issue.kind] === severity[previous.kind] &&
-				(issue.reason === "build_expired" ||
-					previous.reason !== "build_expired"))
-		)
-			byGate.set(key, issue);
-	}
-	return [...byGate.values()];
-}
-
-/** A passed pipeline never overrides a conflict, missing review, or unknown gate. */
-export function basePullReadiness(
-	pr: PullRequest,
-	project: Project,
-): PullReadiness {
-	const owner = project.owner;
-	if (pr.state === "merged")
-		return {
-			kind: "merged",
-			label: "Merged",
-			action: `Merged into ${pr.targetBranch}`,
-			owner,
-			issues: [],
-		};
-	if (pr.state === "closed")
-		return {
-			kind: "closed",
-			label: "Closed",
-			action: "Closed without merging",
-			owner: pr.author.name,
-			issues: [],
-		};
-	if (pr.draft)
-		return {
-			kind: "draft",
-			label: "Draft",
-			action: "Finish the changes and publish for review",
-			owner: pr.author.name,
-			issues: [],
-		};
-	const issues: PullIssue[] = [];
-	const requirements = projectMergeRequirements(project, [pr]);
-	const configured = configuredReadinessRules(project, requirements);
-	const rules = projectReadinessRules(project, [pr]);
-	const reviewGate =
-		requirements.find(
-			(gate) => gate.kind === "review" && /minimum/i.test(gate.name),
-		) ??
-		requirements.find((gate) => gate.kind === "review") ??
-		REVIEW_GATE;
-	const gateIndex = (issue: PullIssue) => {
-		const index = rules.findIndex((rule) => rule.gateId === issue.gateId);
-		return index < 0 ? rules.length : index;
-	};
-	const add = (
-		kind: PullIssue["kind"],
-		label: string,
-		action: string,
-		who = owner,
-		gate?: Pick<MergeRequirement, "id" | "name">,
-	) =>
-		issues.push({
-			kind,
-			label,
-			action,
-			owner: who,
-			...(gate ? { gateId: gate.id, gateName: gate.name } : {}),
-		});
-	if (pr.mergeable === "conflicts")
-		add(
-			"blocked",
-			"Merge conflict",
-			`Resolve conflicts with ${pr.targetBranch}`,
-			pr.author.name,
-			CONFLICT_GATE,
-		);
-	const hasReviewPolicy = pr.policies.some(
-		(policy) => policy.required && policyKind(policy) === "review",
-	);
-	const changes = pr.reviewers.filter(
-		(r) =>
-			r.vote === "changes_requested" &&
-			(r.required || !hasReviewPolicy || pr.allowDownvotes !== true),
-	);
-	if (changes.length)
-		add(
-			"blocked",
-			"Changes requested",
-			`Address ${changes.map((r) => r.name).join(" and ")}'s review feedback`,
-			pr.author.name,
-			reviewGate,
-		);
-	for (const policy of pr.policies.filter((p) => p.required)) {
-		if (policyKind(policy) === "build" && policy.expired)
-			issues.push({
-				kind: "blocked",
-				label: "Build Expired",
-				action: policy.detail,
-				owner: policy.owner,
-				gateId: policy.id,
-				gateName: policy.name,
-				reason: "build_expired",
-				color: "red",
-			});
-		else if (
-			policyKind(policy) === "review" &&
-			["failed", "queued", "running", "waiting"].includes(policy.state)
-		)
-			add("review", "Review needed", policy.detail, policy.owner, policy);
-		else if (isFailed(policy.state))
-			add("blocked", "Policy failed", policy.detail, policy.owner, policy);
-		else if (policy.state === "waiting")
-			add("approval", "Approval needed", policy.detail, policy.owner, policy);
-		else if (policy.state === "running" || policy.state === "queued")
-			add("running", "Checks running", policy.detail, policy.owner, policy);
-		else if (policy.state !== "passed")
-			add(
-				"unknown",
-				"Check unavailable",
-				`Verify ${policy.name.toLowerCase()}`,
-				policy.owner,
-				policy,
-			);
-	}
-	issues.push(...buildRequirementIssues(pr, owner));
-	const approvals = approvalCount(pr);
-	const pending = pr.reviewers.find(
-		(r) =>
-			r.required && r.vote !== "approved" && r.vote !== "changes_requested",
-	);
-	if (pending || approvals < pr.requiredApprovals) {
-		add(
-			"review",
-			"Review needed",
-			pending
-				? `Review requested from ${pending.name}`
-				: `${pr.requiredApprovals - approvals} more approval${pr.requiredApprovals - approvals === 1 ? "" : "s"} needed`,
-			pending?.name,
-			pr.policies.find(
-				(policy) =>
-					policy.required &&
-					policyKind(policy) === "review" &&
-					policy.state !== "passed",
-			) ??
-				pr.policies.find(
-					(policy) => policy.required && policyKind(policy) === "review",
-				) ??
-				reviewGate,
-		);
-	}
-	if (pr.checksObservedAt === null || pr.checksInvalidated)
-		add(
-			"unknown",
-			"Awaiting checks",
-			"Add this PR to the watch list to collect policies, builds, and stages",
-		);
-	else if (pr.coverage === "partial" || pr.mergeable === "unknown")
-		add(
-			"unknown",
-			"Scan incomplete",
-			"Rescan to retrieve the missing PR checks",
-		);
-	const uniqueIssues = groupRequirementIssues(issues, requirements)
-		.sort(
-			(a, b) =>
-				(configured.length
-					? gateIndex(a) - gateIndex(b)
-					: severity[a.kind] - severity[b.kind]) ||
-				gateIndex(a) - gateIndex(b) ||
-				severity[a.kind] - severity[b.kind],
-		)
-		.map((issue) => {
-			const rule = configured.find(
-				(candidate) => candidate.gateId === issue.gateId,
-			);
-			return rule && issue.reason !== "build_expired"
-				? { ...issue, label: rule.label }
-				: issue;
-		});
-	const first = uniqueIssues[0];
-	return first
-		? {
-				...first,
-				issues: uniqueIssues,
-				rank:
-					first.gateId && gateIndex(first) < rules.length
-						? (rules.length - gateIndex(first)) / rules.length
-						: 2,
-				color:
-					first.color ??
-					configured.find((rule) => rule.gateId === first.gateId)?.color ??
-					readinessColor(first, project),
-			}
-		: {
-				kind: "ready",
-				label: "Ready to merge",
-				action: `Merge into ${pr.targetBranch}`,
-				owner,
-				issues: uniqueIssues,
-			};
-}
-
-/** Only gates evidenced on this PR; project-only policies may belong to other repositories or branches. */
-export function basePullRequirements(
-	pr: PullRequest,
-	project: Project,
-	knownIssues?: PullIssue[],
-) {
-	const gates = projectMergeRequirements(
-		{ ...project, mergeRequirements: [] },
-		[pr],
-	);
-	const rules = projectReadinessRules(project, [pr]);
-	const issues =
-		knownIssues ??
-		basePullReadiness(
-			{ ...pr, state: "open", draft: false },
-			{ ...project, mergeRequirements: gates },
-		).issues;
-	return gates
-		.map((gate) => {
-			const rule = rules.find((r) => r.gateId === gate.id);
-			const issue = issues.find((i) => i.gateId === gate.id);
-			const state: CheckState =
-				gate.kind === "conflict"
-					? pr.mergeable === "clear"
+		const states = [...policies, ...builds].map((p) => p.state);
+		let state: CheckState = "unknown";
+		if (gate.kind === "conflict")
+			state =
+				pr.mergeable === "clear"
+					? "passed"
+					: pr.mergeable === "conflicts"
+						? "failed"
+						: "unknown";
+		else if (pr.checksObservedAt !== null && !pr.checksInvalidated) {
+			if (gate.id === REVIEW_GATE.id)
+				state =
+					approvalCount(pr) >= pr.requiredApprovals &&
+					!pr.reviewers.some((r) => r.required && r.vote !== "approved")
 						? "passed"
-						: pr.mergeable === "conflicts"
-							? "failed"
-							: "unknown"
-					: pr.checksObservedAt === null || pr.checksInvalidated
-						? "unknown"
-						: issue
-							? (
-									{
-										blocked: "failed",
-										approval: "waiting",
-										review: "waiting",
-										running: "running",
-										unknown: "unknown",
-									} as const
-								)[issue.kind]
-							: "passed";
-			return {
-				...gate,
-				required: true,
-				state,
-				label:
-					issue?.reason === "build_expired"
-						? issue.label
-						: (rule?.label ?? gate.name),
-				color: issue?.color ?? rule?.color ?? "gray",
-				links: [pullUrl(project, pr)],
-			};
-		})
-		.sort(
-			(a, b) =>
-				rules.findIndex((r) => r.gateId === a.id) -
-				rules.findIndex((r) => r.gateId === b.id),
-		);
+						: "waiting";
+			else
+				state =
+					(
+						[
+							"failed",
+							"canceled",
+							"unknown",
+							"waiting",
+							"running",
+							"queued",
+						] as const
+					).find((s) => states.includes(s)) ??
+					(states.length ? "passed" : "unknown");
+		}
+		return {
+			...gate,
+			required: true,
+			state,
+			label: gate.name,
+			color: "gray" as const,
+			links: [pullUrl(project, pr)],
+		};
+	});
 }
 
 export function pullProgress(pr: PullRequest) {

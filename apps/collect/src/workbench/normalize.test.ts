@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { demoWorkspace } from "@signoff/domain/demo";
-import {
-	buildSchema,
-	policySchema,
-	pullReadiness,
-} from "@signoff/domain/workbench";
+import { buildSchema, policySchema } from "@signoff/domain/workbench";
 import {
 	deduplicateLatestStatuses,
 	extractRequiredApprovals,
@@ -226,47 +221,7 @@ describe("workbench normalizer", () => {
 		expect(review.state).toBe("passed");
 		expect(review.expired).toBeUndefined();
 	});
-	test("reapplies minimum-reviewer downvote rules to fresh optional rejections", () => {
-		const workspace = demoWorkspace(1_789_632_000);
-		for (const allowDownvotes of [false, true, undefined]) {
-			for (const vote of [-10, -5]) {
-				const pull = normalizePullRequest({
-					projectId: workspace.projects[0]!.id,
-					rawPr: {
-						pullRequestId: 1,
-						status: "active",
-						title: "Review eligibility",
-						sourceRefName: "refs/heads/change",
-						targetRefName: "refs/heads/main",
-						repository: { id: "repo", name: "app" },
-						mergeStatus: "succeeded",
-						reviewers: [
-							{ id: "one", displayName: "One", vote: 10 },
-							{ id: "two", displayName: "Two", vote: 10 },
-							{ id: "three", displayName: "Three", vote },
-						],
-					},
-					evaluations: [
-						{
-							status: "approved",
-							configuration: {
-								id: 1,
-								type: {
-									id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd",
-									displayName: "Minimum number of reviewers",
-								},
-								settings: { minimumApproverCount: 2, allowDownvotes },
-							},
-						},
-					],
-					now: 1_789_632_000,
-				});
-				expect(pullReadiness(pull, workspace.projects[0]!).kind).toBe(
-					allowDownvotes === true ? "ready" : "blocked",
-				);
-			}
-		}
-	});
+
 	test("known ADO policy types take precedence over reviewer words in display names", () => {
 		for (const [typeId, kind] of [
 			["0609b952-1397-4640-95ec-e00a01b2c241", "build"],
@@ -337,35 +292,7 @@ describe("workbench normalizer", () => {
 			}),
 		).toMatchObject({ definitionId: "42" });
 	});
-	test("conditional skipped stages do not block a successful required build", () => {
-		const stages = normalizeBuildStages([
-			{ id: "test", name: "Tests", type: "Stage", result: "succeeded" },
-			{ id: "release", name: "Release", type: "Stage", result: "skipped" },
-			{ id: "task", name: "Task", type: "Task", result: "failed" },
-		]);
-		const build = normalizeBuild({
-			build: { id: 8, result: "succeeded" },
-			stages,
-			required: true,
-		});
-		const fixture = demoWorkspace(1_789_632_000);
-		const ready = fixture.pullRequests.find(
-			(pull) =>
-				pullReadiness(
-					pull,
-					fixture.projects.find((project) => project.id === pull.projectId)!,
-				).kind === "ready",
-		)!;
-		expect(stages.find((stage) => stage.id === "release")?.required).toBe(
-			false,
-		);
-		expect(
-			pullReadiness(
-				{ ...ready, builds: [build] },
-				fixture.projects.find((project) => project.id === ready.projectId)!,
-			).kind,
-		).toBe("ready");
-	});
+
 	test("pending timeline records represent queued execution and retries replace old attempts", () => {
 		const stages = normalizeBuildStages([
 			{
@@ -407,67 +334,7 @@ describe("workbench normalizer", () => {
 		]);
 		expect(latest[0]?.state).toBe("succeeded");
 	});
-	test("respects creatorVoteCounts and provides actionable policy detail", () => {
-		const rawPr = {
-			pullRequestId: 1,
-			status: "active",
-			title: "Change",
-			sourceRefName: "refs/heads/change",
-			targetRefName: "refs/heads/main",
-			mergeStatus: "succeeded",
-			createdBy: { id: "author", displayName: "Author" },
-			repository: { id: "repo", name: "api" },
-			reviewers: [{ id: "author", displayName: "Author", vote: 10 }],
-		};
-		const evaluation = {
-			status: "approved",
-			configuration: {
-				id: 1,
-				type: {
-					id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd",
-					displayName: "Minimum reviewers",
-				},
-				settings: { minimumApproverCount: 1, creatorVoteCounts: false },
-			},
-		};
-		const pull = normalizePullRequest({
-			projectId: "p",
-			rawPr,
-			evaluations: [evaluation],
-			now: 1_789_632_000,
-		});
-		expect(pull.reviewers[0]?.countsTowardApproval).toBe(false);
-		expect(pull.authorCountsTowardApproval).toBe(false);
-		expect(
-			normalizePullRequest({
-				projectId: "p",
-				rawPr: { ...rawPr, reviewers: [] },
-				evaluations: [evaluation],
-				now: 1_789_632_000,
-			}).authorCountsTowardApproval,
-		).toBe(false);
-		expect(
-			normalizePullRequest({
-				projectId: "p",
-				rawPr,
-				evaluations: [],
-				now: 1_789_632_000,
-			}).authorCountsTowardApproval,
-		).toBe(true);
-		expect(
-			normalizePullRequest({
-				projectId: "p",
-				rawPr,
-				now: 1_789_632_000,
-			}).authorCountsTowardApproval,
-		).toBeUndefined();
-		expect(
-			pullReadiness(pull, demoWorkspace(1_789_632_000).projects[0]!).kind,
-		).toBe("review");
-		const rejected = normalizePolicy({ ...evaluation, status: "rejected" });
-		expect(rejected.detail).toMatch(/approval/i);
-		expect(rejected.detail).not.toBe("rejected");
-	});
+
 	test("maps check state correctly", () => {
 		expect(mapCheckState("approved")).toBe("passed");
 		expect(mapCheckState("succeeded")).toBe("passed");

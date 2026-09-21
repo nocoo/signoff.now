@@ -7,6 +7,10 @@ description: Query cached SignOff PR status and maintain the shared web/CLI watc
 
 Use the existing SignOff Worker and its published cache. Queries never wait for ADO or require Azure/GitHub authentication. The persistent watch list is shared with the webpage; only the daemon performs provider collection.
 
+## Readiness contract
+
+Watched PRs use persisted Jev classifications: `on_track`, `attention`, `unknown`, `error`. On Track never means permission to merge. Read `readiness.status` and `current`; pending/running/error can include a historical `previous` result, which must not be presented as current. Unwatched PRs are `not_watched`. There is no `readiness.ready`, rule-generated issue list or first-blocker authority. Operational Error is separate from CI failure. Queries never trigger inference; the daemon evaluates changed facts or project policy instructions. Configure credentials through AI Settings, never CLI arguments or model state. See `docs/19-pr-state-machines.md`.
+
 ## Find the entrypoint
 
 Current development checkout: `/Users/nocoo/workspace/personal/signoff.now`.

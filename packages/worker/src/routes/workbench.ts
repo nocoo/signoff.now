@@ -6,7 +6,6 @@ import {
 	projectPatchSchema,
 	projectWriteSchema,
 	pullRequestSchema,
-	readinessWriteSchema,
 	revisionSchema,
 	type ScanRun,
 	scanRequestSchema,
@@ -335,7 +334,7 @@ export async function projectsPatchRoute(c: Context<AppEnv>) {
 				 scan_state = CASE WHEN ? = 1 THEN 'never' ELSE scan_state END,
 				 scan_message = CASE WHEN ? = 1 THEN NULL ELSE scan_message END,
 				 merge_requirements_json = CASE WHEN ? = 1 THEN '[]' ELSE merge_requirements_json END,
-				 readiness_rules_json = CASE WHEN ? = 1 THEN '[]' ELSE readiness_rules_json END,
+				 policy_context_json = CASE WHEN ? = 1 THEN '{"default":[],"repositories":{}}' ELSE policy_context_json END,
 				 state_machine_json = CASE WHEN ? = 1 THEN '{"default":null,"repositories":{}}' ELSE state_machine_json END,
 				 state_machine_revision = state_machine_revision + ?,
 				 readiness_revision = readiness_revision + ?, scope_resolution_json = ?
@@ -404,45 +403,6 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 			409,
 		);
 	return c.json({ ok: true });
-}
-
-export async function projectsReadinessRoute(c: Context<AppEnv>) {
-	const raw = await readJsonBodyWithSize(c, 1024 * 1024);
-	if (!raw.ok)
-		return c.json(
-			{ error: "Invalid readiness settings body" },
-			raw.error === "payload_too_large" ? 413 : 400,
-		);
-	const parsed = readinessWriteSchema.safeParse(raw.value);
-	if (!parsed.success)
-		return c.json(
-			{
-				error: parsed.error.issues[0]?.message ?? "Invalid readiness settings",
-			},
-			400,
-		);
-	// One statement changes only presentation fields. No collection revision,
-	// snapshot, lease, or source metadata participates in this update.
-	const row = await c.env.DB.prepare(
-		`UPDATE projects SET readiness_rules_json = ?, readiness_revision = readiness_revision + 1, state_machine_revision=state_machine_revision+1
-		 WHERE id = ? AND readiness_revision = ? AND json_extract(state_machine_json,'$.default') IS NULL
-		 AND NOT EXISTS (SELECT 1 FROM json_each(state_machine_json,'$.repositories')) RETURNING *`,
-	)
-		.bind(
-			JSON.stringify(parsed.data.rules),
-			c.req.param("id") ?? "",
-			parsed.data.revision,
-		)
-		.first<ProjectRow>();
-	if (!row)
-		return c.json(
-			{
-				error:
-					"Readiness settings changed or moved to State machines. Open System → State machines to edit.",
-			},
-			409,
-		);
-	return c.json(mapProject(row));
 }
 
 /** Legacy explicit scan is discovery only. Watches are managed through commands/v1. */

@@ -100,6 +100,7 @@ export function normalizePolicy(evaluation: AdoEvaluation): Policy {
 				: undefined,
 		evidence: {
 			status: evaluation.status,
+			description: evaluation.description?.slice(0, 4000),
 			evaluationId: evaluation.evaluationId,
 			typeId: cfg.type?.id,
 			configurationRevision: evidenceNumber(cfg.revision),
@@ -162,7 +163,10 @@ export function normalizeStatusPolicy(
 		id: `status-${status.id ?? fullName}`,
 		name: fullName,
 		kind: "status",
-		evidence: { status: status.state },
+		evidence: {
+			status: status.state,
+			description: status.description?.slice(0, 4000),
+		},
 		state,
 		required,
 		detail: status.description || rawState,
@@ -215,6 +219,11 @@ export function normalizeBuildStages(
 				name: r.name,
 				evidence: {
 					status: r.state,
+					description: r.issues
+						?.map((i) => i.message)
+						.filter(Boolean)
+						.join("\n")
+						.slice(0, 4000),
 					result: r.result,
 					identifier: r.identifier,
 					attempt: r.attempt,

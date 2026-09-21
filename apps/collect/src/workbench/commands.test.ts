@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { presentReadiness } from "@signoff/domain/ai-readiness";
 import { demoWorkspace } from "@signoff/domain/demo";
 import { makeWatchRef, referenceLinks } from "@signoff/domain/monitoring";
-import {
-	pullProgress,
-	pullReadiness,
-	pullRequirements,
-} from "@signoff/domain/workbench";
+import { pullProgress, pullRequirements } from "@signoff/domain/workbench";
 import { Command } from "commander";
 import { registerWorkbenchCommands } from "./commands";
 
@@ -24,7 +21,7 @@ const projectDto = {
 	key: project.projectKey,
 	url: referenceLinks(ref).project.url,
 };
-const readiness = pullReadiness(pull, project);
+const readiness = presentReadiness("not_watched");
 const pullDto = {
 	...pull,
 	provider: "ado",
@@ -45,12 +42,7 @@ const pullDto = {
 		ageSeconds: { list: 0, checks: 0 },
 		clockSkew: false,
 	},
-	readiness: {
-		...readiness,
-		ready: readiness.kind === "ready",
-		primaryRequirementId: readiness.gateId ?? null,
-		nextAction: readiness.action,
-	},
+	readiness,
 	checks: pullProgress(pull),
 	requirements: pullRequirements(pull, project),
 	content: { state: "complete", missing: [] },
@@ -72,9 +64,10 @@ const list = {
 	metrics: {
 		open: 1,
 		draft: 0,
-		ready: 0,
+		onTrack: 0,
+		unknown: 0,
+		error: 0,
 		attention: 1,
-		running: 0,
 		merged: 0,
 		closed: 0,
 	},
@@ -449,6 +442,8 @@ test("table output escapes control characters and includes readable PR data", as
 test("daemon and its compatibility alias shut down cleanly while an empty watch list stays idle", async () => {
 	const listeners = process.listenerCount("SIGTERM");
 	reply = (url) => {
+		if (url.pathname.endsWith("ai/tick"))
+			return Response.json({ processed: false });
 		if (url.pathname.endsWith("schedule"))
 			return Response.json({
 				kind: "details",
@@ -469,9 +464,13 @@ test("daemon and its compatibility alias shut down cleanly while an empty watch 
 	await cli("daemon");
 	await cli("workbench", "watch");
 	expect(process.listenerCount("SIGTERM")).toBe(listeners);
-	expect(calls.every((c) => c.url.pathname.startsWith("/api/collector/"))).toBe(
-		true,
-	);
+	expect(
+		calls.every(
+			(c) =>
+				c.url.pathname.startsWith("/api/collector/") ||
+				c.url.pathname === "/api/ai/tick",
+		),
+	).toBe(true);
 	// A shutdown arriving with a claim constructs no Azure process and exits after recording failure.
 	const idleReply = reply;
 	reply = (url, body, method) => {

@@ -1,3 +1,4 @@
+import { presentReadiness } from "@signoff/domain/ai-readiness";
 import { demoWorkspace } from "@signoff/domain/demo";
 import {
 	makeWatchRef,
@@ -17,7 +18,6 @@ import {
 	type PullRequest,
 	projectSchema,
 	pullProgress,
-	pullReadiness,
 	pullRequestSchema,
 	pullRequirements,
 } from "@signoff/domain/workbench";
@@ -78,7 +78,9 @@ export function publicPull(
 	project: Project = fixtureProject,
 	observation: Observation | null = null,
 ) {
-	const readiness = pullReadiness(pull, project);
+	const readiness = presentReadiness(
+		observation?.active ? "pending" : "not_watched",
+	);
 	const ref = makeWatchRef(project, pull.repository, pull.number);
 	return pullQuerySchema.parse({
 		...pull,
@@ -112,12 +114,7 @@ export function publicPull(
 			ageSeconds: { list: 0, checks: 0 },
 			clockSkew: false,
 		},
-		readiness: {
-			...readiness,
-			ready: readiness.kind === "ready",
-			primaryRequirementId: readiness.gateId ?? null,
-			nextAction: readiness.action,
-		},
+		readiness,
 		checks: pullProgress(pull),
 		requirements: pullRequirements(pull, project),
 		content: { state: pull.coverage, missing: [] },
@@ -160,8 +157,9 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 		metrics: {
 			open: 1,
 			attention: 1,
-			running: 0,
-			ready: 0,
+			onTrack: 0,
+			unknown: 0,
+			error: 0,
 			draft: 0,
 			merged: 0,
 			closed: 0,
@@ -198,8 +196,9 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 					closed: 0,
 					watching: 0,
 					attention: 1,
-					ready: 0,
-					running: 0,
+					onTrack: 0,
+					unknown: 0,
+					error: 0,
 				},
 			},
 		],

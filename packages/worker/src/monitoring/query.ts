@@ -23,13 +23,12 @@ import {
 	type PullRequest,
 	projectMergeRequirements,
 	projectUrl,
-	pullReadiness,
 	pullRequestSchema,
 	pullUrl,
-	readinessPriority,
 	repositoryUrl,
 } from "@signoff/domain/workbench";
 import { z } from "zod";
+import { type EvaluationRow, evaluationOutput } from "../ai/scheduler.js";
 import {
 	type JobRepositoryRow,
 	type JobRow,
@@ -87,19 +86,7 @@ const querySchema = z.object({
 	includeStopped: z.enum(["true", "false"]).default("false"),
 	q: z.string().max(1000).default(""),
 	status: z
-		.enum([
-			"all",
-			"attention",
-			"ready",
-			"approval",
-			"review",
-			"running",
-			"unknown",
-			"blocked",
-			"draft",
-			"merged",
-			"closed",
-		])
+		.enum(["all", "on_track", "attention", "unknown", "error"])
 		.default("all"),
 	sort: z
 		.enum([
@@ -299,6 +286,11 @@ async function readSnapshot(
 						.bind(...searchScope.values),
 				]
 			: []),
+		db
+			.prepare(
+				"SELECT e.* FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id AND o.generation=e.generation WHERE o.source=?",
+			)
+			.bind(source),
 	]);
 	const revision = String(
 		(results[4]?.results[0] as { revision: number }).revision,
@@ -325,6 +317,8 @@ async function readSnapshot(
 			),
 		}));
 	return {
+		evaluations: (results[results.length - 1]?.results ??
+			[]) as EvaluationRow[],
 		projects,
 		pulls,
 		observations: ((results[2]?.results ?? []) as ObservationRow[]).map(
@@ -366,8 +360,15 @@ function pullOutput(
 	const ref = makeWatchRef(project, pr.repository, pr.number);
 	const links = referenceLinks(ref);
 	const evaluated = evaluatePull(pr, project);
-	const readiness = evaluated.readiness;
 	const observation = observationFor(data, project, ref);
+	const readiness = evaluationOutput(
+		data.evaluations.find(
+			(e) =>
+				e.observation_id === observation?.id &&
+				e.generation === observation.generation,
+		),
+		Boolean(observation?.active),
+	);
 	const checks =
 		pr.checksObservedAt === undefined ? pr.observedAt : pr.checksObservedAt;
 	const summary = pr.summaryObservedAt ?? pr.observedAt;
@@ -397,12 +398,7 @@ function pullOutput(
 				Math.floor(summary) > timestamp ||
 				(checks !== null && checks > timestamp),
 		},
-		readiness: {
-			...readiness,
-			ready: readiness.kind === "ready",
-			primaryRequirementId: readiness.gateId ?? null,
-			nextAction: readiness.action,
-		},
+		readiness,
 		checks: evaluated.progress,
 		requirements: evaluated.requirements,
 		content: { state: pr.coverage, missing: pr.collectionIssues ?? [] },
@@ -574,13 +570,30 @@ async function readPullPage(
 	const facts = snapshot.pulls.map(({ pull }) => {
 		const project = projects.get(pull.projectId);
 		if (!project) throw new Error("Cached PR has no project");
-		const { readiness, progress } = evaluatePull(pull, project);
+		const { progress } = evaluatePull(pull, project);
+		const observation = observationFor(
+			snapshot,
+			project,
+			makeWatchRef(project, pull.repository, pull.number),
+		);
+		const readiness = evaluationOutput(
+			snapshot.evaluations.find(
+				(e) =>
+					e.observation_id === observation?.id &&
+					e.generation === observation.generation,
+			),
+			Boolean(observation?.active),
+		);
 		return {
 			id: pull.id,
-			kind: readiness.kind,
-			rank: readinessPriority(readiness, project),
-			action: readiness.action,
-			owner: readiness.owner,
+			kind:
+				readiness.status === "not_watched" ? "not_evaluated" : readiness.kind,
+			rank:
+				readiness.status === "not_watched"
+					? 4
+					: { error: 0, attention: 1, unknown: 2, on_track: 3 }[readiness.kind],
+			action: readiness.nextAction,
+			owner: "",
 			completion:
 				pull.coverage === "partial" ||
 				pull.checksObservedAt === null ||
@@ -625,7 +638,7 @@ async function readPullPage(
       SELECT pr.*,p.provider,p.organization,p.project_key,p.name project_name,
         json_extract(pr.snapshot,'$.draft') draft,json_extract(pr.snapshot,'$.author.name') author_name,
         json_array(p.provider,lower(p.organization),json_extract(pr.snapshot,'$.author.id')) author_key,
-        COALESCE(f.kind,pr.state) readiness_kind,
+        COALESCE(f.kind,'not_evaluated') readiness_kind,
         COALESCE(f.rank,CASE pr.state WHEN 'merged' THEN 4 ELSE 5 END) readiness_rank,
         COALESCE(f.action,CASE pr.state WHEN 'merged' THEN 'Merged into '||json_extract(pr.snapshot,'$.targetBranch') ELSE 'Closed without merging' END) next_action,
         COALESCE(f.owner,CASE pr.state WHEN 'merged' THEN p.owner ELSE json_extract(pr.snapshot,'$.author.name') END) next_owner,
@@ -637,7 +650,7 @@ async function readPullPage(
     ), filtered AS (
       SELECT * FROM searched WHERE (?='include' OR draft=?) AND (json_array_length(?)=0 OR author_key IN (SELECT value FROM json_each(?)))
     ), matched AS (
-      SELECT * FROM filtered WHERE (?='all' OR state=?) AND (?='all' OR readiness_kind=? OR (?='attention' AND readiness_kind IN ('blocked','approval','review','unknown')))
+      SELECT * FROM filtered WHERE (?='all' OR state=?) AND (?='all' OR readiness_kind=?)
     )`;
 	const binds = [
 		JSON.stringify(facts),
@@ -652,7 +665,6 @@ async function readPullPage(
 		JSON.stringify(filters.author),
 		filters.state,
 		filters.state,
-		filters.status,
 		filters.status,
 		filters.status,
 	];
@@ -673,8 +685,8 @@ async function readPullPage(
 		db.prepare(`${cte} SELECT COUNT(*) total FROM matched`).bind(...binds),
 		db
 			.prepare(`${cte} SELECT COALESCE(SUM(state='open'),0) open,
-      COALESCE(SUM(state='open' AND readiness_kind IN ('blocked','approval','review','unknown')),0) attention,
-      COALESCE(SUM(state='open' AND readiness_kind='running'),0) running,COALESCE(SUM(state='open' AND readiness_kind='ready'),0) ready,
+      COALESCE(SUM(readiness_kind='attention'),0) attention,
+ COALESCE(SUM(readiness_kind='on_track'),0) onTrack,COALESCE(SUM(readiness_kind='unknown'),0) unknown,COALESCE(SUM(readiness_kind='error'),0) error,
       COALESCE(SUM(state='open' AND draft=1),0) draft,COALESCE(SUM(state='merged'),0) merged,COALESCE(SUM(state='closed'),0) closed FROM filtered`)
 			.bind(...binds),
 		db
@@ -913,26 +925,74 @@ async function readRepositoryPage(
 							o.ref.projectId === project.id &&
 							o.ref.repository.id === id,
 					).length,
-					attention: prs.filter(
-						(p) =>
-							p.state === "open" &&
-							!p.draft &&
-							["blocked", "approval", "review", "unknown"].includes(
-								pullReadiness(p, project).kind,
-							),
-					).length,
-					running: prs.filter(
-						(p) =>
-							p.state === "open" &&
-							!p.draft &&
-							pullReadiness(p, project).kind === "running",
-					).length,
-					ready: prs.filter(
-						(p) =>
-							p.state === "open" &&
-							!p.draft &&
-							pullReadiness(p, project).kind === "ready",
-					).length,
+					attention: prs.filter((p) => {
+						const o = observationFor(
+							snapshot,
+							project,
+							makeWatchRef(project, p.repository, p.number),
+						);
+						return (
+							o?.active &&
+							evaluationOutput(
+								snapshot.evaluations.find(
+									(e) =>
+										e.observation_id === o.id && e.generation === o.generation,
+								),
+								true,
+							).kind === "attention"
+						);
+					}).length,
+					onTrack: prs.filter((p) => {
+						const o = observationFor(
+							snapshot,
+							project,
+							makeWatchRef(project, p.repository, p.number),
+						);
+						return (
+							o?.active &&
+							evaluationOutput(
+								snapshot.evaluations.find(
+									(e) =>
+										e.observation_id === o.id && e.generation === o.generation,
+								),
+								true,
+							).kind === "on_track"
+						);
+					}).length,
+					unknown: prs.filter((p) => {
+						const o = observationFor(
+							snapshot,
+							project,
+							makeWatchRef(project, p.repository, p.number),
+						);
+						return (
+							o?.active &&
+							evaluationOutput(
+								snapshot.evaluations.find(
+									(e) =>
+										e.observation_id === o.id && e.generation === o.generation,
+								),
+								true,
+							).kind === "unknown"
+						);
+					}).length,
+					error: prs.filter((p) => {
+						const o = observationFor(
+							snapshot,
+							project,
+							makeWatchRef(project, p.repository, p.number),
+						);
+						return (
+							o?.active &&
+							evaluationOutput(
+								snapshot.evaluations.find(
+									(e) =>
+										e.observation_id === o.id && e.generation === o.generation,
+								),
+								true,
+							).kind === "error"
+						);
+					}).length,
 				},
 			});
 		}
@@ -1067,6 +1127,7 @@ async function readObservationPage(
 		db
 			.prepare("SELECT revision FROM workbench_revisions WHERE source=?")
 			.bind(source),
+		db.prepare("SELECT * FROM ai_evaluations"),
 	]);
 	if (
 		String((results[2]?.results[0] as { revision: number }).revision) !==
@@ -1115,6 +1176,7 @@ async function readObservationPage(
 	);
 	const snapshot: Snapshot = {
 		...scope,
+		evaluations: results[3]?.results as EvaluationRow[],
 		pulls,
 		observations: rows.map(mapObservation),
 		counts: [],

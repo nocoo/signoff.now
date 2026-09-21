@@ -65,6 +65,7 @@ function setup() {
 			totalJobs: 0,
 			completedJobs: 0,
 		}),
+		evaluateAi: async () => ({ processed: false }),
 		load: async () => ({
 			...demo,
 			demoMode: true,

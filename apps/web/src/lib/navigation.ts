@@ -47,7 +47,10 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	{
 		label: "System",
 		defaultOpen: true,
-		items: [{ href: "/settings", label: "Settings", icon: "Settings" }],
+		items: [
+			{ href: "/ai-settings", label: "AI Settings", icon: "Sparkles" },
+			{ href: "/settings", label: "Settings", icon: "Settings" },
+		],
 	},
 ];
 

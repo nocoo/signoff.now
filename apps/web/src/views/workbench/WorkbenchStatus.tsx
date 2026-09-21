@@ -1,12 +1,12 @@
 import { Badge } from "@nocoo/basalt";
 import { SlotBarChart } from "@nocoo/basalt/charts/slot-bar";
-import {
-	type Build,
-	type CheckState,
-	type Project,
-	type PullReadiness,
-	type ReadinessColor,
-	readinessColor,
+import type { AiReadiness } from "@signoff/domain/ai-readiness";
+import type {
+	Build,
+	CheckState,
+	Project,
+	PullRequest,
+	ReadinessColor,
 } from "@signoff/domain/workbench";
 import {
 	Ban,
@@ -15,9 +15,6 @@ import {
 	CircleDashed,
 	CircleHelp,
 	Clock3,
-	GitMerge,
-	GitPullRequest,
-	GitPullRequestDraft,
 	LoaderCircle,
 	ShieldAlert,
 	UserRoundCheck,
@@ -27,30 +24,49 @@ import type { ReactNode } from "react";
 import { heatmapColor } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 
+export function LifecycleBadge({
+	pull,
+}: {
+	pull: Pick<PullRequest, "state" | "draft">;
+}) {
+	const label =
+		pull.state === "open" && pull.draft
+			? "Draft"
+			: { open: "Open", merged: "Merged", closed: "Closed" }[pull.state];
+	return (
+		<Badge variant="outline" className="text-xs" title="Provider PR lifecycle">
+			{label}
+		</Badge>
+	);
+}
 const READINESS_ICONS = {
-	blocked: ShieldAlert,
-	approval: UserRoundCheck,
-	review: GitPullRequest,
-	running: LoaderCircle,
+	on_track: Check,
+	attention: ShieldAlert,
 	unknown: CircleHelp,
-	ready: Check,
-	draft: GitPullRequestDraft,
-	merged: GitMerge,
-	closed: Ban,
-} as const;
-
+	error: Ban,
+};
 export function ReadinessBadge({
 	readiness,
-	project,
 }: {
-	readiness: Pick<PullReadiness, "kind" | "label" | "gateId" | "color">;
-	project: Project;
+	readiness: AiReadiness;
+	project?: Project;
 }) {
-	const Icon = READINESS_ICONS[readiness.kind];
+	const Icon =
+		readiness.status === "running"
+			? LoaderCircle
+			: READINESS_ICONS[readiness.kind];
+	const color = (
+		{
+			on_track: "green",
+			attention: "orange",
+			unknown: "gray",
+			error: "red",
+		} as const
+	)[readiness.kind];
 	return (
-		<ReadinessSwatch color={readinessColor(readiness, project)}>
-			<Icon className="h-3.5 w-3.5 shrink-0" aria-hidden strokeWidth={1.8} />
-			<span className="truncate" title={readiness.label}>
+		<ReadinessSwatch color={color}>
+			<Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+			<span className="truncate" title={readiness.nextAction}>
 				{readiness.label}
 			</span>
 		</ReadinessSwatch>

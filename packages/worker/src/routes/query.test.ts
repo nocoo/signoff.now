@@ -200,7 +200,6 @@ describe("v1 cache queries", () => {
 	test("cached build expiry is preserved in the shared API's policies, readiness, and requirements", async () => {
 		seedProject(sqlite, {
 			repositories: [],
-			readinessRules: [{ gateId: "build:42", label: "Build", color: "blue" }],
 		});
 		const pull = seedPull(sqlite, {
 			draft: false,
@@ -226,19 +225,11 @@ describe("v1 cache queries", () => {
 			await (await request(`/api/query/v1/prs/${pull.id}`)).json(),
 		).data;
 		expect(detail.policies[0]?.expired).toBe(true);
-		expect(detail.readiness).toMatchObject({
-			kind: "blocked",
-			label: "Build Expired",
-			color: "red",
-			ready: false,
-		});
-		expect(detail.readiness.issues[0]).toMatchObject({
-			reason: "build_expired",
-			color: "red",
-		});
+		expect(detail.readiness.status).toBe("not_watched");
+
 		expect(
 			detail.requirements.find((gate) => gate.id === "build:42"),
-		).toMatchObject({ state: "failed", label: "Build Expired", color: "red" });
+		).toMatchObject({ state: "failed" });
 	});
 	test("collector previews retain unresolved check failures through high-volume status success and clear them after recovery", async () => {
 		const { project, pull } = seed();
@@ -1007,7 +998,7 @@ describe("v1 cache queries", () => {
 			["title", "desc", ["a", "b"]],
 			["readiness", "asc", ["a", "b"]],
 			["progress", "asc", ["b", "a"]],
-			["action", "asc", ["b", "a"]],
+			["action", "asc", ["a", "b"]],
 			["updated", "asc", ["a", "b"]],
 			["oldest", "desc", ["b", "a"]],
 		] as const) {
@@ -1021,8 +1012,12 @@ describe("v1 cache queries", () => {
 		const unknown = pullListSchema.parse(
 			await (await request("/api/query/v1/prs?status=unknown")).json(),
 		);
-		expect(unknown.data[0]?.freshness.checksValidity).toBe("invalidated");
-		expect(unknown.data[0]?.freshness.ageSeconds.checks).toBeNull();
+		expect(unknown.data).toEqual([]);
+		const raw = pullDetailSchema.parse(
+			await (await request("/api/query/v1/prs/b")).json(),
+		).data;
+		expect(raw.freshness.checksValidity).toBe("invalidated");
+		expect(raw.freshness.ageSeconds.checks).toBeNull();
 		const detail = pullDetailSchema.parse(
 			await (await request("/api/query/v1/prs/a")).json(),
 		);

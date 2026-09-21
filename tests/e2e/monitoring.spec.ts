@@ -11,7 +11,6 @@ import {
 	collectorQuerySchema,
 	commandReceiptSchema,
 	machinePageSchema,
-	machinePreviewSchema,
 	observationListSchema,
 	pullDetailSchema,
 	pullListSchema,
@@ -194,9 +193,17 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(
 		page.getByRole("heading", { name: "Pull requests", exact: true }),
 	).toBeVisible();
+	await page.getByRole("button", { name: /^Connector/ }).click();
 	await expect(
 		page.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
 	).toHaveText("5 min");
+	await page
+		.getByRole("dialog")
+		.getByRole("button", { name: "Close", exact: true })
+		.click();
+	await page.request.patch(`${base}/api/collection/settings`, {
+		data: { listCooldownSeconds: 0, detailCooldownSeconds: 0 },
+	});
 	await cli("repo", "add", ...repos.map(repoUrl));
 	expect((await watchList()).data).toEqual([]);
 	await api.schedule("details");
@@ -570,7 +577,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	).toBeVisible();
 	expect((await watchList()).data).toEqual([]);
 	await cli("watch", "add", draftUrl);
-	// A CLI mutation and a status-only publication must reconcile this mounted
+	// A CLI mutation and full detail publication must reconcile this mounted
 	// page and its detail sheet without reloads or a Web provider command.
 	await page.clock.fastForward(3100);
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
@@ -578,17 +585,14 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		.getByRole("button", { name: "Open PR #2: Éditeur change 2", exact: true })
 		.click();
 	await expect(page.getByRole("dialog")).toBeVisible();
-	const watchedDraft = (await watchList()).data[0]!;
-	// Keep its full checks lease running: lifecycle work must bypass it.
-	const blockedChecks = (await api.claim())!;
-	expect(blockedChecks.observation?.id).toBe(watchedDraft.id);
-	await api.schedule("details", "status");
+	const _watchedDraft = (await watchList()).data[0]!;
+
 	const stateReads: string[] = [];
 	const terminalProvider: AdoPagedClient = {
 		...fakeAdo,
 		get: async (url) => {
+			if (!url.includes("/pullrequests/2?")) return { value: [] };
 			stateReads.push(url);
-			expect(url).toContain("/pullrequests/2?");
 			return {
 				pullRequestId: 2,
 				title: "Éditeur change 2",
@@ -604,22 +608,17 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 				targetRefName: "refs/heads/main",
 			};
 		},
-		getPage: async () => {
-			throw new Error(
-				"A terminal status must not wait for checks or inventory",
-			);
-		},
+		getPage: async () => ({ data: { value: [] }, continuationToken: null }),
 	};
 	const statusErrors: string[] = [];
 	const terminalResult = await runCollectionOnce({
 		api,
 		makeAdo: () => terminalProvider,
 		log: { ...silent, error: (message) => statusErrors.push(message) },
-		lane: "status",
 	});
 	expect(terminalResult.state, statusErrors.join("\n")).toBe("complete");
 	expect(stateReads).toHaveLength(1);
-	expect((await api.job(blockedChecks.job.id)).state).toBe("canceled");
+
 	await page.clock.fastForward(3100);
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
 	await expect(page.getByRole("dialog")).toContainText("Merged");
@@ -914,7 +913,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect(browserErrors).toEqual([]);
 });
 
-test("state machines preview, save and restore scoped rules without changing facts or watches", async ({
+test("policy instructions persist with priority, scope and cached Jev errors", async ({
 	page,
 }) => {
 	const repo = {
@@ -941,297 +940,46 @@ test("state machines preview, save and restore scoped rules without changing fac
 	);
 	const pull = before.data;
 	const projectId = pull.project.id;
-	const machineUrl = `${base}/api/state-machines/${projectId}?source=live&repositoryId=${repo.id}&pullId=${encodeURIComponent(pull.id)}`;
-	const initial = machinePageSchema.parse(
-		await (await page.request.get(machineUrl)).json(),
-	);
-	const readsBefore = providerRequests;
-	const errors: string[] = [];
-	page.on("pageerror", (error) => errors.push(error.message));
-	await page.goto(
-		`/state-machines?${new URLSearchParams({ source: "cli", project: projectId, repo: repo.id, trace: pull.id, tab: "priority" })}`,
-	);
-	await expect(
-		page.getByRole("heading", { name: "State machines", exact: true }),
-	).toBeVisible();
-	await expect(
-		page.locator('.react-flow__node[data-id="state:blocked"]'),
-	).toBeVisible();
-	await expect(
-		page.getByRole("tab", { name: "Priority", exact: true }),
-	).toHaveAttribute("aria-selected", "true");
-	const canvas = page.getByRole("region", { name: "State machine graph" });
-	const expandedCanvas = (await canvas.boundingBox())!;
-	const viewport = page.viewportSize()!;
-	expect(expandedCanvas.y).toBeLessThan(180);
-	expect(expandedCanvas.height).toBeGreaterThan(viewport.height * 0.7);
-	expect(expandedCanvas.y + expandedCanvas.height).toBeLessThanOrEqual(
-		viewport.height,
+
+	const machineUrl = `${base}/api/state-machines/${projectId}?source=live&repositoryId=${repo.id}`;
+	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
+	const area = page
+		.getByRole("textbox", { name: "Meaning and human action instructions" })
+		.first();
+	await area.fill(
+		"A person should approve this gate after checking the provider evidence.",
 	);
 	await page
-		.getByRole("button", { name: "Hide inspector", exact: true })
-		.click();
-	await expect(page.getByRole("tabpanel")).toHaveCount(0);
-	expect((await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(
-		expandedCanvas.width,
-	);
-	const expectCenteredStages = async () => {
-		await expect(async () => {
-			const groups = await page
-				.locator(".react-flow__node-group")
-				.evaluateAll((elements) =>
-					elements.map((element) => {
-						const node = element as HTMLElement;
-						const position = new DOMMatrixReadOnly(
-							getComputedStyle(node).transform,
-						);
-						return {
-							id: node.dataset.id ?? "",
-							left: position.m41,
-							right: position.m41 + node.offsetWidth,
-							top: position.m42,
-							bottom: position.m42 + node.offsetHeight,
-						};
-					}),
-				);
-			const centers: number[] = [];
-			let previousRight = -1;
-			for (const prefix of [
-				"group:Provider lifecycle",
-				"group:Gates ·",
-				"group:Evaluation",
-				"group:Mappings ·",
-				"group:States ·",
-			]) {
-				const stage = groups
-					.filter((group) => group.id.startsWith(prefix))
-					.sort((a, b) => a.top - b.top);
-				if (!stage.length) continue;
-				expect(Math.min(...stage.map((group) => group.left))).toBeGreaterThan(
-					previousRight,
-				);
-				previousRight = Math.max(...stage.map((group) => group.right));
-				for (let i = 1; i < stage.length; i++)
-					expect(stage[i]!.top).toBeGreaterThan(stage[i - 1]!.bottom);
-				centers.push((stage[0]!.top + stage.at(-1)!.bottom) / 2);
-			}
-			expect(centers.length).toBeGreaterThanOrEqual(4);
-			// Allow half a node for ELK's edge clearance, independent of zoom.
-			expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(43);
-		}).toPass({ timeout: 5000 });
-	};
-	await expectCenteredStages();
-	const allGates = page.getByRole("checkbox", { name: "All collected gates" });
-	await allGates.uncheck();
-	await expectCenteredStages();
-	await allGates.check();
-	const watchedFilter = page.getByRole("button", {
-		name: "Watched",
-		exact: true,
-	});
-	const picker = page.getByRole("combobox", {
-		name: "Trace pull request",
-		exact: true,
-	});
-	await expect(watchedFilter).toHaveAttribute("aria-pressed", "true");
-	await picker.click();
-	await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(1);
-	await page.keyboard.press("Escape");
-	await watchedFilter.click();
-	await picker.click();
-	const choices = page.getByRole("listbox");
-	await expect(choices.getByRole("option")).toHaveCount(20);
-	expect((await choices.boundingBox())!.height).toBeLessThanOrEqual(336);
-	await choices.locator("[data-radix-select-viewport]").evaluate((element) => {
-		element.scrollTop = element.scrollHeight;
-	});
-	await expect(choices.getByRole("option")).toHaveCount(26);
-	await choices
-		.getByRole("option", { name: /^#1\s+machines change 1$/ })
-		.click();
-	await page
-		.getByRole("textbox", { name: "Search cached PRs", exact: true })
-		.fill("#5");
-	await picker.click();
-	await expect(choices.getByRole("option")).toHaveCount(3);
-	await choices
-		.getByRole("option", { name: /^#5\s+machines change 5$/ })
-		.click();
-	await expect(page).toHaveURL(
-		/\/sm\/ado\/e2e-machines\/Machines\/machines\?pr=5(?:&|$)/,
-	);
-	await page
-		.getByRole("textbox", { name: "Search cached PRs", exact: true })
-		.fill("");
-	await watchedFilter.click();
-	await picker.click();
-	await expect(choices.getByRole("option")).toHaveCount(1);
-	await choices
-		.getByRole("option", { name: /^#1\s+machines change 1$/ })
-		.click();
-	await expect(page).toHaveURL(
-		/\/sm\/ado\/e2e-machines\/Machines\/machines\?pr=1(?:&|$)/,
-	);
-	await page.getByRole("tab", { name: "States", exact: true }).click();
-	await page.getByRole("button", { name: "Add state", exact: true }).click();
-	const customGroup = page.locator(
-		'.react-flow__node-group[data-id="group:States · Custom"]',
-	);
-	await expect(customGroup).toBeVisible();
-	await expectCenteredStages();
-	await page.getByRole("button", { name: "Discard", exact: true }).click();
-	await expect(customGroup).toHaveCount(0);
-	const label = page.getByLabel(`${pull.readiness.stateId} display name`, {
-		exact: true,
-	});
-	await label.locator("xpath=ancestor::details").locator("summary").click();
-	await label.fill("Needs action");
-	await page
-		.getByRole("button", { name: "Hide inspector", exact: true })
-		.click();
-	await page.getByRole("tab", { name: "States", exact: true }).click();
-	await label.locator("xpath=ancestor::details").locator("summary").click();
-	await expect(label).toHaveValue("Needs action");
-	await expect(
-		page.getByRole("button", { name: "Save rules", exact: true }),
-	).toBeDisabled();
-	const previewResponse = page.waitForResponse(
-		(response) =>
-			response.url().includes("/preview?") &&
-			response.request().method() === "POST",
-	);
-	await page
-		.getByRole("button", { name: "Preview changes", exact: true })
-		.click();
-	const preview = machinePreviewSchema.parse(
-		await (await previewResponse).json(),
-	);
-	expect(
-		preview.changes.some(
-			(change) =>
-				change.id === pull.id && change.after.label === "Needs action",
-		),
-	).toBe(true);
-	await expect(
-		page.getByRole("button", { name: "Save rules", exact: true }),
-	).toBeEnabled();
-	await page.getByRole("button", { name: "Save rules", exact: true }).click();
-	await expect(page.getByText(/Saved revision 2\./)).toBeVisible();
-	const saved = pullDetailSchema.parse(await cli("pr", "get", pull.id));
-	expect(saved.data.readiness.label).toBe("Needs action");
-	expect(saved.data.policies).toEqual(pull.policies);
-	expect(saved.data.builds).toEqual(pull.builds);
-	expect(saved.data.checksObservedAt).toBe(pull.checksObservedAt);
-	await page.getByRole("tab", { name: "History", exact: true }).click();
-	await page
-		.getByRole("button", { name: "Load revision 1 as draft", exact: true })
-		.click();
-	await expect(page.getByText(/Revision 1 loaded as a draft/)).toBeVisible();
-	await page
-		.getByRole("button", { name: "Preview changes", exact: true })
+		.getByRole("button", { name: "Save policy instructions", exact: true })
 		.click();
 	await expect(
-		page.getByRole("button", { name: "Save rules", exact: true }),
-	).toBeEnabled();
-	await page.getByRole("button", { name: "Save rules", exact: true }).click();
-	await expect(page.getByText(/Saved revision 3\./)).toBeVisible();
-	const restored = machinePageSchema.parse(
-		await (await page.request.get(machineUrl)).json(),
-	);
-	expect(restored.inherited).toBe(true);
-	expect(restored.config).toEqual(initial.config);
-	expect(
-		pullDetailSchema.parse(await cli("pr", "get", pull.id)).data.readiness
-			.label,
-	).toBe(pull.readiness.label);
-	// An otherwise matching mapping cannot turn missing checks into readiness.
-	const unsafe = structuredClone(restored.config);
-	unsafe.mappings.unshift({
-		id: "unsafe",
-		name: "Force ready",
-		stateId: "ready",
-		enabled: true,
-		match: "all",
-		conditions: [{ fact: "lifecycle", oneOf: ["open"] }],
-	});
-	const guarded = machinePreviewSchema.parse(
-		await (
-			await page.request.post(
-				`${base}/api/state-machines/${projectId}/preview?source=live`,
-				{ data: { revision: 3, repositoryId: repo.id, config: unsafe } },
-			)
-		).json(),
-	);
-	expect(
-		guarded.evaluations.find((pr) => pr.number === 5)?.readiness.ready,
-	).toBe(false);
-	expect(
-		guarded.evaluations.find((pr) => pr.number === 5)?.trace[0]?.guard,
-	).toBeTruthy();
-	expect(providerRequests).toBe(readsBefore);
-	expect(
-		(await watchList()).data.some((entry) => entry.pullId === pull.id),
-	).toBe(true);
-	await page
-		.getByRole("button", { name: "Observed transitions", exact: true })
-		.click();
-	await expect(
-		page.getByRole("button", { name: "Observed transitions", exact: true }),
-	).toHaveAttribute("aria-pressed", "true");
-	await expect(
-		page.getByRole("checkbox", { name: "All collected gates" }),
-	).toBeDisabled();
-	await page.screenshot({
-		path: test.info().outputPath("state-machine-history.png"),
-		fullPage: true,
-	});
-	await page.evaluate(() => localStorage.setItem("signoff-theme", "dark"));
+		page.getByRole("status").filter({ hasText: "Policy instructions saved" }),
+	).toContainText("Policy instructions saved");
 	await page.reload();
-	await expect(page.locator(".machine-canvas .react-flow")).toHaveClass(/dark/);
-	await page
-		.getByRole("button", { name: "Hide inspector", exact: true })
-		.click();
+	await expect(area).toHaveValue(
+		"A person should approve this gate after checking the provider evidence.",
+	);
+	const configured = machinePageSchema.parse(
+		await (await page.request.get(machineUrl)).json(),
+	);
+	expect(configured.inherited).toBe(false);
+	for (let i = 0; i < 30; i++) {
+		const tick = await (await page.request.post(`${base}/api/ai/tick`)).json();
+		if (!tick.processed) break;
+	}
+	const judged = pullDetailSchema.parse(await cli("pr", "get", pull.id));
+	expect(judged.data.readiness.status).toBe("error");
+	expect(judged.data.readiness.current).toBeNull();
+	await page.goto(`/prs?watching=watching`);
+	await expect(page.getByText("Error", { exact: true }).first()).toBeVisible();
 	await page.setViewportSize({ width: 390, height: 844 });
-	await picker.click();
-	await expect(choices.getByRole("option")).toHaveCount(1);
-	const mobileMenu = await choices.boundingBox();
-	expect(mobileMenu!.width).toBeGreaterThanOrEqual(340);
-	expect(mobileMenu!.height).toBeLessThanOrEqual(336);
-	expect(mobileMenu!.y).toBeGreaterThanOrEqual(0);
-	expect(mobileMenu!.y + mobileMenu!.height).toBeLessThanOrEqual(844);
+	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
+	await expect(area).toBeVisible();
 	expect(
-		await page.evaluate(() => document.documentElement.scrollWidth),
-	).toBeLessThanOrEqual(390);
-	await page.screenshot({
-		path: test.info().outputPath("state-machine-mobile.png"),
-		fullPage: true,
-	});
-	await page.keyboard.press("Escape");
-	await page.getByRole("tab", { name: "Inspect", exact: true }).click();
-	const mobileInspector = (await page.getByRole("tabpanel").boundingBox())!;
-	expect(mobileInspector.x).toBeGreaterThanOrEqual(0);
-	expect(mobileInspector.x + mobileInspector.width).toBeLessThanOrEqual(390);
-	expect(mobileInspector.y + mobileInspector.height).toBeLessThanOrEqual(844);
-	await page
-		.getByRole("button", { name: "Hide inspector", exact: true })
-		.focus();
-	await page.keyboard.press("Escape");
-	await expect(page.getByRole("tabpanel")).toHaveCount(0);
-	await expect(
-		page.getByRole("tab", { name: "Inspect", exact: true }),
-	).toBeFocused();
-	await page.keyboard.press("ArrowDown");
-	await expect(
-		page.getByRole("tabpanel", { name: "Priority", exact: true }),
-	).toBeVisible();
-	await page.getByRole("tabpanel").getByRole("combobox").first().click();
-	await page.keyboard.press("Escape");
-	await expect(page.getByRole("listbox")).toHaveCount(0);
-	await expect(page.getByRole("tabpanel")).toHaveCount(1);
-	await page.getByRole("tab", { name: "Priority", exact: true }).focus();
-	await page.keyboard.press("Escape");
-	await expect(page.getByRole("tabpanel")).toHaveCount(0);
-	expect(errors).toEqual([]);
+		await page.evaluate(
+			() => document.documentElement.scrollWidth > innerWidth,
+		),
+	).toBe(false);
 	await cli("watch", "remove", pull.id);
 });
 
@@ -1443,7 +1191,7 @@ test("repository IDs remain scoped across cold discovery, mixed watch batches, C
 	expect(requests).toBe(beforeQueries);
 });
 
-test("incremental discovery retries from its last success and full discovery reconciles older cached PRs", async ({
+test("discovery refreshes full history, retries partial pages and respects manual mode", async ({
 	page,
 }) => {
 	const repository = { id: "incremental-repo", name: "incremental" };
@@ -1510,9 +1258,9 @@ test("incremental discovery retries from its last success and full discovery rec
 			};
 		},
 	};
-	const discover = async (full = false) => {
+	const discover = async () => {
 		const receipt = commandReceiptSchema.parse(
-			await cli("discover", "--repo", url, ...(full ? ["--full"] : [])),
+			await cli("discover", "--repo", url),
 		);
 		calls = [];
 		return runCollectionOnce({
@@ -1536,6 +1284,9 @@ test("incremental discovery retries from its last success and full discovery rec
 				"--all",
 			),
 		);
+	await page.request.patch(`${base}/api/collection/settings`, {
+		data: { listCooldownSeconds: 0 },
+	});
 	await cli("repo", "add", url);
 	expect((await discover()).state).toBe("complete");
 	expect(calls).toHaveLength(3);
@@ -1550,23 +1301,16 @@ test("incremental discovery retries from its last success and full discovery rec
 	expect((await discover()).state).toBe("failed");
 	expect(calls).toHaveLength(2);
 	expect((await list()).data).toHaveLength(250);
-	const boundary = new Date((now - 2000 + 249) * 1000).toISOString();
-	expect(calls[0]!.searchParams.get("searchCriteria.minTime")).toBe(boundary);
+	expect(calls[0]!.searchParams.get("searchCriteria.minTime")).toBeNull();
 	failSecondPage = false;
 	expect((await discover()).state).toBe("complete");
-	expect(calls).toHaveLength(2);
-	expect(calls[0]!.searchParams.get("searchCriteria.minTime")).toBe(boundary);
+	expect(calls).toHaveLength(4);
 	const after = await list();
 	expect(after.data).toHaveLength(380);
 	expect(new Set(after.data.map((pull) => pull.id)).size).toBe(380);
 	expect(after.data.find((pull) => pull.number === 379)?.state).toBe("draft");
 	mergedFirst = true;
 	expect((await discover()).state).toBe("complete");
-	expect(calls).toHaveLength(1);
-	expect((await list()).data.find((pull) => pull.number === 1)?.state).toBe(
-		"open",
-	);
-	expect((await discover(true)).state).toBe("complete");
 	expect(calls).toHaveLength(4);
 	expect(
 		calls.every(
@@ -1591,257 +1335,29 @@ test("incremental discovery retries from its last success and full discovery rec
 	).toHaveAttribute("aria-pressed", "false");
 });
 
-test("sidebar connector keeps stable geometry through loading, activity and feedback in desktop and mobile navigation", async ({
+test("collector dialog retains both cooldown settings and a compact sidebar on mobile", async ({
 	page,
 }) => {
-	const clockNow = Math.floor(Date.now() / 1000) * 1000;
-	await page.clock.install({ time: clockNow });
-	const current = collectorQuerySchema.parse(await cli("status"));
-	const updatedAt = new Date(clockNow).toISOString();
-	const status = {
-		...current,
-		detailCooldownSeconds: 300,
-		scheduling: {
-			strategy: "per_pr",
-			checksConcurrency: 2,
-			statusConcurrency: 2,
-			nextCheckDueAt: new Date(clockNow + 180000).toISOString(),
-			overdueChecks: 0,
-			oldestChecksAgeSeconds: 420,
-			oldestSummaryAgeSeconds: 20,
-			missingChecks: 1,
-		},
-		connection: { state: "ready", lastSeenAt: updatedAt, message: "Connected" },
-		watching: 16,
-		queue: { running: 1, queued: 3, authRequired: 0 },
-		jobs: [
-			{
-				id: "connector-ui-job",
-				source: "live",
-				kind: "discover",
-				state: "running",
-				projectId: "connector-ui-project",
-				projectRevision: 1,
-				scope: [],
-				reason: null,
-				error: null,
-				message: "Discovering",
-				requestedAt: updatedAt,
-				startedAt: updatedAt,
-				updatedAt,
-				completedAt: null,
-				notBefore: updatedAt,
-				progress: { completed: 12, total: 40 },
-				observation: null,
-				repositories: [],
-			},
-		],
-	};
-	let releaseCollector!: () => void;
-	const collectorReady = new Promise<void>((resolve) => {
-		releaseCollector = resolve;
-	});
-	await page.route("**/api/query/v1/collector?**", async (route) => {
-		await collectorReady;
-		await route.fulfill({ json: status });
-	});
-	await page.goto("/?source=cli");
+	await page.goto("/prs");
 	const panel = page.getByRole("region", { name: "Connector status" });
-	const interval = panel.getByRole("combobox", {
-		name: "Watched PR refresh cooldown",
-	});
-	await expect(
-		panel.getByText("Reading status", { exact: true }),
-	).toBeVisible();
-	await expect(interval).toBeDisabled();
-	const geometry = async () => ({
-		panel: await panel.boundingBox(),
-		interval: await interval.boundingBox(),
-	});
-	const loadingGeometry = await geometry();
-	const expectStable = async (baseline = loadingGeometry) => {
-		expect(await geometry()).toEqual(baseline);
-		expect((await panel.boundingBox())!.height).toBeLessThan(180);
-	};
-	releaseCollector();
-	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
-	await expect(panel.getByRole("progressbar")).toHaveAttribute(
-		"aria-valuenow",
-		"12",
-	);
-	await expect(
-		page.locator("aside").getByRole("region", { name: "Connector status" }),
-	).toHaveCount(1);
-	await expect(
-		page.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
-	).toHaveCount(1);
-	await expect(
-		panel.getByText("Oldest checks: 7m ago · 1 missing"),
-	).toBeVisible();
-	await expectStable();
-	const runningJob = status.jobs[0]!;
-	status.queue = { running: 0, queued: 0, authRequired: 0 };
-	status.jobs = [];
-	await page.clock.runFor(3100);
-	await expect(panel.getByText("Next check in 3 min")).toBeVisible();
-	await expect(panel.getByRole("progressbar")).toHaveCount(0);
-	await expectStable();
-	status.watching = 0;
-	await page.clock.runFor(3100);
-	await expect(panel.getByText("Ready to watch")).toBeVisible();
-	await expectStable();
-	status.watching = 16;
-	status.queue = { running: 1, queued: 3, authRequired: 0 };
-	status.jobs = [runningJob];
-	await page.clock.runFor(3100);
-	await expect(panel.getByRole("progressbar")).toBeVisible();
-	await expectStable();
-	const intervalWidth = (await interval.boundingBox())!.width;
-	await interval.click();
-	const menu = page.getByRole("listbox");
-	await expect(menu).toBeVisible();
-	expect(
-		Math.abs((await menu.boundingBox())!.width - intervalWidth),
-	).toBeLessThanOrEqual(1);
-	const options = await page.getByRole("option").evaluateAll((items) =>
-		items.map((item) => ({
-			font: getComputedStyle(item).fontSize,
-			wrap: getComputedStyle(item).whiteSpace,
-			overflow: item.scrollWidth > item.clientWidth,
-		})),
-	);
-	expect(options).toHaveLength(5);
-	expect(
-		options.every(
-			(option) =>
-				option.font === "11px" && option.wrap === "nowrap" && !option.overflow,
-		),
-	).toBe(true);
-	await page.screenshot({ path: test.info().outputPath("connector-menu.png") });
-	await page.keyboard.press("Escape");
-	await page.goto("/developers?source=cli");
-	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
-	await expectStable();
-	let rejectSettings = true;
-	let releaseSettings!: () => void;
-	const settingsReady = new Promise<void>((resolve) => {
-		releaseSettings = resolve;
-	});
-	await page.route("**/api/collection/settings", async (route) => {
-		await settingsReady;
-		if (rejectSettings)
-			await route.fulfill({
-				status: 503,
-				json: { error: "Cannot save refresh cooldown" },
-			});
-		else {
-			status.detailCooldownSeconds = 600;
-			await route.continue();
-		}
-	});
-	await interval.click();
-	await page.getByRole("option", { name: "10 min", exact: true }).click();
-	await expect(panel.getByText("Saving cooldown…")).toBeVisible();
-	await expect(interval).toBeDisabled();
-	await expectStable();
-	releaseSettings();
-	await expect(panel.getByRole("alert")).toHaveText(
-		"Cannot save refresh cooldown",
-	);
-	await expect(interval).toHaveText("5 min");
-	await expectStable();
-	rejectSettings = false;
-	await interval.click();
-	await page.getByRole("option", { name: "10 min", exact: true }).click();
-	await expect(panel.getByText("Watch refresh cooldown saved.")).toBeVisible();
-	await expect(interval).toHaveText("10 min");
-	await expect(panel.getByRole("alert")).toHaveCount(0);
-	await expectStable();
-	expect(
-		collectorQuerySchema.parse(await cli("status")).detailCooldownSeconds,
-	).toBe(600);
-	status.connection = {
-		state: "auth_required",
-		lastSeenAt: updatedAt,
-		message: "Another project needs sign-in",
-	};
-	status.queue.authRequired = 1;
-	await page.clock.runFor(3100);
-	await expect(
-		panel.getByText("Sign-in required", { exact: true }),
-	).toBeVisible();
-	await expect(
-		panel.getByText("Another project needs sign-in", { exact: true }),
-	).toBeVisible();
-	await expect(panel.getByRole("progressbar")).toHaveAttribute(
-		"aria-valuenow",
-		"12",
-	);
-	await expect(
-		panel.getByText("Collection paused", { exact: true }),
-	).toHaveCount(0);
-	await expectStable();
-	status.connection = {
-		state: "offline",
-		lastSeenAt: updatedAt,
-		message: "Start signoff daemon to collect watched PRs",
-	};
-	await page.clock.runFor(3100);
-	await expect(panel.getByText("Offline", { exact: true })).toBeVisible();
-	await expect(panel.getByRole("progressbar")).toHaveCount(0);
-	await expect(panel.getByText("Offline", { exact: true })).toHaveClass(
-		/text-basalt-destructive/,
-	);
-	await expectStable();
-	const longProblem =
-		"Sign-in expired for a watched repository. Open the collector and sign in to resume checks for this project. Other projects can continue collecting normally.";
-	status.connection.message = longProblem;
-	await page.clock.runFor(3100);
-	await expect(panel.getByText(longProblem, { exact: true })).toBeVisible();
-	await expectStable();
-	await page.screenshot({
-		path: test.info().outputPath("connector-offline.png"),
-	});
-	await page.getByRole("button", { name: "Collapse sidebar" }).click();
-	await expect(
-		panel.getByRole("button", { name: /Connector offline.*Expand sidebar/ }),
-	).toBeVisible();
-	await panel
-		.getByRole("button", { name: /Connector offline.*Expand sidebar/ })
-		.click();
-	await expect(interval).toBeVisible();
-	await expect
-		.poll(async () => (await panel.boundingBox())!.width)
-		.toBe(loadingGeometry.panel!.width);
-	await expectStable();
-	await page.setViewportSize({ width: 390, height: 844 });
-	await page.getByRole("button", { name: "Open navigation" }).click();
 	await expect(panel).toBeVisible();
-	await expect
-		.poll(async () => (await panel.boundingBox())!.x)
-		.toBe(loadingGeometry.panel!.x);
-	const mobileGeometry = await geometry();
-	status.connection = {
-		state: "ready",
-		lastSeenAt: updatedAt,
-		message: "Connected",
-	};
-	status.queue = { running: 0, queued: 0, authRequired: 0 };
-	status.jobs = [];
-	await page.clock.runFor(3100);
-	await expect(panel.getByText("Online", { exact: true })).toBeVisible();
-	await expect(panel.getByRole("progressbar")).toHaveCount(0);
-	await expectStable(mobileGeometry);
-	await panel
-		.getByRole("combobox", { name: "Watched PR refresh cooldown" })
-		.click();
-	await expect(menu).toBeVisible();
+	expect((await panel.boundingBox())!.height).toBeLessThan(180);
+	await panel.getByRole("button").click();
+	const dialog = page.getByRole("dialog", { name: "Collector details" });
+	await expect(dialog).toBeVisible();
+	await expect(
+		dialog.getByRole("combobox", { name: "Project discovery cooldown" }),
+	).toBeVisible();
+	await expect(
+		dialog.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
+	).toBeVisible();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await page.setViewportSize({ width: 390, height: 844 });
 	expect(
-		(await menu.boundingBox())!.x + (await menu.boundingBox())!.width,
-	).toBeLessThanOrEqual(390);
-	await page.screenshot({
-		path: test.info().outputPath("connector-mobile.png"),
-	});
+		await page.evaluate(
+			() => document.documentElement.scrollWidth > innerWidth,
+		),
+	).toBe(false);
 });
 
 test("friendly workspace URLs survive history, reload and sharing without changing rule scope", async ({
@@ -1946,9 +1462,9 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	await page.goto("/prs");
 	await expectPreferences();
 	await page.goto(`/sm/${repositoryPath}?pr=1`);
-	await expect(
-		page.getByRole("combobox", { name: "Trace pull request" }),
-	).toHaveText(`#1 ${pull.title}`);
+	await expect(page.getByRole("combobox", { name: "Policy scope" })).toHaveText(
+		repo.name,
+	);
 	expect(await storedPreferences()).toBe(preferences);
 	await page
 		.getByRole("button", { name: "Pull requests", exact: true })
@@ -1983,112 +1499,25 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	).toBeVisible();
 	await expect(page).toHaveURL(`${base}${detailPath}`);
 
-	// A trace is a sample evaluated by project defaults, not a repository override.
-	const projectScopeRead = page.waitForResponse((response) => {
-		const url = new URL(response.url());
-		return (
-			url.pathname === `/api/state-machines/${pull.project.id}` &&
-			url.searchParams.get("pullId") === pull.id &&
-			!url.searchParams.has("repositoryId")
-		);
-	});
-	await page.goto(
-		`/state-machines?${new URLSearchParams({ source: "cli", project: pull.project.id, trace: pull.id, tab: "priority" })}`,
-	);
-	expect(
-		machinePageSchema.parse(await (await projectScopeRead).json()).repositoryId,
-	).toBeNull();
-	const machinePath = `/sm/${scopePath}`;
-	await expect(page).toHaveURL(
-		`${base}${machinePath}?${new URLSearchParams({ tab: "priority", pr: `${repo.name}/1` })}`,
-	);
-	const repository = page.getByRole("combobox", {
-		name: "State machine repository",
-	});
-	const picker = page.getByRole("combobox", { name: "Trace pull request" });
-	await expect(repository).toHaveText("Project default · all repositories");
-	await expect(picker).toHaveText(`#1 ${pull.title}`);
-	const machineDocuments = documents;
-	await page
-		.getByRole("button", { name: "Hide inspector", exact: true })
-		.click();
-	await expect(page.getByRole("tabpanel")).toHaveCount(0);
-	await page.goBack();
-	await expect(
-		page.getByRole("tab", { name: "Priority", exact: true }),
-	).toHaveAttribute("aria-selected", "true");
-	await expect(page.getByRole("tabpanel")).toBeVisible();
-	await page.goForward();
-	await expect(page.getByRole("tabpanel")).toHaveCount(0);
-	await page.getByRole("checkbox", { name: "All collected gates" }).uncheck();
-	await page
-		.getByRole("button", { name: "Observed transitions", exact: true })
-		.click();
-	await page.getByRole("tab", { name: "History", exact: true }).click();
-	const sharedUrl = page.url();
-	expect(new URL(sharedUrl).searchParams.get("view")).toBe("transitions");
-	expect(new URL(sharedUrl).searchParams.get("gates")).toBe("pr");
-	expect(new URL(sharedUrl).searchParams.get("tab")).toBe("history");
-	expect(documents).toBe(machineDocuments);
-
+	await page.goto(`/sm/${scopePath}`);
+	const repository = page.getByRole("combobox", { name: "Policy scope" });
+	await expect(repository).toHaveText("Project default");
+	await repository.click();
+	await page.getByRole("option", { name: repo.name, exact: true }).click();
+	await expect(page).toHaveURL(`${base}/sm/${repositoryPath}`);
+	await page.reload();
+	await expect(repository).toHaveText(repo.name);
 	const fresh = await browser.newContext();
 	try {
-		await fresh.addInitScript(() =>
-			localStorage.setItem(
-				"signoff-pull-filters",
-				"source=sample&state=closed",
-			),
-		);
 		const shared = await fresh.newPage();
-		await shared.goto(sharedUrl);
+		await shared.goto(`${base}/sm/${repositoryPath}`);
 		await expect(
-			shared.getByRole("combobox", { name: "State machine data source" }),
-		).toHaveText("Live");
-		await expect(
-			shared.getByRole("combobox", { name: "State machine repository" }),
-		).toHaveText("Project default · all repositories");
-		await expect(
-			shared.getByRole("combobox", { name: "Trace pull request" }),
-		).toHaveText(`#1 ${pull.title}`);
-		await expect(
-			shared.getByRole("tab", { name: "History", exact: true }),
-		).toHaveAttribute("aria-selected", "true");
-		await expect(
-			shared.getByRole("button", { name: "Observed transitions", exact: true }),
-		).toHaveAttribute("aria-pressed", "true");
-		await expect(
-			shared.getByRole("checkbox", { name: "All collected gates" }),
-		).not.toBeChecked();
-		await shared.reload();
-		await expect(
-			shared.getByRole("combobox", { name: "Trace pull request" }),
-		).toHaveText(`#1 ${pull.title}`);
-		await expect(shared).toHaveURL(sharedUrl);
-		await shared.goto(`${base}${detailPath}`);
-		await expect(
-			shared.getByRole("heading", { name: pull.title, exact: true }),
-		).toBeVisible();
+			shared.getByRole("combobox", { name: "Policy scope" }),
+		).toHaveText(repo.name);
 	} finally {
 		await fresh.close();
 	}
 
-	await repository.click();
-	await page.getByRole("option", { name: repo.name, exact: true }).click();
-	await expect(page).toHaveURL(
-		(url) =>
-			url.pathname === `/sm/${repositoryPath}` &&
-			url.searchParams.get("pr") === "1",
-	);
-	await expect(repository).toHaveText(repo.name);
-	await page.goBack();
-	await expect(repository).toHaveText("Project default · all repositories");
-	await expect(page).toHaveURL(sharedUrl);
-	await page.goto(`${base}/sm/${repositoryPath}?pr=999999`);
-	await expect(page.getByRole("alert")).toContainText("PR is not in the cache");
-	expect(new URL(page.url()).searchParams.get("pr")).toBe("999999");
-	await expect(
-		page.getByRole("combobox", { name: "Trace pull request" }),
-	).toHaveCount(0);
 	expect(providerRequests).toBe(providerReads);
 	const after = await watchList();
 	expect(after.dataRevision).toBe(watches.dataRevision);

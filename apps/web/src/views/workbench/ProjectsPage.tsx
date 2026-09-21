@@ -119,14 +119,14 @@ export function ProjectsPage() {
 								label: "Need attention",
 							},
 							{
-								count: metrics.running,
+								count: metrics.unknown,
 								color: heatmapColor(3, "blue"),
-								label: "In progress",
+								label: "Unknown",
 							},
 							{
-								count: metrics.ready,
+								count: metrics.onTrack,
 								color: heatmapColor(3, "green"),
-								label: "Ready to merge",
+								label: "On Track",
 							},
 							{
 								count: metrics.draft,
@@ -210,13 +210,13 @@ export function ProjectsPage() {
 												color: "text-basalt-warning",
 											},
 											{
-												label: "In progress",
-												count: metrics.running,
+												label: "Unknown",
+												count: metrics.unknown,
 												color: "text-basalt-primary",
 											},
 											{
-												label: "Ready",
-												count: metrics.ready,
+												label: "On Track",
+												count: metrics.onTrack,
 												color: "text-basalt-heatmap-green-4",
 											},
 										].map((metric) => (
@@ -239,7 +239,7 @@ export function ProjectsPage() {
 												label: state.label,
 											})),
 										)}
-										ariaLabel={`${metrics.open} open PRs: ${metrics.attention} need attention, ${metrics.running} in progress, ${metrics.ready} ready, ${metrics.draft} drafts`}
+										ariaLabel={`${metrics.open} open PRs: ${metrics.attention} need attention, ${metrics.unknown} in progress, ${metrics.onTrack} onTrack, ${metrics.draft} drafts`}
 										heightClass="h-1.5"
 										gapClass="gap-0"
 									/>

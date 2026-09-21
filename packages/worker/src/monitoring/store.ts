@@ -252,6 +252,7 @@ export type ProjectRow = {
 	project_key: string;
 	repositories_json?: string;
 	readiness_rules_json?: string;
+	policy_context_json?: string;
 	merge_requirements_json?: string;
 	readiness_revision?: number;
 	state_machine_json?: string;
@@ -280,12 +281,10 @@ export function mapProject(row: ProjectRow): Project {
 		organization: row.organization,
 		projectKey: row.project_key,
 		repositories,
-		readinessRules: JSON.parse(row.readiness_rules_json || "[]"),
-		mergeRequirements: JSON.parse(row.merge_requirements_json || "[]"),
-		readinessRevision: row.readiness_revision ?? 1,
-		stateMachine: JSON.parse(
-			row.state_machine_json || '{"default":null,"repositories":{}}',
+		policyContext: JSON.parse(
+			row.policy_context_json || '{"default":[],"repositories":{}}',
 		),
+		mergeRequirements: JSON.parse(row.merge_requirements_json || "[]"),
 		stateMachineRevision: row.state_machine_revision ?? 1,
 		description: row.description,
 		owner: row.owner,

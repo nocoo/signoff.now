@@ -124,7 +124,10 @@ try {
 			name: "signoff-e2e",
 			main: path.join(root, "packages/worker/src/index.ts"),
 			compatibility_date: "2026-07-07",
-			vars: { SIGNOFF_DEMO_MODE: "1" },
+			vars: {
+				SIGNOFF_DEMO_MODE: "1",
+				SIGNOFF_AI_ENCRYPTION_KEY: btoa("e".repeat(32)),
+			},
 			assets: {
 				directory: path.join(directory, "assets"),
 				binding: "ASSETS",

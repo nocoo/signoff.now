@@ -37,7 +37,7 @@ flowchart LR
 
 - 本地数据库文件：`.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`，不提交 Git。
 - 初版 SQL migration：`packages/db/migrations/0011_pr_workbench.sql`；当前 schema version 14，包含真实采集任务、当前页 PR 范围与项目 Readiness 设置。
-- `projects`：provider、organization、project key、名称、负责人、监控开关、revision 和最近扫描信息；`readiness_rules_json`、`readiness_revision` 独立保存排序与颜色。
+- `projects`：provider、organization、project key、名称、负责人、监控开关、revision 和最近扫描信息；`policy_context_json` and `state_machine_revision` store Jev policy instructions and priority with CAS.
 - `pull_requests`：项目 / 仓库 / 外部 ID 索引与统一 PR snapshot JSON。
 - `scan_runs`：扫描时间、结果、PR 数量、推进阶段数和说明。
 - 删除项目会级联删除其 PR 和扫描历史；变更源 organization / project 时清除旧快照。
@@ -99,7 +99,7 @@ Sample 模拟扫描成功后才改变示例进度。Live 的列表队列在后�
 | GET | `/api/workbench` | 一次 D1 batch 读取项目、PR 与最新 20 条扫描记录，`Cache-Control: no-store` |
 | POST | `/api/projects` | 创建 ADO 项目，server 决定 `source` 与初始 revision |
 | PATCH | `/api/projects/:id` | 携带 revision 的部分更新，冲突返回 409 |
-| PATCH | `/api/projects/:id/readiness` | `{ revision, rules }`；独立 Readiness CAS，`rules: []` 恢复默认，不改变采集 revision |
+| PUT | `/api/state-machines/:id` | `{revision, repositoryId, instructions}`; policy explanation/priority CAS; schedules Jev reevaluation |
 | DELETE | `/api/projects/:id` | JSON body `{ revision }`，级联清理项目快照 |
 | POST | `/api/projects/:id/scan` | 本地 Demo 扫描，JSON body `{ revision }` |
 

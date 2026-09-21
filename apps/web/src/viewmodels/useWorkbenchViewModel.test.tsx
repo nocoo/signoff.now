@@ -134,16 +134,16 @@ it("combines independent quick filters and clears incompatible historical select
 		});
 	};
 	click("Watched");
-	click("Ready");
-	await queryMatches({ state: "open", watching: "true", status: "ready" });
-	for (const name of ["Open", "Watched", "Ready"])
+	click("On Track");
+	await queryMatches({ state: "open", watching: "true", status: "on_track" });
+	for (const name of ["Open", "Watched", "On Track"])
 		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
 			"true",
 		);
 	click("Unwatched");
 	click("Attention");
 	await queryMatches({ state: "open", watching: "false", status: "attention" });
-	for (const name of ["Watched", "Ready"])
+	for (const name of ["Watched", "On Track"])
 		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
 			"false",
 		);
@@ -151,10 +151,10 @@ it("combines independent quick filters and clears incompatible historical select
 	click("Unwatched");
 	await queryMatches({ status: "all", watching: null });
 	click("Watched");
-	click("Running");
+	click("On Track");
 	click("Merged");
 	await queryMatches({ state: "merged", status: "all", watching: null });
-	expect(bar.getByRole("button", { name: "Ready" })).toHaveProperty(
+	expect(bar.getByRole("button", { name: "On Track" })).toHaveProperty(
 		"disabled",
 		true,
 	);
@@ -166,8 +166,8 @@ it("combines independent quick filters and clears incompatible historical select
 	click("All states");
 	await queryMatches({ state: "all", watching: "true", status: "all" });
 	fireEvent.click(bar.getByRole("combobox", { name: "Detailed readiness" }));
-	fireEvent.click(screen.getByRole("option", { name: "Awaiting approval" }));
-	await queryMatches({ state: "open", watching: "true", status: "approval" });
+	fireEvent.click(screen.getByRole("option", { name: "Error" }));
+	await queryMatches({ state: "open", watching: "true", status: "error" });
 	click("Closed");
 	await queryMatches({ state: "closed", status: "all", watching: null });
 });
@@ -774,7 +774,7 @@ describe("filters, server pages and temporary selection", () => {
 		act(() =>
 			first.result.current.vm.setFilter({
 				watching: "unwatched",
-				status: "approval",
+				status: "attention",
 				draft: "include",
 				authors: ["one", "two"],
 				query: "review",

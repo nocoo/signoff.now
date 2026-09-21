@@ -475,31 +475,31 @@ export function registerWorkbenchCommands(program: Command) {
 		const { createCollectionClient } = await import("./client");
 		const { createAdoClient } = await import("../ado/client");
 		const { defaultExec } = await import("../doctor/exec-bun");
-		const { watchCollections } = await import("./run");
+		const { watchCollections, watchAiEvaluations } = await import("./run");
 		const { createLogger } = await import("../logger");
 		const stop = new AbortController();
 		const shutdown = () => stop.abort();
 		process.once("SIGINT", shutdown);
 		process.once("SIGTERM", shutdown);
 		let ado: ReturnType<typeof createAdoClient> | undefined;
+		const api = createCollectionClient({
+			apiBase: options(command).apiBase ?? process.env.SIGNOFF_QUERY_API_BASE,
+		});
+		const log = createLogger({
+			log: (s) => process.stderr.write(`${s}\n`),
+			error: (s) => process.stderr.write(`${s}\n`),
+		});
 		try {
-			await watchCollections({
-				api: createCollectionClient({
-					apiBase:
-						options(command).apiBase ?? process.env.SIGNOFF_QUERY_API_BASE,
+			await Promise.all([
+				watchCollections({
+					api,
+					makeAdo: () =>
+						(ado ??= createAdoClient({ exec: defaultExec, fetchFn: fetch })),
+					log,
+					signal: stop.signal,
 				}),
-				makeAdo: () =>
-					(ado ??= createAdoClient({ exec: defaultExec, fetchFn: fetch })),
-				log: createLogger({
-					log: (s) => {
-						process.stderr.write(`${s}\n`);
-					},
-					error: (s) => {
-						process.stderr.write(`${s}\n`);
-					},
-				}),
-				signal: stop.signal,
-			});
+				watchAiEvaluations(api, stop.signal, log),
+			]);
 		} finally {
 			process.off("SIGINT", shutdown);
 			process.off("SIGTERM", shutdown);

@@ -8,7 +8,6 @@ import {
 	GitPullRequest,
 	GitPullRequestClosed,
 	Layers,
-	LoaderCircle,
 	type LucideIcon,
 	ShieldAlert,
 } from "lucide-react";
@@ -64,14 +63,8 @@ const readiness = [
 		"text-amber-600 hover:text-amber-600 basalt-dark:text-amber-400 basalt-dark:hover:text-amber-400",
 	],
 	[
-		"running",
-		"Running",
-		LoaderCircle,
-		"text-sky-600 hover:text-sky-600 basalt-dark:text-sky-400 basalt-dark:hover:text-sky-400",
-	],
-	[
-		"ready",
-		"Ready",
+		"on_track",
+		"On Track",
 		CheckCheck,
 		"text-emerald-600 hover:text-emerald-600 basalt-dark:text-emerald-400 basalt-dark:hover:text-emerald-400",
 	],
@@ -130,9 +123,7 @@ export function PullQuickFilters({
 }) {
 	const { filter } = vm;
 	const historical = filter.state === "merged" || filter.state === "closed";
-	const detailed = ["blocked", "approval", "review", "unknown"].includes(
-		filter.status,
-	);
+	const detailed = ["unknown", "error"].includes(filter.status);
 	return (
 		<section
 			aria-label="Quick PR filters"
@@ -199,7 +190,11 @@ export function PullQuickFilters({
 							Icon={Icon}
 							color={color}
 							selected={filter.status === status}
-							count={vm.pullsLoaded ? vm.metrics[status] : null}
+							count={
+								vm.pullsLoaded
+									? vm.metrics[status === "on_track" ? "onTrack" : status]
+									: null
+							}
 							disabled={historical}
 							title={
 								historical
@@ -239,9 +234,7 @@ export function PullQuickFilters({
 						contentClassName="[&_[role=option]]:text-xs"
 					>
 						<option value="all">More</option>
-						<option value="blocked">Blocked</option>
-						<option value="approval">Awaiting approval</option>
-						<option value="review">Review needed</option>
+						<option value="error">Error</option>
 						<option value="unknown">Unknown / incomplete</option>
 					</SelectControl>
 				</fieldset>

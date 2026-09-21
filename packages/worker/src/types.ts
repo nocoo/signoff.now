@@ -1,5 +1,6 @@
 export type Bindings = {
 	DB: D1Database;
+	SIGNOFF_AI_ENCRYPTION_KEY?: string;
 	/** Set only by the local dev command; also requires a local request host. */
 	SIGNOFF_DEMO_MODE?: string;
 	/** Static assets (SPA / placeholder). */

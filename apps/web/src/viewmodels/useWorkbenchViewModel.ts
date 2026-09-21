@@ -62,8 +62,9 @@ const PAGE_SIZE = 20;
 const emptyMetrics = {
 	open: 0,
 	attention: 0,
-	running: 0,
-	ready: 0,
+	onTrack: 0,
+	unknown: 0,
+	error: 0,
 	draft: 0,
 	merged: 0,
 	closed: 0,

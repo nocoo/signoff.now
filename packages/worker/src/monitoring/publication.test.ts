@@ -1148,7 +1148,11 @@ describe("guarded snapshot publication and retirement", () => {
 		expect(saved.mergeRequirements?.map((g) => g.name)).toContain(
 			"Other repo validation",
 		);
-		expect(saved.readinessRules).toEqual(rules);
+		expect(
+			sqlite.raw
+				.query("SELECT readiness_rules_json FROM projects WHERE id=?")
+				.get(project.id),
+		).toEqual({ readiness_rules_json: JSON.stringify(rules) });
 	});
 	test.each([
 		"merged",

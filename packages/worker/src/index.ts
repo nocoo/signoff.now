@@ -6,6 +6,7 @@ import {
 	activityHeatmapRoute,
 	activityTimelineRoute,
 } from "./routes/activity.js";
+import { aiRoutes } from "./routes/ai.js";
 import {
 	collectorBatchRoute,
 	collectorClaimRoute,
@@ -74,7 +75,6 @@ import {
 	projectsCreateRoute,
 	projectsDeleteRoute,
 	projectsPatchRoute,
-	projectsReadinessRoute,
 	projectsScanRoute,
 	workbenchRoute,
 } from "./routes/workbench.js";
@@ -90,6 +90,7 @@ app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
 app.route("/api/query/v1", queryRoutes);
+app.route("/api/ai", aiRoutes);
 app.route("/api/commands/v1", commandRoutes);
 app.route("/api/state-machines", stateMachineRoutes);
 
@@ -107,7 +108,6 @@ app.post("/api/collector/schedule", collectorScheduleRoute);
 app.get("/api/collector/jobs/:id", collectorJobRoute);
 app.post("/api/projects", projectsCreateRoute);
 app.patch("/api/projects/:id", projectsPatchRoute);
-app.patch("/api/projects/:id/readiness", projectsReadinessRoute);
 app.delete("/api/projects/:id", projectsDeleteRoute);
 app.post("/api/projects/:id/scan", projectsScanRoute);
 app.post("/api/collector/heartbeat", collectorHeartbeatRoute);

@@ -45,7 +45,7 @@ ADO 真实采集已接入。GitHub 使用同一规范身份与 Sample 数据，�
 
 | 数据 | 表 / 位置 |
 | --- | --- |
-| 项目、仓库范围、readiness 顺序 / 颜色 | `projects` |
+| Project/repository scope and Jev policy instructions/priority | `projects` |
 | 仓库 provider 身份、名称事实时间 / 别名、历史覆盖、成功发现游标 | `workbench_repositories`；也保存零 PR 仓库 |
 | 已发布最新 PR 与检查事实 | `pull_requests`；带快照 version 与 published_at |
 | 共享监控清单 | `pr_observations`；完整 ref、active、generation、启停时间与原因 |

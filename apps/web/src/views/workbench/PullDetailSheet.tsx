@@ -46,6 +46,7 @@ import { PullDescription } from "./PullDescription";
 import {
 	CHECK_LABELS,
 	CheckIcon,
+	LifecycleBadge,
 	ReadinessBadge,
 	StageBar,
 	StageLegend,
@@ -309,6 +310,7 @@ function PullDetail({
 						<span className="font-mono text-sm text-basalt-muted-foreground">
 							#{pull.number}
 						</span>
+						<LifecycleBadge pull={pull} />
 						<ReadinessBadge readiness={readiness} project={project} />
 						{project.source === "demo" ? (
 							<Badge variant="secondary">Sample PR</Badge>
@@ -397,49 +399,35 @@ function PullDetail({
 							</LayerCard.Header>
 							<LayerCard.Well>
 								<p className="text-base font-semibold leading-6">
-									{readiness.action}
+									{readiness.nextAction}
 								</p>
-								<div className="mt-3 flex items-center gap-2">
-									<EntityAvatar name={readiness.owner} size="sm" />
-									<span className="text-xs">{readiness.owner}</span>
-									<span className="text-xs text-basalt-muted-foreground">
-										· responsible
-									</span>
-								</div>
+								<p className="mt-2 text-xs text-basalt-muted-foreground">
+									Jev classification · On Track does not mean ready to merge.
+								</p>
+								{Boolean(readiness.error) && (
+									<p
+										role="alert"
+										className="mt-2 text-sm text-basalt-destructive"
+									>
+										{readiness.error}
+									</p>
+								)}
+								{readiness.current !== null && (
+									<p className="mt-2 break-all text-xs text-basalt-muted-foreground">
+										{readiness.current.model} · {readiness.current.rubric} ·{" "}
+										{new Date(readiness.current.evaluatedAt).toLocaleString()} ·
+										Confidence {Math.round(readiness.current.confidence * 100)}%
+										(not accuracy)
+									</p>
+								)}
+								{readiness.previous !== null && (
+									<p className="mt-2 text-xs text-basalt-muted-foreground">
+										Previous result (not current): {readiness.previous.kind} ·{" "}
+										{new Date(readiness.previous.evaluatedAt).toLocaleString()}
+									</p>
+								)}
 							</LayerCard.Well>
 						</LayerCard>
-						{readiness.issues.length ? (
-							<section aria-label="Pending items">
-								<h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-									Pending items{" "}
-									<Badge variant="secondary">{readiness.issues.length}</Badge>
-								</h3>
-								<div className="space-y-2">
-									{readiness.issues.map((issue, index) => (
-										<LayerCard
-											key={JSON.stringify(issue)}
-											padding="sm"
-											className="flex items-start gap-3"
-										>
-											<span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-basalt-muted text-[10px] font-medium text-basalt-muted-foreground">
-												{index + 1}
-											</span>
-											<div className="min-w-0 flex-1">
-												<ReadinessBadge readiness={issue} project={project} />
-												<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">
-													{issue.action}
-												</p>
-												<EntityLabel
-													name={issue.owner}
-													size="xs"
-													className="mt-1.5 text-[11px] text-basalt-muted-foreground"
-												/>
-											</div>
-										</LayerCard>
-									))}
-								</div>
-							</section>
-						) : null}
 						<section aria-label="Build progress">
 							<div className="mb-3 flex items-center justify-between">
 								<h3 className="text-sm font-semibold">Build progress</h3>

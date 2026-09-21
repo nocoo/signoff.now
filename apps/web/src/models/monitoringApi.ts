@@ -57,12 +57,7 @@ export function queryRow(value: PullQueryItem): PullRow {
 				at: seconds(item.at),
 			})),
 		}),
-		readiness: {
-			...value.readiness,
-			action: value.readiness.nextAction,
-			issues: value.readiness.issues as PullRow["readiness"]["issues"],
-			gateId: value.readiness.primaryRequirementId ?? undefined,
-		},
+		readiness: value.readiness,
 		progress: value.checks,
 		observation: value.observation
 			? {

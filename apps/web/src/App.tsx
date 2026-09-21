@@ -15,6 +15,7 @@ import {
 	MembersPage,
 } from "@/views/directory/DirectoryPage";
 import { InsightsPage } from "@/views/insights/InsightsPage";
+import { AiSettingsPage } from "@/views/settings/AiSettingsPage";
 import { SettingsPage } from "@/views/settings/SettingsPage";
 import { ProjectsPage } from "@/views/workbench/ProjectsPage";
 import { PullsPage } from "@/views/workbench/PullsPage";
@@ -73,6 +74,7 @@ export default function App() {
 									<Route path="/projects" element={<ProjectsPage />} />
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
+									<Route path="/ai-settings" element={<AiSettingsPage />} />
 									{["/sm/*", "/state-machines"].map((path) => (
 										<Route
 											key={path}

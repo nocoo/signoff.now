@@ -55,3 +55,7 @@ coverage/
 
 # Wrangler local state
 .wrangler/
+
+# Local Worker secrets
+.dev.vars
+.dev.vars.*

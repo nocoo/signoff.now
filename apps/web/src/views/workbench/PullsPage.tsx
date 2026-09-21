@@ -56,7 +56,12 @@ import { PullDetailSheet } from "./PullDetailSheet";
 import { PullQuickFilters } from "./PullQuickFilters";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
-import { ReadinessBadge, StageBar, StageLegend } from "./WorkbenchStatus";
+import {
+	LifecycleBadge,
+	ReadinessBadge,
+	StageBar,
+	StageLegend,
+} from "./WorkbenchStatus";
 
 export function PullsPage() {
 	const vm = useWorkbench();
@@ -359,7 +364,8 @@ export function PullsPage() {
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<StageLegend />
 				<p className="text-xs text-basalt-muted-foreground">
-					Readiness includes required checks, reviews, and merge conflicts.
+					Jev Readiness indicates whether a watched PR needs human intervention.
+					On Track is not permission to merge.
 				</p>
 			</div>
 			<PullDetailSheet
@@ -707,7 +713,7 @@ function PullTableRow({
 					>
 						#{pull.number}
 					</a>
-					<span aria-hidden>·</span>
+					<LifecycleBadge pull={pull} /> <span aria-hidden>·</span>
 					<span>
 						<RepositoryScopeLinks
 							project={project}
@@ -747,12 +753,6 @@ function PullTableRow({
 			</TableCell>
 			<TableCell className="py-3.5 align-top">
 				<ReadinessBadge readiness={readiness} project={project} />
-				{readiness.issues.length > 1 ? (
-					<p className="mt-1.5 text-[11px] text-basalt-muted-foreground">
-						+{readiness.issues.length - 1} pending item
-						{readiness.issues.length > 2 ? "s" : ""}
-					</p>
-				) : null}
 			</TableCell>
 			<TableCell className="py-3.5 align-top">
 				{pull.checksObservedAt === null ? (
@@ -781,9 +781,9 @@ function PullTableRow({
 				)}
 			</TableCell>
 			<TableCell className="py-3.5 align-top">
-				<p className="text-xs leading-5">{readiness.action}</p>
+				<p className="text-xs leading-5">{readiness.nextAction}</p>
 				<EntityLabel
-					name={readiness.owner}
+					name="Jev"
 					size="xs"
 					className="mt-1 text-[11px] text-basalt-muted-foreground"
 				/>

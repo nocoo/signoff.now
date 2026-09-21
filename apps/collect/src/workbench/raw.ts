@@ -132,6 +132,7 @@ export const adoPullRequestDetailSchema = adoPullRequestSummarySchema;
 export const adoEvaluationSchema = z
 	.object({
 		evaluationId: z.string().optional(),
+		description: z.string().optional(),
 		status: z.string().optional(),
 		startedDate: z.string().optional(),
 		completedDate: z.string().nullable().optional(),
@@ -228,6 +229,16 @@ export const adoBuildsSchema = z
 
 export const adoTimelineRecordSchema = z
 	.object({
+		issues: z
+			.array(
+				z
+					.object({
+						message: z.string().optional(),
+						type: z.string().optional(),
+					})
+					.loose(),
+			)
+			.optional(),
 		id: z.string(),
 		identifier: z.string().nullish(),
 		parentId: z.string().nullable().optional(),

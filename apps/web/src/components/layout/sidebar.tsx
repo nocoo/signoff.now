@@ -24,6 +24,7 @@ import {
 	Network,
 	PanelLeft,
 	Settings,
+	Sparkles,
 	Tag,
 	Users,
 	UsersRound,
@@ -46,6 +47,7 @@ const ICON_MAP: Record<string, ElementType> = {
 	GitBranch,
 	Activity,
 	Settings,
+	Sparkles,
 };
 
 type NavItem = {

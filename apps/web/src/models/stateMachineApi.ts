@@ -1,76 +1,23 @@
 import { type DataSource, publicSource } from "@signoff/domain/monitoring";
-import {
-	machinePageSchema,
-	machinePreviewSchema,
-	machinePullPageSchema,
-	machineVersionSchema,
-	machineWriteSchema,
-} from "@signoff/domain/query";
-import { revisionSchema } from "@signoff/domain/workbench";
+import { machinePageSchema, machineWriteSchema } from "@signoff/domain/query";
 import { apiFetch } from "@/lib/api";
-
 export type MachineScope = {
 	source: DataSource;
 	projectId: string;
 	repositoryId: string | null;
 };
-function path(scope: MachineScope, suffix = "", pullId?: string | null) {
-	const query = new URLSearchParams({ source: publicSource(scope.source) });
-	if (scope.repositoryId) query.set("repositoryId", scope.repositoryId);
-	if (pullId) query.set("pullId", pullId);
-	return `/api/state-machines/${encodeURIComponent(scope.projectId)}${suffix}?${query}`;
-}
-export async function loadMachine(
-	scope: MachineScope,
-	pullId: string | null,
-	signal: AbortSignal,
-) {
-	return machinePageSchema.parse(
-		await apiFetch(path(scope, "", pullId), { signal }),
-	);
-}
 export type MachineWrite = ReturnType<typeof machineWriteSchema.parse>;
-export async function loadMachinePulls(
-	scope: MachineScope,
-	filter: { search: string; watchedOnly: boolean; cursor: string | null },
-	signal: AbortSignal,
-) {
-	const query = new URLSearchParams({
-		q: filter.search,
-		watched: String(filter.watchedOnly),
-	});
-	if (filter.cursor) query.set("cursor", filter.cursor);
-	return machinePullPageSchema.parse(
-		await apiFetch(`${path(scope, "/pulls")}&${query}`, {
-			signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-		}),
-	);
+function path(scope: MachineScope) {
+	const q = new URLSearchParams({ source: publicSource(scope.source) });
+	if (scope.repositoryId) q.set("repositoryId", scope.repositoryId);
+	return `/api/state-machines/${encodeURIComponent(scope.projectId)}?${q}`;
 }
-export async function previewMachine(
-	scope: MachineScope,
-	body: MachineWrite,
-	pullId?: string | null,
-) {
-	return machinePreviewSchema.parse(
-		await apiFetch(path(scope, "/preview", pullId), {
-			method: "POST",
-			body: JSON.stringify(machineWriteSchema.parse(body)),
-		}),
-	);
-}
-export async function saveMachine(scope: MachineScope, body: MachineWrite) {
-	return revisionSchema.parse(
+export const loadMachine = async (scope: MachineScope, signal: AbortSignal) =>
+	machinePageSchema.parse(await apiFetch(path(scope), { signal }));
+export const saveMachine = async (scope: MachineScope, body: MachineWrite) =>
+	machinePageSchema.parse(
 		await apiFetch(path(scope), {
-			method: "PATCH",
+			method: "PUT",
 			body: JSON.stringify(machineWriteSchema.parse(body)),
 		}),
 	);
-}
-export async function loadMachineVersion(
-	scope: MachineScope,
-	revision: number,
-) {
-	return machineVersionSchema.parse(
-		await apiFetch(path(scope, `/versions/${revision}`)),
-	);
-}
