@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { seedProject, seedPull } from "../test/pr-fixture";
 import {
 	createConcurrentSqliteD1,
@@ -49,6 +49,35 @@ const activeCount = () =>
 	).n;
 
 describe("observation scheduler", () => {
+	test("idle claims seek the lease instead of scanning job history", async () => {
+		seedProject(sqlite, { repositories: [] });
+		await watch();
+		expect(await claimJob(sqlite.db, 100)).not.toBeNull();
+		const prepare = spyOn(sqlite.db, "prepare");
+		try {
+			expect(await claimJob(sqlite.db, 101)).toBeNull();
+			const lookups = prepare.mock.calls
+				.map(([sql]) => sql)
+				.filter((sql) => /WHERE (?:j\.)?lease_token=\?/.test(sql));
+			expect(lookups.length).toBeGreaterThan(0);
+			for (const sql of lookups) {
+				const plan = sqlite.raw
+					.query(`EXPLAIN QUERY PLAN ${sql}`)
+					.all(
+						...Array.from(
+							{ length: sql.split("?").length - 1 },
+							() => "absent",
+						),
+					);
+				expect(JSON.stringify(plan)).toContain(
+					"collection_jobs_lease (lease_token=?)",
+				);
+			}
+		} finally {
+			prepare.mockRestore();
+		}
+	});
+
 	test("project lists recur only after completion plus their cooldown and preserve source scope", async () => {
 		const project = seedProject(sqlite, { repositories: [] });
 		await scheduleDiscovery(sqlite.db, 100, "demo");

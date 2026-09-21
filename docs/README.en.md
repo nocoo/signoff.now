@@ -141,7 +141,9 @@ bun run dev
 
 Open `http://localhost:7042`. Vite proxies `/api` to the local Worker on `37042`. The dev script includes the local upstream and demo flag. If you already have a trusted HTTPS reverse proxy, `https://signoff.dev.hexly.ai` is supported.
 
-If the page opens but its data does not load, check `curl --max-time 10 http://127.0.0.1:37042/api/live`. A listening port alone does not establish API health. If this times out, stop the existing repository's `dev:worker` process and restart it with `bun run dev:worker`; preserve `.wrangler/state` and do not seed existing data during recovery. The collector reconnects independently.
+If the page opens but its data does not load, check `curl --max-time 10 http://127.0.0.1:37042/api/live` and compare actual list/query timings. A listening port or a single successful health probe does not establish dashboard health. Inspect Worker request logs before restarting; repeated slowness while awake needs investigation beyond sleep recovery. Preserve `.wrangler/state` and never seed existing data during recovery. The collector reconnects independently.
+
+Migration 0036 indexes non-null collection lease tokens. Claim queries must seek the current lease, including when no job is available; scanning retained job history on each daemon poll blocks other local D1 requests as history grows. A regression checks the query plans of the actual claim statements. Apply pending local migrations with `bun run db:migrate:local`.
 
 `bun run dev:worker` supervises only the Wrangler process group it starts. A sequential health probe runs every 15 seconds after the previous probe finishes, with a 5-second timeout. Startup and detected wake/clock changes receive a 30-second grace period; three consecutive failures after that window restart the owned Worker. A gap over 45 seconds discards pre-sleep failures and missed probes are never replayed. A successful probe resets the failure count. The launcher refuses an occupied port, preserves local storage, and stops its children on Ctrl+C or SIGTERM. This does not prevent sleep, restart unrelated processes, or change collection/Jev cooldowns.
 
