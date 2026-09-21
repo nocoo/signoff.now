@@ -53,6 +53,7 @@ import {
 import { machineHref } from "@/models/workspaceLocation";
 import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
+import { usePullTableLayout } from "@/viewmodels/usePullTableLayout";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { PullQuickFilters } from "./PullQuickFilters";
@@ -61,11 +62,12 @@ import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
 import { LifecycleBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
-const repositoryColumn = "hidden @min-[80rem]/pulls:table-cell";
-const authorColumn = "hidden @min-[96rem]/pulls:table-cell";
+const repositoryColumn = "group-data-[hidden-columns~=repository]/pulls:hidden";
+const authorColumn = "group-data-[hidden-columns~=author]/pulls:hidden";
 
 export function PullsPage() {
 	const vm = useWorkbench();
+	const tableContainer = usePullTableLayout();
 	const now = useMinuteNow();
 	const aiSchedule = useAiScheduleViewModel(vm.filter.source);
 	const evaluationNow = Math.floor(Date.now() / 1000);
@@ -290,7 +292,7 @@ export function PullsPage() {
 							}
 						/>
 					) : (
-						<div className="@container/pulls overflow-x-auto">
+						<div ref={tableContainer} className="group/pulls overflow-x-auto">
 							<Table
 								aria-label="Pull requests"
 								aria-busy={vm.loading}
@@ -322,7 +324,6 @@ export function PullsPage() {
 											[
 												["repository", "Repository", repositoryColumn],
 												["author", "Author", authorColumn],
-												["target", "Target branch", ""],
 												["readiness", "Readiness", ""],
 												["progress", "Checks & stages", "!w-full min-w-56"],
 												["action", "Next action", ""],
@@ -425,6 +426,7 @@ function PullTableSkeleton() {
 					<div className="flex items-center gap-2">
 						<Skeleton className="h-2.5 w-10" />
 						<Skeleton className="h-5 w-12 [&>div]:rounded-full" />
+						<Skeleton className="h-2.5 w-28" />
 					</div>
 				</div>
 			</TableCell>
@@ -435,12 +437,6 @@ function PullTableSkeleton() {
 				<div className="flex items-center gap-2">
 					<Skeleton className="h-5 w-5 [&>div]:rounded-full" />
 					<Skeleton className="h-2.5 w-16" />
-				</div>
-			</TableCell>
-			<TableCell>
-				<div className="flex items-center gap-1.5">
-					<Skeleton className="h-3.5 w-3.5" />
-					<Skeleton className="h-2.5 w-28" />
 				</div>
 			</TableCell>
 			<TableCell>
@@ -752,6 +748,21 @@ function PullTableRow({
 						#{pull.number}
 					</a>
 					<LifecycleBadge pull={pull} />
+					<a
+						href={repositoryBranchUrl(
+							project,
+							pull.repository,
+							pull.targetBranch,
+						)}
+						target="_blank"
+						rel="noopener noreferrer"
+						aria-label={`Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`}
+						title={`Target branch: ${pull.targetBranch} · Open in a new tab`}
+						className="flex min-w-0 items-center gap-1.5 rounded-sm font-mono text-[11px] text-basalt-muted-foreground underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
+					>
+						<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
+						<span className="whitespace-nowrap">{pull.targetBranch}</span>
+					</a>
 					{pull.labels.includes("release blocker") ? (
 						<Badge variant="error" className="ml-2 px-1.5 py-0 text-[11px]">
 							release blocker
@@ -771,23 +782,7 @@ function PullTableRow({
 					size="xs"
 				/>
 			</TableCell>
-			<TableCell className="py-2 align-middle">
-				<a
-					href={repositoryBranchUrl(
-						project,
-						pull.repository,
-						pull.targetBranch,
-					)}
-					target="_blank"
-					rel="noopener noreferrer"
-					aria-label={`Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`}
-					title={`Target branch: ${pull.targetBranch} · Open in a new tab`}
-					className="flex min-w-0 items-center gap-1.5 rounded-sm font-mono text-[11px] text-basalt-muted-foreground underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
-				>
-					<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
-					<span className="whitespace-nowrap">{pull.targetBranch}</span>
-				</a>
-			</TableCell>
+
 			<TableCell className="py-2 align-middle">
 				<ReadinessCell
 					display={readinessDisplay(

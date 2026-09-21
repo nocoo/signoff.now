@@ -235,7 +235,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	const loadingTable = page.getByRole("table", { name: "Pull requests" });
 	await expect(loadingTable).toHaveAttribute("aria-busy", "true");
 	await expect(
-		loadingTable.getByRole("columnheader", { name: "Target branch" }),
+		loadingTable.getByRole("columnheader", { name: "Pull request" }),
 	).toBeVisible();
 	await expect(loadingTable.getByRole("checkbox")).toBeDisabled();
 	const skeletonTable = await loadingTable.elementHandle();
@@ -246,7 +246,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	expect(skeletonHeight).toBe(64);
 	await expect(
 		loadingTable.locator("tbody tr").first().locator("td"),
-	).toHaveCount(13);
+	).toHaveCount(12);
 	await page.screenshot({
 		path: test.info().outputPath("pull-loading.png"),
 		fullPage: true,

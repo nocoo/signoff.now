@@ -138,7 +138,7 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 			},
 		}),
 	);
-	await page.setViewportSize({ width: 1920, height: 1080 });
+	await page.setViewportSize({ width: 3840, height: 1080 });
 	await page.goto("/prs");
 	const row = page.locator(`[data-pull-id="${fixturePull.id}"]`);
 	await expect(
@@ -155,6 +155,19 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 			.evaluate((element) => getComputedStyle(element).fontSize),
 	).toBe("11px");
 	await expect(row.getByText(branch, { exact: true })).toBeVisible();
+	await expect(
+		page.getByRole("columnheader", { name: "Sort by Target branch" }),
+	).toHaveCount(0);
+	const lifecycle = row.locator('[title="Provider PR lifecycle"]');
+	await expect(lifecycle).toHaveText("Open");
+	await expect(lifecycle).toHaveClass(/bg-basalt-heatmap-green/);
+	expect(
+		await row
+			.getByText(branch, { exact: true })
+			.evaluate((element) =>
+				element.closest("a")?.previousElementSibling?.getAttribute("title"),
+			),
+	).toBe("Provider PR lifecycle");
 	expect(
 		await row
 			.getByText(branch, { exact: true })
@@ -173,11 +186,10 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 	await expect(
 		row.getByRole("button", { name: /Last result|Jev ·/ }),
 	).toHaveCount(0);
-	await expect(page.getByRole("columnheader")).toHaveCount(13);
+	await expect(page.getByRole("columnheader")).toHaveCount(12);
 	for (const [label, key] of [
 		["Repository", "repository"],
 		["Author", "author"],
-		["Target branch", "target"],
 		["State checked", "stateChecked"],
 		["Checks collected", "checksChecked"],
 		["Jev evaluated", "evaluated"],
@@ -208,20 +220,46 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 		name: "Sort by Repository",
 		exact: true,
 	});
-	await page.setViewportSize({ width: 1700, height: 1080 });
+	const table = page.getByRole("table", { name: "Pull requests" });
+	await page.evaluate(() => document.fonts.ready);
+	const repositoryWidth = (await row.locator("td").nth(3).boundingBox())!.width;
+	const authorWidth = (await row.locator("td").nth(4).boundingBox())!.width;
+	await page.setViewportSize({ width: 1920, height: 1080 });
 	await expect(authorHeader).toBeHidden();
-	await expect(row.locator("td").nth(4)).toBeHidden();
-	await expect(repositoryHeader).toBeVisible();
-	await page.setViewportSize({ width: 1440, height: 900 });
+	await expect(repositoryHeader).toBeHidden();
+	await page.reload();
+	await expect(row).toBeVisible();
 	await expect(authorHeader).toBeHidden();
 	await expect(repositoryHeader).toBeHidden();
 	await expect(row.locator("td").nth(3)).toBeHidden();
+	await expect(row.locator("td").nth(4)).toBeHidden();
+	const dimensions = await table.evaluate((element) => ({
+		required: element.scrollWidth,
+		available: element.parentElement!.clientWidth,
+	}));
+	expect(dimensions.required).toBeGreaterThan(dimensions.available);
+	const middleWidth = Math.ceil(
+		dimensions.required +
+			repositoryWidth +
+			authorWidth / 2 +
+			1920 -
+			dimensions.available,
+	);
+	await page.setViewportSize({ width: middleWidth, height: 1080 });
+	await expect(authorHeader).toBeHidden();
+	await expect(repositoryHeader).toBeVisible();
+	expect(
+		await table.evaluate(
+			(element) =>
+				element.scrollWidth <= element.parentElement!.clientWidth + 1,
+		),
+	).toBe(true);
 	await page
 		.getByRole("button", { name: "Collapse sidebar", exact: true })
 		.click();
+	await expect(authorHeader).toBeVisible();
 	await expect(repositoryHeader).toBeVisible();
-	await expect(authorHeader).toBeHidden();
-	await page.setViewportSize({ width: 1920, height: 1080 });
+	await page.setViewportSize({ width: 3840, height: 1080 });
 	await expect(authorHeader).toBeVisible();
 	await expect(repositoryHeader).toBeVisible();
 	await page.setViewportSize({ width: 390, height: 844 });

@@ -200,7 +200,7 @@ it("keeps PR columns mounted during loading and links the target branch after th
 	const table = screen.getByRole("table", { name: "Pull requests" });
 	expect(table.getAttribute("aria-busy")).toBe("true");
 	expect(
-		within(table).getByRole("columnheader", { name: "Target branch" }),
+		within(table).getByRole("columnheader", { name: "Pull request" }),
 	).toBeTruthy();
 	expect(within(table).getByRole("checkbox")).toHaveProperty("disabled", true);
 	expect(screen.queryByText("No matching pull requests")).toBeNull();
@@ -212,6 +212,12 @@ it("keeps PR columns mounted during loading and links the target branch after th
 	});
 	expect(link.getAttribute("href")).toBe(
 		`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.id}?version=GB${encodeURIComponent(pull.targetBranch)}`,
+	);
+	expect(
+		link.closest("td")?.querySelector('[title="Provider PR lifecycle"]'),
+	).toBeTruthy();
+	expect(link.previousElementSibling?.getAttribute("title")).toBe(
+		"Provider PR lifecycle",
 	);
 	expect(link.getAttribute("target")).toBe("_blank");
 	expect(link.getAttribute("rel")).toBe("noopener noreferrer");
@@ -232,7 +238,6 @@ it("sorts each compact metadata column through the API", async () => {
 	for (const [label, sort, first] of [
 		["Repository", "repository", "asc"],
 		["Author", "author", "asc"],
-		["Target branch", "target", "asc"],
 		["State checked", "stateChecked", "desc"],
 		["Checks collected", "checksChecked", "desc"],
 		["Jev evaluated", "evaluated", "desc"],

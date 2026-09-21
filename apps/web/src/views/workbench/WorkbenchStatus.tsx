@@ -29,12 +29,20 @@ export function LifecycleBadge({
 }: {
 	pull: Pick<PullRequest, "state" | "draft">;
 }) {
-	const label =
-		pull.state === "open" && pull.draft
-			? "Draft"
-			: { open: "Open", merged: "Merged", closed: "Closed" }[pull.state];
+	const [label, variant] = (
+		{
+			open: ["Open", "success"],
+			draft: ["Draft", "secondary"],
+			merged: ["Merged", "purple"],
+			closed: ["Closed", "red"],
+		} as const
+	)[pull.state === "open" && pull.draft ? "draft" : pull.state];
 	return (
-		<Badge variant="outline" className="text-xs" title="Provider PR lifecycle">
+		<Badge
+			variant={variant}
+			className="px-1.5 py-0 text-[11px]"
+			title="Provider PR lifecycle"
+		>
 			{label}
 		</Badge>
 	);
