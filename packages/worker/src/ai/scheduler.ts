@@ -1,5 +1,6 @@
 import {
 	type AiReadiness,
+	type DecisionState,
 	decisionFingerprint,
 	decisionState,
 	jevResultSchema,
@@ -8,7 +9,8 @@ import {
 import { pullRequestSchema } from "@signoff/domain/workbench";
 import { mapProject, type ProjectRow } from "../monitoring/store.js";
 import type { Bindings } from "../types.js";
-import { evaluateJev, JevError } from "./jev.js";
+import { batchFits, evaluateJevBatch, JevError } from "./jev.js";
+import { aiForeground } from "./schedule.js";
 import { openKey } from "./secrets.js";
 export type EvaluationRow = {
 	observation_id: string;
@@ -62,13 +64,22 @@ export const readAiSettings = async (db: D1Database) => {
 	if (!row) throw new Error("AI settings storage is unavailable");
 	return row;
 };
+
+type Candidate = {
+	row: EvaluationRow;
+	pull: ReturnType<typeof pullRequestSchema.parse>;
+	state: DecisionState;
+	fingerprint: string;
+	attempt: number;
+};
 export async function runAiOnce(
 	env: Bindings,
 	now = Math.floor(Date.now() / 1000),
 	fetcher: typeof fetch = fetch,
 ) {
 	const db = env.DB,
-		token = crypto.randomUUID();
+		token = crypto.randomUUID(),
+		started = Date.now();
 	const lock = await db
 		.prepare(
 			"UPDATE ai_settings SET runner_token=?,runner_expires=? WHERE id=1 AND (runner_token IS NULL OR runner_expires<=?)",
@@ -78,86 +89,83 @@ export async function runAiOnce(
 	if (!lock.meta.changes) return { processed: false };
 	try {
 		const settings = await readAiSettings(db);
-		const [watchRows, projects, intervals] = await db.batch([
+		const [projects, watches, cadence] = await db.batch([
 			db.prepare(
-				`SELECT e.*,o.project_id,pr.snapshot FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id AND o.generation=e.generation AND o.active=1 LEFT JOIN pull_requests pr ON pr.id=o.pull_id ORDER BY e.updated_at,e.observation_id`,
+				"SELECT p.* FROM projects p LEFT JOIN ai_project_schedule s ON s.project_id=p.id ORDER BY COALESCE(s.last_started_at,0),p.id",
 			),
-			db.prepare("SELECT * FROM projects"),
+			db.prepare(
+				`SELECT e.*,o.project_id,pr.snapshot FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id AND o.generation=e.generation AND o.active=1 JOIN pull_requests pr ON pr.id=o.pull_id ORDER BY e.updated_at,e.observation_id`,
+			),
 			db.prepare(
 				"SELECT cooldown_seconds FROM collection_refresh WHERE kind='details'",
 			),
 		]);
-		const cooldown = (intervals?.results[0] as { cooldown_seconds: number })
+		const detailCooldown = (cadence?.results[0] as { cooldown_seconds: number })
 			.cooldown_seconds;
-		for (const row of watchRows?.results as (EvaluationRow & {
-			project_id: string;
-			snapshot: string | null;
-		})[]) {
-			if (!row.snapshot) continue;
-			const projectRow = (projects?.results as ProjectRow[]).find(
-				(p) => p.id === row.project_id,
+		for (const projectRow of projects?.results as ProjectRow[]) {
+			if (!(await aiForeground(db, projectRow.source, now))) continue;
+			const project = mapProject(projectRow);
+			const candidates = await readCandidates(
+				db,
+				watches?.results as WatchRow[],
+				projectRow,
+				settings,
+				now,
+				detailCooldown,
 			);
-			if (!projectRow) continue;
-			const pull = pullRequestSchema.parse(JSON.parse(row.snapshot));
-			const state = decisionState(pull, mapProject(projectRow), now, cooldown);
-			const fingerprint = await decisionFingerprint(state);
-			const unchanged =
-				row.fingerprint === fingerprint &&
-				row.config_revision === settings.revision;
-			if (unchanged && row.result_json) {
-				if (row.status !== "complete")
-					await db
-						.prepare(
-							"UPDATE ai_evaluations SET status='complete',error=NULL,lease_token=NULL WHERE observation_id=? AND generation=? AND input_revision=?",
-						)
-						.bind(row.observation_id, row.generation, row.input_revision)
-						.run();
-				continue;
-			}
-			if (unchanged && row.attempts >= 3) {
-				if (row.status !== "error")
-					await db
-						.prepare(
-							"UPDATE ai_evaluations SET status='error' WHERE observation_id=? AND generation=? AND input_revision=?",
-						)
-						.bind(row.observation_id, row.generation, row.input_revision)
-						.run();
-				continue;
-			}
-			if (unchanged && row.not_before > now) continue;
-			const attempt = unchanged ? row.attempts + 1 : 1;
-			const claim = await db
-				.prepare(
-					`UPDATE ai_evaluations SET status='running',fingerprint=?,config_revision=?,result_json=NULL,previous_json=COALESCE(result_json,previous_json),error=NULL,attempts=?,lease_token=?,updated_at=? WHERE observation_id=? AND generation=? AND input_revision=? AND status<>'canceled'`,
+			if (!candidates.length) continue;
+			const selected: Candidate[] = [];
+			for (const candidate of candidates) {
+				if (
+					selected.length &&
+					!batchFits([...selected, candidate].map((c) => c.state))
 				)
-				.bind(
-					fingerprint,
-					settings.revision,
-					attempt,
-					token,
-					now,
-					row.observation_id,
-					row.generation,
-					row.input_revision,
-				)
+					break;
+				selected.push(candidate);
+			}
+			if (
+				!(await aiForeground(
+					db,
+					project.source,
+					now + Math.floor((Date.now() - started) / 1000),
+				))
+			)
+				continue;
+			const reservation = await db
+				.prepare(`INSERT INTO ai_project_schedule(project_id,last_started_at,last_batch_size) VALUES(?,?,?)
+    ON CONFLICT(project_id) DO UPDATE SET last_started_at=excluded.last_started_at,last_batch_size=excluded.last_batch_size
+    WHERE MAX(COALESCE(ai_project_schedule.last_completed_at,0),COALESCE(ai_project_schedule.last_started_at,0))+(SELECT cooldown_seconds FROM ai_settings WHERE id=1)<=?`)
+				.bind(project.id, now, selected.length, now)
 				.run();
-			if (!claim.meta.changes) continue;
-			const fence = [
-				row.observation_id,
-				row.generation,
-				row.input_revision,
-				token,
-			];
-			await evaluateClaim(
+			if (!reservation.meta.changes) continue;
+			const claimed: Candidate[] = [];
+			for (const c of selected) {
+				const claim = await db
+					.prepare(
+						`UPDATE ai_evaluations SET status='running',fingerprint=?,config_revision=?,result_json=NULL,previous_json=COALESCE(result_json,previous_json),error=NULL,attempts=?,lease_token=?,updated_at=? WHERE observation_id=? AND generation=? AND input_revision=? AND status<>'canceled'`,
+					)
+					.bind(
+						c.fingerprint,
+						settings.revision,
+						c.attempt,
+						token,
+						now,
+						c.row.observation_id,
+						c.row.generation,
+						c.row.input_revision,
+					)
+					.run();
+				if (claim.meta.changes) claimed.push(c);
+			}
+			await evaluateClaims(
 				env,
 				settings,
-				pull,
-				state,
-				fingerprint,
-				fetcher,
+				project.id,
+				claimed,
+				token,
 				now,
-				attempt,
-				fence,
+				started,
+				fetcher,
 			);
 			return { processed: true };
 		}
@@ -171,67 +179,153 @@ export async function runAiOnce(
 			.run();
 	}
 }
-
-async function evaluateClaim(
-	env: Bindings,
-	settings: SettingsRow,
-	pull: ReturnType<typeof pullRequestSchema.parse>,
-	state: unknown,
-	fingerprint: string,
-	fetcher: typeof fetch,
+function fence(c: Candidate, token: string) {
+	return [c.row.observation_id, c.row.generation, c.row.input_revision, token];
+}
+async function failClaim(
+	db: D1Database,
+	c: Candidate,
+	token: string,
+	error: unknown,
 	now: number,
-	attempt: number,
-	fence: (string | number)[],
 ) {
-	const db = env.DB;
-	try {
-		const key = await openKey(
-			settings.encrypted_key,
-			env.SIGNOFF_AI_ENCRYPTION_KEY,
-		);
-		const result = await evaluateJev(
-			key,
+	const failure =
+		error instanceof JevError
+			? error
+			: new JevError("internal", "Jev evaluation could not be completed.");
+	const retry = failure.transient && c.attempt < 3;
+	await db
+		.prepare(
+			"UPDATE ai_evaluations SET status=?,attempts=?,error=?,not_before=?,lease_token=NULL,updated_at=? WHERE observation_id=? AND generation=? AND input_revision=? AND lease_token=?",
+		)
+		.bind(
+			retry ? "pending" : "error",
+			retry ? c.attempt : 3,
+			`${failure.code}: ${failure.message}`,
+			now + Math.max(failure.retryAfter, 5 * 2 ** (c.attempt - 1)),
+			now,
+			...fence(c, token),
+		)
+		.run();
+}
+
+type WatchRow = EvaluationRow & { project_id: string; snapshot: string };
+async function readCandidates(
+	db: D1Database,
+	rows: WatchRow[],
+	projectRow: ProjectRow,
+	settings: SettingsRow,
+	now: number,
+	detailCooldown: number,
+) {
+	const project = mapProject(projectRow),
+		candidates: Candidate[] = [];
+	for (const row of rows) {
+		if (row.project_id !== project.id) continue;
+		const pull = pullRequestSchema.parse(JSON.parse(row.snapshot));
+		const state = decisionState(pull, project, now, detailCooldown),
+			fingerprint = await decisionFingerprint(state);
+		const unchanged =
+			row.fingerprint === fingerprint &&
+			row.config_revision === settings.revision;
+		if (unchanged && (row.result_json || row.attempts >= 3)) {
+			const status = row.result_json ? "complete" : "error";
+			if (row.status !== status)
+				await db
+					.prepare(
+						"UPDATE ai_evaluations SET status=?,lease_token=NULL WHERE observation_id=? AND generation=? AND input_revision=?",
+					)
+					.bind(status, row.observation_id, row.generation, row.input_revision)
+					.run();
+			continue;
+		}
+		if (unchanged && row.not_before > now) continue;
+		if (!unchanged && row.status === "complete") {
+			const changed = await db
+				.prepare(
+					"UPDATE ai_evaluations SET status='pending',input_revision=input_revision+1,previous_json=COALESCE(result_json,previous_json) WHERE observation_id=? AND generation=? AND input_revision=?",
+				)
+				.bind(row.observation_id, row.generation, row.input_revision)
+				.run();
+			if (!changed.meta.changes) continue;
+			row.input_revision++;
+		}
+		candidates.push({
+			row,
+			pull,
 			state,
 			fingerprint,
-			Math.floor(Date.now() / 1000),
-			fetcher,
-		);
-		await db
-			.prepare(
-				"UPDATE ai_evaluations SET status='complete',result_json=?,previous_json=NULL,error=NULL,lease_token=NULL,updated_at=? WHERE observation_id=? AND generation=? AND input_revision=? AND lease_token=?",
-			)
-			.bind(
-				JSON.stringify({
-					...result,
-					observations: {
-						summaryAt: pull.summaryObservedAt ?? pull.observedAt,
-						checksAt:
-							pull.checksObservedAt === undefined
-								? pull.observedAt
-								: pull.checksObservedAt,
-					},
-				}),
-				now,
-				...fence,
-			)
-			.run();
+			attempt: unchanged ? row.attempts + 1 : 1,
+		});
+	}
+	return candidates;
+}
+
+async function evaluateClaims(
+	env: Bindings,
+	settings: SettingsRow,
+	projectId: string,
+	claimed: Candidate[],
+	token: string,
+	now: number,
+	started: number,
+	fetcher: typeof fetch,
+) {
+	const db = env.DB;
+	let usage: { input_tokens: number; output_tokens: number } | undefined;
+	try {
+		if (claimed.length) {
+			if (!batchFits(claimed.map((c) => c.state)))
+				throw new JevError(
+					"input_too_large",
+					"PR evidence exceeds the batch input budget; no evidence was truncated.",
+				);
+			const key = await openKey(
+				settings.encrypted_key,
+				env.SIGNOFF_AI_ENCRYPTION_KEY,
+			);
+			const evaluated = await evaluateJevBatch(key, claimed, now, fetcher);
+			usage = evaluated.usage;
+			for (const [index, c] of claimed.entries()) {
+				const answer = evaluated.results[index];
+				if (answer?.result) {
+					await db
+						.prepare(
+							"UPDATE ai_evaluations SET status='complete',result_json=?,previous_json=NULL,error=NULL,lease_token=NULL,updated_at=? WHERE observation_id=? AND generation=? AND input_revision=? AND lease_token=?",
+						)
+						.bind(
+							JSON.stringify({
+								...answer.result,
+								evaluatedAt: new Date(
+									(now + Math.floor((Date.now() - started) / 1000)) * 1000,
+								).toISOString(),
+								observations: {
+									summaryAt: c.pull.summaryObservedAt ?? c.pull.observedAt,
+									checksAt:
+										c.pull.checksObservedAt === undefined
+											? c.pull.observedAt
+											: c.pull.checksObservedAt,
+								},
+							}),
+							now,
+							...fence(c, token),
+						)
+						.run();
+				} else await failClaim(db, c, token, answer?.error, now);
+			}
+		}
 	} catch (error) {
-		const failure =
-			error instanceof JevError
-				? error
-				: new JevError("internal", "Jev evaluation could not be completed.");
-		const retry = failure.transient && attempt < 3;
+		for (const c of claimed) await failClaim(db, c, token, error, now);
+	} finally {
 		await db
 			.prepare(
-				"UPDATE ai_evaluations SET status=?,attempts=?,error=?,not_before=?,lease_token=NULL,updated_at=? WHERE observation_id=? AND generation=? AND input_revision=? AND lease_token=?",
+				"UPDATE ai_project_schedule SET last_completed_at=?,input_tokens=?,output_tokens=? WHERE project_id=?",
 			)
 			.bind(
-				retry ? "pending" : "error",
-				retry ? attempt : 3,
-				`${failure.code}: ${failure.message}`,
-				now + Math.max(failure.retryAfter, 5 * 2 ** (attempt - 1)),
-				now,
-				...fence,
+				now + Math.floor((Date.now() - started) / 1000),
+				usage?.input_tokens ?? null,
+				usage?.output_tokens ?? null,
+				projectId,
 			)
 			.run();
 	}

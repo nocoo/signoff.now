@@ -20,6 +20,7 @@ import {
 } from "@/models/collectorStatus";
 import { REFRESH_INTERVALS, relativeTime } from "@/models/workbench";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
+import { AiScheduleSettings } from "./AiScheduleSettings";
 import { CollectorGroups } from "./CollectorGroups";
 
 const exactTime = (time: string | null) =>
@@ -145,6 +146,7 @@ export function CollectorDialog({
 							after the entire task finishes.
 						</p>
 					</div>
+					<AiScheduleSettings source={vm.filter.source} now={now} />
 				</section>
 				<CollectorGroups key={vm.filter.source} source={vm.filter.source} />
 			</div>

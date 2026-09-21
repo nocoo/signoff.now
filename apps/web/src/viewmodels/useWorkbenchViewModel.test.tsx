@@ -44,6 +44,16 @@ import {
 } from "./useWorkbenchViewModel";
 import { useWorkbench, WorkbenchProvider } from "./WorkbenchProvider";
 
+vi.mock("@/models/aiScheduleApi", () => ({
+	loadAiSchedule: vi.fn(async () => ({
+		revision: 1,
+		cooldownSeconds: 300,
+		foreground: false,
+		projects: [],
+	})),
+	sendAiPresence: vi.fn(async () => undefined),
+	tickAi: vi.fn(async () => undefined),
+}));
 vi.mock("@/models/workbenchApi", () => ({
 	createProject: vi.fn(),
 	deleteProject: vi.fn(),

@@ -1,4 +1,6 @@
 import {
+	aiCooldownSchema,
+	aiPresenceSchema,
 	aiSettingsSchema,
 	JEV_MODEL,
 	JEV_RUBRIC,
@@ -6,6 +8,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { evaluateJev, JevError } from "../ai/jev.js";
+import { readAiSchedule, updateAiPresence } from "../ai/schedule.js";
 import { readAiSettings, runAiOnce } from "../ai/scheduler.js";
 import { openKey, sealKey } from "../ai/secrets.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
@@ -128,4 +131,38 @@ aiRoutes.post("/retry", async (c) => {
 		"UPDATE ai_evaluations SET status='pending',attempts=0,not_before=0,input_revision=input_revision+1,error=NULL WHERE status='error'",
 	).run();
 	return c.json({ scheduled: true });
+});
+
+aiRoutes.post("/presence", async (c) => {
+	const body = await readJsonBodyWithSize(c, 2048);
+	const input = aiPresenceSchema.parse(body.ok ? body.value : null);
+	await updateAiPresence(c.env.DB, input, Math.floor(Date.now() / 1000));
+	return c.json({ saved: true });
+});
+aiRoutes.get("/schedule", async (c) =>
+	c.json(
+		await readAiSchedule(
+			c.env.DB,
+			z.enum(["cli", "demo"]).parse(c.req.query("source") ?? "cli"),
+			Math.floor(Date.now() / 1000),
+		),
+	),
+);
+aiRoutes.put("/schedule", async (c) => {
+	const body = await readJsonBodyWithSize(c, 2048);
+	const input = z
+		.object({
+			revision: z.number().int().positive(),
+			cooldownSeconds: aiCooldownSchema,
+		})
+		.strict()
+		.parse(body.ok ? body.value : null);
+	const result = await c.env.DB.prepare(
+		"UPDATE ai_settings SET cooldown_seconds=?,schedule_revision=schedule_revision+1 WHERE id=1 AND schedule_revision=?",
+	)
+		.bind(input.cooldownSeconds, input.revision)
+		.run();
+	return result.meta.changes
+		? c.json({ saved: true })
+		: c.json({ error: "AI cooldown changed. Reload before saving." }, 409);
 });

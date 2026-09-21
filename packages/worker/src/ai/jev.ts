@@ -1,6 +1,8 @@
 import {
 	ACTIONS,
 	actionSchema,
+	batchDecisionState,
+	type DecisionState,
 	JEV_MODEL,
 	JEV_RUBRIC,
 	jevResultSchema,
@@ -68,18 +70,17 @@ function validateAnswer(value: unknown, options: readonly string[]) {
 		throw new Error("Invalid choice distribution");
 	return answer;
 }
-export async function evaluateJev(
+type Request = {
+	model: string;
+	state: unknown;
+	questions: Record<string, unknown>;
+};
+async function requestJev(
 	key: string,
-	state: unknown,
-	fingerprint: string,
-	now: number,
-	fetcher: typeof fetch = fetch,
+	request: Request,
+	fetcher: typeof fetch,
 ) {
-	const body = JSON.stringify({
-		model: JEV_MODEL,
-		state,
-		questions: JEV_QUESTIONS,
-	});
+	const body = JSON.stringify(request);
 	if (new TextEncoder().encode(body).length > 96000)
 		throw new JevError(
 			"input_too_large",
@@ -111,32 +112,55 @@ export async function evaluateJev(
 			`http_${status}`,
 			status === 401 || status === 403
 				? "Jev rejected the API key. Replace it in AI Settings."
-				: status === 429
-					? "Jev rate limit reached."
-					: `Jev request failed (HTTP ${status}).`,
+				: status === 402
+					? "TypeSafe API credits are exhausted. Restore credits in TypeSafe billing."
+					: status === 429
+						? "Jev rate limit reached."
+						: `Jev request failed (HTTP ${status}).`,
 			status === 429 || status >= 500,
 			Number.isFinite(delay) && delay > 0 ? Math.min(300, delay) : 5,
 		);
 	}
 	try {
-		const raw = z
+		return z
 			.object({
 				model: z.literal(JEV_MODEL),
-				answers: z.object({ readiness: z.unknown(), action: z.unknown() }),
+				answers: z.record(z.string(), z.unknown()),
+				usage: z
+					.object({
+						input_tokens: z.number().int().nonnegative(),
+						output_tokens: z.number().int().nonnegative(),
+					})
+					.optional(),
 			})
 			.parse(await response.json());
+	} catch {
+		throw new JevError(
+			"invalid_response",
+			"Jev returned an invalid typed judgment.",
+		);
+	}
+}
+function judgment(
+	answers: Record<string, unknown>,
+	readiness: string,
+	actionKey: string,
+	fingerprint: string,
+	now: number,
+) {
+	try {
 		const choice = validateAnswer(
-			raw.answers.readiness,
+			answers[readiness],
 			Object.keys(classification),
 		);
-		const action = validateAnswer(raw.answers.action, Object.keys(ACTIONS));
+		const action = validateAnswer(answers[actionKey], Object.keys(ACTIONS));
 		return jevResultSchema.parse({
 			kind: choice.choice,
 			action:
 				choice.choice === "attention"
 					? actionSchema.parse(action.choice)
 					: null,
-			model: raw.model,
+			model: JEV_MODEL,
 			rubric: JEV_RUBRIC,
 			fingerprint,
 			evaluatedAt: new Date(now * 1000).toISOString(),
@@ -153,4 +177,89 @@ export async function evaluateJev(
 			"Jev returned an invalid typed judgment.",
 		);
 	}
+}
+export async function evaluateJev(
+	key: string,
+	state: unknown,
+	fingerprint: string,
+	now: number,
+	fetcher: typeof fetch = fetch,
+) {
+	const raw = await requestJev(
+		key,
+		{ model: JEV_MODEL, state, questions: JEV_QUESTIONS },
+		fetcher,
+	);
+	return judgment(raw.answers, "readiness", "action", fingerprint, now);
+}
+export function batchRequest(states: DecisionState[]): Request {
+	return {
+		model: JEV_MODEL,
+		state: {
+			...batchDecisionState(states),
+			rubric: JEV_QUESTIONS.readiness.instructions.rules,
+		},
+		questions: Object.fromEntries(
+			states.flatMap((_, i) => [
+				[
+					`p${i}_readiness`,
+					{
+						type: "choice",
+						instructions: `Judge only \`prs[${i}]\` using its \`contexts[contextRef]\` and \`rubric\`. Does this PR need human intervention now?`,
+						criteria: classification,
+					},
+				],
+				[
+					`p${i}_action`,
+					{
+						type: "choice",
+						instructions: `For \`prs[${i}]\` only, use its context and rubric. ${JEV_QUESTIONS.action.instructions}`,
+						criteria: ACTIONS,
+					},
+				],
+			]),
+		),
+	};
+}
+export function batchFits(states: DecisionState[]) {
+	const request = batchRequest(states);
+	return (
+		new TextEncoder().encode(JSON.stringify(request.state)).length <= 28000 &&
+		new TextEncoder().encode(JSON.stringify(request)).length <= 56000
+	);
+}
+export async function evaluateJevBatch(
+	key: string,
+	items: { state: DecisionState; fingerprint: string }[],
+	now: number,
+	fetcher: typeof fetch = fetch,
+) {
+	const raw = await requestJev(
+		key,
+		batchRequest(items.map((item) => item.state)),
+		fetcher,
+	);
+	return {
+		usage: raw.usage,
+		results: items.map((item, i) => {
+			try {
+				return {
+					result: judgment(
+						raw.answers,
+						`p${i}_readiness`,
+						`p${i}_action`,
+						item.fingerprint,
+						now,
+					),
+				};
+			} catch {
+				return {
+					error: new JevError(
+						"invalid_response",
+						"Jev returned an invalid typed judgment for this PR.",
+					),
+				};
+			}
+		}),
+	};
 }

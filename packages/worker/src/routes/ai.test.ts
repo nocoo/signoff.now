@@ -174,3 +174,81 @@ test("bounded connection request handles invalid keys, typed success and key rep
 		fetcher.mockRestore();
 	}
 });
+
+test("presence is ordered per tab and source, expires, and cooldown saves use CAS", async () => {
+	const { seedProject, seedPull } = await import("../test/pr-fixture");
+	const { addObservation } = await import("../monitoring/observations");
+	seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite);
+	const now = Math.floor(Date.now() / 1000);
+	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now);
+	const id = crypto.randomUUID();
+	expect(
+		(
+			await request("/presence", "POST", {
+				id,
+				sequence: 1,
+				source: "cli",
+				visible: true,
+			})
+		).status,
+	).toBe(200);
+	const schedule = async (source = "cli") =>
+		(await (await request(`/schedule?source=${source}`)).json()) as {
+			foreground: boolean;
+			cooldownSeconds: number;
+			projects: unknown[];
+		};
+	expect(await schedule()).toMatchObject({
+		foreground: true,
+		cooldownSeconds: 300,
+		projects: [{ name: expect.any(String), nextEligibleAt: null }],
+	});
+	expect((await schedule("demo")).foreground).toBe(false);
+	await request("/presence", "POST", {
+		id,
+		sequence: 3,
+		source: "cli",
+		visible: false,
+	});
+	await request("/presence", "POST", {
+		id,
+		sequence: 2,
+		source: "cli",
+		visible: true,
+	});
+	expect((await schedule()).foreground).toBe(false);
+	await request("/presence", "POST", {
+		id: crypto.randomUUID(),
+		sequence: 1,
+		source: "cli",
+		visible: true,
+	});
+	expect((await schedule()).foreground).toBe(true);
+	sqlite.raw.query("UPDATE ai_views SET expires_at=?").run(now - 1);
+	expect((await schedule()).foreground).toBe(false);
+	expect(
+		(await request("/schedule", "PUT", { revision: 1, cooldownSeconds: 600 }))
+			.status,
+	).toBe(200);
+	expect(
+		(await request("/schedule", "PUT", { revision: 1, cooldownSeconds: 300 }))
+			.status,
+	).toBe(409);
+	expect((await schedule()).cooldownSeconds).toBe(600);
+	expect(
+		(await request("/schedule", "PUT", { revision: 2, cooldownSeconds: 0 }))
+			.status,
+	).toBe(400);
+	expect((await request("/presence", "POST", { id: "bad" })).status).toBe(400);
+	sqlite.raw
+		.query(
+			"INSERT INTO ai_project_schedule(project_id,last_started_at,last_completed_at,last_batch_size,input_tokens,output_tokens) VALUES('live-project',?,?,2,100,20)",
+		)
+		.run(now - 10, now);
+	expect(await schedule()).toMatchObject({
+		projects: [
+			{ nextEligibleAt: now + 600, inputTokens: 100, lastBatchSize: 2 },
+		],
+	});
+});

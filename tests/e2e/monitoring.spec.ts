@@ -942,6 +942,9 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	const projectId = pull.project.id;
 
 	const machineUrl = `${base}/api/state-machines/${projectId}?source=live&repositoryId=${repo.id}`;
+	await page.route("**/api/ai/presence", (route) =>
+		route.fulfill({ json: { ok: true } }),
+	);
 	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
 	const area = page
 		.getByRole("textbox", { name: "Meaning and human action instructions" })
@@ -963,6 +966,14 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 		await (await page.request.get(machineUrl)).json(),
 	);
 	expect(configured.inherited).toBe(false);
+	await page.request.post(`${base}/api/ai/presence`, {
+		data: {
+			id: crypto.randomUUID(),
+			sequence: 1,
+			source: "cli",
+			visible: true,
+		},
+	});
 	for (let i = 0; i < 30; i++) {
 		const tick = await (await page.request.post(`${base}/api/ai/tick`)).json();
 		if (!tick.processed) break;
@@ -975,6 +986,17 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
 	await expect(area).toBeVisible();
+	await area.fill("Wait for the project owner to approve this policy.");
+	await page
+		.getByRole("button", { name: "Save policy instructions", exact: true })
+		.click();
+	await expect(
+		page.getByRole("status").filter({ hasText: "Policy instructions saved" }),
+	).toBeVisible();
+	await page.request.post(`${base}/api/ai/tick`);
+	const pending = pullDetailSchema.parse(await cli("pr", "get", pull.id));
+	expect(pending.data.readiness.status).toBe("pending");
+	expect(pending.data.readiness.current).toBeNull();
 	expect(
 		await page.evaluate(
 			() => document.documentElement.scrollWidth > innerWidth,
@@ -1335,7 +1357,7 @@ test("discovery refreshes full history, retries partial pages and respects manua
 	).toHaveAttribute("aria-pressed", "false");
 });
 
-test("collector dialog retains both cooldown settings and a compact sidebar on mobile", async ({
+test("collector dialog persists all three cooldowns with foreground presence and mobile layout", async ({
 	page,
 }) => {
 	await page.goto("/prs");
@@ -1351,8 +1373,30 @@ test("collector dialog retains both cooldown settings and a compact sidebar on m
 	await expect(
 		dialog.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
 	).toBeVisible();
+	const jevCooldown = dialog.getByRole("combobox", {
+		name: "Jev evaluation cooldown",
+	});
+	await expect(jevCooldown).toHaveText("5 min");
+	await jevCooldown.click();
+	await page.getByRole("option", { name: "10 min", exact: true }).click();
+	await expect(jevCooldown).toHaveText("10 min");
+	await page.reload();
+	await panel.getByRole("button").click();
+	await expect(jevCooldown).toHaveText("10 min");
+	await jevCooldown.click();
+	await page.getByRole("option", { name: "5 min", exact: true }).click();
+	await expect(jevCooldown).toHaveText("5 min");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await page.setViewportSize({ width: 390, height: 844 });
+	await page
+		.getByRole("button", { name: "Open navigation", exact: true })
+		.click();
+	await panel.getByRole("button").click();
+	await expect(jevCooldown).toBeVisible();
+	expect(await dialog.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(
+		false,
+	);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	expect(
 		await page.evaluate(
 			() => document.documentElement.scrollWidth > innerWidth,
@@ -1520,8 +1564,7 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 
 	expect(providerRequests).toBe(providerReads);
 	const after = await watchList();
-	expect(after.dataRevision).toBe(watches.dataRevision);
-	// Query timestamps and calculated fact ages advance without changing watches.
+	// Foreground inference can publish a new readiness revision without changing watch membership.
 	expect(after.data.map(({ pull: _pull, ...watch }) => watch)).toEqual(
 		watches.data.map(({ pull: _pull, ...watch }) => watch),
 	);

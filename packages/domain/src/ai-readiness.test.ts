@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+	batchDecisionState,
 	canonicalJson,
 	decisionFingerprint,
 	decisionState,
@@ -438,4 +439,39 @@ test("compact scope references preserve every policy scope and remain stable acr
 	expect(state.policiesInPriorityOrder.every((p) => !("policy" in p))).toBe(
 		true,
 	);
+});
+
+test("project batches share identical context but retain repository instructions and all PR facts", () => {
+	const first = decisionState(pull, project, now);
+	const second = decisionState(
+		{ ...pull, id: "second", number: 2 },
+		project,
+		now,
+	);
+	const third = decisionState(
+		{ ...pull, id: "third", number: 3 },
+		{
+			...project,
+			policyContext: {
+				default: [
+					{
+						gateId: "merge-conflicts",
+						description: "Repository-specific instructions",
+					},
+				],
+				repositories: {},
+			},
+		},
+		now,
+	);
+	const batch = batchDecisionState([first, second, third]);
+	expect(batch.contexts).toHaveLength(2);
+	expect(batch.prs.map((p) => p.contextRef)).toEqual([0, 0, 1]);
+	expect(batch.prs.map((p) => p.pr.number)).toEqual([pull.number, 2, 3]);
+	expect(batch.prs[0]?.policies).toEqual(first.policies);
+	expect(batch.prs[1]?.builds).toEqual(second.builds);
+	expect(batch.contexts[1]?.policiesInPriorityOrder[0]?.description).toBe(
+		"Repository-specific instructions",
+	);
+	expect(batchDecisionState([]).prs).toEqual([]);
 });

@@ -9,7 +9,7 @@ import {
 } from "./workbench.js";
 
 export const JEV_MODEL = "jev-1.13.0";
-export const JEV_RUBRIC = "signoff-intervention-v2";
+export const JEV_RUBRIC = "signoff-intervention-v3";
 export const aiKindSchema = z.enum([
 	"on_track",
 	"attention",
@@ -297,4 +297,57 @@ export async function decisionFingerprint(state: unknown) {
 		new Uint8Array(await crypto.subtle.digest("SHA-256", data)),
 		(b) => b.toString(16).padStart(2, "0"),
 	).join("");
+}
+
+export const aiCooldownSchema = z.number().int().min(60).max(3600);
+export const aiPresenceSchema = z
+	.object({
+		id: z.uuid(),
+		sequence: z.number().int().nonnegative(),
+		source: z.enum(["cli", "demo"]),
+		visible: z.boolean(),
+	})
+	.strict();
+export const aiScheduleSchema = z.object({
+	revision: z.number().int(),
+	cooldownSeconds: aiCooldownSchema,
+	foreground: z.boolean(),
+	projects: z.array(
+		z.object({
+			id: z.string(),
+			name: z.string(),
+			lastStartedAt: z.number().nullable(),
+			lastCompletedAt: z.number().nullable(),
+			nextEligibleAt: z.number().nullable(),
+			lastBatchSize: z.number(),
+			inputTokens: z.number().nullable(),
+			outputTokens: z.number().nullable(),
+		}),
+	),
+});
+export type DecisionState = ReturnType<typeof decisionState>;
+export function batchDecisionState(states: DecisionState[]) {
+	const contexts: Omit<
+		DecisionState,
+		"pr" | "collection" | "reviews" | "policies" | "builds"
+	>[] = [];
+	const ids = new Map<string, number>();
+	const prs = states.map(
+		({ pr, collection, reviews, policies, builds, ...context }) => {
+			const key = canonicalJson(context);
+			let contextRef = ids.get(key);
+			if (contextRef === undefined) {
+				contextRef = contexts.length;
+				ids.set(key, contextRef);
+				contexts.push(context);
+			}
+			return { contextRef, pr, collection, reviews, policies, builds };
+		},
+	);
+	return {
+		contextMeaning:
+			"Each prs entry uses contexts[contextRef] for project instructions, priorities and scopes. Its scopeRefs index that context's scopes. Judge only the named PR; other PRs are not its evidence.",
+		contexts,
+		prs,
+	};
 }
