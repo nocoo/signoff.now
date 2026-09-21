@@ -48,7 +48,24 @@ test("sidebar shows persisted network attempts and a compact stacked series", as
 	await chart
 		.locator(".recharts-surface")
 		.hover({ position: { x: box.width / 2, y: 30 } });
-	await expect(chart.locator(".recharts-tooltip-wrapper")).toContainText("Jev");
+	const tooltip = page.locator("body > .recharts-tooltip-wrapper");
+	await expect(tooltip).toContainText("Jev");
+	const panel = tooltip.locator(".recharts-default-tooltip");
+	await expect(panel).toBeVisible();
+	const tooltipBox = (await panel.boundingBox())!;
+	expect(tooltipBox.x + tooltipBox.width).toBeGreaterThan(box.x + box.width);
+	expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(1440);
+	expect(tooltipBox.y).toBeGreaterThanOrEqual(0);
+	expect(
+		await panel.evaluate((element) => {
+			const bounds = element.getBoundingClientRect();
+			const previous = element.style.pointerEvents;
+			element.style.pointerEvents = "auto";
+			const hit = document.elementFromPoint(bounds.right - 4, bounds.top + 4);
+			element.style.pointerEvents = previous;
+			return !!hit && element.contains(hit);
+		}),
+	).toBe(true);
 	await page.reload();
 	await expect(chart).toContainText("11 requests");
 	await page.setViewportSize({ width: 390, height: 844 });

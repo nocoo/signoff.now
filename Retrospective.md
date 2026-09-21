@@ -106,3 +106,7 @@ The first connection test failed before reaching Jev because Workers rejects Fet
 ## 2026-09-21 — Observation clocks caused transient Jev Pending
 
 The PR snapshot trigger invalidated evaluations for every JSON change, including collection timestamps. The scheduler correctly deduplicated identical decision facts, but the UI could briefly show Pending and an observation-only publication could discard an in-flight result. The trigger now ignores observation/update clocks while preserving explicit check-availability changes. Regression tests cover in-flight preservation, unchanged results across cooldowns, changed-only batch membership, and cooldown measured from request completion. Actual build/stage changes still enter Pending immediately and wait for the remaining cooldown.
+
+## 2026-09-21 — Sidebar clipped the network tooltip
+
+The network chart allowed its tooltip to escape the chart view box but left it inside Basalt's overflow-hidden sidebar. The initial E2E checked tooltip text without checking whether the part outside the sidebar was painted. The tooltip now uses Recharts' body portal with viewport-bounded positioning that follows scroll and resize. The regression checks a point outside the sidebar with browser hit testing. Local desktop and mobile navigation checks confirm the entire tooltip is visible; Escape still dismisses it.

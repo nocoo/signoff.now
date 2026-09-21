@@ -1,4 +1,14 @@
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+	Bar,
+	BarChart,
+	DefaultTooltipContent,
+	ResponsiveContainer,
+	Tooltip,
+	type TooltipContentProps,
+	type TooltipValueType,
+	XAxis,
+} from "recharts";
 import { heatmapColor } from "@/lib/palette";
 import { useNetworkActivity } from "@/viewmodels/useNetworkActivity";
 
@@ -37,6 +47,7 @@ const time = (value: number) =>
 
 export function NetworkActivity() {
 	const vm = useNetworkActivity();
+	const chartRef = useRef<HTMLDivElement>(null);
 	const buckets = vm.data?.buckets ?? [];
 	const total = buckets.reduce(
 		(sum, bucket) => sum + series.reduce((n, s) => n + bucket[s.key], 0),
@@ -57,6 +68,7 @@ export function NetworkActivity() {
 				</span>
 			</div>
 			<div
+				ref={chartRef}
 				className="relative mt-1 h-16"
 				role="img"
 				aria-label={`${total} provider HTTP requests over the last hour. Blue: ADO; purple: Jev.`}
@@ -69,8 +81,11 @@ export function NetworkActivity() {
 					>
 						<XAxis dataKey="at" hide />
 						<Tooltip
-							allowEscapeViewBox={{ x: true, y: true }}
-							wrapperStyle={{ zIndex: 50 }}
+							portal={document.body}
+							wrapperStyle={{ zIndex: 50, pointerEvents: "none" }}
+							content={(props) => (
+								<NetworkTooltip {...props} anchor={chartRef} />
+							)}
 							labelFormatter={(value) => `${time(Number(value))} · requests`}
 							contentStyle={{
 								fontSize: 11,
@@ -131,5 +146,55 @@ export function NetworkActivity() {
 				</div>
 			)}
 		</section>
+	);
+}
+
+function NetworkTooltip({
+	anchor,
+	...props
+}: TooltipContentProps<TooltipValueType, number | string> & {
+	anchor: RefObject<HTMLDivElement | null>;
+}) {
+	const panel = useRef<HTMLDivElement>(null);
+	const [position, setPosition] = useState({ left: 0, top: 0 });
+	useLayoutEffect(() => {
+		if (!props.active) return;
+		const place = () => {
+			const bounds = anchor.current?.getBoundingClientRect();
+			const size = panel.current?.getBoundingClientRect();
+			if (!bounds || !size) return;
+			setPosition({
+				left: Math.max(
+					8,
+					Math.min(
+						bounds.left + (props.coordinate?.x ?? 0) + 10,
+						window.innerWidth - size.width - 8,
+					),
+				),
+				top: Math.max(
+					8,
+					Math.min(
+						bounds.top - size.height - 8,
+						window.innerHeight - size.height - 8,
+					),
+				),
+			});
+		};
+		place();
+		window.addEventListener("resize", place);
+		window.addEventListener("scroll", place, true);
+		return () => {
+			window.removeEventListener("resize", place);
+			window.removeEventListener("scroll", place, true);
+		};
+	}, [anchor, props.active, props.coordinate?.x]);
+	return (
+		<div
+			ref={panel}
+			className="fixed z-50 w-max max-w-[calc(100vw-16px)] text-[11px]"
+			style={position}
+		>
+			<DefaultTooltipContent {...props} />
+		</div>
 	);
 }
