@@ -53,15 +53,17 @@ export function CollectionStatus({
 						className="truncate text-[11px] font-normal text-basalt-muted-foreground"
 						role="status"
 					>
-						{status.problem
-							? `${status.issues.length || 1} ${status.tone === "warning" ? "incomplete" : "issue(s)"} · View details`
-							: status.activity}
+						{vm.collectionError
+							? "Status unknown · View details"
+							: status.problem
+								? `${status.issues.length || 1} ${status.tone === "warning" ? "incomplete" : "issue(s)"} · View details`
+								: status.activity}
 					</p>
 					<p className="flex items-center justify-between text-[11px] font-normal text-basalt-muted-foreground">
 						<span>
 							{vm.filter.source === "cli" ? "Live" : "Sample"} ·{" "}
 							{vm.collector?.watching ?? "—"} watching
-							{vm.collector?.queue.running
+							{!vm.collectionError && vm.collector?.queue.running
 								? ` · ${vm.collector.queue.running} running`
 								: ""}
 						</span>

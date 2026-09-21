@@ -14,7 +14,7 @@ import {
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@/lib/api";
+import { ApiError, SERVICE_UNAVAILABLE } from "@/lib/api";
 import * as api from "@/models/monitoringApi";
 import {
 	DEFAULT_PULL_FILTER,
@@ -2175,4 +2175,41 @@ describe("project form", () => {
 		expect(result.current.draft.description).toBe("Draft description");
 		await act(async () => expect(await result.current.submit()).toBe(true));
 	});
+});
+
+it("shows one connection alert for simultaneous cache failures and clears it after recovery", async () => {
+	for (const read of [
+		api.loadPulls,
+		api.loadCatalog,
+		api.loadCollector,
+		api.loadPending,
+	]) {
+		vi.mocked(read).mockRejectedValue(new ApiError(SERVICE_UNAVAILABLE, 0));
+	}
+	renderView(
+		<MemoryRouter initialEntries={["/prs?watching=watching"]}>
+			<WorkbenchProvider>
+				<PullsPage />
+			</WorkbenchProvider>
+		</MemoryRouter>,
+	);
+	await screen.findByText(SERVICE_UNAVAILABLE);
+	expect(screen.getAllByRole("alert")).toHaveLength(1);
+	expect(screen.queryByText(/Repository filters could not refresh/)).toBeNull();
+	expect(screen.queryByText("Unable to load pull requests")).toBeNull();
+	expect(screen.queryByRole("region", { name: "Pending watches" })).toBeNull();
+	vi.mocked(api.loadPulls).mockResolvedValue(fixture.pulls);
+	vi.mocked(api.loadCatalog).mockResolvedValue(fixture.catalog);
+	vi.mocked(api.loadCollector).mockResolvedValue(fixture.collector);
+	vi.mocked(api.loadPending).mockResolvedValue({
+		...pendingEnvelope,
+		data: [],
+		page: { ...fixture.page, total: 0 },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
+	await waitFor(() =>
+		expect(screen.queryByText(SERVICE_UNAVAILABLE)).toBeNull(),
+	);
+	expect(screen.queryAllByRole("alert")).toHaveLength(0);
+	expect(screen.getByRole("table", { name: "Pull requests" })).toBeDefined();
 });

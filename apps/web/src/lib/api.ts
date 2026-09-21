@@ -1,3 +1,5 @@
+export const SERVICE_UNAVAILABLE = "Cannot reach the SignOff service.";
+
 export class ApiError extends Error {
 	constructor(
 		message: string,
@@ -13,24 +15,49 @@ export async function apiFetch<T>(
 	path: string,
 	init?: RequestInit,
 ): Promise<T> {
-	const res = await fetch(path, {
-		...init,
-		headers: {
-			"content-type": "application/json",
-			...(init?.headers ?? {}),
-		},
-	});
-	const text = await res.text();
+	const timeout = AbortSignal.timeout(
+		init?.method && init.method !== "GET" ? 45000 : 15000,
+	);
+	const signal = init?.signal
+		? AbortSignal.any([init.signal, timeout])
+		: timeout;
+	let res: Response;
+	let text: string;
+	try {
+		res = await fetch(path, {
+			...init,
+			signal,
+			headers: {
+				"content-type": "application/json",
+				...(init?.headers ?? {}),
+			},
+		});
+		text = await res.text();
+	} catch (error) {
+		if (init?.signal?.aborted && init.signal.reason?.name !== "TimeoutError")
+			throw error;
+		if (signal.aborted || error instanceof TypeError) {
+			throw new ApiError(SERVICE_UNAVAILABLE, 0);
+		}
+		throw error;
+	}
 	let data: unknown = null;
+	let isJson = true;
 	if (text) {
 		try {
 			data = JSON.parse(text) as unknown;
 		} catch {
-			// Non-JSON error bodies still surface as HTTP status text
+			isJson = false;
 			data = { error: text };
 		}
 	}
 	if (!res.ok) {
+		if (
+			[502, 504].includes(res.status) ||
+			(res.status >= 500 && (!text || !isJson))
+		) {
+			throw new ApiError(SERVICE_UNAVAILABLE, res.status);
+		}
 		const msg =
 			data &&
 			typeof data === "object" &&

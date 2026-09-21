@@ -41,6 +41,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
+import { SERVICE_UNAVAILABLE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { relativeAge } from "@/models/freshness";
 import { type AiSchedule, readinessDisplay } from "@/models/readinessDisplay";
@@ -120,7 +121,7 @@ export function PullsPage() {
 					className="space-y-2.5"
 				>
 					<RepositoryFilters vm={vm} />
-					{vm.catalogError ? (
+					{vm.catalogError && vm.catalogError !== SERVICE_UNAVAILABLE ? (
 						<p role="alert" className="text-xs text-basalt-warning">
 							Repository filters could not refresh. PR results remain available.
 						</p>
@@ -244,53 +245,8 @@ export function PullsPage() {
 							</span>
 						) : null}
 					</LayerCard.Header>
-					{!vm.loading && !vm.pullsLoaded ? (
-						<EmptyState
-							icon={GitPullRequest}
-							title="Unable to load pull requests"
-							description="Your project data could not be loaded."
-							action={
-								<Button variant="outline" onClick={() => void vm.reload()}>
-									Try again
-								</Button>
-							}
-						/>
-					) : !vm.loading && vm.total === 0 ? (
-						<EmptyState
-							icon={GitPullRequest}
-							title={
-								vm.projects.length
-									? "No matching pull requests"
-									: "Your review queue starts here"
-							}
-							description={
-								vm.projects.length
-									? "Change your filters, or use Discover PRs to load candidates. Select the PRs you want to watch."
-									: "Add an Azure DevOps project, then use Discover PRs to load candidates."
-							}
-							action={
-								vm.projects.length ? (
-									<Button
-										variant="outline"
-										onClick={() =>
-											vm.setFilter({
-												...DEFAULT_PULL_FILTER,
-												source: vm.filter.source,
-											})
-										}
-									>
-										Clear filters
-									</Button>
-								) : (
-									<Button asChild>
-										<Link to="/projects">
-											Manage projects
-											<ArrowRight className="h-4 w-4" aria-hidden />
-										</Link>
-									</Button>
-								)
-							}
-						/>
+					{!vm.loading && (!vm.pullsLoaded || vm.total === 0) ? (
+						<PullsEmptyState vm={vm} />
 					) : (
 						<div ref={tableContainer} className="group/pulls overflow-x-auto">
 							<Table
@@ -924,6 +880,8 @@ function PullPagination({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 	if (
 		vm.filter.watching !== "watching" ||
+		(vm.pendingError === SERVICE_UNAVAILABLE &&
+			!vm.pendingObservations.length) ||
 		(!vm.pendingLoading && !vm.pendingError && vm.pendingTotal === 0)
 	)
 		return null;
@@ -946,7 +904,7 @@ function PendingWatchList({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 				</Button>
 			</LayerCard.Header>
 			<LayerCard.Body className="space-y-2">
-				{vm.pendingError ? (
+				{vm.pendingError && vm.pendingError !== SERVICE_UNAVAILABLE ? (
 					<AlertBanner variant="error">
 						{vm.pendingError}
 						{vm.pendingObservations.length
@@ -1045,6 +1003,60 @@ function PageSelectionCheckbox({
 			}
 			disabled={vm.loading || !vm.selectableCount || Boolean(vm.busy)}
 			onCheckedChange={(checked) => vm.selectPage(checked === true)}
+		/>
+	);
+}
+
+function PullsEmptyState({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
+	if (vm.serviceUnavailable && !vm.pullsLoaded) return null;
+	if (!vm.pullsLoaded)
+		return (
+			<EmptyState
+				icon={GitPullRequest}
+				title="Unable to load pull requests"
+				description="Your project data could not be loaded."
+				action={
+					<Button variant="outline" onClick={() => void vm.reload()}>
+						Try again
+					</Button>
+				}
+			/>
+		);
+	return (
+		<EmptyState
+			icon={GitPullRequest}
+			title={
+				vm.projects.length
+					? "No matching pull requests"
+					: "Your review queue starts here"
+			}
+			description={
+				vm.projects.length
+					? "Change your filters, or use Discover PRs to load candidates. Select the PRs you want to watch."
+					: "Add an Azure DevOps project, then use Discover PRs to load candidates."
+			}
+			action={
+				vm.projects.length ? (
+					<Button
+						variant="outline"
+						onClick={() =>
+							vm.setFilter({
+								...DEFAULT_PULL_FILTER,
+								source: vm.filter.source,
+							})
+						}
+					>
+						Clear filters
+					</Button>
+				) : (
+					<Button asChild>
+						<Link to="/projects">
+							Manage projects
+							<ArrowRight className="h-4 w-4" aria-hidden />
+						</Link>
+					</Button>
+				)
+			}
 		/>
 	);
 }

@@ -69,9 +69,6 @@ export function queryRow(value: PullQueryItem): PullRow {
 			: null,
 	};
 }
-function init(signal: AbortSignal) {
-	return { signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) };
-}
 export function pullQueryParams(filter: PullFilter, page: number) {
 	const params = new URLSearchParams({
 		source: publicSource(filter.source),
@@ -97,7 +94,7 @@ export function pullQueryParams(filter: PullFilter, page: number) {
 }
 export async function loadPulls(query: string, signal: AbortSignal) {
 	return pullListSchema.parse(
-		await apiFetch(`/api/query/v1/prs?${query}`, init(signal)),
+		await apiFetch(`/api/query/v1/prs?${query}`, { signal }),
 	);
 }
 export async function loadPull(
@@ -108,7 +105,7 @@ export async function loadPull(
 	return pullDetailSchema.parse(
 		await apiFetch(
 			`/api/query/v1/prs/${encodeURIComponent(id)}?source=${publicSource(source)}`,
-			init(signal),
+			{ signal },
 		),
 	);
 }
@@ -123,7 +120,7 @@ export async function lookupPull(
 		number: String(reference.number),
 	});
 	return pullDetailSchema.parse(
-		await apiFetch(`/api/query/v1/prs/lookup?${params}`, init(signal)),
+		await apiFetch(`/api/query/v1/prs/lookup?${params}`, { signal }),
 	);
 }
 export async function loadCollector(
@@ -131,10 +128,9 @@ export async function loadCollector(
 	signal: AbortSignal,
 ) {
 	return collectorQuerySchema.parse(
-		await apiFetch(
-			`/api/query/v1/collector?source=${publicSource(source)}`,
-			init(signal),
-		),
+		await apiFetch(`/api/query/v1/collector?source=${publicSource(source)}`, {
+			signal,
+		}),
 	);
 }
 export async function loadCollectorHistory(
@@ -150,7 +146,7 @@ export async function loadCollectorHistory(
 	if (filters.cursor) params.set("cursor", filters.cursor);
 	if (filters.group) params.set("group", filters.group);
 	return jobHistorySchema.parse(
-		await apiFetch(`/api/query/v1/jobs?${params}`, init(signal)),
+		await apiFetch(`/api/query/v1/jobs?${params}`, { signal }),
 	);
 }
 export async function loadCollectorGroups(
@@ -161,7 +157,7 @@ export async function loadCollectorGroups(
 	const params = new URLSearchParams({ source: publicSource(source) });
 	if (cursor) params.set("cursor", cursor);
 	return collectorGroupsSchema.parse(
-		await apiFetch(`/api/query/v1/collector/groups?${params}`, init(signal)),
+		await apiFetch(`/api/query/v1/collector/groups?${params}`, { signal }),
 	);
 }
 export async function loadCollectionJob(
@@ -172,7 +168,7 @@ export async function loadCollectionJob(
 	return jobQuerySchema.parse(
 		await apiFetch(
 			`/api/query/v1/jobs/${encodeURIComponent(id)}?source=${publicSource(source)}`,
-			init(signal),
+			{ signal },
 		),
 	);
 }
@@ -196,7 +192,7 @@ export async function loadPending(
 			scope.repository,
 		);
 	return observationListSchema.parse(
-		await apiFetch(`/api/query/v1/observations?${params}`, init(signal)),
+		await apiFetch(`/api/query/v1/observations?${params}`, { signal }),
 	);
 }
 export async function loadCatalog(
@@ -213,7 +209,7 @@ export async function loadCatalog(
 	for (let attempt = 0; ; attempt++) {
 		try {
 			const first = repoListSchema.parse(
-				await apiFetch(`/api/query/v1/repos?${params}`, init(signal)),
+				await apiFetch(`/api/query/v1/repos?${params}`, { signal }),
 			);
 			let cursor = first.page.nextCursor;
 			const seen = new Set<string>();
@@ -224,7 +220,7 @@ export async function loadCatalog(
 				const page = repoListSchema.parse(
 					await apiFetch(
 						`/api/query/v1/repos?${params}&cursor=${encodeURIComponent(cursor)}`,
-						init(signal),
+						{ signal },
 					),
 				);
 				first.data.push(...page.data);

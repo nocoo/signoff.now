@@ -18,6 +18,7 @@ import {
 } from "@signoff/domain/workbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { SERVICE_UNAVAILABLE } from "@/lib/api";
 import {
 	addWatches,
 	discover,
@@ -959,6 +960,13 @@ export function useWorkbenchViewModel() {
 		},
 		collector: collector.data,
 		catalogError: catalog.error ?? repositoryResolution.error,
+		serviceUnavailable: [
+			pulls.error,
+			catalog.error,
+			repositoryResolution.error,
+			collector.error,
+			pending.error,
+		].includes(SERVICE_UNAVAILABLE),
 		coverage: pulls.data?.coverage ?? catalog.data?.coverage,
 		rows: pageRows,
 		visible: pageRows,

@@ -64,7 +64,7 @@ export function collectorStatus(
 	const blocked = !["ready", "connecting"].includes(state);
 	const failed = issues.some((job) => job.state !== "partial");
 	const label = {
-		unavailable: "Unavailable",
+		unavailable: "Service unavailable",
 		connecting: "Connecting",
 		offline: "Offline",
 		auth_required: "Sign-in required",
@@ -90,7 +90,9 @@ export function collectorStatus(
 	const canRun =
 		state === "ready" ||
 		(state === "auth_required" && (collector?.queue.authRequired ?? 0) > 0);
-	const activity = collectorActivity(collector, canRun, running, now);
+	const activity = error
+		? "Collector status unknown"
+		: collectorActivity(collector, canRun, running, now);
 	return {
 		state,
 		label,

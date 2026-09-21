@@ -1,6 +1,7 @@
 import { Button } from "@nocoo/basalt";
 import { RefreshCw, ScanLine } from "lucide-react";
 import { AlertBanner } from "@/components/AlertBanner";
+import { SERVICE_UNAVAILABLE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";
 
@@ -37,7 +38,30 @@ export function ScanControls({ vm }: { vm: WorkbenchViewModel }) {
 export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
 	return (
 		<>
-			{vm.error ? (
+			{vm.serviceUnavailable ? (
+				<AlertBanner variant="error">
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<div>
+							<p className="font-medium">{SERVICE_UNAVAILABLE}</p>
+							<p className="text-xs">
+								Updates are delayed. Retrying automatically.
+								{vm.pullsLoaded
+									? " Showing the last loaded PR data."
+									: " PR data has not loaded yet."}
+							</p>
+						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={vm.refreshing}
+							onClick={() => void vm.reload()}
+						>
+							Retry connection
+						</Button>
+					</div>
+				</AlertBanner>
+			) : null}
+			{vm.error && vm.error !== SERVICE_UNAVAILABLE ? (
 				<AlertBanner variant="error">
 					{vm.error}
 					{vm.data
@@ -45,7 +69,9 @@ export function WorkbenchFeedback({ vm }: { vm: WorkbenchViewModel }) {
 						: " Retry to read the cache."}
 				</AlertBanner>
 			) : null}
-			{vm.mutationError && vm.feedbackKind === "other" ? (
+			{vm.mutationError &&
+			!(vm.serviceUnavailable && vm.mutationError === SERVICE_UNAVAILABLE) &&
+			vm.feedbackKind === "other" ? (
 				<AlertBanner variant="error">{vm.mutationError}</AlertBanner>
 			) : null}
 			{vm.notice && vm.feedbackKind === "other" ? (

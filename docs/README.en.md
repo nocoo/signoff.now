@@ -141,6 +141,10 @@ bun run dev
 
 Open `http://localhost:7042`. Vite proxies `/api` to the local Worker on `37042`. The dev script includes the local upstream and demo flag. If you already have a trusted HTTPS reverse proxy, `https://signoff.dev.hexly.ai` is supported.
 
+If the page opens but its data does not load, check `curl --max-time 10 http://127.0.0.1:37042/api/live`. A listening port alone does not establish API health. If this times out, stop the existing repository's `dev:worker` process and restart it with `bun run dev:worker`; preserve `.wrangler/state` and do not seed existing data during recovery. The collector reconnects independently.
+
+Cache reads time out after 15 seconds. Network failures, timeouts and unavailable proxy responses use one connection message. The PR dashboard consolidates failures from its list, repository filters, watch queue and collector queries into one banner with Retry connection. It retains already loaded PRs, labels delayed updates, and clears the banner after those queries recover. Collector status is unknown while its API is unreachable; this does not imply the daemon has stopped or provider authentication has expired. Domain errors and provider authentication failures remain distinct. Automatic query retries use the existing bounded backoff and run while the page is visible; background collection and Jev scheduling are independent.
+
 Local data lives in `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`. The seed command resets only the five named demo projects and their PR / scan rows; other projects and existing analytics are preserved. It has no remote option. Migrations under `packages/db/migrations/` define the schema; `0019_observed_pull_requests.sql` adds the shared watch list, repository catalog, leases and snapshot versions, and cancels legacy page-scoped work.
 
 Loopback addresses and `*.dev.hexly.ai` use the development authentication path without production Access or pipeline credentials. `.env.example` is prefilled with the production machine endpoint; copy and configure it only when connecting to an existing deployment.

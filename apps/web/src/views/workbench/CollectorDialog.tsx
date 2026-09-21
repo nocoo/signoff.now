@@ -87,9 +87,11 @@ export function CollectorDialog({
 						>
 							<p className="break-words text-xs">{status.problem}</p>
 							<p className="mt-1 text-xs">
-								{status.tone === "warning"
-									? "Some PR details are incomplete. The connector is online; see the affected jobs."
-									: "Cached PR data remains available. Review the task details for the cause."}
+								{status.state === "unavailable"
+									? "Collector status cannot be verified until the service reconnects."
+									: status.tone === "warning"
+										? "Some PR details are incomplete. The connector is online; see the affected jobs."
+										: "Cached PR data remains available. Review the task details for the cause."}
 							</p>
 						</AlertBanner>
 					)}

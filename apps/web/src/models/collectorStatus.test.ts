@@ -44,9 +44,9 @@ test("separates incomplete PR data, failed jobs and connector health, and clears
 	expect(
 		collectorStatus(snapshot, "API unavailable", fixtureNow),
 	).toMatchObject({
-		label: "Unavailable",
+		label: "Service unavailable",
 		problem: "API unavailable",
-		activity: "Collection paused",
+		activity: "Collector status unknown",
 	});
 	expect(collectorStatus(null, null, fixtureNow)).toMatchObject({
 		label: "Connecting",
