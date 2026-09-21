@@ -9,7 +9,7 @@ import {
 } from "./workbench.js";
 
 export const JEV_MODEL = "jev-1.13.0";
-export const JEV_RUBRIC = "signoff-intervention-v1";
+export const JEV_RUBRIC = "signoff-intervention-v2";
 export const aiKindSchema = z.enum([
 	"on_track",
 	"attention",
@@ -146,9 +146,24 @@ export function decisionState(
 ) {
 	const pull = interpretPull(snapshot);
 	const instructions = policyInstructions(project, pull.repository.id);
-	const catalog = policyCatalog(project, [pull]).map(
-		({ detail, ...gate }) => gate,
-	);
+	const gates = policyCatalog(project, [pull]);
+	const scopes = [
+		...new Map(
+			[
+				...gates.flatMap((g) => g.scope ?? []),
+				...pull.policies.flatMap((p) => p.evidence?.scope ?? []),
+			].map((scope) => [canonicalJson(scope), scope] as const),
+		).entries(),
+	]
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([, scope]) => scope);
+	const scopeKeys = scopes.map(canonicalJson);
+	const scopeRefs = (scope: typeof scopes | undefined) =>
+		scope?.map((entry) => scopeKeys.indexOf(canonicalJson(entry)));
+	const catalog = gates.map(({ detail, scope, ...gate }) => ({
+		...gate,
+		scopeRefs: scopeRefs(scope),
+	}));
 	const ordered = [
 		...instructions.map((i) => ({
 			...i,
@@ -181,12 +196,16 @@ export function decisionState(
 			repository: pull.repository,
 		},
 		priorityMeaning:
-			"Policies are ordered by the user's priority, highest first. Consider every policy and conflicting evidence; ordering does not automatically select a blocker. Empty explanations do not establish business meaning.",
-		policiesInPriorityOrder: ordered.map((i, index) => ({
-			priority: index + 1,
+			"Highest priority first; consider all policies and conflicts. Order is not a blocker rule. Empty descriptions imply no business meaning.",
+		scopeMeaning:
+			"scopeRefs lists zero-based indices into scopes; omitted means uncollected, [] means explicitly empty.",
+		scopes,
+		stageRequiredMeaning:
+			"All stage required flags derive from build policy and stage status, not provider guarantees.",
+		policiesInPriorityOrder: ordered.map((i) => ({
+			...i.gate,
 			id: i.gateId,
-			description: i.description,
-			policy: i.gate,
+			...(i.description ? { description: i.description } : {}),
 		})),
 		pr: {
 			id: pull.id,
@@ -227,11 +246,14 @@ export function decisionState(
 				.sort((a, b) => a.id.localeCompare(b.id)),
 		},
 		policies: policies
-			.map(({ detail, owner, ...p }) => ({
-				...p,
-				applicable: p.evidence?.status?.toLowerCase() !== "notapplicable",
-				providerDescription: p.evidence?.description ?? null,
-			}))
+			.map(({ detail, owner, evidence, ...p }) => {
+				const { scope, ...facts } = evidence ?? {};
+				return {
+					...p,
+					applicable: evidence?.status?.toLowerCase() !== "notapplicable",
+					evidence: { ...facts, scopeRefs: scopeRefs(scope) },
+				};
+			})
 			.sort((a, b) => a.id.localeCompare(b.id)),
 		builds: builds
 			.map((b) => ({
@@ -252,12 +274,7 @@ export function decisionState(
 					)
 					.map((p) => p.id)
 					.sort(),
-				stages: b.stages.map(({ detail, owner, durationSeconds, ...s }) => ({
-					...s,
-					requiredProvenance:
-						"Derived by collector from build policy and stage status; not a provider guarantee",
-					providerDescription: s.evidence?.description ?? null,
-				})),
+				stages: b.stages.map(({ detail, owner, durationSeconds, ...s }) => s),
 			}))
 			.sort((a, b) => a.id.localeCompare(b.id)),
 	};

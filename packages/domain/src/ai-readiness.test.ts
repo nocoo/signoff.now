@@ -171,9 +171,7 @@ test("all policies and exact review facts enter context without generated action
 		mergeMatchesSource: false,
 		policyIds: ["advisory", "policy-1"],
 	});
-	expect(state.builds[0]?.stages[0]?.requiredProvenance).toContain(
-		"not a provider guarantee",
-	);
+	expect(state.stageRequiredMeaning).toContain("not provider guarantees");
 	expect(JSON.stringify(state)).not.toContain("Resolve X");
 	expect(state.policies[0]?.evidence).toMatchObject({
 		isExpired: true,
@@ -362,4 +360,82 @@ test("renaming a discovered policy retains its stable instruction identity", () 
 		},
 	]);
 	expect(renamed.find((g) => g.id === gate.id)?.name).toBe("Renamed policy");
+});
+
+test("compact scope references preserve every policy scope and remain stable across polling order", async () => {
+	const scopes = [
+		{ repositoryId: "repo-a", refName: "refs/heads/main", matchKind: "Exact" },
+		{ repositoryId: null, refName: "refs/heads/release/", matchKind: "Prefix" },
+	];
+	const snapshot = {
+		...pull,
+		policies: [
+			{
+				...policy,
+				evidence: {
+					...policy.evidence,
+					scope: scopes,
+					description: "Actual provider message",
+					isExpired: false,
+					buildIsNotCurrent: true,
+				},
+			},
+			{
+				...policy,
+				id: "second",
+				required: false,
+				evidence: {
+					scope: [scopes[0]!],
+					isBlocking: false,
+					isEnabled: false,
+					minimumApproverCount: 0,
+				},
+			},
+			{ ...policy, id: "empty", evidence: { scope: [] } },
+			{ ...policy, id: "uncollected", evidence: undefined },
+		],
+	};
+	const state = decisionState(snapshot, project, now);
+	expect(state.scopes).toHaveLength(2);
+	for (const source of snapshot.policies) {
+		const facts = state.policies.find((p) => p.id === source.id)!;
+		expect(
+			facts.evidence.scopeRefs?.map((index) => state.scopes[index]),
+		).toEqual(source.evidence?.scope);
+	}
+	expect(state.policies.find((p) => p.id === "second")?.evidence).toMatchObject(
+		{ isBlocking: false, isEnabled: false, minimumApproverCount: 0 },
+	);
+	expect(
+		state.policies.find((p) => p.id === policy.id)?.evidence,
+	).toMatchObject({ isExpired: false, buildIsNotCurrent: true });
+	expect(JSON.stringify(state).split("Actual provider message")).toHaveLength(
+		2,
+	);
+	expect(await decisionFingerprint(state)).toBe(
+		await decisionFingerprint(
+			decisionState(
+				{ ...snapshot, policies: [...snapshot.policies].reverse() },
+				project,
+				now,
+			),
+		),
+	);
+	const changed = decisionState(
+		{
+			...snapshot,
+			policies: snapshot.policies.map((p) => ({
+				...p,
+				evidence: { ...p.evidence, scope: [{ repositoryId: "different" }] },
+			})),
+		},
+		project,
+		now,
+	);
+	expect(await decisionFingerprint(changed)).not.toBe(
+		await decisionFingerprint(state),
+	);
+	expect(state.policiesInPriorityOrder.every((p) => !("policy" in p))).toBe(
+		true,
+	);
 });
