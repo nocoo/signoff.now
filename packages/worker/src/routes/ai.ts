@@ -16,6 +16,7 @@ import { readAiSettings, runAiOnce } from "../ai/scheduler.js";
 import { openKey, sealKey } from "../ai/secrets.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
+import { measuredJevFetch } from "../monitoring/network.js";
 import type { AppEnv } from "../types.js";
 import { apiError } from "./query.js";
 export const aiRoutes = new Hono<AppEnv>();
@@ -104,6 +105,7 @@ aiRoutes.post("/test", async (c) => {
 			},
 			"connection-test",
 			Math.floor(Date.now() / 1000),
+			measuredJevFetch(c.env.DB),
 		);
 	} catch (error) {
 		message =

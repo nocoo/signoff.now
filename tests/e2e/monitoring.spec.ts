@@ -882,12 +882,17 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 			}),
 		}),
 	);
+	// Keep list evidence unavailable so this exercises the first-load detail error.
+	await page.route("**/api/query/v1/prs?**", (route) =>
+		route.fulfill({ status: 503, json: { error: "List unavailable" } }),
+	);
 	await page.goto(`/?pr=${encodeURIComponent(detailPull.id)}`);
 	await expect(
 		page.getByRole("heading", { name: "Unable to load PR details" }),
 	).toBeVisible();
 	await expect(page.getByText("PR not found", { exact: true })).toHaveCount(0);
 	await page.unroute("**/api/query/v1/prs/*?**");
+	await page.unroute("**/api/query/v1/prs?**");
 	await page.getByRole("button", { name: "Retry PR details" }).click();
 	await expect(
 		page.getByRole("heading", { name: detailPull.title, exact: true }),

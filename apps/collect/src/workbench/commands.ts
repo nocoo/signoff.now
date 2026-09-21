@@ -20,6 +20,7 @@ import { projectSchema } from "@signoff/domain/workbench";
 import { type Command, CommanderError, Option } from "commander";
 import { z } from "zod";
 import { isPipelineClientError } from "../pipeline/client";
+import { measuredAdoFetch } from "./network";
 import { parsePrArgument, queryRequest, readAllPages } from "./query-client";
 
 const cliOptionsSchema = z.object({
@@ -493,7 +494,10 @@ export function registerWorkbenchCommands(program: Command) {
 			await watchCollections({
 				api,
 				makeAdo: () =>
-					(ado ??= createAdoClient({ exec: defaultExec, fetchFn: fetch })),
+					(ado ??= createAdoClient({
+						exec: defaultExec,
+						fetchFn: measuredAdoFetch(fetch, api.recordNetwork, log.warn),
+					})),
 				log,
 				signal: stop.signal,
 			});

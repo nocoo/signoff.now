@@ -54,6 +54,7 @@ const claim: CollectorClaim = {
 function setup() {
 	const events: string[] = [];
 	const api: CollectionClient = {
+		recordNetwork: async () => ({}),
 		job: async () => claim.job,
 		schedule: async (kind) => ({
 			kind,

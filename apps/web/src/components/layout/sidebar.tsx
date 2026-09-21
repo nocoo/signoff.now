@@ -35,6 +35,7 @@ import { avatarInitial } from "@/lib/avatar";
 import { NAV_GROUPS, type NavGroupDef } from "@/lib/navigation";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
+import { NetworkActivity } from "@/views/workbench/NetworkActivity";
 
 const ICON_MAP: Record<string, ElementType> = {
 	GitPullRequest,
@@ -230,6 +231,7 @@ export function Sidebar({
 						))}
 					</SidebarNav>
 					<SidebarFooter>
+						<NetworkActivity />
 						<CollectionStatus />
 						<SidebarUser
 							name={userLabel}

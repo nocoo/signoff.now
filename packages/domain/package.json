@@ -15,7 +15,8 @@
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
 		},
-		"./ai-readiness": "./src/ai-readiness.ts"
+		"./ai-readiness": "./src/ai-readiness.ts",
+		"./network": "./src/network.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",

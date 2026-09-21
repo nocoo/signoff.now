@@ -14,6 +14,7 @@ import {
 	collectorFailRoute,
 	collectorHeartbeatRoute,
 	collectorJobRoute,
+	collectorNetworkRoute,
 	collectorProgressRoute,
 	collectorPublishRoute,
 	collectorRepositoriesRoute,
@@ -110,6 +111,7 @@ app.post("/api/projects", projectsCreateRoute);
 app.patch("/api/projects/:id", projectsPatchRoute);
 app.delete("/api/projects/:id", projectsDeleteRoute);
 app.post("/api/projects/:id/scan", projectsScanRoute);
+app.post("/api/collector/network", collectorNetworkRoute);
 app.post("/api/collector/heartbeat", collectorHeartbeatRoute);
 app.post("/api/collector/claim", collectorClaimRoute);
 app.post("/api/collector/jobs/:id/progress", collectorProgressRoute);

@@ -3,6 +3,7 @@ import {
 	type CollectorClaim,
 	collectorClaimSchema,
 } from "@signoff/domain/collection";
+import type { NetworkEvent } from "@signoff/domain/network";
 import {
 	type CollectionLane,
 	type CollectorStatus,
@@ -83,7 +84,14 @@ export function createCollectionClient(
 	) => {
 		for (let attempt = 0; ; attempt++) {
 			try {
-				return await pipelineRequest(config, method, path, body);
+				return await pipelineRequest(
+					path === "/api/collector/network"
+						? { ...config, timeoutMs: 2000 }
+						: config,
+					method,
+					path,
+					body,
+				);
 			} catch (error) {
 				if (
 					!retrySafe ||
@@ -104,6 +112,8 @@ export function createCollectionClient(
 			["progress", "batch", "repositories"].includes(action),
 		);
 	return {
+		recordNetwork: (event: NetworkEvent) =>
+			request("POST", "/api/collector/network", event, true),
 		job: async (id: string) =>
 			collectionJobSchema.parse(
 				await request("GET", `/api/collector/jobs/${encodeURIComponent(id)}`),

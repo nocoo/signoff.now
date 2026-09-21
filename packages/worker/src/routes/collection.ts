@@ -8,11 +8,13 @@ import {
 	collectionRepositoryFailureSchema,
 	collectorHeartbeatSchema,
 } from "@signoff/domain/collection";
+import { networkEventSchema } from "@signoff/domain/network";
 import { collectionLaneSchema } from "@signoff/domain/workbench";
 import type { Context } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
+import { recordNetwork } from "../monitoring/network.js";
 import {
 	completeJob,
 	publishRepository,
@@ -163,4 +165,17 @@ export const collectorFailRoute = local(async (c) => {
 			),
 		),
 	);
+});
+
+export const collectorNetworkRoute = local(async (c) => {
+	const event = await body(c, networkEventSchema);
+	const timestamp = now();
+	if (
+		event.kind === "jev" ||
+		event.at > timestamp + 60 ||
+		event.at < timestamp - 7200
+	)
+		throw new TypeError("Invalid collector network event");
+	await recordNetwork(c.env.DB, event, timestamp);
+	return c.json({ recorded: true });
 });

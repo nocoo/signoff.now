@@ -11,6 +11,7 @@ import {
 	presentReadiness,
 } from "@signoff/domain/ai-readiness";
 import { type PullRequest, pullRequestSchema } from "@signoff/domain/workbench";
+import { measuredJevFetch } from "../monitoring/network.js";
 import { mapProject, type ProjectRow } from "../monitoring/store.js";
 import type { Bindings } from "../types.js";
 import { batchFits, evaluateJevBatch, JevError } from "./jev.js";
@@ -348,7 +349,12 @@ async function evaluateClaims(
 						.run();
 				return;
 			}
-			const evaluated = await evaluateJevBatch(key, claimed, now, fetcher);
+			const evaluated = await evaluateJevBatch(
+				key,
+				claimed,
+				now,
+				measuredJevFetch(db, fetcher),
+			);
 			usage = evaluated.usage;
 			for (const [index, c] of claimed.entries()) {
 				const answer = evaluated.results[index];

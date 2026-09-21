@@ -4,6 +4,7 @@ import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { isLocalhost } from "../middleware/entry-control.js";
 import { queryCollectorGroups } from "../monitoring/collector-groups.js";
+import { queryNetwork } from "../monitoring/network.js";
 import {
 	lookupPull,
 	parseQuery,
@@ -125,4 +126,8 @@ queryRoutes.get("/collector/groups", async (c) =>
 );
 queryRoutes.get("/jobs/:id", async (c) =>
 	c.json(await queryJob(c.env.DB, scope(c), c.req.param("id"))),
+);
+
+queryRoutes.get("/network", async (c) =>
+	c.json(await queryNetwork(c.env.DB, now())),
 );

@@ -9,6 +9,7 @@ import {
 describe("local collection API client", () => {
 	test.each([
 		"heartbeat",
+		"recordNetwork",
 		"progress",
 		"upload",
 		"repositories",
@@ -39,6 +40,12 @@ describe("local collection API client", () => {
 		});
 		await {
 			heartbeat: () => api.heartbeat("ready"),
+			recordNetwork: () =>
+				api.recordNetwork({
+					id: crypto.randomUUID(),
+					kind: "adoDetails",
+					at: 1,
+				}),
 			progress: () => api.progress(lease, 0, null, "Collecting"),
 			upload: () =>
 				api.upload(
