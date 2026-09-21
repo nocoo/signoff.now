@@ -104,17 +104,6 @@ export function createCollectionClient(
 			["progress", "batch", "repositories"].includes(action),
 		);
 	return {
-		evaluateAi: async () =>
-			z
-				.object({ processed: z.boolean() })
-				.parse(
-					await pipelineRequest(
-						{ ...config, timeoutMs: 45000 },
-						"POST",
-						"/api/ai/tick",
-						{},
-					),
-				),
 		job: async (id: string) =>
 			collectionJobSchema.parse(
 				await request("GET", `/api/collector/jobs/${encodeURIComponent(id)}`),

@@ -6,8 +6,10 @@ export function useAiPresence(source: "cli" | "demo") {
 		let sequence = 0,
 			active = true,
 			ticking = false;
+		let controller: AbortController | undefined;
 		const publish = (visible: boolean) => {
 			const revision = ++sequence;
+			if (!visible) controller?.abort();
 			void sendAiPresence(id, revision, source, visible)
 				.then(async () => {
 					if (
@@ -21,7 +23,8 @@ export function useAiPresence(source: "cli" | "demo") {
 						return;
 					ticking = true;
 					try {
-						await tickAi();
+						controller = new AbortController();
+						await tickAi({ id, sequence: revision, source }, controller.signal);
 					} finally {
 						ticking = false;
 					}

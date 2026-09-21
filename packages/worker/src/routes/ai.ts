@@ -2,6 +2,7 @@ import {
 	aiCooldownSchema,
 	aiPresenceSchema,
 	aiSettingsSchema,
+	aiTickSchema,
 	JEV_MODEL,
 	JEV_RUBRIC,
 } from "@signoff/domain/ai-readiness";
@@ -125,7 +126,11 @@ aiRoutes.post("/test", async (c) => {
 		? c.json({ error: message }, 400)
 		: c.json({ tested: true, model: JEV_MODEL });
 });
-aiRoutes.post("/tick", async (c) => c.json(await runAiOnce(c.env)));
+aiRoutes.post("/tick", async (c) => {
+	const body = await readJsonBodyWithSize(c, 2048);
+	const view = aiTickSchema.parse(body.ok ? body.value : null);
+	return c.json(await runAiOnce(c.env, view));
+});
 aiRoutes.post("/retry", async (c) => {
 	await c.env.DB.prepare(
 		"UPDATE ai_evaluations SET status='pending',attempts=0,not_before=0,input_revision=input_revision+1,error=NULL WHERE status='error'",

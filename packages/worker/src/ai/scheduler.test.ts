@@ -13,6 +13,7 @@ import { type EvaluationRow, evaluationOutput, runAiOnce } from "./scheduler";
 import { openKey, sealKey } from "./secrets";
 
 let sqlite: SqliteD1;
+const view = { id: "test-view", sequence: 1, source: "cli" as const };
 const master = btoa("x".repeat(32));
 const env = () => ({ DB: sqlite.db, SIGNOFF_AI_ENCRYPTION_KEY: master });
 beforeEach(() => {
@@ -75,19 +76,21 @@ test("only watches evaluate, identical facts dedupe, real facts and instructions
 		calls++;
 		return response();
 	}) as unknown as typeof fetch;
-	expect(await runAiOnce(env(), now, fetcher)).toEqual({ processed: false });
+	expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
+		processed: false,
+	});
 	await setup();
-	await runAiOnce(env(), now, fetcher);
+	await runAiOnce(env(), view, now, fetcher);
 	expect(evaluationOutput(row(), true).kind).toBe("on_track");
 	expect(evaluationOutput(row(), false).status).toBe("not_watched");
-	await runAiOnce(env(), now + 1, fetcher);
+	await runAiOnce(env(), view, now + 1, fetcher);
 	change("observedAt", now + 1);
 	expect(evaluationOutput(row(), true).current).toBeNull();
-	await runAiOnce(env(), now + 1, fetcher);
+	await runAiOnce(env(), view, now + 1, fetcher);
 	expect(calls).toBe(1);
 	change("headSha", "new-head");
 	expect(evaluationOutput(row(), true).previous?.kind).toBe("on_track");
-	await runAiOnce(env(), now + 300, fetcher);
+	await runAiOnce(env(), view, now + 300, fetcher);
 	expect(calls).toBe(2);
 	sqlite.raw.query("UPDATE projects SET policy_context_json=?").run(
 		JSON.stringify({
@@ -100,10 +103,10 @@ test("only watches evaluate, identical facts dedupe, real facts and instructions
 			repositories: {},
 		}),
 	);
-	await runAiOnce(env(), now + 600, fetcher);
+	await runAiOnce(env(), view, now + 600, fetcher);
 	expect(calls).toBe(3);
 	expect(row().status).toBe("complete");
-	await runAiOnce(env(), now + 1300, fetcher);
+	await runAiOnce(env(), view, now + 1300, fetcher);
 	expect(calls).toBe(4);
 });
 test.each([
@@ -119,14 +122,14 @@ test.each([
 	const started = new Promise<void>((r) => {
 		entered = r;
 	});
-	const request = runAiOnce(env(), now, (async () => {
+	const request = runAiOnce(env(), view, now, (async () => {
 		entered();
 		return new Promise<Response>((r) => {
 			release = r;
 		});
 	}) as unknown as typeof fetch);
 	await started;
-	expect(await runAiOnce(env(), now)).toEqual({ processed: false });
+	expect(await runAiOnce(env(), view, now)).toEqual({ processed: false });
 	if (mode === "facts") change("headSha", "superseded");
 	if (mode === "instructions")
 		sqlite.raw.query("UPDATE projects SET policy_context_json=?").run(
@@ -152,9 +155,9 @@ test.each([
 	await request;
 	expect(row().result_json).toBeNull();
 	if (mode === "unwatch")
-		expect(await runAiOnce(env(), now + 3)).toEqual({ processed: false });
+		expect(await runAiOnce(env(), view, now + 3)).toEqual({ processed: false });
 	else {
-		await runAiOnce(env(), now + 300, (async () =>
+		await runAiOnce(env(), view, now + 300, (async () =>
 			response("attention", "review")) as unknown as typeof fetch);
 		expect(evaluationOutput(row(), true).kind).toBe("attention");
 	}
@@ -166,31 +169,31 @@ test("bounded retry respects backoff and identical polling cannot restart exhaus
 		calls++;
 		return new Response(null, { status: 529 });
 	}) as unknown as typeof fetch;
-	await runAiOnce(env(), now, fail);
+	await runAiOnce(env(), view, now, fail);
 	expect(row().status).toBe("pending");
-	await runAiOnce(env(), now + 1, fail);
+	await runAiOnce(env(), view, now + 1, fail);
 	expect(calls).toBe(1);
-	await runAiOnce(env(), now + 300, fail);
-	await runAiOnce(env(), now + 600, fail);
+	await runAiOnce(env(), view, now + 300, fail);
+	await runAiOnce(env(), view, now + 600, fail);
 	expect(row().status).toBe("error");
 	change("observedAt", now + 16);
-	await runAiOnce(env(), now + 601, fail);
+	await runAiOnce(env(), view, now + 601, fail);
 	expect(calls).toBe(3);
 	expect(evaluationOutput(row(), true)).toMatchObject({
 		kind: "error",
 		current: null,
 	});
 	change("headSha", "changed");
-	await runAiOnce(env(), now + 900, (async () =>
+	await runAiOnce(env(), view, now + 900, (async () =>
 		response("unknown")) as unknown as typeof fetch);
 	expect(evaluationOutput(row(), true).kind).toBe("unknown");
 });
 test("missing key is an operational error, never a rule judgment or repeated request", async () => {
 	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now);
-	await runAiOnce(env(), now);
+	await runAiOnce(env(), view, now);
 	expect(row().error).toContain("missing_key");
 	change("observedAt", now + 1);
-	expect(await runAiOnce(env(), now + 1)).toEqual({ processed: false });
+	expect(await runAiOnce(env(), view, now + 1)).toEqual({ processed: false });
 	expect(row().status).toBe("error");
 });
 test.each([
@@ -402,7 +405,10 @@ test.each([
 		}),
 	);
 	await setup();
-	await runAiOnce(env(), now, (async (_url: string, init?: RequestInit) => {
+	await runAiOnce(env(), view, now, (async (
+		_url: string,
+		init?: RequestInit,
+	) => {
 		const body = JSON.parse(String(init?.body));
 		const state = {
 			...body.state.prs[0],
@@ -457,9 +463,11 @@ test("foreground project batches include only changed watches and respect indepe
 		});
 	}) as typeof fetch;
 	sqlite.raw.query("UPDATE ai_views SET visible=0").run();
-	expect(await runAiOnce(env(), now, fetcher)).toEqual({ processed: false });
+	expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
+		processed: false,
+	});
 	sqlite.raw.query("UPDATE ai_views SET visible=1").run();
-	await runAiOnce(env(), now, fetcher);
+	await runAiOnce(env(), view, now, fetcher);
 	expect(payloads).toHaveLength(1);
 	expect(
 		payloads[0]?.state.prs
@@ -470,7 +478,7 @@ test("foreground project batches include only changed watches and respect indepe
 	expect(Object.keys(payloads[0]?.questions ?? {})).toHaveLength(4);
 	expect(payloads[0]?.questions.p1_readiness?.instructions).toContain("prs[1]");
 	change("headSha", "changed-head");
-	expect(await runAiOnce(env(), now + 299, fetcher)).toEqual({
+	expect(await runAiOnce(env(), view, now + 299, fetcher)).toEqual({
 		processed: false,
 	});
 	seedProject(sqlite, {
@@ -485,16 +493,16 @@ test("foreground project batches include only changed watches and respect indepe
 		externalId: "4",
 	});
 	await addObservation(sqlite.db, "cli", { pullId: "another-pr" }, now + 299);
-	await runAiOnce(env(), now + 299, fetcher);
+	await runAiOnce(env(), view, now + 299, fetcher);
 	expect(payloads[1]?.state.prs.map((p) => p.pr.id)).toEqual(["another-pr"]);
 	sqlite.raw.query("UPDATE ai_views SET visible=0").run();
-	expect(await runAiOnce(env(), now + 301, fetcher)).toEqual({
+	expect(await runAiOnce(env(), view, now + 301, fetcher)).toEqual({
 		processed: false,
 	});
 	sqlite.raw.query("UPDATE ai_views SET visible=1").run();
-	await runAiOnce(env(), now + 301, fetcher);
+	await runAiOnce(env(), view, now + 301, fetcher);
 	expect(payloads[2]?.state.prs.map((p) => p.pr.id)).toEqual(["pull-1"]);
-	expect(await runAiOnce(env(), now + 700, fetcher)).toEqual({
+	expect(await runAiOnce(env(), view, now + 700, fetcher)).toEqual({
 		processed: false,
 	});
 	expect(
@@ -506,7 +514,7 @@ test("foreground project batches include only changed watches and respect indepe
 	).toMatchObject({ input_tokens: 100, last_batch_size: 1 });
 	sqlite.raw.query("UPDATE ai_views SET expires_at=?").run(now + 701);
 	change("headSha", "another-change");
-	expect(await runAiOnce(env(), now + 702, fetcher)).toEqual({
+	expect(await runAiOnce(env(), view, now + 702, fetcher)).toEqual({
 		processed: false,
 	});
 });
@@ -529,14 +537,14 @@ test("oversized projects are split across cooldowns without truncation and one o
 		calls++;
 		return response();
 	}) as typeof fetch;
-	await runAiOnce(env(), now, fetcher);
-	expect(await runAiOnce(env(), now + 299, fetcher)).toEqual({
+	await runAiOnce(env(), view, now, fetcher);
+	expect(await runAiOnce(env(), view, now + 299, fetcher)).toEqual({
 		processed: false,
 	});
-	await runAiOnce(env(), now + 300, fetcher);
+	await runAiOnce(env(), view, now + 300, fetcher);
 	expect(calls).toBe(2);
 	change("description", "x".repeat(40000));
-	await runAiOnce(env(), now + 600, fetcher);
+	await runAiOnce(env(), view, now + 600, fetcher);
 	expect(calls).toBe(2);
 	expect(
 		sqlite.raw
@@ -553,6 +561,7 @@ test("one malformed answer does not discard a valid sibling result", async () =>
 	await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now);
 	await runAiOnce(
 		env(),
+		view,
 		now,
 		Object.assign(async () => response(), { preconnect: fetch.preconnect }),
 	);
@@ -560,4 +569,61 @@ test("one malformed answer does not discard a valid sibling result", async () =>
 		.query("SELECT status FROM ai_evaluations ORDER BY status")
 		.all();
 	expect(statuses).toEqual([{ status: "complete" }, { status: "error" }]);
+});
+
+test("a revoked requesting tab cannot borrow another tab's foreground presence", async () => {
+	await setup();
+	sqlite.raw.query("UPDATE ai_views SET visible=0 WHERE id='test-view'").run();
+	sqlite.raw
+		.query("INSERT INTO ai_views VALUES('other',1,'cli',1,?)")
+		.run(now + 100);
+	const fetcher = Object.assign(
+		async () => {
+			throw new Error("Must not request Jev");
+		},
+		{ preconnect: fetch.preconnect },
+	);
+	expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
+		processed: false,
+	});
+	sqlite.raw
+		.query("UPDATE ai_views SET visible=1,sequence=3 WHERE id='test-view'")
+		.run();
+	expect(await runAiOnce(env(), view, now, fetcher)).toEqual({
+		processed: false,
+	});
+	expect(row().status).toBe("pending");
+});
+
+test("losing foreground during preparation releases work without calling Jev or consuming cooldown", async () => {
+	await setup();
+	sqlite.raw.exec(
+		"CREATE TRIGGER blur_during_claim AFTER UPDATE ON ai_evaluations WHEN NEW.status='running' BEGIN UPDATE ai_views SET visible=0,sequence=sequence+1; END;",
+	);
+	let calls = 0;
+	const fetcher = Object.assign(
+		async () => {
+			calls++;
+			return response();
+		},
+		{ preconnect: fetch.preconnect },
+	);
+	await runAiOnce(env(), view, now, fetcher);
+	expect(calls).toBe(0);
+	expect(row()).toMatchObject({
+		status: "pending",
+		attempts: 0,
+		lease_token: null,
+	});
+	expect(
+		sqlite.raw
+			.query(
+				"SELECT last_started_at,last_completed_at FROM ai_project_schedule",
+			)
+			.get(),
+	).toEqual({ last_started_at: null, last_completed_at: null });
+	sqlite.raw.exec("DROP TRIGGER blur_during_claim");
+	sqlite.raw.query("UPDATE ai_views SET visible=1,sequence=1").run();
+	await runAiOnce(env(), view, now + 1, fetcher);
+	expect(calls).toBe(1);
 });

@@ -1,4 +1,4 @@
-import { aiScheduleSchema } from "@signoff/domain/ai-readiness";
+import { type AiTick, aiScheduleSchema } from "@signoff/domain/ai-readiness";
 import { apiFetch } from "@/lib/api";
 export const loadAiSchedule = async (
 	source: "cli" | "demo",
@@ -23,4 +23,9 @@ export const sendAiPresence = (
 		keepalive: true,
 		body: JSON.stringify({ id, sequence, source, visible }),
 	});
-export const tickAi = () => apiFetch("/api/ai/tick", { method: "POST" });
+export const tickAi = (view: AiTick, signal: AbortSignal) =>
+	apiFetch("/api/ai/tick", {
+		method: "POST",
+		body: JSON.stringify(view),
+		signal,
+	});

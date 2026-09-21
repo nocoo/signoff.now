@@ -308,6 +308,8 @@ export const aiPresenceSchema = z
 		visible: z.boolean(),
 	})
 	.strict();
+export const aiTickSchema = aiPresenceSchema.omit({ visible: true });
+export type AiTick = z.infer<typeof aiTickSchema>;
 export const aiScheduleSchema = z.object({
 	revision: z.number().int(),
 	cooldownSeconds: aiCooldownSchema,

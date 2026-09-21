@@ -1,4 +1,5 @@
 import {
+	type AiTick,
 	type aiPresenceSchema,
 	aiScheduleSchema,
 } from "@signoff/domain/ai-readiness";
@@ -83,4 +84,15 @@ export async function readAiSchedule(
 			outputTokens: p.output_tokens,
 		})),
 	});
+}
+
+export async function aiViewCurrent(db: D1Database, view: AiTick, now: number) {
+	return Boolean(
+		await db
+			.prepare(
+				"SELECT 1 FROM ai_views WHERE id=? AND sequence=? AND source=? AND visible=1 AND expires_at>? LIMIT 1",
+			)
+			.bind(view.id, view.sequence, view.source, now)
+			.first(),
+	);
 }

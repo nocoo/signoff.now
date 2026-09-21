@@ -475,7 +475,7 @@ export function registerWorkbenchCommands(program: Command) {
 		const { createCollectionClient } = await import("./client");
 		const { createAdoClient } = await import("../ado/client");
 		const { defaultExec } = await import("../doctor/exec-bun");
-		const { watchCollections, watchAiEvaluations } = await import("./run");
+		const { watchCollections } = await import("./run");
 		const { createLogger } = await import("../logger");
 		const stop = new AbortController();
 		const shutdown = () => stop.abort();
@@ -490,16 +490,13 @@ export function registerWorkbenchCommands(program: Command) {
 			error: (s) => process.stderr.write(`${s}\n`),
 		});
 		try {
-			await Promise.all([
-				watchCollections({
-					api,
-					makeAdo: () =>
-						(ado ??= createAdoClient({ exec: defaultExec, fetchFn: fetch })),
-					log,
-					signal: stop.signal,
-				}),
-				watchAiEvaluations(api, stop.signal, log),
-			]);
+			await watchCollections({
+				api,
+				makeAdo: () =>
+					(ado ??= createAdoClient({ exec: defaultExec, fetchFn: fetch })),
+				log,
+				signal: stop.signal,
+			});
 		} finally {
 			process.off("SIGINT", shutdown);
 			process.off("SIGTERM", shutdown);

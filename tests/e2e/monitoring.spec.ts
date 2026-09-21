@@ -18,6 +18,8 @@ import {
 } from "../../packages/domain/src/query";
 import { projectSchema } from "../../packages/domain/src/workbench";
 
+test.use({ headless: false });
+
 const base = process.env.SIGNOFF_E2E_API_BASE!;
 const marker = JSON.parse(
 	readFileSync(process.env.SIGNOFF_E2E_MARKER!, "utf8"),
@@ -966,16 +968,14 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 		await (await page.request.get(machineUrl)).json(),
 	);
 	expect(configured.inherited).toBe(false);
+	const aiView = { id: crypto.randomUUID(), sequence: 1, source: "cli" };
 	await page.request.post(`${base}/api/ai/presence`, {
-		data: {
-			id: crypto.randomUUID(),
-			sequence: 1,
-			source: "cli",
-			visible: true,
-		},
+		data: { ...aiView, visible: true },
 	});
 	for (let i = 0; i < 30; i++) {
-		const tick = await (await page.request.post(`${base}/api/ai/tick`)).json();
+		const tick = await (
+			await page.request.post(`${base}/api/ai/tick`, { data: aiView })
+		).json();
 		if (!tick.processed) break;
 	}
 	const judged = pullDetailSchema.parse(await cli("pr", "get", pull.id));
@@ -993,7 +993,7 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	await expect(
 		page.getByRole("status").filter({ hasText: "Policy instructions saved" }),
 	).toBeVisible();
-	await page.request.post(`${base}/api/ai/tick`);
+	await page.request.post(`${base}/api/ai/tick`, { data: aiView });
 	const pending = pullDetailSchema.parse(await cli("pr", "get", pull.id));
 	expect(pending.data.readiness.status).toBe("pending");
 	expect(pending.data.readiness.current).toBeNull();
@@ -1568,4 +1568,27 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	expect(after.data.map(({ pull: _pull, ...watch }) => watch)).toEqual(
 		watches.data.map(({ pull: _pull, ...watch }) => watch),
 	);
+});
+
+test("background tabs send no inference ticks and returning foreground resumes immediately", async ({
+	page,
+	context,
+}) => {
+	let ticks = 0;
+	page.on("request", (request) => {
+		if (new URL(request.url()).pathname === "/api/ai/tick") ticks++;
+	});
+	await page.goto("/prs");
+	await page.bringToFront();
+	await expect.poll(() => ticks).toBeGreaterThan(0);
+	const other = await context.newPage();
+	await other.goto("about:blank");
+	await other.bringToFront();
+	await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(false);
+	const before = ticks;
+	await page.waitForTimeout(6000);
+	expect(ticks).toBe(before);
+	await page.bringToFront();
+	await expect.poll(() => ticks).toBeGreaterThan(before);
+	await other.close();
 });

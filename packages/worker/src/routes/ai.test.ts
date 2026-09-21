@@ -100,9 +100,16 @@ test("secret write, reload metadata, CAS replacement and removal never reveal pl
 		).status,
 	).toBe(400);
 	expect((await request("/retry", "POST")).status).toBe(200);
-	expect(await (await request("/tick", "POST")).json()).toEqual({
-		processed: false,
-	});
+	expect((await request("/tick", "POST")).status).toBe(400);
+	expect(
+		await (
+			await request("/tick", "POST", {
+				id: crypto.randomUUID(),
+				sequence: 1,
+				source: "cli",
+			})
+		).json(),
+	).toEqual({ processed: false });
 });
 test("rejects untrusted origins and nonlocal hosts", async () => {
 	expect(

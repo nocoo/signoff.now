@@ -371,30 +371,3 @@ export async function watchCollections(
 		}),
 	);
 }
-
-export async function watchAiEvaluations(
-	api: CollectionClient,
-	signal: AbortSignal,
-	log: Logger,
-	sleep: (ms: number) => Promise<unknown> = (ms) =>
-		new Promise<void>((resolve) => {
-			const done = () => {
-				clearTimeout(timer);
-				signal.removeEventListener("abort", done);
-				resolve();
-			};
-			const timer = setTimeout(done, ms);
-			signal.addEventListener("abort", done, { once: true });
-			if (signal.aborted) done();
-		}),
-) {
-	while (!signal.aborted) {
-		try {
-			const result = await api.evaluateAi();
-			if (!result.processed && !signal.aborted) await sleep(3000);
-		} catch {
-			log.warn("AI evaluation service unavailable; retrying in 10 seconds.");
-			if (!signal.aborted) await sleep(10000);
-		}
-	}
-}

@@ -54,8 +54,15 @@ it("publishes only foreground presence, ticks on return and retires old sources 
 	});
 	expect(calls.map((c) => c.url)).toEqual(["/api/ai/presence", "/api/ai/tick"]);
 	expect(calls[0]?.init?.keepalive).toBe(true);
+	const tick = calls[1]!;
+	expect(tick.body).toEqual({
+		id: calls[0]?.body?.id,
+		sequence: 1,
+		source: "cli",
+	});
 	focused = false;
 	act(() => window.dispatchEvent(new Event("blur")));
+	expect(tick.init?.signal?.aborted).toBe(true);
 	await act(async () => {
 		await vi.advanceTimersByTimeAsync(5000);
 	});

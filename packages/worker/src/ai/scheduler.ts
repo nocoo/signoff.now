@@ -1,5 +1,6 @@
 import {
 	type AiReadiness,
+	type AiTick,
 	type DecisionState,
 	decisionFingerprint,
 	decisionState,
@@ -10,7 +11,7 @@ import { pullRequestSchema } from "@signoff/domain/workbench";
 import { mapProject, type ProjectRow } from "../monitoring/store.js";
 import type { Bindings } from "../types.js";
 import { batchFits, evaluateJevBatch, JevError } from "./jev.js";
-import { aiForeground } from "./schedule.js";
+import { aiViewCurrent } from "./schedule.js";
 import { openKey } from "./secrets.js";
 export type EvaluationRow = {
 	observation_id: string;
@@ -74,9 +75,11 @@ type Candidate = {
 };
 export async function runAiOnce(
 	env: Bindings,
+	view: AiTick,
 	now = Math.floor(Date.now() / 1000),
 	fetcher: typeof fetch = fetch,
 ) {
+	if (!(await aiViewCurrent(env.DB, view, now))) return { processed: false };
 	const db = env.DB,
 		token = crypto.randomUUID(),
 		started = Date.now();
@@ -103,7 +106,7 @@ export async function runAiOnce(
 		const detailCooldown = (cadence?.results[0] as { cooldown_seconds: number })
 			.cooldown_seconds;
 		for (const projectRow of projects?.results as ProjectRow[]) {
-			if (!(await aiForeground(db, projectRow.source, now))) continue;
+			if (projectRow.source !== view.source) continue;
 			const project = mapProject(projectRow);
 			const candidates = await readCandidates(
 				db,
@@ -124,9 +127,9 @@ export async function runAiOnce(
 				selected.push(candidate);
 			}
 			if (
-				!(await aiForeground(
+				!(await aiViewCurrent(
 					db,
-					project.source,
+					view,
 					now + Math.floor((Date.now() - started) / 1000),
 				))
 			)
@@ -162,6 +165,7 @@ export async function runAiOnce(
 				settings,
 				project.id,
 				claimed,
+				view,
 				token,
 				now,
 				started,
@@ -266,6 +270,7 @@ async function evaluateClaims(
 	settings: SettingsRow,
 	projectId: string,
 	claimed: Candidate[],
+	view: AiTick,
 	token: string,
 	now: number,
 	started: number,
@@ -273,6 +278,7 @@ async function evaluateClaims(
 ) {
 	const db = env.DB;
 	let usage: { input_tokens: number; output_tokens: number } | undefined;
+	let paused = false;
 	try {
 		if (claimed.length) {
 			if (!batchFits(claimed.map((c) => c.state)))
@@ -284,6 +290,23 @@ async function evaluateClaims(
 				settings.encrypted_key,
 				env.SIGNOFF_AI_ENCRYPTION_KEY,
 			);
+			if (
+				!(await aiViewCurrent(
+					db,
+					view,
+					now + Math.floor((Date.now() - started) / 1000),
+				))
+			) {
+				paused = true;
+				for (const c of claimed)
+					await db
+						.prepare(
+							"UPDATE ai_evaluations SET status='pending',attempts=?,lease_token=NULL WHERE observation_id=? AND generation=? AND input_revision=? AND lease_token=?",
+						)
+						.bind(c.row.attempts, ...fence(c, token))
+						.run();
+				return;
+			}
 			const evaluated = await evaluateJevBatch(key, claimed, now, fetcher);
 			usage = evaluated.usage;
 			for (const [index, c] of claimed.entries()) {
@@ -317,16 +340,24 @@ async function evaluateClaims(
 	} catch (error) {
 		for (const c of claimed) await failClaim(db, c, token, error, now);
 	} finally {
-		await db
-			.prepare(
-				"UPDATE ai_project_schedule SET last_completed_at=?,input_tokens=?,output_tokens=? WHERE project_id=?",
-			)
-			.bind(
-				now + Math.floor((Date.now() - started) / 1000),
-				usage?.input_tokens ?? null,
-				usage?.output_tokens ?? null,
-				projectId,
-			)
-			.run();
+		if (paused)
+			await db
+				.prepare(
+					"UPDATE ai_project_schedule SET last_started_at=last_completed_at WHERE project_id=?",
+				)
+				.bind(projectId)
+				.run();
+		else
+			await db
+				.prepare(
+					"UPDATE ai_project_schedule SET last_completed_at=?,input_tokens=?,output_tokens=? WHERE project_id=?",
+				)
+				.bind(
+					now + Math.floor((Date.now() - started) / 1000),
+					usage?.input_tokens ?? null,
+					usage?.output_tokens ?? null,
+					projectId,
+				)
+				.run();
 	}
 }
