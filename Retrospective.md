@@ -102,3 +102,7 @@ During local validation of the collector cadence refactor, an automatic Sample d
 ## 2026-09-21 — Jev local runtime verification
 
 The first connection test failed before reaching Jev because Workers rejects Fetch redirect mode `error`. Mock Fetch tests had accepted it. The implementation now uses `manual`, treats redirects as failures, and tests that request option. A real local Workers connection test and watched-PR evaluations then passed. The initial browser test cleanup used a new context without the local TLS setting; its temporary policy text was immediately restored and the corrected test completed successfully. Real-runtime checks remain necessary alongside typed mocks.
+
+## 2026-09-21 — Observation clocks caused transient Jev Pending
+
+The PR snapshot trigger invalidated evaluations for every JSON change, including collection timestamps. The scheduler correctly deduplicated identical decision facts, but the UI could briefly show Pending and an observation-only publication could discard an in-flight result. The trigger now ignores observation/update clocks while preserving explicit check-availability changes. Regression tests cover in-flight preservation, unchanged results across cooldowns, changed-only batch membership, and cooldown measured from request completion. Actual build/stage changes still enter Pending immediately and wait for the remaining cooldown.

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
 	CLASSIFICATION,
 	decisionFingerprint,
@@ -84,7 +84,7 @@ test("only watches evaluate, identical facts dedupe, real facts and instructions
 	expect(evaluationOutput(row(), false).status).toBe("not_watched");
 	await runAiOnce(env(), view, now + 1, fetcher);
 	change("observedAt", now + 1);
-	expect(evaluationOutput(row(), true).current).toBeNull();
+	expect(evaluationOutput(row(), true).current?.kind).toBe("running");
 	await runAiOnce(env(), view, now + 1, fetcher);
 	expect(calls).toBe(1);
 	change("headSha", "new-head");
@@ -107,6 +107,72 @@ test("only watches evaluate, identical facts dedupe, real facts and instructions
 	expect(row().status).toBe("complete");
 	await runAiOnce(env(), view, now + 1300, fetcher);
 	expect(calls).toBe(4);
+});
+test("observation clocks preserve an in-flight request and its completed result across cooldowns", async () => {
+	await setup();
+	let calls = 0;
+	const fetcher = (async () => {
+		calls++;
+		const claimed = row();
+		if (calls === 1) {
+			change("observedAt", now + 1);
+			change("summaryObservedAt", now + 1);
+			change("checksObservedAt", now + 1);
+			change("updatedAt", now + 1);
+		}
+		expect(row()).toEqual(claimed);
+		return response();
+	}) as unknown as typeof fetch;
+	await runAiOnce(env(), view, now, fetcher);
+	const completed = row();
+	expect(completed.status).toBe("complete");
+	for (const elapsed of [10, 301, 601]) {
+		change("observedAt", now + elapsed);
+		change("summaryObservedAt", now + elapsed);
+		change("checksObservedAt", now + elapsed);
+		expect(row()).toEqual(completed);
+		expect(await runAiOnce(env(), view, now + elapsed, fetcher)).toEqual({
+			processed: false,
+		});
+		expect(row()).toEqual(completed);
+	}
+	expect(calls).toBe(1);
+	change("checksObservedAt", null);
+	expect(row().status).toBe("pending");
+	await runAiOnce(env(), view, now + 602, fetcher);
+	expect(calls).toBe(2);
+	change("checksObservedAt", now + 603);
+	expect(row().status).toBe("pending");
+});
+test("pending changes cannot bypass the project cooldown measured from request completion", async () => {
+	await setup();
+	let clock = now * 1000;
+	const time = spyOn(Date, "now").mockImplementation(() => clock);
+	let calls = 0;
+	const fetcher = (async () => {
+		calls++;
+		clock += 12000;
+		return response();
+	}) as unknown as typeof fetch;
+	try {
+		await runAiOnce(env(), view, now, fetcher);
+		change("headSha", "changed-after-completion");
+		expect(row().status).toBe("pending");
+		for (const elapsed of [13, 60, 299, 300, 311]) {
+			clock = (now + elapsed) * 1000;
+			expect(await runAiOnce(env(), view, now + elapsed, fetcher)).toEqual({
+				processed: false,
+			});
+			expect(row().status).toBe("pending");
+			expect(calls).toBe(1);
+		}
+		clock = (now + 312) * 1000;
+		await runAiOnce(env(), view, now + 312, fetcher);
+		expect(calls).toBe(2);
+		expect(row().status).toBe("complete");
+	} finally {
+		time.mockRestore();
+	}
 });
 test.each([
 	"facts",
@@ -488,6 +554,11 @@ test("foreground project batches include only changed watches and respect indepe
 	expect(payloads[0]?.state.contexts).toHaveLength(1);
 	expect(Object.keys(payloads[0]?.questions ?? {})).toHaveLength(2);
 	expect(payloads[0]?.questions.p1_readiness?.instructions).toContain("prs[1]");
+	const unchanged = sqlite.raw
+		.query(
+			"SELECT e.* FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id WHERE o.pull_id='pull-2'",
+		)
+		.get();
 	change("headSha", "changed-head");
 	expect(await runAiOnce(env(), view, now + 299, fetcher)).toEqual({
 		processed: false,
@@ -513,6 +584,13 @@ test("foreground project batches include only changed watches and respect indepe
 	sqlite.raw.query("UPDATE ai_views SET visible=1").run();
 	await runAiOnce(env(), view, now + 301, fetcher);
 	expect(payloads[2]?.state.prs.map((p) => p.pr.id)).toEqual(["pull-1"]);
+	expect(
+		sqlite.raw
+			.query(
+				"SELECT e.* FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id WHERE o.pull_id='pull-2'",
+			)
+			.get(),
+	).toEqual(unchanged);
 	expect(await runAiOnce(env(), view, now + 700, fetcher)).toEqual({
 		processed: false,
 	});
