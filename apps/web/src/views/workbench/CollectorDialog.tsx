@@ -167,11 +167,11 @@ export function CollectorDialog({
 					</div>
 				))}
 			</dl>
-			<div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-				<div className="min-w-56">
+			<div className="grid items-center gap-3 sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-6">
+				<div className="min-w-0">
 					<RefreshCooldown vm={vm} />
 				</div>
-				<p className="flex-1 text-xs text-basalt-muted-foreground">
+				<p className="text-xs text-basalt-muted-foreground">
 					Checks include policies, builds and stages. PR state tracks open,
 					merged and closed. Ages measure the oldest collected data, not a
 					failed check.
