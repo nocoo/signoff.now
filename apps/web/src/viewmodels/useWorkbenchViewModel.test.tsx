@@ -233,6 +233,7 @@ it("sorts each compact metadata column through the API", async () => {
 		["Target branch", "target", "asc"],
 		["State checked", "stateChecked", "desc"],
 		["Checks collected", "checksChecked", "desc"],
+		["Jev evaluated", "evaluated", "desc"],
 	]) {
 		const head = within(table).getByRole("columnheader", { name: label });
 		fireEvent.click(within(head).getByRole("button"));

@@ -326,28 +326,27 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	const actionColumn = page.getByRole("columnheader", {
 		name: "Sort by Next action",
 	});
-	for (const width of [1920, 2560]) {
+	const measured = [];
+	for (const width of [3200, 3840]) {
 		await page.setViewportSize({ width, height: 1080 });
-		const titleWidth = (await titleColumn.boundingBox())!.width;
-		expect(titleWidth).toBeGreaterThanOrEqual(239);
-		expect((await checksColumn.boundingBox())!.width).toBeLessThanOrEqual(145);
-		expect((await actionColumn.boundingBox())!.width).toBeLessThanOrEqual(161);
+		measured.push({
+			title: (await titleColumn.boundingBox())!.width,
+			checks: (await checksColumn.boundingBox())!.width,
+			action: (await actionColumn.boundingBox())!.width,
+		});
 		expect(
-			await page.evaluate(() => {
-				const table = document.querySelector(
-					'table[aria-label="Pull requests"]',
-				)!;
-				return (
-					table.getBoundingClientRect().width <=
-					table.parentElement!.clientWidth
-				);
-			}),
-		).toBe(true);
+			await page.evaluate(
+				() => document.documentElement.scrollWidth > innerWidth,
+			),
+		).toBe(false);
 		await page.screenshot({
 			path: test.info().outputPath(`pull-wide-layout-${width}.png`),
 			fullPage: true,
 		});
 	}
+	expect(Math.abs(measured[1]!.title - measured[0]!.title)).toBeLessThan(2);
+	expect(Math.abs(measured[1]!.action - measured[0]!.action)).toBeLessThan(2);
+	expect(measured[1]!.checks - measured[0]!.checks).toBeGreaterThan(600);
 	await page.setViewportSize(originalViewport);
 	await rows.nth(1).getByRole("checkbox").check();
 	await expect(toggle).toHaveAttribute("aria-pressed", "false");

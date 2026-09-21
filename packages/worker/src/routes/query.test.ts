@@ -1751,3 +1751,57 @@ test("non-main PRs expose Skipped consistently in lists, details, filters and re
 	expect(watched.data).toHaveLength(1);
 	expect(watched.metrics.skipped).toBe(1);
 });
+
+test("Jev evaluation age sorts successful current and historical answers, with never evaluated distinct", async () => {
+	seedProject(sqlite, { repositories: [] });
+	for (const [index, id] of ["a", "b", "c"].entries()) {
+		seedPull(sqlite, {
+			id,
+			number: index + 1,
+			externalId: String(index + 1),
+			targetBranch: "main",
+		});
+		const { observation } = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: id },
+			PR_TEST_NOW,
+		);
+		if (id === "c") continue;
+		const answer = JSON.stringify({
+			kind: "running",
+			model: "test",
+			rubric: "test",
+			fingerprint: id,
+			evaluatedAt: new Date(
+				(PR_TEST_NOW - (id === "a" ? 20 : 10)) * 1000,
+			).toISOString(),
+			confidence: 1,
+			probabilities: { running: 1 },
+		});
+		sqlite.raw
+			.query(
+				"UPDATE ai_evaluations SET status=?,result_json=?,previous_json=? WHERE observation_id=?",
+			)
+			.run(
+				id === "a" ? "complete" : "pending",
+				id === "a" ? answer : null,
+				id === "b" ? answer : null,
+				observation.id,
+			);
+	}
+	for (const [direction, expected] of [
+		["asc", ["c", "a", "b"]],
+		["desc", ["b", "a", "c"]],
+	] as const) {
+		const result = pullListSchema.parse(
+			await (
+				await request(`/api/query/v1/prs?sort=evaluated&direction=${direction}`)
+			).json(),
+		);
+		expect(result.data.map((p) => p.id)).toEqual([...expected]);
+		expect(
+			result.data.find((p) => p.id === "b")?.readiness.previous,
+		).not.toBeNull();
+	}
+});

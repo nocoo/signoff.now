@@ -107,6 +107,7 @@ const querySchema = z.object({
 			"target",
 			"stateChecked",
 			"checksChecked",
+			"evaluated",
 			"readiness",
 			"title",
 			"progress",
@@ -621,6 +622,7 @@ async function readPullPage(
 							ready: 7,
 						}[readiness.kind],
 			action: readiness.nextAction,
+			evaluated: (readiness.current ?? readiness.previous)?.evaluatedAt ?? "",
 			owner: "",
 			completion:
 				pull.coverage === "partial" ||
@@ -661,12 +663,12 @@ async function readPullPage(
 			: "0";
 	const cte = `WITH open_facts AS MATERIALIZED (
       SELECT json_extract(value,'$.id') id,json_extract(value,'$.kind') kind,json_extract(value,'$.rank') rank,
-        json_extract(value,'$.action') action,json_extract(value,'$.owner') owner,json_extract(value,'$.completion') completion FROM json_each(?)
+        json_extract(value,'$.evaluated') evaluated,json_extract(value,'$.action') action,json_extract(value,'$.owner') owner,json_extract(value,'$.completion') completion FROM json_each(?)
     ), scoped AS (
       SELECT pr.*,p.provider,p.organization,p.project_key,p.name project_name,
         json_extract(pr.snapshot,'$.draft') draft,json_extract(pr.snapshot,'$.author.name') author_name,
         json_array(p.provider,lower(p.organization),json_extract(pr.snapshot,'$.author.id')) author_key,
-        COALESCE(f.kind,'not_evaluated') readiness_kind,
+        COALESCE(f.kind,'not_evaluated') readiness_kind,COALESCE(f.evaluated,'') evaluated,
         COALESCE(f.rank,CASE pr.state WHEN 'merged' THEN 4 ELSE 5 END) readiness_rank,
         COALESCE(f.action,CASE pr.state WHEN 'merged' THEN 'Merged into '||json_extract(pr.snapshot,'$.targetBranch') ELSE 'Closed without merging' END) next_action,
         COALESCE(f.owner,CASE pr.state WHEN 'merged' THEN p.owner ELSE json_extract(pr.snapshot,'$.author.name') END) next_owner,
@@ -698,6 +700,7 @@ async function readPullPage(
 	];
 	const sort = {
 		identity: "id",
+		evaluated: "evaluated",
 		repository: "json_extract(snapshot,'$.repository.name') COLLATE NOCASE",
 		author: "author_name COLLATE NOCASE",
 		target: "json_extract(snapshot,'$.targetBranch') COLLATE NOCASE",

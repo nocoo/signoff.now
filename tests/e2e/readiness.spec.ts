@@ -68,6 +68,9 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 	await page.goto("/prs");
 	const row = page.locator(`[data-pull-id="${fixturePull.id}"]`);
 	await expect(row.getByText("Ready", { exact: true })).toBeVisible();
+	await expect(
+		row.locator(`time[datetime="${previous.evaluatedAt}"]`),
+	).toContainText("5 min ago");
 	await expect(row.getByText("Pending", { exact: true })).toHaveCount(0);
 	const note = row.getByRole("button", { name: /Last result · ~2m/ });
 	await note.hover();
@@ -141,20 +144,43 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 	await expect(
 		row.getByText("Skipped", { exact: true }).locator(".."),
 	).toHaveClass(/bg-basalt-badge-teal/);
+	expect(
+		await row
+			.getByRole("button", { name: /^Open PR/ })
+			.evaluate((element) => getComputedStyle(element).fontSize),
+	).toBe("12px");
+	expect(
+		await row
+			.getByText(branch, { exact: true })
+			.evaluate((element) => getComputedStyle(element).fontSize),
+	).toBe("11px");
 	await expect(row.getByText(branch, { exact: true })).toBeVisible();
+	expect(
+		await row
+			.getByText(branch, { exact: true })
+			.evaluate((element) => getComputedStyle(element).whiteSpace),
+	).toBe("nowrap");
+	expect(
+		await row
+			.locator("td")
+			.evaluateAll((cells) =>
+				cells.every((cell) => getComputedStyle(cell).whiteSpace === "nowrap"),
+			),
+	).toBe(true);
 	await expect(row.getByText(branch, { exact: true })).not.toHaveClass(
 		/truncate/,
 	);
 	await expect(
 		row.getByRole("button", { name: /Last result|Jev ·/ }),
 	).toHaveCount(0);
-	await expect(page.getByRole("columnheader")).toHaveCount(12);
+	await expect(page.getByRole("columnheader")).toHaveCount(13);
 	for (const [label, key] of [
 		["Repository", "repository"],
 		["Author", "author"],
 		["Target branch", "target"],
 		["State checked", "stateChecked"],
 		["Checks collected", "checksChecked"],
+		["Jev evaluated", "evaluated"],
 	]) {
 		const sortedRequest = page.waitForRequest(
 			(request) =>

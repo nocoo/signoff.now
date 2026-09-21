@@ -291,16 +291,16 @@ export function PullsPage() {
 							<Table
 								aria-label="Pull requests"
 								aria-busy={vm.loading}
-								className="min-w-[1520px] table-fixed [&_th]:px-2 [&_td]:px-2"
+								className="table-auto text-[11px] [&_th]:w-px [&_th]:whitespace-nowrap [&_th]:px-3 [&_td]:whitespace-nowrap [&_td]:px-3"
 							>
 								<TableHeader>
 									<TableRow>
-										<TableHead className="w-10 px-2 text-center">
+										<TableHead className="px-2 text-center">
 											<div className="flex items-center justify-center">
 												<PageSelectionCheckbox vm={vm} />
 											</div>
 										</TableHead>
-										<TableHead className="w-12 px-1 text-center">
+										<TableHead className="px-1 text-center">
 											<span className="sr-only">Watch list</span>
 											<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
 										</TableHead>
@@ -317,19 +317,16 @@ export function PullsPage() {
 
 										{(
 											[
-												["repository", "Repository", "w-32"],
-												["author", "Author", "w-28"],
-												["target", "Target branch", "w-44"],
-												["readiness", "Readiness", "w-36"],
-												["progress", "Checks & stages", "w-36"],
-												["action", "Next action", "w-40"],
-												["updated", "PR updated", "w-24 text-right"],
-												["stateChecked", "State checked", "w-24 text-right"],
-												[
-													"checksChecked",
-													"Checks collected",
-													"w-28 text-right",
-												],
+												["repository", "Repository", ""],
+												["author", "Author", ""],
+												["target", "Target branch", ""],
+												["readiness", "Readiness", ""],
+												["progress", "Checks & stages", "!w-full min-w-56"],
+												["action", "Next action", ""],
+												["evaluated", "Jev evaluated", "text-right"],
+												["updated", "PR updated", "text-right"],
+												["stateChecked", "State checked", "text-right"],
+												["checksChecked", "Checks collected", "text-right"],
 											] as const
 										).map(([sort, label, className]) => (
 											<SortableHead
@@ -415,6 +412,7 @@ function PullTableSkeleton() {
 				"readiness",
 				"progress",
 				"action",
+				"evaluated",
 				"updated",
 				"stateChecked",
 				"checksChecked",
@@ -612,6 +610,10 @@ function PullTableRow({
 }) {
 	const { pull, project, readiness, progress, observation } = row;
 	const watching = row.watching ?? Boolean(observation?.active);
+	const evaluation = readiness.current ?? readiness.previous;
+	const evaluatedAt = evaluation
+		? Date.parse(evaluation.evaluatedAt) / 1000
+		: null;
 	const stateAt = pull.summaryObservedAt ?? pull.observedAt;
 	const checksAt =
 		pull.checksObservedAt === null
@@ -678,11 +680,11 @@ function PullTableRow({
 					</Button>
 				</div>
 			</TableCell>
-			<TableCell className="py-2 align-top">
+			<TableCell className="py-2 align-middle">
 				<div className="flex items-start gap-1.5">
 					<Button
 						variant="link"
-						className="h-auto min-w-0 justify-start whitespace-normal p-0 text-left text-[13px] font-semibold leading-5 text-basalt-foreground"
+						className="h-auto min-w-0 justify-start whitespace-nowrap p-0 text-left text-xs font-semibold leading-5 text-basalt-foreground"
 						aria-label={`Open PR #${pull.number}: ${pull.title}`}
 						onClick={(event) => {
 							onOpen(event.currentTarget);
@@ -692,7 +694,7 @@ function PullTableRow({
 					</Button>
 					<PullSourceLink pull={pull} project={project} />
 				</div>
-				<div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
+				<div className="mt-1 flex items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
 					<a
 						href={pullUrl(project, pull)}
 						target="_blank"
@@ -710,7 +712,7 @@ function PullTableRow({
 					) : null}
 				</div>
 			</TableCell>
-			<TableCell className="break-words py-2 align-middle text-[11px]">
+			<TableCell className="py-2 align-middle text-[11px]">
 				<RepositoryScopeLinks project={project} repository={pull.repository} />
 			</TableCell>
 			<TableCell className="py-2 align-middle text-[11px]">
@@ -734,12 +736,10 @@ function PullTableRow({
 					className="flex min-w-0 items-center gap-1.5 rounded-sm font-mono text-[11px] text-basalt-muted-foreground underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
 				>
 					<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
-					<span className="min-w-0 whitespace-normal break-all">
-						{pull.targetBranch}
-					</span>
+					<span className="whitespace-nowrap">{pull.targetBranch}</span>
 				</a>
 			</TableCell>
-			<TableCell className="py-2 align-top">
+			<TableCell className="py-2 align-middle">
 				<ReadinessCell
 					display={readinessDisplay(
 						readiness,
@@ -750,7 +750,7 @@ function PullTableRow({
 					failed={readiness.status === "error"}
 				/>
 			</TableCell>
-			<TableCell className="py-2 align-top">
+			<TableCell className="py-2 align-middle">
 				{pull.checksObservedAt === null ? (
 					<p
 						className="text-[11px] text-basalt-muted-foreground"
@@ -760,7 +760,7 @@ function PullTableRow({
 					</p>
 				) : (
 					<>
-						<div className="mb-1 flex items-baseline justify-between gap-1 text-xs">
+						<div className="mb-1 flex items-baseline justify-between gap-4 text-xs">
 							<span className="font-medium tabular-nums">
 								{progress.checksPassed}/{progress.checksTotal} required
 							</span>
@@ -778,15 +778,32 @@ function PullTableRow({
 					</>
 				)}
 			</TableCell>
-			<TableCell className="py-2 align-top">
-				<p
-					className="line-clamp-2 text-[11px] leading-4"
-					title={readiness.nextAction}
-				>
+			<TableCell className="py-2 align-middle">
+				<p className="text-[11px] leading-4" title={readiness.nextAction}>
 					{readiness.nextAction}
 				</p>
 			</TableCell>
-			<TableCell className="py-2 align-top text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
+			<TableCell className="py-2 align-middle text-right text-[11px] text-basalt-muted-foreground">
+				{evaluation && evaluatedAt !== null ? (
+					<time
+						dateTime={evaluation.evaluatedAt}
+						title={`Last successful Jev evaluation: ${new Date(evaluation.evaluatedAt).toLocaleString()}${readiness.current ? "" : " · Previous evidence"}`}
+					>
+						{relativeAge(evaluatedAt, now)}
+					</time>
+				) : (
+					<span
+						title={
+							readiness.kind === "skipped"
+								? "Jev evaluation skipped for this target branch"
+								: "No successful Jev evaluation"
+						}
+					>
+						—
+					</span>
+				)}
+			</TableCell>
+			<TableCell className="py-2 align-middle text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
 				<time
 					dateTime={new Date(pull.updatedAt * 1000).toISOString()}
 					title={new Date(pull.updatedAt * 1000).toLocaleString()}

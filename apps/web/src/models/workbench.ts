@@ -36,6 +36,7 @@ export type PullFilter = {
 		| "title"
 		| "progress"
 		| "action"
+		| "evaluated"
 		| "updated"
 		| "oldest";
 	sortDirection: "asc" | "desc";
@@ -106,6 +107,7 @@ export function readPullFilter(
 		"author",
 		"target",
 		"stateChecked",
+		"evaluated",
 		"checksChecked",
 		"readiness",
 		"title",
@@ -183,7 +185,13 @@ export function matchesRepository(
 function defaultSortDirection(
 	sort: PullFilter["sort"],
 ): PullFilter["sortDirection"] {
-	return ["updated", "progress", "stateChecked", "checksChecked"].includes(sort)
+	return [
+		"updated",
+		"evaluated",
+		"progress",
+		"stateChecked",
+		"checksChecked",
+	].includes(sort)
 		? "desc"
 		: "asc";
 }
