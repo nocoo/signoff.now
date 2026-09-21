@@ -16,7 +16,7 @@ import {
 	RefreshCw,
 	X,
 } from "lucide-react";
-import { Fragment, useId } from "react";
+import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
@@ -63,8 +63,6 @@ export function CollectorDialog({
 }) {
 	const history = useCollectorHistoryViewModel(vm.filter.source);
 	const collector = vm.collector;
-	const projectName = (job: JobQueryItem) =>
-		`${vm.projects.find(({ project }) => project.id === job.projectId)?.project.name ?? job.projectId}${job.target ? ` · ${job.target.repository.name} #${job.target.number}` : ""}`;
 	const selected = (job: JobQueryItem) => (
 		<JobDetails
 			job={history.detail.data ?? job}
@@ -75,12 +73,15 @@ export function CollectorDialog({
 		/>
 	);
 	return (
-		<DialogContent size="xl" className="space-y-4">
-			<div className="flex items-start justify-between gap-3">
+		<DialogContent
+			size="xl"
+			className="flex h-[88dvh] flex-col gap-4 overflow-hidden sm:w-[76rem]"
+		>
+			<div className="flex shrink-0 items-start justify-between gap-3">
 				<DialogHeader>
 					<DialogTitle>Collector details</DialogTitle>
 					<DialogDescription>
-						Connection, current work and collection history ·{" "}
+						Connection and collection jobs ·{" "}
 						{vm.filter.source === "cli" ? "Live data" : "Sample data"}
 					</DialogDescription>
 				</DialogHeader>
@@ -90,263 +91,233 @@ export function CollectorDialog({
 					</Button>
 				</DialogClose>
 			</div>
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<div className="flex items-center gap-2">
-					<Badge variant="outline" className={statusColor(status.tone)}>
-						{status.label}
-					</Badge>
-					<span className="text-sm">{status.activity}</span>
-				</div>
-				<span
-					className="text-xs text-basalt-muted-foreground"
-					title={exactTime(collector?.connection.lastSeenAt ?? null)}
+			<div className="grid min-h-0 flex-1 auto-rows-max gap-5 overflow-y-auto md:auto-rows-fr md:grid-cols-[19rem_minmax(0,1fr)] md:overflow-hidden">
+				<section
+					aria-label="Collector metadata"
+					className="min-w-0 space-y-4 md:overflow-y-auto md:pr-4"
 				>
-					Last contact:{" "}
-					{collector?.connection.lastSeenAt
-						? relativeTime(
-								Date.parse(collector.connection.lastSeenAt) / 1000,
-								now,
-							)
-						: "Never"}
-				</span>
-			</div>
-			{Boolean(status.problem) && (
-				<AlertBanner variant={status.tone === "warning" ? "warning" : "error"}>
-					<p className="break-words text-xs">{status.problem}</p>
-					<p className="mt-1 text-xs">
-						{status.tone === "warning"
-							? "Some PR details are incomplete. The connector is online; see the affected tasks below."
-							: "Cached PR data remains available. Review the task details for the cause."}
-					</p>
-				</AlertBanner>
-			)}
-			<dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-basalt-md border border-basalt-border p-3 sm:grid-cols-4">
-				{[
-					["Watching", collector?.watching ?? "—"],
-					[
-						"Running / queued",
-						collector
-							? `${collector.queue.running} / ${collector.queue.queued}`
-							: "—",
-					],
-					["Awaiting first result", collector?.pendingFirstResult ?? "—"],
-					["Overdue checks", collector?.scheduling?.overdueChecks ?? "—"],
-					[
-						"Oldest checks",
-						collector
-							? collectorAge(
-									collector,
-									collector.scheduling?.oldestChecksAgeSeconds,
-									now,
-								)
-							: "—",
-					],
-					[
-						"Oldest PR state",
-						collector
-							? collectorAge(
-									collector,
-									collector.scheduling?.oldestSummaryAgeSeconds,
-									now,
-								)
-							: "—",
-					],
-					["Missing checks", collector?.scheduling?.missingChecks ?? "—"],
-					[
-						"State interval",
-						collector?.statusCooldownSeconds
-							? `${collector.statusCooldownSeconds}s`
-							: "—",
-					],
-				].map(([label, value]) => (
-					<div key={label}>
-						<dt className="text-[11px] text-basalt-muted-foreground">
-							{label}
-						</dt>
-						<dd className="mt-1 text-sm font-medium tabular-nums">{value}</dd>
-					</div>
-				))}
-			</dl>
-			<div className="grid items-center gap-3 sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-6">
-				<div className="min-w-0">
-					<RefreshCooldown vm={vm} />
-				</div>
-				<p className="text-xs text-basalt-muted-foreground">
-					Checks include policies, builds and stages. PR state tracks open,
-					merged and closed. Ages measure the oldest collected data, not a
-					failed check.
-				</p>
-			</div>
-			{status.issues.length > 0 && (
-				<section aria-label="Current collection issues" className="space-y-2">
-					<h3 className="text-sm font-semibold">
-						Unresolved collection issues
-					</h3>
-					{status.issues.map((job) => (
-						<Fragment key={job.id}>
-							<JobButton
-								job={job}
-								name={projectName(job)}
-								selected={history.selectedId === job.id}
-								onClick={() =>
-									history.select(history.selectedId === job.id ? null : job.id)
-								}
-								now={now}
-							/>
-							{history.selectedId === job.id && selected(job)}
-						</Fragment>
-					))}
-				</section>
-			)}
-			<section aria-label="Current collection work" className="space-y-2">
-				<h3 className="text-sm font-semibold">Current work</h3>
-				{status.work.length ? (
-					status.work.map((job) => (
-						<Fragment key={job.id}>
-							<JobButton
-								job={job}
-								name={projectName(job)}
-								selected={history.selectedId === job.id}
-								onClick={() =>
-									history.select(history.selectedId === job.id ? null : job.id)
-								}
-								now={now}
-							/>
-							{history.selectedId === job.id && selected(job)}
-						</Fragment>
-					))
-				) : (
-					<p className="text-xs text-basalt-muted-foreground">
-						{status.activity}.{" "}
-						{collector?.queue.queued
-							? `${collector.queue.queued} tasks queued.`
-							: "No task is running."}
-					</p>
-				)}
-			</section>
-			<section
-				aria-label="Collection history"
-				className="space-y-2 border-t border-basalt-border pt-3"
-			>
-				<div className="flex flex-wrap items-center gap-2">
-					<h3 className="mr-auto text-sm font-semibold">Recent history</h3>
-					<SelectControl
-						aria-label="History task type"
-						value={history.filters.lane}
-						onChange={(lane) =>
-							history.setFilters({
-								...history.filters,
-								lane: lane as JobHistoryFilters["lane"],
-							})
-						}
-						className="h-8 w-32 text-xs"
-					>
-						<option value="all">All tasks</option>
-						<option value="checks">PR checks</option>
-						<option value="status">PR state</option>
-						<option value="discover">Discovery</option>
-					</SelectControl>
-					<SelectControl
-						aria-label="History result"
-						value={history.filters.outcome}
-						onChange={(outcome) =>
-							history.setFilters({
-								...history.filters,
-								outcome: outcome as JobHistoryFilters["outcome"],
-							})
-						}
-						className="h-8 w-32 text-xs"
-					>
-						<option value="all">All results</option>
-						<option value="issues">Issues only</option>
-					</SelectControl>
-					<Button
-						size="icon"
-						variant="ghost"
-						aria-label="Reload collection history"
-						disabled={history.history.refreshing}
-						onClick={() => void history.history.reload()}
-					>
-						<RefreshCw className="h-4 w-4" />
-					</Button>
-				</div>
-				<p className="text-[11px] text-basalt-muted-foreground">
-					Newest requested first · State history retained for 24 hours · Select
-					a task for details
-				</p>
-				{Boolean(history.history.error) && (
-					<AlertBanner variant="error">{history.history.error}</AlertBanner>
-				)}
-				{Boolean(history.history.loading) && (
-					<p role="status" className="py-4 text-sm">
-						Loading collection history…
-					</p>
-				)}
-				{history.history.data?.data.length === 0 && (
-					<p className="py-4 text-sm text-basalt-muted-foreground">
-						No completed tasks match these filters.
-					</p>
-				)}
-				<div
-					className="max-h-80 space-y-1 overflow-y-auto"
-					aria-busy={history.history.refreshing}
-				>
-					{history.history.data?.data.map((job) => (
-						<div key={job.id}>
-							<JobButton
-								job={job}
-								name={`${job.projectName}${job.target ? ` · ${job.target.repository.name} #${job.target.number}` : ""}`}
-								selected={history.selectedId === job.id}
-								onClick={() =>
-									history.select(history.selectedId === job.id ? null : job.id)
-								}
-								now={now}
-							/>
-							{history.selectedId === job.id && (
-								<>
-									{job.target !== null && (
-										<a
-											href={job.target.url}
-											target="_blank"
-											rel="noreferrer"
-											className="mx-3 my-2 inline-flex items-center gap-1 text-xs text-basalt-primary"
-										>
-											Open PR #{job.target.number}
-											<ExternalLink className="h-3 w-3" />
-										</a>
-									)}
-									{selected(job)}
-								</>
-							)}
+					<h3 className="text-sm font-semibold">Overview</h3>
+					<div className="space-y-2">
+						<div className="flex flex-wrap items-center gap-2">
+							<Badge variant="outline" className={statusColor(status.tone)}>
+								{status.label}
+							</Badge>
+							<span className="text-sm">{status.activity}</span>
 						</div>
-					))}
-				</div>
-				<div className="flex items-center justify-between text-xs text-basalt-muted-foreground">
-					<span>
-						Page {history.page} · {history.history.data?.data.length ?? 0} tasks
-					</span>
-					<div className="flex gap-2">
-						<Button
-							variant="outline"
-							size="sm"
-							disabled={history.page === 1 || history.history.loading}
-							onClick={history.newer}
+						<span
+							className="block text-xs text-basalt-muted-foreground"
+							title={exactTime(collector?.connection.lastSeenAt ?? null)}
 						>
-							Newer
-						</Button>
-						<Button
-							variant="outline"
-							size="sm"
-							disabled={
-								!history.history.data?.nextCursor || history.history.loading
+							Last contact:{" "}
+							{collector?.connection.lastSeenAt
+								? relativeTime(
+										Date.parse(collector.connection.lastSeenAt) / 1000,
+										now,
+									)
+								: "Never"}
+						</span>
+					</div>
+					{Boolean(status.problem) && (
+						<AlertBanner
+							variant={status.tone === "warning" ? "warning" : "error"}
+						>
+							<p className="break-words text-xs">{status.problem}</p>
+							<p className="mt-1 text-xs">
+								{status.tone === "warning"
+									? "Some PR details are incomplete. The connector is online; see the affected jobs."
+									: "Cached PR data remains available. Review the task details for the cause."}
+							</p>
+						</AlertBanner>
+					)}
+					<dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-basalt-md border border-basalt-border p-3">
+						{[
+							["Watching", collector?.watching ?? "—"],
+							[
+								"Running / queued",
+								collector
+									? `${collector.queue.running} / ${collector.queue.queued}`
+									: "—",
+							],
+							["Awaiting first result", collector?.pendingFirstResult ?? "—"],
+							["Overdue checks", collector?.scheduling?.overdueChecks ?? "—"],
+							[
+								"Oldest checks",
+								collector
+									? collectorAge(
+											collector,
+											collector.scheduling?.oldestChecksAgeSeconds,
+											now,
+										)
+									: "—",
+							],
+							[
+								"Oldest PR state",
+								collector
+									? collectorAge(
+											collector,
+											collector.scheduling?.oldestSummaryAgeSeconds,
+											now,
+										)
+									: "—",
+							],
+							["Missing checks", collector?.scheduling?.missingChecks ?? "—"],
+							[
+								"State interval",
+								collector?.statusCooldownSeconds
+									? `${collector.statusCooldownSeconds}s`
+									: "—",
+							],
+						].map(([label, value]) => (
+							<div key={label}>
+								<dt className="text-[11px] text-basalt-muted-foreground">
+									{label}
+								</dt>
+								<dd className="mt-1 text-sm font-medium tabular-nums">
+									{value}
+								</dd>
+							</div>
+						))}
+					</dl>
+					<div className="space-y-3">
+						<div className="min-w-0">
+							<RefreshCooldown vm={vm} />
+						</div>
+						<p className="text-xs text-basalt-muted-foreground">
+							Checks include policies, builds and stages. PR state tracks open,
+							merged and closed. Ages measure the oldest collected data, not a
+							failed check.
+						</p>
+					</div>
+				</section>
+				<section
+					aria-label="Collection jobs"
+					className="flex min-h-0 min-w-0 flex-col gap-3 border-t border-basalt-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0"
+				>
+					<div className="flex shrink-0 flex-wrap items-center gap-2">
+						<h3 className="mr-auto text-sm font-semibold">Jobs</h3>
+						<SelectControl
+							aria-label="Job task type"
+							value={history.filters.lane}
+							onChange={(lane) =>
+								history.setFilters({
+									...history.filters,
+									lane: lane as JobHistoryFilters["lane"],
+								})
 							}
-							onClick={history.older}
+							className="h-8 w-28 text-xs sm:w-32"
 						>
-							Older
+							<option value="all">All tasks</option>
+							<option value="checks">PR checks</option>
+							<option value="status">PR state</option>
+							<option value="discover">Discovery</option>
+						</SelectControl>
+						<SelectControl
+							aria-label="Job state"
+							value={history.filters.outcome}
+							onChange={(outcome) =>
+								history.setFilters({
+									...history.filters,
+									outcome: outcome as JobHistoryFilters["outcome"],
+								})
+							}
+							className="h-8 w-28 text-xs sm:w-32"
+						>
+							<option value="all">All states</option>
+							<option value="issues">Issues only</option>
+						</SelectControl>
+						<Button
+							size="icon"
+							variant="ghost"
+							className="h-8 w-8"
+							aria-label="Reload collection jobs"
+							disabled={history.history.refreshing}
+							onClick={() => void history.history.reload()}
+						>
+							<RefreshCw className="h-4 w-4" />
 						</Button>
 					</div>
-				</div>
-			</section>
+					<p className="text-[11px] text-basalt-muted-foreground">
+						Queued, running and finished · Newest requested first · PR state
+						jobs retained for 24 hours
+					</p>
+					<div
+						className="min-h-64 space-y-1 md:min-h-0 md:flex-1 md:overflow-y-auto"
+						aria-busy={history.history.refreshing}
+					>
+						{Boolean(history.history.error) && (
+							<AlertBanner variant="error">{history.history.error}</AlertBanner>
+						)}
+						{Boolean(history.history.loading) && (
+							<p role="status" className="py-4 text-sm">
+								Loading collection jobs…
+							</p>
+						)}
+						{history.history.data?.data.length === 0 && (
+							<p className="py-4 text-sm text-basalt-muted-foreground">
+								No jobs match these filters.
+							</p>
+						)}
+
+						{history.history.data?.data.map((job) => (
+							<div key={job.id}>
+								<JobButton
+									job={job}
+									name={`${job.projectName}${job.target ? ` · ${job.target.repository.name} #${job.target.number}` : ""}`}
+									selected={history.selectedId === job.id}
+									onClick={() =>
+										history.select(
+											history.selectedId === job.id ? null : job.id,
+										)
+									}
+									now={now}
+								/>
+								{history.selectedId === job.id && (
+									<>
+										{job.target !== null && (
+											<a
+												href={job.target.url}
+												target="_blank"
+												rel="noreferrer"
+												className="mx-3 my-2 inline-flex items-center gap-1 text-xs text-basalt-primary"
+											>
+												Open PR #{job.target.number}
+												<ExternalLink className="h-3 w-3" />
+											</a>
+										)}
+										{selected(job)}
+									</>
+								)}
+							</div>
+						))}
+					</div>
+					<div className="flex shrink-0 items-center justify-between border-t border-basalt-border pt-3 text-xs text-basalt-muted-foreground">
+						<span>
+							Page {history.page} · {history.history.data?.data.length ?? 0}{" "}
+							jobs
+						</span>
+						<div className="flex gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={history.page === 1 || history.history.loading}
+								onClick={history.newer}
+							>
+								Newer
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={
+									!history.history.data?.nextCursor || history.history.loading
+								}
+								onClick={history.older}
+							>
+								Older
+							</Button>
+						</div>
+					</div>
+				</section>
+			</div>
 		</DialogContent>
 	);
 }

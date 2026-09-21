@@ -62,6 +62,7 @@ describe("v1 cache queries", () => {
 			{ pullId: pull.id },
 			PR_TEST_NOW,
 		);
+		sqlite.raw.query("DELETE FROM collection_jobs").run();
 		const insert = (
 			id: string,
 			source = "cli",
@@ -140,6 +141,61 @@ describe("v1 cache queries", () => {
 		expect(
 			(await read("&lane=status&outcome=issues")).data.map((job) => job.id),
 		).toEqual(["status-failure"]);
+	});
+	test("jobs retain request order and identity as queued and running tasks finish", async () => {
+		const { project } = seed();
+		const states = [
+			"queued",
+			"running",
+			"auth_required",
+			"complete",
+			"failed",
+			"partial",
+			"canceled",
+		];
+		for (const [index, state] of states.entries()) {
+			sqlite.raw
+				.query(
+					`INSERT INTO collection_jobs(id,project_id,revision,source,state,requested_at,updated_at,kind,message) VALUES(?,?,1,'cli',?,?,?,'details',?)`,
+				)
+				.run(
+					`task-${index}`,
+					project.id,
+					state,
+					PR_TEST_NOW + index,
+					PR_TEST_NOW + index,
+					state,
+				);
+		}
+		const read = async (query = "") =>
+			jobHistorySchema.parse(
+				await (await request(`/api/query/v1/jobs?source=live${query}`)).json(),
+			);
+		const before = await read();
+		expect(before.data.map((job) => job.state)).toEqual([
+			"canceled",
+			"partial",
+			"failed",
+			"succeeded",
+			"auth_required",
+			"running",
+			"queued",
+		]);
+		expect(
+			(await read("&outcome=issues")).data.map((job) => job.state),
+		).toEqual(["partial", "failed", "auth_required"]);
+		sqlite.raw
+			.query(
+				"UPDATE collection_jobs SET state='complete',completed_at=?,updated_at=? WHERE state IN ('running','queued')",
+			)
+			.run(PR_TEST_NOW + 20, PR_TEST_NOW + 20);
+		const after = await read();
+		expect(after.data.map((job) => job.id)).toEqual(
+			before.data.map((job) => job.id),
+		);
+		expect(after.data.filter((job) => job.state === "succeeded")).toHaveLength(
+			3,
+		);
 	});
 	test("cached build expiry is preserved in the shared API's policies, readiness, and requirements", async () => {
 		seedProject(sqlite, {

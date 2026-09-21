@@ -98,7 +98,6 @@ test("describes queue, manual mode and per-PR scheduling precisely", () => {
 	expect(collectorStatus(snapshot, null, fixtureNow).activity).toBe(
 		"Waiting to start",
 	);
-	expect(collectorStatus(snapshot, null, fixtureNow).work).toHaveLength(1);
 	snapshot.queue.queued = 0;
 	snapshot.watching = 1;
 	snapshot.detailCooldownSeconds = 0;

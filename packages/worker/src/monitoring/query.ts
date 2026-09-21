@@ -1216,10 +1216,7 @@ export async function queryJobHistory(
 	filters: JobHistoryFilters,
 ) {
 	const signature = JSON.stringify([source, filters.lane, filters.outcome]);
-	const where = [
-		"j.source=?",
-		"j.state IN ('complete','partial','failed','canceled')",
-	];
+	const where = ["j.source=?"];
 	const values: (string | number)[] = [source];
 	if (filters.lane === "discover") where.push("j.kind='list'");
 	else if (filters.lane !== "all") {
@@ -1227,7 +1224,7 @@ export async function queryJobHistory(
 		values.push(Number(filters.lane === "status"));
 	}
 	if (filters.outcome === "issues")
-		where.push("j.state IN ('partial','failed')");
+		where.push("j.state IN ('partial','failed','auth_required')");
 	if (filters.cursor) {
 		try {
 			const cursor = z

@@ -98,8 +98,8 @@ it("keeps the sidebar compact and moves settings and history into the dialog", a
 	const dialog = await screen.findByRole("dialog", {
 		name: "Collector details",
 	});
-	expect(within(dialog).getByText("Current work")).toBeTruthy();
-	await within(dialog).findByText("No completed tasks match these filters.");
+	expect(within(dialog).getByText("Overview")).toBeTruthy();
+	await within(dialog).findByText("No jobs match these filters.");
 	fireEvent.click(
 		within(dialog).getByRole("combobox", {
 			name: "Watched PR refresh cooldown",
@@ -144,7 +144,7 @@ it("distinguishes partial collection from connectivity failure and exposes compl
 	expect(panel().textContent).not.toContain("Build 123 is unavailable");
 	openDetails();
 	const history = await screen.findByRole("region", {
-		name: "Collection history",
+		name: "Collection jobs",
 	});
 	fireEvent.click(
 		await within(history).findByRole("button", { name: /Intent/ }),
@@ -154,9 +154,7 @@ it("distinguishes partial collection from connectivity failure and exposes compl
 	expect(within(history).getByText("Error: unavailable")).toBeTruthy();
 	fireEvent.click(within(history).getByRole("button", { name: "Older" }));
 	await within(history).findByText(/Page 2/);
-	fireEvent.click(
-		within(history).getByRole("combobox", { name: "History result" }),
-	);
+	fireEvent.click(within(history).getByRole("combobox", { name: "Job state" }));
 	fireEvent.click(screen.getByRole("option", { name: "Issues only" }));
 	await within(history).findByText(/Page 1/);
 });
@@ -177,9 +175,9 @@ it("reports history errors with a retry control without hiding current health", 
 	openDetails();
 	await screen.findByText("History unavailable");
 	fireEvent.click(
-		screen.getByRole("button", { name: "Reload collection history" }),
+		screen.getByRole("button", { name: "Reload collection jobs" }),
 	);
-	await screen.findByText("No completed tasks match these filters.");
+	await screen.findByText("No jobs match these filters.");
 });
 it("shows current progress and freshness in the dialog", async () => {
 	vm.collector!.queue.running = 1;
@@ -191,6 +189,14 @@ it("shows current progress and freshness in the dialog", async () => {
 			lane: "status",
 		}),
 	];
+	vi.mocked(loadCollectorHistory).mockResolvedValue({
+		data: vm.collector!.jobs.map((job) => ({
+			...job,
+			projectName: "Intent",
+			target: null,
+		})),
+		nextCursor: null,
+	});
 	vm.collector!.scheduling = {
 		strategy: "per_pr",
 		checksConcurrency: 2,
@@ -206,8 +212,67 @@ it("shows current progress and freshness in the dialog", async () => {
 	expect(within(panel()).getByText("Checking PR state")).toBeTruthy();
 	openDetails();
 	const work = await screen.findByRole("region", {
-		name: "Current collection work",
+		name: "Collection jobs",
 	});
-	expect(work.textContent).toContain("3 / 8");
+	await within(work).findByText(/3 \/ 8/);
 	expect(screen.getByText("Oldest checks")).toBeTruthy();
+});
+
+it("keeps running and finished jobs in one list and preserves expanded rows after completion", async () => {
+	const running = {
+		...fixtureJob({ id: "running", state: "running", completedAt: null }),
+		projectName: "Active task",
+		target: null,
+	};
+	const failed = {
+		...fixtureJob({ id: "failed", state: "failed" }),
+		projectName: "Failed task",
+		target: null,
+	};
+	const succeeded = {
+		...fixtureJob({ id: "succeeded", state: "succeeded" }),
+		projectName: "Finished task",
+		target: null,
+	};
+	vi.mocked(loadCollectorHistory).mockResolvedValue({
+		data: [running, failed, succeeded],
+		nextCursor: null,
+	});
+	vi.mocked(loadCollectionJob).mockResolvedValue(running);
+	renderSidebar();
+	openDetails();
+	const jobs = await screen.findByRole("region", { name: "Collection jobs" });
+	const row = await within(jobs).findByRole("button", { name: /Active task/ });
+	fireEvent.click(row);
+	await within(jobs).findByText("Task running");
+	expect(
+		within(jobs).getByRole("button", { name: /Failed task/ }),
+	).toBeTruthy();
+	expect(
+		within(jobs).getByRole("button", { name: /Finished task/ }),
+	).toBeTruthy();
+	const updated = { ...running, state: "succeeded" as const };
+	vi.mocked(loadCollectorHistory).mockResolvedValue({
+		data: [updated, failed, succeeded],
+		nextCursor: null,
+	});
+	fireEvent.click(
+		within(jobs).getByRole("button", { name: "Reload collection jobs" }),
+	);
+	const completed = await within(jobs).findByRole("button", {
+		name: /Active task.*Succeeded/,
+	});
+	expect(completed).toBe(row);
+	expect(completed.getAttribute("aria-expanded")).toBe("true");
+	expect(within(jobs).getAllByRole("button", { expanded: true })).toHaveLength(
+		1,
+	);
+	const rows = within(jobs).getAllByRole("button", {
+		name: /Active task|Failed task|Finished task/,
+	});
+	expect(rows.map((item) => item.textContent?.split("PR")[0])).toEqual([
+		"Active task",
+		"Failed task",
+		"Finished task",
+	]);
 });

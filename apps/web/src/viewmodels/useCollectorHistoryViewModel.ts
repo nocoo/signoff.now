@@ -18,7 +18,7 @@ export function useCollectorHistoryViewModel(source: PullFilter["source"]) {
 	const history = useQueryBlock(
 		`history:${source}:${JSON.stringify(filters)}:${cursor ?? ""}`,
 		(signal) => loadCollectorHistory(source, { ...filters, cursor }, signal),
-		cursor ? 0 : 15000,
+		3000,
 	);
 	const detail = useQueryBlock(
 		selectedId ? `job:${source}:${selectedId}` : null,

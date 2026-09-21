@@ -102,9 +102,6 @@ export function collectorStatus(
 		problem,
 		activity,
 		issues,
-		work: canRun
-			? jobs.filter((job) => job.state === "running" || job.state === "queued")
-			: [],
 		running: canRun ? running : [],
 	};
 }

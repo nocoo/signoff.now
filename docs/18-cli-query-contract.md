@@ -357,15 +357,17 @@ signoff watch remove '<PR URL>'
 
 ## Collector details and history
 
-The sidebar Connector opens a read-only status dialog. Connection failures,
-incomplete PR collection, current tasks, and data age are shown separately.
+The sidebar Connector opens a wide, two-column status dialog. Connection,
+freshness, and settings occupy the metadata column; queued, running, and finished
+jobs share one independently scrolling list. State changes update each row in
+place without moving it between sections.
 Current refresh issues only include active observation generations; stopped
 watches remain available in history.
 
-`GET /api/query/v1/jobs?source=live&lane=all&outcome=all` returns up to 50 terminal
-tasks as `{ data, nextCursor }`, ordered by request time and ID descending.
+`GET /api/query/v1/jobs?source=live&lane=all&outcome=all` returns up to 50 collection
+tasks across all states as `{ data, nextCursor }`, ordered by request time and ID descending.
 `lane` accepts `all`, `checks`, `status`, or `discover`; `outcome` accepts `all`
-or `issues` (failed or partial). Pass `nextCursor` as `cursor` for older results.
+or `issues` (failed, partial, or sign-in required). Pass `nextCursor` as `cursor` for older results.
 Cursors are scoped to the source and filters and remain stable as new tasks
 arrive. Each row includes the project name and the retained PR reference, when
 available. `GET /api/query/v1/jobs/:id` supplies repository results and complete
