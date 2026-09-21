@@ -20,6 +20,26 @@ import {
 
 export const LANE_CONCURRENCY = 2;
 
+export async function pruneCollectionHistory(
+	db: D1Database,
+	timestamp: number,
+) {
+	const cutoff = timestamp - 12 * 60 * 60;
+	await db.batch([
+		db
+			.prepare(`DELETE FROM collection_jobs WHERE id IN (
+      SELECT id FROM collection_jobs WHERE state IN ('complete','partial','failed','canceled')
+      AND COALESCE(completed_at,updated_at)<? ORDER BY COALESCE(completed_at,updated_at) LIMIT 100
+    )`)
+			.bind(cutoff),
+		db
+			.prepare(`DELETE FROM scan_runs WHERE id IN (
+      SELECT id FROM scan_runs WHERE completed_at<? ORDER BY completed_at LIMIT 100
+    )`)
+			.bind(cutoff),
+	]);
+}
+
 export async function scheduleDiscovery(
 	db: D1Database,
 	timestamp: number,

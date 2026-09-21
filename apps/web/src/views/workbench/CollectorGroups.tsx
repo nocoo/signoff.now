@@ -34,8 +34,8 @@ export function CollectorGroups({ source }: { source: PullFilter["source"] }) {
 				</Button>
 			</div>
 			<p className="text-xs text-basalt-muted-foreground">
-				Grouped by PR and project · Expand for attempts, collection phases and
-				returned results
+				Grouped by PR and project · Completed history expires after 12 hours ·
+				Active jobs are retained
 			</p>
 			<div
 				className="min-h-64 space-y-2 md:min-h-0 md:flex-1 md:overflow-y-auto"

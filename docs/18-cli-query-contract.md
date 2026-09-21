@@ -157,7 +157,7 @@ All new evidence is extracted during existing discovery/full-refresh requests an
 | `GET /api/query/v1/observations` | 默认 active；`includeStopped=true` 包含所有保留的 inactive 行，按规范身份稳定排序并使用同一 source 版本分页 |
 | `GET /api/query/v1/observations/lookup` | `source` 加 `pullId`，或 `repositoryUrl` + `number`；本地解析后返回唯一观察项 ID / generation 及 active / 停止状态，未观察为 404 |
 | `GET /api/query/v1/collector` | 执行器、按范围 / 通道去重的任务预览、完整队列计数、观察数量、最近错误、检查与状态冷却，以及 `sampleCommandsEnabled` |
-| `GET /api/query/v1/jobs/:id` | 已存任务状态；状态探测的终结回执保留 24 小时，超过保留期可返回 NOT_FOUND |
+| `GET /api/query/v1/jobs/:id` | Cached job status; terminal receipts expire after 12 hours and may return `NOT_FOUND` |
 | `POST /api/commands/v1/observations` | `{ source, refs: [{ pullId } 或 { url }] }`，每批最多 100 项，逐项返回 added / already_observed / rejected、observation ID / generation、job 回执或 error |
 | `DELETE /api/commands/v1/observations/:id?source=…` | `If-Match: "<generation>"`，仅移除该代次；同代次已停止为幂等成功，代次不匹配为 409 |
 | `POST /api/commands/v1/observations/remove` | `{ source, items: [{ id, generation }] }`，最多 100 项，逐项 removed / already_stopped / conflict / not_found |
@@ -331,6 +331,8 @@ The wide, two-column dialog keeps connection metadata and both cooldown settings
 `GET /api/query/v1/jobs?source=live&lane=all&outcome=all&group=pr:<observationId>` reads up to 50 attempts, newest first. Use `project:<projectId>` for list tasks. `lane` accepts `all`, `checks`, `discover`; `outcome` accepts `all` or `issues`. Pagination cursors are scoped to the source and filters. `GET /api/query/v1/jobs/:id` includes phase events, repository results, errors and the immutable returned PR snapshot with builds, stages and checks. Attempts recorded before this feature explicitly have no returned snapshot.
 
 These reads never enqueue provider work. Old status-lane jobs are excluded from current groups and history. A newer successful attempt clears current warnings without erasing prior failures. An unassigned ADO policy build ID (`0`) remains queued and never triggers a build-0 request.
+
+Terminal attempts (`complete`, `partial`, `failed`, `canceled`) expire 12 hours after completion, falling back to their last update when completion time is absent. The daemon prunes at most 100 jobs and 100 scan receipts per scheduling request; accumulated history drains over successive requests after downtime. Exact cutoff timestamps are retained until the next second. Attached results, events, staging, claim bindings and repository receipts are removed with the job. Active jobs, PR caches, watch records and persisted Jev results are retained. Reads remain side-effect free; expired job IDs return `NOT_FOUND`. Collection cooldowns are at most 10 minutes, so expired history cannot hold a current cooldown.
 
 ### Provider request activity
 

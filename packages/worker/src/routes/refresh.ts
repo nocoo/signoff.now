@@ -10,6 +10,7 @@ import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { isLocalhost } from "../middleware/entry-control.js";
 import {
+	pruneCollectionHistory,
 	scheduleDiscovery,
 	scheduleObservations,
 } from "../monitoring/scheduler.js";
@@ -118,11 +119,13 @@ export async function collectorScheduleRoute(c: Context<AppEnv>) {
 		.strict()
 		.safeParse(raw.ok ? raw.value : null);
 	if (!input.success) return c.json({ error: "Invalid schedule request" }, 400);
+	const timestamp = Math.floor(Date.now() / 1000);
+	await pruneCollectionHistory(c.env.DB, timestamp);
 	await (input.data.kind === "list" || input.data.lane === "discover"
 		? scheduleDiscovery
 		: scheduleObservations)(
 		c.env.DB,
-		Math.floor(Date.now() / 1000),
+		timestamp,
 		c.env.SIGNOFF_DEMO_MODE === "1" ? undefined : "cli",
 	);
 	const result = await queues(c);
