@@ -43,6 +43,7 @@ import { SelectControl } from "@/components/SelectControl";
 import { Skeleton } from "@/components/Skeleton";
 import { cn } from "@/lib/utils";
 import { relativeAge } from "@/models/freshness";
+import { type AiSchedule, readinessDisplay } from "@/models/readinessDisplay";
 import {
 	DEFAULT_PULL_FILTER,
 	nextPullSort,
@@ -50,22 +51,21 @@ import {
 	type PullRow,
 } from "@/models/workbench";
 import { machineHref } from "@/models/workspaceLocation";
+import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { PullQuickFilters } from "./PullQuickFilters";
+import { ReadinessCell } from "./ReadinessCell";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
-import {
-	LifecycleBadge,
-	ReadinessBadge,
-	StageBar,
-	StageLegend,
-} from "./WorkbenchStatus";
+import { LifecycleBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
 	const vm = useWorkbench();
 	const now = useMinuteNow();
+	const aiSchedule = useAiScheduleViewModel(vm.filter.source);
+	const evaluationNow = Math.floor(Date.now() / 1000);
 	const opener = useRef<HTMLElement | null>(null);
 
 	const scopedProject = vm.projectOptions.find(
@@ -347,6 +347,8 @@ export function PullsPage() {
 												row={row}
 												vm={vm}
 												now={now}
+												aiSchedule={aiSchedule.error ? null : aiSchedule.data}
+												evaluationNow={evaluationNow}
 												onOpen={(element) => {
 													opener.current = element;
 													vm.selectPull(row.pull.id);
@@ -614,11 +616,15 @@ function PullTableRow({
 	row,
 	vm,
 	now,
+	aiSchedule,
+	evaluationNow,
 	onOpen,
 }: {
 	row: PullRow;
 	vm: ReturnType<typeof useWorkbench>;
 	now: number;
+	aiSchedule: AiSchedule | null;
+	evaluationNow: number;
 	onOpen: (element: HTMLButtonElement) => void;
 }) {
 	const { pull, project, readiness, progress, observation } = row;
@@ -752,7 +758,15 @@ function PullTableRow({
 				</a>
 			</TableCell>
 			<TableCell className="py-3.5 align-top">
-				<ReadinessBadge readiness={readiness} project={project} />
+				<ReadinessCell
+					display={readinessDisplay(
+						readiness,
+						project.id,
+						aiSchedule,
+						evaluationNow,
+					)}
+					failed={readiness.status === "error"}
+				/>
 			</TableCell>
 			<TableCell className="py-3.5 align-top">
 				{pull.checksObservedAt === null ? (

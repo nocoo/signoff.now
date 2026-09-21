@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@nocoo/basalt";
 import { makeWatchRef } from "@signoff/domain/monitoring";
 import type { ProjectWrite } from "@signoff/domain/workbench";
 import {
@@ -5,7 +6,7 @@ import {
 	cleanup,
 	fireEvent,
 	renderHook,
-	render as renderView,
+	render as renderTestingView,
 	screen,
 	waitFor,
 	within,
@@ -43,6 +44,9 @@ import {
 	useWorkbenchViewModel,
 } from "./useWorkbenchViewModel";
 import { useWorkbench, WorkbenchProvider } from "./WorkbenchProvider";
+
+const renderView = (ui: ReactNode) =>
+	renderTestingView(<TooltipProvider>{ui}</TooltipProvider>);
 
 vi.mock("@/models/aiScheduleApi", () => ({
 	loadAiSchedule: vi.fn(async () => ({
