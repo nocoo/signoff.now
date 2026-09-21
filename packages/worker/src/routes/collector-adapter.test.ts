@@ -63,12 +63,32 @@ test("executor endpoints publish one watched PR and its scan receipt, without ex
 			...data,
 			leaseToken: claim.leaseToken,
 		});
+	for (let attempt = 0; attempt < 2; attempt++) {
+		expect(
+			(await action("repositories", { repositories: [pull.repository] }))
+				.status,
+		).toBe(200);
+		expect(
+			(
+				await action("progress", {
+					completedPulls: 1,
+					totalPulls: 1,
+					message: "Collected",
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(await action("batch", { pulls: [{ ...pull, state: "merged" }] })).status,
+		).toBe(200);
+	}
 	expect(
-		(await action("repositories", { repositories: [pull.repository] })).status,
-	).toBe(200);
+		sqlite.raw.query("SELECT COUNT(*) AS count FROM collection_staging").get(),
+	).toEqual({ count: 1 });
 	expect(
-		(await action("batch", { pulls: [{ ...pull, state: "merged" }] })).status,
-	).toBe(200);
+		sqlite.raw
+			.query("SELECT COUNT(*) AS count FROM collection_job_repositories")
+			.get(),
+	).toEqual({ count: 1 });
 	expect(sqlite.raw.query("SELECT state FROM pull_requests").get()).toEqual({
 		state: "open",
 	});

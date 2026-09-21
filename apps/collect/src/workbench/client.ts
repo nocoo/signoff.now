@@ -18,7 +18,11 @@ import {
 	workbenchSchema,
 } from "@signoff/domain/workbench";
 import { z } from "zod";
-import { type FetchLike, pipelineRequest } from "../pipeline/client.ts";
+import {
+	type FetchLike,
+	isPipelineClientError,
+	pipelineRequest,
+} from "../pipeline/client.ts";
 
 export function collectionApiBase(value = "http://127.0.0.1:37042"): string {
 	const url = new URL(value);
@@ -72,13 +76,33 @@ export function createCollectionClient(
 		timeoutMs: 30_000,
 		redirect: "error" as const,
 	};
-	const request = (method: string, path: string, body?: unknown) =>
-		pipelineRequest(config, method, path, body);
+	const request = async (
+		method: string,
+		path: string,
+		body?: unknown,
+		retrySafe = method === "GET",
+	) => {
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return await pipelineRequest(config, method, path, body);
+			} catch (error) {
+				if (
+					!retrySafe ||
+					attempt >= 2 ||
+					!isPipelineClientError(error) ||
+					![500, 502, 503, 504].includes(error.status)
+				)
+					throw error;
+				await Bun.sleep(250 * 2 ** attempt);
+			}
+		}
+	};
 	const jobRequest = (lease: Lease, action: string, body: object) =>
 		request(
 			"POST",
 			`/api/collector/jobs/${encodeURIComponent(lease.job.id)}/${action}`,
 			{ ...body, leaseToken: lease.leaseToken },
+			["progress", "batch", "repositories"].includes(action),
 		);
 	return {
 		job: async (id: string) =>
@@ -106,7 +130,7 @@ export function createCollectionClient(
 				),
 			),
 		heartbeat: (state: CollectorStatus["state"], message = "") =>
-			request("POST", "/api/collector/heartbeat", { state, message }),
+			request("POST", "/api/collector/heartbeat", { state, message }, true),
 		schedule: async (kind: RefreshQueueKind, lane?: CollectionLane) =>
 			refreshQueueSchema.parse(
 				await request("POST", "/api/collector/schedule", {

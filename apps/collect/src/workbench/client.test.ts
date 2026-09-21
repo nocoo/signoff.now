@@ -7,6 +7,114 @@ import {
 } from "./client.ts";
 
 describe("local collection API client", () => {
+	test.each([
+		"heartbeat",
+		"progress",
+		"upload",
+		"repositories",
+		"job",
+	] as const)("retries a lost %s response with the same payload", async (operation) => {
+		const lease = { job: { id: "job" }, leaseToken: "token" };
+		const job = {
+			id: "job",
+			projectId: "project",
+			revision: 1,
+			state: "running",
+			requestedAt: 1,
+			startedAt: 1,
+			updatedAt: 1,
+			completedAt: null,
+			completedPulls: 0,
+			totalPulls: null,
+			message: "Collecting",
+		};
+		const calls: { url: string; body: RequestInit["body"] }[] = [];
+		const api = createCollectionClient({
+			fetchImpl: async (url, init) => {
+				calls.push({ url, body: init?.body });
+				if (calls.length === 1)
+					return new Response("Network connection lost.", { status: 500 });
+				return Response.json(operation === "repositories" ? [] : job);
+			},
+		});
+		await {
+			heartbeat: () => api.heartbeat("ready"),
+			progress: () => api.progress(lease, 0, null, "Collecting"),
+			upload: () =>
+				api.upload(
+					lease,
+					demoWorkspace(1_789_632_000).pullRequests.slice(0, 1),
+				),
+			repositories: () =>
+				api.repositories(lease, [{ id: "repo", name: "app" }]),
+			job: () => api.job("job"),
+		}[operation]();
+		expect(calls).toHaveLength(2);
+		expect(calls[1]).toEqual(calls[0]);
+	});
+	test.each([
+		500, 502, 503, 504,
+	])("bounds retries after persistent HTTP %s and preserves the last error", async (status) => {
+		let attempts = 0;
+		const api = createCollectionClient({
+			fetchImpl: async () => {
+				attempts++;
+				return Response.json({ error: `Failure ${attempts}` }, { status });
+			},
+		});
+		await expect(api.heartbeat("ready")).rejects.toMatchObject({
+			status,
+			body: { error: "Failure 3" },
+		});
+		expect(attempts).toBe(3);
+	});
+	test.each([
+		400, 401, 403, 404, 409, 413, 501,
+	])("does not retry rejected progress with HTTP %s", async (status) => {
+		let attempts = 0;
+		const api = createCollectionClient({
+			fetchImpl: async () => {
+				attempts++;
+				return Response.json({ error: "Rejected" }, { status });
+			},
+		});
+		await expect(
+			api.progress({ job: { id: "job" }, leaseToken: "token" }, 0, null, ""),
+		).rejects.toMatchObject({ status });
+		expect(attempts).toBe(1);
+	});
+	test("stops retrying when a transient failure becomes a lease conflict", async () => {
+		const statuses = [500, 409];
+		const api = createCollectionClient({
+			fetchImpl: async () => Response.json({}, { status: statuses.shift()! }),
+		});
+		await expect(
+			api.progress({ job: { id: "job" }, leaseToken: "token" }, 0, null, ""),
+		).rejects.toMatchObject({ status: 409 });
+		expect(statuses).toEqual([]);
+	});
+	test("does not replay task claims, scheduling or terminal job writes", async () => {
+		const lease = { job: { id: "job" }, leaseToken: "token" };
+		let attempts = 0;
+		const api = createCollectionClient({
+			fetchImpl: async () => {
+				attempts++;
+				return new Response("Network connection lost.", { status: 500 });
+			},
+		});
+		for (const call of [
+			() => api.claim(),
+			() => api.schedule("details"),
+			() => api.publish(lease, "repo", "complete", 1, ""),
+			() => api.complete(lease),
+			() => api.fail(lease, "unavailable", ""),
+			() => api.repositoryFail(lease, "repo", ""),
+		]) {
+			const before = attempts;
+			await expect(call()).rejects.toMatchObject({ status: 500 });
+			expect(attempts).toBe(before + 1);
+		}
+	});
 	test("repository plans retain validated discovery cursors", async () => {
 		const cursor = { number: 42, createdAt: 1789646000 };
 		const api = createCollectionClient({
