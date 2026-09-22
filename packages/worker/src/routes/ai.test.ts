@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { CLASSIFICATION, JEV_MODEL } from "@signoff/domain/ai-readiness";
+import {
+	CLASSIFICATION,
+	COMMON_RULES,
+	JEV_MODEL,
+} from "@signoff/domain/ai-readiness";
 import app from "../index";
 import { seedProject } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
@@ -231,7 +235,7 @@ test("editable common and project rules persist with CAS and isolate invalidatio
 		common: { revision: number; text: string };
 		projects: { id: string; text: string }[];
 	};
-	expect(rules.common.text).toContain("Build failure means Attention");
+	expect(rules.common.text).toBe(COMMON_RULES);
 	const put = (scope: string, revision: number, text: string) =>
 		request("/rules", "PUT", { scope, revision, text });
 	expect(

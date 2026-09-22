@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const COMMON_RULES = `Judge as the PR developer: what should I do now?
-Build failure means Attention: a person must inspect it. Do not decide rerun versus repair.
+Build failure or unsatisfied Comment requirements (C9) means Attention: inspect the failure or resolve the outstanding discussion. Missing reviews do not hide these blockers. Do not decide rerun versus repair.
 An actively running build normally means Running. Queued builds or automatic prerequisites awaiting execution mean Waiting. Unfinished policies are not negative conclusions. Without enough signal to require action, choose Running.
 Review Needed means builds succeeded and remain unexpired, no more serious blocker exists, and only review requirements remain: minimum approvals excluding the author, required/path reviewers or review compliance. This includes already assigned reviewers with pending votes. A missing approval is not a build failure or an author change request. Treat an unsatisfied review/compliance policy as a review deficit unless votes or provider evidence explicitly require author changes or another non-review action. A rejected review-policy evaluation alone is not a reviewer rejection. Actual requested code changes remain Attention. Waiting is for non-review processes such as queued builds, never for review.
 PoP (Proof Of Presence) is the final step, after successful unexpired builds and completed reviews. If PoP is the only remaining gate, classify Ready for that final step; provider merge requirements still apply.
