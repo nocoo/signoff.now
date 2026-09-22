@@ -142,7 +142,12 @@ export function readinessEvidence(
 				facts: distinct([
 					...policies.map((p) => ({
 						source: "policy" as const,
-						state: p.state,
+						state:
+							p.state === "passed"
+								? "satisfied"
+								: p.state === "failed"
+									? "unsatisfied"
+									: p.state,
 						required: p.required,
 						enabled: p.evidence?.isEnabled ?? null,
 						applicable: p.evidence?.status

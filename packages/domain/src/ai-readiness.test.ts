@@ -316,7 +316,7 @@ test("concise evidence retains conflicting conclusions and scoped instructions w
 			expect.objectContaining({
 				source: "policy",
 				isExpired: true,
-				state: "failed",
+				state: "unsatisfied",
 			}),
 		]),
 	});
@@ -398,6 +398,57 @@ test("concise evidence retains conflicting conclusions and scoped instructions w
 		),
 	).not.toContain("Inspect expiry");
 	expect(canonicalJson({ b: 1, a: 2 })).toBe(canonicalJson({ a: 2, b: 1 }));
+});
+
+test("unmet review conditions remain distinct from build failures and explicit expiry", () => {
+	const snapshot = {
+		...pull,
+		policies: [
+			{
+				...policy,
+				evidence: {
+					status: "approved",
+					isExpired: false,
+					buildIsNotCurrent: true,
+				},
+			},
+			{
+				...policy,
+				id: "review-compliance",
+				name: "Review compliance",
+				kind: "status" as const,
+				definitionId: undefined,
+				evidence: { status: "rejected" },
+			},
+		],
+		builds: [
+			{
+				id: "ci",
+				name: "CI",
+				definitionId: "42",
+				number: 1,
+				state: "failed" as const,
+				required: true,
+				stages: [],
+			},
+		],
+	};
+	const facts = decisionState(snapshot, project).evidence.requirements.flatMap(
+		(r) => r.facts,
+	);
+	expect(facts).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ source: "policy", state: "unsatisfied" }),
+			expect.objectContaining({ source: "build", state: "failed" }),
+			expect.objectContaining({
+				source: "policy",
+				state: "satisfied",
+				isExpired: false,
+				buildIsNotCurrent: true,
+			}),
+		]),
+	);
+	expect(snapshot.policies[1]?.evidence.status).toBe("rejected");
 });
 
 test("shortcuts and repository-scoped policy context are independent of model judgments", () => {

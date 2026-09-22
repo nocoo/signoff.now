@@ -16,7 +16,7 @@ import { z } from "zod";
 import type { Project, PullRequest } from "./workbench.js";
 
 export const JEV_MODEL = "jev-1.13.0";
-export const JEV_RUBRIC = "signoff-evidence-v7";
+export const JEV_RUBRIC = "signoff-evidence-v8";
 export const CLASSIFICATION = {
 	attention:
 		"Human inspection is needed now: a failed or explicitly expired build, requested code changes, or another actionable blocker. Missing reviews and PoP deferred until builds/reviews finish are not Attention. Do not decide rerun versus repair.",

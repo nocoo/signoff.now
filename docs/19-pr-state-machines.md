@@ -25,7 +25,7 @@ Readiness column sorting follows the visible badge: a pending, running or failed
 
 API filters accept the ten kinds above. Counts use the same camel-free keys (`skipped`, `conflict`, `attention`, `review_needed`, `warning`, `running`, `ready`, `waiting`, `unknown`, `error`). The obsolete `on_track`, `onTrack`, action Choice fields and `readiness.ready` boolean are removed. Web and cached CLI read the same persisted result. No merge, approval, rerun or bypass is performed.
 
-Results persist model `jev-1.13.0`, rubric `signoff-evidence-v7`, canonical input fingerprint, evaluation time, cache reuse time and Choice probabilities/confidence. Confidence measures distribution concentration, not accuracy. Old-rubric results are invalidated by the decision fingerprint without resetting collected data or watches.
+Results persist model `jev-1.13.0`, rubric `signoff-evidence-v8`, canonical input fingerprint, evaluation time, cache reuse time and Choice probabilities/confidence. Confidence measures distribution concentration, not accuracy. Old-rubric results are invalidated by the decision fingerprint without resetting collected data or watches.
 
 ## State and fixed policy numbers
 
