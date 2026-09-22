@@ -16,6 +16,7 @@
 	"dependencies": {
 		"@nocoo/basalt": "2.1.8",
 		"@signoff/domain": "workspace:*",
+		"@xyflow/react": "12.11.6",
 		"clsx": "^2.1.1",
 		"elkjs": "0.12.0",
 		"lucide-react": "1.45.0",

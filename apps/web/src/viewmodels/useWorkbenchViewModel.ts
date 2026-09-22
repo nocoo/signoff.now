@@ -645,11 +645,17 @@ export function useWorkbenchViewModel() {
 		if (patch.source !== undefined && !isPullsList) saveFilters(next);
 		if (
 			patch.source !== undefined &&
-			(route?.section === "sm" || pullReference)
+			(route?.section === "sm" ||
+				pullReference ||
+				location.pathname.startsWith("/policy-instructions"))
 		) {
 			navigate(
 				withQuery(
-					route?.section === "sm" ? "/sm" : "/prs",
+					location.pathname.startsWith("/policy-instructions")
+						? "/policy-instructions"
+						: route?.section === "sm"
+							? "/sm"
+							: "/prs",
 					writePullFilter(next),
 				),
 			);

@@ -3,7 +3,12 @@ import {
 	policyInstructions,
 } from "@signoff/domain/ai-readiness";
 import { querySourceSchema, storageSource } from "@signoff/domain/monitoring";
-import { machinePageSchema, machineWriteSchema } from "@signoff/domain/query";
+import {
+	machineHistorySchema,
+	machinePageSchema,
+	machineWriteSchema,
+} from "@signoff/domain/query";
+import { evaluateRequirements } from "@signoff/domain/state-machine";
 import { pullRequestSchema } from "@signoff/domain/workbench";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
@@ -106,6 +111,55 @@ stateMachineRoutes.get("/:id", async (c) =>
 		),
 	),
 );
+stateMachineRoutes.get("/:id/history", async (c) => {
+	const source = storageSource(
+		querySourceSchema.parse(c.req.query("source") ?? "live"),
+	);
+	const pullId = z.string().min(1).max(500).parse(c.req.query("pullId"));
+	const row = await c.env.DB.prepare(
+		"SELECT p.* FROM projects p JOIN pull_requests r ON r.project_id=p.id WHERE p.id=? AND p.source=? AND r.id=?",
+	)
+		.bind(c.req.param("id"), source, pullId)
+		.first<ProjectRow>();
+	if (!row)
+		throw new MonitoringError(
+			"PR_NOT_FOUND",
+			"PR not found in this project and source",
+			404,
+		);
+	const project = mapProject(row);
+	const records = await c.env.DB.prepare(
+		"SELECT id,observed_at,from_snapshot,to_snapshot FROM pr_state_events WHERE pull_id=? AND project_id=? AND observed_at>=? ORDER BY id DESC LIMIT 30",
+	)
+		.bind(pullId, project.id, Date.now() / 1000 - 43200)
+		.all<{
+			id: number;
+			observed_at: number;
+			from_snapshot: string | null;
+			to_snapshot: string;
+		}>();
+	const facts = (snapshot: string) => {
+		const pull = pullRequestSchema.parse(JSON.parse(snapshot));
+		return {
+			lifecycle: pull.state === "open" && pull.draft ? "draft" : pull.state,
+			gates: Object.fromEntries(
+				evaluateRequirements(pull, { ...project, mergeRequirements: [] }).map(
+					(g) => [g.id, g.state],
+				),
+			),
+		};
+	};
+	return c.json(
+		machineHistorySchema.parse({
+			events: records.results.map((r) => ({
+				id: r.id,
+				at: r.observed_at,
+				from: r.from_snapshot ? facts(r.from_snapshot) : null,
+				to: facts(r.to_snapshot),
+			})),
+		}),
+	);
+});
 stateMachineRoutes.put("/:id", async (c) => {
 	const raw = await readJsonBodyWithSize(c, 512000);
 	if (!raw.ok) return c.json({ error: "Invalid policy instructions" }, 400);

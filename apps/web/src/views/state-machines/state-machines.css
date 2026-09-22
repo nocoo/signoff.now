@@ -1,0 +1,92 @@
+.machine-graph-card {
+	container-type: inline-size;
+}
+.machine-canvas {
+	--machine-label-background: #fafbfc;
+	--machine-grid-color: #d7dfe8;
+	--machine-minimap-mask: #edf2f680;
+	--xy-edge-label-color: #67748a;
+	--xy-controls-button-background-color: #fff;
+	--xy-controls-button-color: #526077;
+	--xy-controls-button-border-color: #e2e8ef;
+	--xy-minimap-background-color: #fafbfc;
+}
+.dark .machine-canvas,
+[data-mode="dark"] .machine-canvas {
+	--machine-label-background: #202631;
+	--machine-grid-color: #364052;
+	--machine-minimap-mask: #11182680;
+	--xy-edge-label-color: #a1aec0;
+	--xy-controls-button-background-color: #222b38;
+	--xy-controls-button-color: #c9d2df;
+	--xy-controls-button-border-color: #364052;
+	--xy-minimap-background-color: #202631;
+}
+.machine-canvas .react-flow__node-group {
+	border: none;
+	background: transparent;
+}
+.machine-canvas:fullscreen {
+	height: 100dvh;
+	width: 100vw;
+}
+.machine-node {
+	border-color: #cdd6e1;
+}
+.dark .machine-node,
+[data-mode="dark"] .machine-node {
+	border-color: #465368;
+}
+.machine-canvas .react-flow__controls {
+	overflow: hidden;
+	border-radius: 10px;
+	border: 1px solid var(--machine-grid-color);
+	background: var(--machine-label-background);
+}
+.machine-canvas .react-flow__controls-button,
+.machine-canvas .machine-control {
+	width: 30px;
+	height: 30px;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+.machine-canvas .machine-control {
+	border-left: 1px solid var(--machine-grid-color);
+}
+.machine-canvas .react-flow__minimap {
+	overflow: hidden;
+	border-radius: 12px;
+	border: 1px solid var(--machine-grid-color);
+}
+@media (width < 1280px) {
+	.machine-inspector-panel {
+		position: absolute;
+		inset: 0 44px 0 auto;
+		max-width: calc(100% - 44px);
+		box-shadow: -8px 0 24px #00000014;
+	}
+}
+@container (width < 500px) {
+	.machine-pull-search {
+		width: 5rem;
+	}
+	.machine-watched-label,
+	.machine-gates-label,
+	.machine-canvas .react-flow__minimap {
+		display: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.machine-canvas .react-flow__edge.animated path {
+		animation: none;
+	}
+}
+.machine-pull-menu [data-radix-select-viewport] {
+	max-height: min(
+		20rem,
+		calc(var(--radix-select-content-available-height) - 12px)
+	);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}

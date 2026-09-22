@@ -81,6 +81,16 @@ export function machineHref(
 	return withQuery(scopePath("sm", project, repository), params);
 }
 
+export function policyHref(
+	project: ProjectScope & { source: DataSource },
+	repository?: Repository | null,
+) {
+	return machineHref(project, repository).replace(
+		/^\/sm/,
+		"/policy-instructions",
+	);
+}
+
 export function pullHref(
 	project: ProjectScope & { source: DataSource },
 	pull: Pull,

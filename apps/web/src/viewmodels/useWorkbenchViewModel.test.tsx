@@ -822,9 +822,21 @@ describe("filters, server pages and temporary selection", () => {
 			source: "cli",
 		});
 	});
+	it("switches the policy editor source without retaining a foreign project scope", async () => {
+		const { result } = render(
+			"/policy-instructions/ado/northstar/Platform/repo?source=live",
+		);
+		await loaded(result);
+		act(() => result.current.vm.setFilter({ source: "demo" }));
+		await loaded(result);
+		expect(result.current.location.pathname).toBe("/policy-instructions");
+		expect(result.current.vm.filter.source).toBe("demo");
+	});
+
 	it.each([
 		"/sm/ado/northstar/Platform/repo?pr=1",
 		"/sm?source=live&tab=priority",
+		"/policy-instructions/ado/northstar/Platform/repo?source=live",
 		"/projects?source=live",
 		pullHref(project, pull),
 	])("keeps list preferences when visiting %s and returning through the sidebar", async (path) => {

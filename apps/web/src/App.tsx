@@ -22,6 +22,10 @@ import { ProjectsPage } from "@/views/workbench/ProjectsPage";
 import { PullsPage } from "@/views/workbench/PullsPage";
 import { RepositoriesPage } from "@/views/workbench/RepositoriesPage";
 
+const PolicyInstructionsPage = lazy(
+	() => import("@/views/settings/PolicyInstructionsPage"),
+);
+
 const StateMachinesPage = lazy(
 	() => import("@/views/state-machines/StateMachinesPage"),
 );
@@ -81,6 +85,18 @@ export default function App() {
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
 									<Route path="/ai-settings" element={<AiSettingsPage />} />
+									<Route
+										path="/policy-instructions/*"
+										element={
+											<Suspense
+												fallback={
+													<p role="status">Loading policy instructions…</p>
+												}
+											>
+												<PolicyInstructionsPage />
+											</Suspense>
+										}
+									/>
 									{["/sm/*", "/state-machines"].map((path) => (
 										<Route
 											key={path}

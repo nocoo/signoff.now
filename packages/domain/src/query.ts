@@ -94,6 +94,32 @@ export const pullQuerySchema = pullRequestSchema
 	});
 export type PullQueryItem = z.infer<typeof pullQuerySchema>;
 
+export const machineHistorySchema = z.object({
+	events: z.array(
+		z.object({
+			id: z.number(),
+			at: z.number(),
+			from: z
+				.object({
+					lifecycle: z.string(),
+					gates: z.record(z.string(), checkStateSchema),
+				})
+				.nullable(),
+			to: z.object({
+				lifecycle: z.string(),
+				gates: z.record(z.string(), checkStateSchema),
+			}),
+		}),
+	),
+});
+export type MachineHistory = z.infer<typeof machineHistorySchema>;
+export type MachinePullOption = {
+	id: string;
+	number: number;
+	title: string;
+	watched: boolean;
+};
+
 export const machinePageSchema = z.object({
 	project: projectSchema,
 	repositoryId: z.string().nullable(),

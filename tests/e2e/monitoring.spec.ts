@@ -958,7 +958,9 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	const projectId = pull.project.id;
 
 	const machineUrl = `${base}/api/state-machines/${projectId}?source=live&repositoryId=${repo.id}`;
-	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
+	await page.goto(
+		`/policy-instructions/ado/${repo.org}/${repo.project}/${repo.name}`,
+	);
 	const area = page
 		.getByRole("textbox", { name: "Meaning and human action instructions" })
 		.first();
@@ -992,7 +994,9 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 	await page.goto(`/prs?watching=watching`);
 	await expect(page.getByText("Error", { exact: true }).first()).toBeVisible();
 	await page.setViewportSize({ width: 390, height: 844 });
-	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}`);
+	await page.goto(
+		`/policy-instructions/ado/${repo.org}/${repo.project}/${repo.name}`,
+	);
 	await expect(area).toBeVisible();
 	await area.fill("Wait for the project owner to approve this policy.");
 	await page
@@ -1010,6 +1014,55 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 			() => document.documentElement.scrollWidth > innerWidth,
 		),
 	).toBe(false);
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	await page.goto(`/sm/ado/${repo.org}/${repo.project}/${repo.name}?pr=1`);
+	const graph = page.getByRole("region", { name: "State machine graph" });
+	await expect(graph).toHaveAttribute("aria-busy", "false");
+	await expect(
+		page.getByRole("combobox", { name: "Trace pull request" }),
+	).toContainText(pull.title);
+	expect(
+		await graph.locator(".react-flow__node-machine").count(),
+	).toBeGreaterThan(10);
+	await page.getByRole("button", { name: "Focus PR", exact: true }).click();
+	await page.getByRole("button", { name: "Inspect", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: "Evidence inspector" }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Close inspector" }).click();
+	await page.getByRole("button", { name: "History", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: "Observation history" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("complementary", { name: "State machine inspector" }),
+	).toContainText("not historical Jev judgments");
+	await page.getByRole("button", { name: "Close inspector" }).click();
+	await page.getByRole("button", { name: "Transitions", exact: true }).click();
+	await expect(graph).toHaveAttribute("aria-busy", "false");
+	await page.getByRole("button", { name: "Model", exact: true }).click();
+	await expect(graph).toHaveAttribute("aria-busy", "false");
+	await page.getByRole("button", { name: "Fit entire graph" }).click();
+	await page.getByRole("button", { name: "Auto layout" }).click();
+	await expect(graph).toHaveAttribute("aria-busy", "false");
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(graph).toBeVisible();
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth > innerWidth,
+		),
+	).toBe(false);
+	await page.reload();
+	await expect(
+		page.getByRole("combobox", { name: "Trace pull request" }),
+	).toContainText(pull.title);
+	await page
+		.getByRole("link", { name: "Policy instructions", exact: true })
+		.click();
+	await expect(area).toHaveValue(
+		"Wait for the project owner to approve this policy.",
+	);
+
 	await cli("watch", "remove", pull.id);
 });
 
@@ -1437,7 +1490,9 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	await expect(
 		page.getByRole("region", { name: "State machine graph" }),
 	).toHaveCount(0);
-	await expect(page).toHaveURL(`${base}/sm/${repositoryPath}`);
+	await expect
+		.poll(() => new URL(page.url()).pathname)
+		.toBe(`/sm/${repositoryPath}`);
 	const discovery = commandReceiptSchema.parse(
 		await cli("discover", "--repo", repoUrl(repo)),
 	);
@@ -1517,9 +1572,9 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	await page.goto("/prs");
 	await expectPreferences();
 	await page.goto(`/sm/${repositoryPath}?pr=1`);
-	await expect(page.getByRole("combobox", { name: "Policy scope" })).toHaveText(
-		repo.name,
-	);
+	await expect(
+		page.getByRole("combobox", { name: "State machine repository" }),
+	).toHaveText(repo.name);
 	expect(await storedPreferences()).toBe(preferences);
 	await page
 		.getByRole("button", { name: "Pull requests", exact: true })
@@ -1555,11 +1610,15 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 	await expect(page).toHaveURL(`${base}${detailPath}`);
 
 	await page.goto(`/sm/${scopePath}`);
-	const repository = page.getByRole("combobox", { name: "Policy scope" });
+	const repository = page.getByRole("combobox", {
+		name: "State machine repository",
+	});
 	await expect(repository).toHaveText("Project default");
 	await repository.click();
 	await page.getByRole("option", { name: repo.name, exact: true }).click();
-	await expect(page).toHaveURL(`${base}/sm/${repositoryPath}`);
+	await expect
+		.poll(() => new URL(page.url()).pathname)
+		.toBe(`/sm/${repositoryPath}`);
 	await page.reload();
 	await expect(repository).toHaveText(repo.name);
 	const fresh = await browser.newContext();
@@ -1567,7 +1626,7 @@ test("friendly workspace URLs survive history, reload and sharing without changi
 		const shared = await fresh.newPage();
 		await shared.goto(`${base}/sm/${repositoryPath}`);
 		await expect(
-			shared.getByRole("combobox", { name: "Policy scope" }),
+			shared.getByRole("combobox", { name: "State machine repository" }),
 		).toHaveText(repo.name);
 	} finally {
 		await fresh.close();

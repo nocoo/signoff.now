@@ -168,3 +168,40 @@ test("repository catalogs respect provider scopes and retain descriptions across
 		after.instructions.find((i) => i.gateId === "stable")?.description,
 	).toBe("Preserved explanation");
 });
+
+test("history is scoped, bounded to 12 hours and reports evidence without invented readiness", async () => {
+	const now = Math.floor(Date.now() / 1000);
+	const pull = seedPull(sqlite, { id: "history-pull", observedAt: now });
+	const next = { ...pull, state: "merged", draft: false, observedAt: now };
+	sqlite.raw
+		.query("UPDATE pull_requests SET snapshot=?,published_at=? WHERE id=?")
+		.run(JSON.stringify(next), now, pull.id);
+	sqlite.raw
+		.query(
+			"UPDATE pr_state_events SET observed_at=? WHERE pull_id=? AND from_snapshot IS NULL",
+		)
+		.run(now - 43201, pull.id);
+	const response = await request(
+		`/state-machines/live-project/history?pullId=${pull.id}`,
+	);
+	expect(response.status).toBe(200);
+	const body = (await response.json()) as {
+		events: { from: { lifecycle: string }; to: { lifecycle: string } }[];
+	};
+	expect(body.events).toHaveLength(1);
+	expect(body.events[0]?.to.lifecycle).toBe("merged");
+	expect(body.events[0]?.to).not.toHaveProperty("readiness");
+	expect(
+		(await request(`/state-machines/other/history?pullId=${pull.id}`)).status,
+	).toBe(404);
+	expect(
+		(
+			await request(
+				`/state-machines/live-project/history?source=sample&pullId=${pull.id}`,
+			)
+		).status,
+	).toBe(404);
+	expect((await request("/state-machines/live-project/history")).status).toBe(
+		400,
+	);
+});

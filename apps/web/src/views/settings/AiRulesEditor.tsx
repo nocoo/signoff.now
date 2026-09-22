@@ -25,8 +25,8 @@ export function AiRulesEditor() {
 			</div>
 			<p className="text-sm text-basalt-muted-foreground">
 				Explain what the PR developer should do next. Project rules add context
-				to the common rules. Policy descriptions and their priority remain in
-				State machines.
+				to the common rules. Policy descriptions and their priority are
+				configured in System → Policy instructions.
 			</p>
 			<Field
 				label={

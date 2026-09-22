@@ -18,7 +18,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { SERVICE_UNAVAILABLE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DEFAULT_PULL_FILTER, nextPullSort } from "@/models/workbench";
-import { machineHref } from "@/models/workspaceLocation";
+import { policyHref } from "@/models/workspaceLocation";
 import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { PrCollectionMembershipProvider } from "../collections/PrCollectionMemberships";
@@ -114,13 +114,11 @@ export function PullsPage() {
 								<Link
 									to={
 										scopeProject
-											? machineHref(
+											? policyHref(
 													scopeProject,
 													repository?.identityResolved ? repository : null,
-													null,
-													new URLSearchParams({ tab: "priority" }),
 												)
-											: `/sm?source=${vm.filter.source === "demo" ? "sample" : "live"}&tab=priority`
+											: `/policy-instructions?source=${vm.filter.source === "demo" ? "sample" : "live"}`
 									}
 								>
 									<ListOrdered className="h-3.5 w-3.5" aria-hidden />

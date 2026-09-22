@@ -1,6 +1,6 @@
 # Jev developer readiness
 
-AI Settings (`/ai-settings`, directly above Settings) configures the encrypted Jev key and editable common/project rules. State machines (`/sm`) edits policy explanations and full priority ordering, including repository overrides. Readiness asks: **as this PR's developer, what should I do now?** It applies only to watched PRs.
+AI Settings (`/ai-settings`, directly above Settings) configures the encrypted Jev key and editable common/project rules. System → Policy instructions (`/policy-instructions`) edits policy explanations and full priority ordering, including repository overrides. State machines (`/sm`) is the interactive evidence and classification graph. Readiness asks: **as this PR's developer, what should I do now?** It applies only to watched PRs.
 
 ## Classification contract
 
@@ -87,3 +87,16 @@ Validation for the compact-list/Skipped change: lint, typecheck, build, all seve
 ## Background scheduler validation
 
 The background-scheduling change passes all seven repository coverage tasks, lint, typecheck, build and all 11 isolated browser E2E cases. Mocked Jev tests cover evaluation without browser presence, unchanged-state deduplication, independent completion cooldowns, source isolation and late-response fencing. Daemon tests cover concurrent ADO progress, inference transport backoff and prompt shutdown during idle waits. Desktop and 390px local-browser reloads show the updated Connector settings without sending inference/presence requests. Local migration 0035 preserves credentials, watches and cached judgments; the restarted daemon polls successfully. The 13 live watched PRs retained current cached judgments without forced reclassification. These runtime checks do not claim a new live-model classification or model accuracy.
+
+
+## State machine workspace
+
+The graph workspace restores the React Flow canvas and ELK automatic layout. It supports project/repository scope, a paginated searchable cached PR picker (watched by default), model and observed-transition views, gate filtering, zoom/pan, minimap navigation, fullscreen, node inspection, double-click focus, and focus on the selected PR judgment. Dragged node positions persist per source, project, repository and graph mode in localStorage; Auto layout clears that scope's saved positions. Polling facts updates node colors without resetting an unchanged graph layout.
+
+The model displays provider lifecycle, prioritized policy evidence, Jev, and current readiness categories. Direct Conflict and Skipped checks have separate edges. Previous judgments remain explicitly marked while evaluation is pending; not-watched PRs have no active classification. Evidence inspection includes freshness, coverage, raw policy evaluations, builds/stages, votes and persisted inference metadata. The Rules inspector edits the existing common/project Jev instructions with their existing revision protections; old deterministic mappings and readiness overrides are not reinstated.
+
+History reads `/api/state-machines/:projectId/history?source=live&pullId=...` from the local cache, validates source/project ownership and returns up to 30 accepted evidence changes from the last 12 hours. Transition edges describe observed lifecycle/check changes only. There is no invented historical Jev replay. Opening the workspace, switching tabs or reloading never initiates provider requests or inference.
+
+Policy instructions have moved into System with project/repository URLs. The existing policy API, saved descriptions, priority ordering, inheritance, revision checks and inference invalidation remain unchanged. PR list “Readiness order” links now lead there.
+
+Restoration validation (2026-09-22): all 13 isolated Playwright scenarios passed, including policy save/reload, shared PR URLs, graph controls, inspector/history and mobile containment. The full coverage gates, lint, typecheck and production build passed. A separate browser check against `https://signoff.dev.hexly.ai` verified a watched PR's persisted judgment, node inspection, drag-position persistence across reload, scoped history, policy reload and no console errors. The local verification did not modify live policies, watch membership or credentials.

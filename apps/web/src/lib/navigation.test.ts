@@ -9,6 +9,10 @@ describe("navigation", () => {
 		expect(hrefs).toContain("/insights");
 		expect(hrefs).toContain("/developers");
 		expect(hrefs).toContain("/settings");
+		expect(breadcrumbsFromPathname("/policy-instructions")).toEqual([
+			{ label: "System" },
+			{ label: "Policy instructions" },
+		]);
 		expect(hrefs).not.toContain("/activity");
 		expect(
 			NAV_GROUPS.find((group) => group.label === "Workspace")?.items.map(

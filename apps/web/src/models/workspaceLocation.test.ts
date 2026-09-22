@@ -4,6 +4,7 @@ import {
 	machineHref,
 	matchesProject,
 	parseWorkspaceLocation,
+	policyHref,
 	pullHref,
 	sourceFromParams,
 	traceReference,
@@ -195,4 +196,10 @@ describe("workspace resource URLs", () => {
 			traceReference(parseWorkspaceLocation("/sm")!, "repo/123"),
 		).toBeNull();
 	});
+});
+
+it("policy instructions have their own System route with source and repository scope", () => {
+	expect(policyHref(project, repository)).toBe(
+		"/policy-instructions/ado/intentional/intent/whiteboard-app",
+	);
 });
