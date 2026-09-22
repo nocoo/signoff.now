@@ -6,6 +6,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 	Button,
+	Checkbox,
 	Input,
 	LayerCard,
 } from "@nocoo/basalt";
@@ -15,6 +16,7 @@ import type { PrCollection } from "@signoff/domain/pr-collections";
 import {
 	ArrowLeft,
 	ArrowUpRight,
+	Eye,
 	GitMerge,
 	Layers3,
 	Pencil,
@@ -22,31 +24,27 @@ import {
 	Search,
 	Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
-import { loadPulls, queryRow } from "@/models/monitoringApi";
 import {
 	changeMembers,
 	collectionHref,
 	deleteCollection,
 } from "@/models/prCollectionsApi";
-import {
-	nextPullSort,
-	type PullFilter,
-	relativeTime,
-} from "@/models/workbench";
+import { nextPullSort, relativeTime } from "@/models/workbench";
 import { pullHref } from "@/models/workspaceLocation";
 import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
 import {
 	useCollectionMutation,
+	useCollectionPullList,
 	useCollectionSearch,
 	usePrCollections,
 } from "@/viewmodels/usePrCollections";
-import { useQueryBlock } from "@/viewmodels/useQueryBlock";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import { PullList, PullListPagination } from "../workbench/PullList";
+import { PullFilters } from "../workbench/PullFilters";
+import { PullList } from "../workbench/PullList";
 import { CollectionEditor } from "./CollectionEditor";
 import {
 	CollectionIcon,
@@ -245,46 +243,17 @@ function CollectionDetail({
 }) {
 	const workbench = useWorkbench();
 	const aiSchedule = useAiScheduleViewModel(source);
-	const [sort, setSort] = useState<Pick<PullFilter, "sort" | "sortDirection">>({
-		sort: "updated",
-		sortDirection: "desc",
-	});
+	const list = useCollectionPullList(source, c.id);
+	const { pulls, rows } = list;
 	const [adding, setAdding] = useState(false),
-		[removing, setRemoving] = useState(false),
-		[page, setPage] = useState(1),
-		[state, setState] = useState("all");
-	const search = useCollectionSearch(),
-		navigate = useNavigate();
-	const query = new URLSearchParams({
-		source: c.source,
-		collectionId: c.id,
-		state: state === "draft" ? "open" : state,
-		draft:
-			state === "draft" ? "only" : state === "open" ? "exclude" : "include",
-		q: search.query,
-		limit: "20",
-		page: String(page),
-		sort: sort.sort,
-		direction: sort.sortDirection,
-	}).toString();
-	const pulls = useQueryBlock(`collection-prs:${query}`, (signal) =>
-		loadPulls(query, signal),
-	);
+		[removing, setRemoving] = useState(false);
+	const navigate = useNavigate();
 	const mutation = useCollectionMutation(async () => {
 		await Promise.all([reload(), pulls.reload()]);
 	});
 	const watchMutation = useCollectionMutation(pulls.reload);
-	const rows =
-		pulls.data?.data.map((item) => workbench.withWatchState(queryRow(item))) ??
-		[];
-	const total = pulls.data?.page.total;
-	useEffect(() => {
-		if (total !== undefined)
-			setPage((current) =>
-				Math.min(current, Math.max(1, Math.ceil(total / 20))),
-			);
-	}, [total]);
-	const count = total ?? 0;
+	const busy = mutation.busy || watchMutation.busy || Boolean(workbench.busy);
+	const count = pulls.data?.page.total ?? 0;
 	return (
 		<>
 			<div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:flex sm:flex-wrap">
@@ -335,48 +304,74 @@ function CollectionDetail({
 					</Button>
 				</AlertBanner>
 			) : null}
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<fieldset
-					className="flex flex-wrap gap-1"
-					aria-label="Collection PR state"
-				>
-					{["all", "open", "draft", "merged", "closed"].map((value) => (
-						<Button
-							key={value}
-							variant={state === value ? "secondary" : "ghost"}
-							size="sm"
-							className="h-8 gap-2 text-xs capitalize"
-							aria-pressed={state === value}
-							onClick={() => {
-								setState(value);
-								setPage(1);
-							}}
-						>
-							{value}
-							<span className="font-mono text-[11px] text-basalt-muted-foreground">
-								{value === "all"
-									? c.counts.total
-									: c.counts[value as "open" | "draft" | "merged" | "closed"]}
-							</span>
-						</Button>
-					))}
-				</fieldset>
-				<Input
-					aria-label="Search collection PRs"
-					className="h-8 w-full text-xs sm:w-64"
-					placeholder="Search title, number, author…"
-					value={search.search}
-					onChange={(e) => {
-						search.setSearch(e.target.value);
-						setPage(1);
-					}}
-				/>
-			</div>
+			<LayerCard
+				padding="sm"
+				className="space-y-2.5"
+				aria-label="PR filters"
+				role="region"
+			>
+				<PullFilters vm={list} />
+			</LayerCard>
 			<PrCollectionMembershipProvider
 				source={source}
 				ids={rows.map((row) => row.pull.id)}
 			>
 				<LayerCard padding="none">
+					<LayerCard.Header className="flex-wrap gap-2 px-3 py-1">
+						<span className="text-xs text-basalt-muted-foreground tabular-nums">
+							{list.selectedIds.size
+								? `${list.selectedIds.size} selected`
+								: `${count} PRs · Select PRs to watch or remove`}
+						</span>
+						{list.selectedIds.size > 0 ? (
+							<>
+								<Button
+									size="sm"
+									className="h-6 px-2 text-[11px]"
+									disabled={
+										busy ||
+										!list.selectedRows.some(
+											(row) =>
+												row.pull.state === "open" &&
+												!row.observation?.active &&
+												!row.watchPending,
+										)
+									}
+									onClick={() =>
+										void watchMutation.run(() =>
+											workbench.watchRows(list.selectedRows),
+										)
+									}
+								>
+									<Eye className="size-3.5" />
+									Add to watch list
+								</Button>
+								<Button
+									size="sm"
+									variant="outline"
+									className="h-6 px-2 text-[11px] text-basalt-destructive"
+									disabled={busy}
+									onClick={() =>
+										void mutation.run(() =>
+											changeMembers(source, c, [...list.selectedIds], "remove"),
+										)
+									}
+								>
+									<Trash2 className="size-3.5" />
+									Remove from collection
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-6 px-2 text-[11px]"
+									disabled={busy}
+									onClick={() => list.selectAll(false)}
+								>
+									Clear selection
+								</Button>
+							</>
+						) : null}
+					</LayerCard.Header>
 					{workbench.feedbackKind === "watch" &&
 					(workbench.mutationError || workbench.notice) ? (
 						<p
@@ -390,13 +385,31 @@ function CollectionDetail({
 						label="Collection pull requests"
 						rows={rows}
 						loading={pulls.loading}
-						busy={
-							mutation.busy || watchMutation.busy || Boolean(workbench.busy)
+						busy={busy}
+						sort={list.filter}
+						onSort={(column) =>
+							list.setFilter(nextPullSort(list.filter, column))
 						}
-						sort={sort}
-						onSort={(column) => {
-							setSort(nextPullSort(sort, column));
-							setPage(1);
+						selection={{
+							ids: list.selectedIds,
+							onToggle: list.toggleSelection,
+							canSelect: () => true,
+							header: (
+								<Checkbox
+									aria-label="Select all collection PRs"
+									disabled={busy || pulls.loading || !rows.length}
+									checked={
+										list.selectedIds.size === rows.length && rows.length > 0
+											? true
+											: list.selectedIds.size > 0
+												? "indeterminate"
+												: false
+									}
+									onCheckedChange={(checked) =>
+										list.selectAll(checked === true)
+									}
+								/>
+							),
 						}}
 						aiSchedule={aiSchedule.error ? null : aiSchedule.data}
 						onOpen={(row) => navigate(pullHref(row.project, row.pull))}
@@ -441,15 +454,6 @@ function CollectionDetail({
 							}
 						/>
 					) : null}
-					<PullListPagination
-						page={page}
-						pageSize={20}
-						total={count}
-						loaded={pulls.data !== null}
-						loading={pulls.loading}
-						busy={pulls.refreshing}
-						onPage={setPage}
-					/>
 				</LayerCard>
 			</PrCollectionMembershipProvider>
 			{adding ? (

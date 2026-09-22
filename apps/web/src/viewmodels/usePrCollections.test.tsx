@@ -1,8 +1,13 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { loadCollections, loadMemberships } from "@/models/prCollectionsApi";
+import {
+	loadCollectionPulls,
+	loadCollections,
+	loadMemberships,
+} from "@/models/prCollectionsApi";
 import {
 	useCollectionMutation,
+	useCollectionPullList,
 	useCollectionSearch,
 	usePrCollections,
 	usePrMemberships,
@@ -11,6 +16,14 @@ import {
 vi.mock("@/models/prCollectionsApi", () => ({
 	loadCollections: vi.fn(),
 	loadMemberships: vi.fn(),
+	loadCollectionPulls: vi.fn(),
+}));
+
+import type { PullRow } from "@/models/workbench";
+import { queryFixture } from "@/test/monitoring-fixture";
+
+vi.mock("./WorkbenchProvider", () => ({
+	useWorkbench: () => ({ withWatchState: (row: PullRow) => row, metrics: {} }),
 }));
 afterEach(() => {
 	cleanup();
@@ -136,4 +149,41 @@ test("search debounce cancels obsolete terms and trims the query", async () => {
 	expect(result.current.query).toBe("new PR");
 	unmount();
 	expect(vi.getTimerCount()).toBe(0);
+});
+
+test("collection list includes history, selects all members and resets selection on shared filters", async () => {
+	const fixture = queryFixture().pulls;
+	fixture.data.push({ ...fixture.data[0]!, id: "merged", state: "merged" });
+	vi.mocked(loadCollectionPulls).mockResolvedValue(fixture);
+	const { result } = renderHook(() => useCollectionPullList("cli", "c1"));
+	expect(result.current.pullsLoaded).toBe(false);
+	await waitFor(() => expect(result.current.pullsLoaded).toBe(true));
+	expect(result.current.rows).toHaveLength(2);
+	expect(result.current.authors).toEqual(fixture.authors);
+	expect(result.current.metrics).toEqual(fixture.metrics);
+	const params = new URLSearchParams(
+		vi.mocked(loadCollectionPulls).mock.calls[0]![0],
+	);
+	expect(params.get("collectionId")).toBe("c1");
+	expect(params.get("state")).toBe("all");
+	expect(params.get("draft")).toBe("include");
+	act(() => result.current.selectAll(true));
+	expect(result.current.selectedIds.size).toBe(2);
+	act(() => result.current.toggleSelection("merged", false));
+	expect(result.current.selectedIds.size).toBe(1);
+	act(() => result.current.toggleSelection("merged", true));
+	expect(result.current.selectedRows).toHaveLength(2);
+	act(() => result.current.setFilter({ status: "attention" }));
+	expect(result.current.filter.state).toBe("open");
+	expect(result.current.selectedIds.size).toBe(0);
+	act(() => result.current.setFilter({ query: " target " }));
+	await waitFor(() =>
+		expect(
+			new URLSearchParams(vi.mocked(loadCollectionPulls).mock.lastCall![0]).get(
+				"q",
+			),
+		).toBe("target"),
+	);
+	act(() => result.current.selectAll(false));
+	expect(result.current.selectedIds.size).toBe(0);
 });

@@ -1726,24 +1726,33 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 		await checkbox.check();
 	await page.getByRole("button", { name: "Add 26 PRs", exact: true }).click();
 	const rows = page.locator("tr[data-pull-id]");
-	await expect(rows).toHaveCount(20);
+	await expect(rows).toHaveCount(26);
+	await expect(
+		page.getByRole("button", { name: "Next page", exact: true }),
+	).toHaveCount(0);
 	await expect(
 		page.getByRole("img", {
 			name: "1 merged, 23 open, 1 draft, 1 closed out of 26",
 		}),
 	).toBeVisible();
-	await page.getByRole("button", { name: "Next page" }).click();
-	await expect(rows).toHaveCount(6);
 	await page.reload();
-	await expect(rows).toHaveCount(20);
-	const filters = page.getByRole("group", { name: "Collection PR state" });
-	for (const state of ["draft", "merged", "closed"]) {
-		await filters
-			.getByRole("button", { name: new RegExp(`^${state} 1$`, "i") })
-			.click();
+	await expect(rows).toHaveCount(26);
+	const filters = page.getByRole("region", { name: "PR filters" });
+	await filters.getByLabel("Draft", { exact: true }).click();
+	await page.getByRole("option", { name: "Drafts only", exact: true }).click();
+	await expect(rows).toHaveCount(1);
+	await filters.getByLabel("Draft", { exact: true }).click();
+	await page
+		.getByRole("option", { name: "Include drafts", exact: true })
+		.click();
+	for (const state of ["Merged", "Closed"]) {
+		await filters.getByRole("button", { name: state, exact: true }).click();
 		await expect(rows).toHaveCount(1);
 	}
-	await filters.getByRole("button", { name: /^all 26$/i }).click();
+	await filters
+		.getByRole("button", { name: "All states", exact: true })
+		.click();
+	await expect(rows).toHaveCount(26);
 	await page
 		.getByRole("button", { name: "Edit collection", exact: true })
 		.click();
@@ -1837,6 +1846,37 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 			name: "1 merged, 22 open, 1 draft, 1 closed out of 25",
 		}),
 	).toBeVisible();
+	await memberTable
+		.getByRole("checkbox", { name: "Select all collection PRs" })
+		.check();
+	await expect(
+		memberTable.getByRole("checkbox", { checked: true }),
+	).toHaveCount(26);
+	await page
+		.getByRole("button", { name: "Add to watch list", exact: true })
+		.click();
+	await expect(
+		memberTable.locator('button[aria-label^="Watch PR"][aria-pressed="true"]'),
+	).toHaveCount(23);
+	await expect(
+		page.getByRole("button", { name: "Remove from collection", exact: true }),
+	).toBeEnabled();
+	const watchesAfterBulk = (await watchList()).data.map(
+		({ pull: _pull, ...watch }) => watch,
+	);
+	expect(watchesAfterBulk).toEqual(expect.arrayContaining(beforeWatches));
+	expect(watchesAfterBulk.length).toBe(beforeWatches.length + 23);
+
+	await page
+		.getByRole("button", { name: "Remove from collection", exact: true })
+		.click();
+	await expect(rows).toHaveCount(0);
+	await page.reload();
+	await expect(rows).toHaveCount(0);
+	await expect(
+		page.getByText("Your collection is ready", { exact: true }),
+	).toBeVisible();
+
 	await page
 		.getByRole("button", { name: "Delete collection", exact: true })
 		.click();
@@ -1864,6 +1904,6 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 	expect(providerRequests).toBe(providerReads);
 	expect(
 		(await watchList()).data.map(({ pull: _pull, ...watch }) => watch),
-	).toEqual(beforeWatches);
+	).toEqual(watchesAfterBulk);
 	expect(errors).toEqual([]);
 });

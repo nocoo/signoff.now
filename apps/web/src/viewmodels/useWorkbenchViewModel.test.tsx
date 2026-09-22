@@ -2264,3 +2264,40 @@ it("watches collection rows outside the main page with the same identity and gen
 	});
 	expect(api.addWatches).not.toHaveBeenCalled();
 });
+
+it("bulk watches collection rows in bounded batches and excludes history and other sources", async () => {
+	const { result } = render();
+	await loaded(result);
+	const rows = Array.from({ length: 101 }, (_, i) =>
+		api.queryRow(publicPull({ ...pull, id: `bulk-${i}`, number: i + 1 })),
+	);
+	vi.mocked(api.addWatches).mockImplementation(async (_, ids) => ({
+		results: ids.map(() => ({ status: "added" as const })),
+	}));
+	await act(async () => {
+		expect(
+			await result.current.vm.watchRows([
+				...rows,
+				{ ...rows[0]!, pull: { ...pull, state: "merged" } },
+				{ ...rows[0]!, project: { ...project, source: "demo" } },
+			]),
+		).toBe(true);
+	});
+	expect(
+		vi.mocked(api.addWatches).mock.calls.map((call) => call[1].length),
+	).toEqual([100, 1]);
+	vi.mocked(api.addWatches)
+		.mockReset()
+		.mockResolvedValue({
+			results: [
+				{
+					status: "rejected",
+					error: { code: "FAILED", message: "Unavailable", retryable: true },
+				},
+			],
+		});
+	await act(async () =>
+		expect(await result.current.vm.watchRows(rows)).toBe(false),
+	);
+	expect(api.addWatches).toHaveBeenCalledTimes(1);
+});

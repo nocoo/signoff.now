@@ -103,7 +103,7 @@ function FilterChip({
 				{label}
 			</span>
 			{count !== undefined ? (
-				<span className="font-mono text-[10px] tabular-nums opacity-80">
+				<span className="font-mono text-[11px] tabular-nums opacity-80">
 					{count === null ? "—" : count.toLocaleString()}
 				</span>
 			) : null}
@@ -114,7 +114,10 @@ function FilterChip({
 export function PullQuickFilters({
 	vm,
 }: {
-	vm: ReturnType<typeof useWorkbench>;
+	vm: Pick<
+		ReturnType<typeof useWorkbench>,
+		"filter" | "setFilter" | "metrics" | "pullsLoaded"
+	>;
 }) {
 	const { filter } = vm;
 	const historical = filter.state === "merged" || filter.state === "closed";

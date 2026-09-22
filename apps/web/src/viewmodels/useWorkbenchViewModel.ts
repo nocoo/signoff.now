@@ -916,7 +916,7 @@ export function useWorkbenchViewModel() {
 					pending.reload(),
 				]);
 			}
-			return true;
+			return failures.length === 0;
 		} catch (error) {
 			if (mounted.current && sourceRef.current === source)
 				setFeedback((previous) =>
@@ -1078,6 +1078,27 @@ export function useWorkbenchViewModel() {
 					: [],
 			}),
 		watchSelected: (adding: boolean) => changeWatches(adding, selectionItems),
+		watchRows: async (rows: PullRow[]) => {
+			const source = filter.source;
+			const items = rows
+				.filter(
+					(row) => row.project.source === source && row.pull.state === "open",
+				)
+				.map((row) => ({
+					key: rowWatchKey(source, row),
+					pullId: row.pull.id,
+					observation: row.observation ?? null,
+				}));
+			for (let offset = 0; offset < items.length; offset += 100) {
+				if (
+					!mounted.current ||
+					sourceRef.current !== source ||
+					!(await changeWatches(true, items.slice(offset, offset + 100)))
+				)
+					return false;
+			}
+			return true;
+		},
 		withWatchState,
 		toggleWatchRow,
 		toggleWatch: (pullId?: string) =>

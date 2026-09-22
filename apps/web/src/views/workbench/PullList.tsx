@@ -64,6 +64,7 @@ type PullListProps = {
 		ids: Set<string>;
 		header: ReactNode;
 		onToggle: (id: string, checked: boolean) => void;
+		canSelect?: (row: PullRow) => boolean;
 	};
 	actions?: (row: PullRow) => ReactNode;
 };
@@ -118,7 +119,7 @@ export function PullList({
 								/>
 							))}
 						{actions ? (
-							<TableHead className="sticky right-0 bg-basalt-card">
+							<TableHead className="sticky right-0 bg-[var(--basalt-control-fill)]">
 								<span className="sr-only">PR actions</span>
 							</TableHead>
 						) : null}
@@ -237,7 +238,7 @@ function PullTableSkeleton({
 					</TableCell>
 				))}
 			{actions ? (
-				<TableCell className="sticky right-0 bg-basalt-card">
+				<TableCell className="sticky right-0 bg-[var(--basalt-control-fill)]">
 					<Skeleton className="mx-auto size-4" />
 				</TableCell>
 			) : null}
@@ -531,10 +532,8 @@ function PullTableRow({
 	return (
 		<TableRow
 			data-pull-id={pull.id}
-			className={cn(
-				"group h-16",
-				selection?.ids.has(pull.id) && "bg-basalt-primary/4",
-			)}
+			className="group h-16"
+			aria-selected={selection?.ids.has(pull.id)}
 		>
 			{selection ? (
 				<TableCell className="w-10 px-2 py-2 align-middle">
@@ -542,7 +541,12 @@ function PullTableRow({
 						<Checkbox
 							aria-label={`Select PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
 							checked={selection?.ids.has(pull.id)}
-							disabled={(pull.state !== "open" && !observation?.active) || busy}
+							disabled={
+								busy ||
+								(selection.canSelect
+									? !selection.canSelect(row)
+									: pull.state !== "open" && !observation?.active)
+							}
 							onCheckedChange={(checked) =>
 								selection?.onToggle(pull.id, checked === true)
 							}
@@ -595,7 +599,7 @@ function PullTableRow({
 					<Fragment key={column}>{cells[column]}</Fragment>
 				))}
 			{actions ? (
-				<TableCell className="sticky right-0 bg-basalt-card px-2 py-2 align-middle">
+				<TableCell className="sticky right-0 bg-[var(--basalt-control-fill)] px-2 py-2 align-middle">
 					{actions(row)}
 				</TableCell>
 			) : null}

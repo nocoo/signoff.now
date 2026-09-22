@@ -1,15 +1,22 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import {
 	changeMembers,
 	collectionHref,
 	deleteCollection,
+	loadCollectionPulls,
 	loadCollections,
 	loadMemberships,
 	saveCollection,
 } from "./prCollectionsApi";
 
-vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
+vi.mock("@/lib/api", async (original) => ({
+	...(await original<typeof import("@/lib/api")>()),
+	apiFetch: vi.fn(),
+}));
+
+import { queryFixture } from "@/test/monitoring-fixture";
+
 const draft = {
 	name: "Tests",
 	description: "Coverage work",
@@ -93,4 +100,87 @@ test("member changes and deletion use CAS without replacing unrelated membership
 	await expect(changeMembers("cli", collection, ["p1"], "add")).rejects.toThrow(
 		"Collection changed",
 	);
+});
+
+test("loads every cursor in a coherent collection snapshot and bounds snapshot retries", async () => {
+	const signal = new AbortController().signal;
+	const first = queryFixture().pulls;
+	const page = {
+		...first,
+		page: { limit: 200, total: 2, nextCursor: "next/1" },
+	};
+	vi.mocked(apiFetch).mockImplementation(async (url) =>
+		structuredClone(url.includes("cursor=") ? first : page),
+	);
+	expect(
+		(await loadCollectionPulls("collectionId=c1&page=1&limit=20", signal)).data,
+	).toHaveLength(2);
+	expect(apiFetch).toHaveBeenLastCalledWith(
+		"/api/query/v1/prs?collectionId=c1&limit=200&cursor=next%2F1",
+		{ signal },
+	);
+	const changed = new ApiError("Changed", 409, {
+		error: { code: "SNAPSHOT_CHANGED" },
+	});
+	vi.mocked(apiFetch)
+		.mockReset()
+		.mockRejectedValueOnce(changed)
+		.mockResolvedValue(structuredClone(first));
+	expect(
+		(await loadCollectionPulls("collectionId=c1", signal)).data,
+	).toHaveLength(1);
+	expect(apiFetch).toHaveBeenCalledTimes(2);
+	vi.mocked(apiFetch).mockReset().mockRejectedValue(changed);
+	await expect(loadCollectionPulls("collectionId=c1", signal)).rejects.toThrow(
+		"Changed",
+	);
+	expect(apiFetch).toHaveBeenCalledTimes(3);
+	vi.mocked(apiFetch)
+		.mockReset()
+		.mockImplementation(async () => structuredClone(page));
+	await expect(loadCollectionPulls("collectionId=c1", signal)).rejects.toThrow(
+		"repeated cursor",
+	);
+	for (const error of [
+		new Error("offline"),
+		new ApiError("Denied", 403),
+		new ApiError("bad", 400, {}),
+	]) {
+		vi.mocked(apiFetch).mockReset().mockRejectedValue(error);
+		await expect(
+			loadCollectionPulls("collectionId=c1", signal),
+		).rejects.toThrow();
+		expect(apiFetch).toHaveBeenCalledTimes(1);
+	}
+});
+test("large memberships respect batch limits and advance CAS revisions", async () => {
+	const ids = Array.from({ length: 205 }, (_, i) => `p${i}`);
+	vi.mocked(apiFetch)
+		.mockResolvedValueOnce({ items: [{ pullId: "p0", collectionId: "c1" }] })
+		.mockResolvedValueOnce({ items: [{ pullId: "p204", collectionId: "c1" }] });
+	expect(
+		(await loadMemberships("cli", ids, new AbortController().signal)).items,
+	).toHaveLength(2);
+	expect(
+		new URL(
+			vi.mocked(apiFetch).mock.calls[0]![0],
+			"http://local",
+		).searchParams.getAll("pullId"),
+	).toHaveLength(200);
+	expect(
+		new URL(
+			vi.mocked(apiFetch).mock.calls[1]![0],
+			"http://local",
+		).searchParams.getAll("pullId"),
+	).toHaveLength(5);
+	vi.mocked(apiFetch)
+		.mockReset()
+		.mockResolvedValueOnce({ ...collection, revision: 4 })
+		.mockResolvedValueOnce({ ...collection, revision: 5 });
+	expect((await changeMembers("cli", collection, ids, "remove")).revision).toBe(
+		5,
+	);
+	expect(
+		JSON.parse(vi.mocked(apiFetch).mock.calls[1]![1]!.body as string),
+	).toEqual({ revision: 4, pullIds: ids.slice(200), action: "remove" });
 });

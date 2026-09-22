@@ -6,7 +6,9 @@ import {
 	prCollectionSchema,
 	prCollectionsSchema,
 } from "@signoff/domain/pr-collections";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
+
+import { loadPulls } from "./monitoringApi";
 
 export const collectionPath = (source: DataSource, path = "") =>
 	`/api/pr-collections${path}?source=${publicSource(source)}`;
@@ -22,13 +24,19 @@ export async function loadMemberships(
 	ids: string[],
 	signal: AbortSignal,
 ) {
-	const params = new URLSearchParams();
-	for (const id of ids) params.append("pullId", id);
-	return collectionMembershipsSchema.parse(
-		await apiFetch(`${collectionPath(source, "/memberships")}&${params}`, {
-			signal,
-		}),
-	);
+	const items: { pullId: string; collectionId: string }[] = [];
+	for (let offset = 0; offset < ids.length; offset += 200) {
+		const params = new URLSearchParams();
+		for (const id of ids.slice(offset, offset + 200))
+			params.append("pullId", id);
+		const result = collectionMembershipsSchema.parse(
+			await apiFetch(`${collectionPath(source, "/memberships")}&${params}`, {
+				signal,
+			}),
+		);
+		items.push(...result.items);
+	}
+	return { items };
 }
 export async function saveCollection(
 	source: DataSource,
@@ -57,10 +65,51 @@ export async function changeMembers(
 	pullIds: string[],
 	action: "add" | "remove",
 ) {
-	return prCollectionSchema.parse(
-		await apiFetch(collectionPath(source, `/${c.id}/members`), {
-			method: "PUT",
-			body: JSON.stringify({ revision: c.revision, pullIds, action }),
-		}),
-	);
+	let current = c;
+	for (let offset = 0; offset < pullIds.length; offset += 200) {
+		current = prCollectionSchema.parse(
+			await apiFetch(collectionPath(source, `/${c.id}/members`), {
+				method: "PUT",
+				body: JSON.stringify({
+					revision: current.revision,
+					pullIds: pullIds.slice(offset, offset + 200),
+					action,
+				}),
+			}),
+		);
+	}
+	return current;
+}
+
+export async function loadCollectionPulls(query: string, signal: AbortSignal) {
+	const params = new URLSearchParams(query);
+	params.set("limit", "200");
+	params.delete("page");
+	for (let attempt = 0; ; attempt++) {
+		try {
+			const first = await loadPulls(params.toString(), signal);
+			let cursor = first.page.nextCursor;
+			const seen = new Set<string>();
+			while (cursor) {
+				if (seen.has(cursor))
+					throw new Error("Collection query returned a repeated cursor");
+				seen.add(cursor);
+				const next = await loadPulls(
+					`${params}&cursor=${encodeURIComponent(cursor)}`,
+					signal,
+				);
+				first.data.push(...next.data);
+				cursor = next.page.nextCursor;
+			}
+			return first;
+		} catch (error) {
+			if (
+				attempt === 2 ||
+				!(error instanceof ApiError) ||
+				(error.body as { error?: { code?: string } })?.error?.code !==
+					"SNAPSHOT_CHANGED"
+			)
+				throw error;
+		}
+	}
 }
