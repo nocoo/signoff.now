@@ -153,6 +153,18 @@ it("combines independent quick filters and clears incompatible historical select
 			expect(query.get("q")).toBe("review");
 		});
 	};
+	click("Draft");
+	await queryMatches({ state: "open", draft: "only", status: "all" });
+	expect(
+		bar.getByRole("button", { name: "Draft" }).getAttribute("aria-pressed"),
+	).toBe("true");
+	expect(
+		bar.getByRole("button", { name: "Open" }).getAttribute("aria-pressed"),
+	).toBe("false");
+	click("Merged");
+	await queryMatches({ state: "merged", draft: "include" });
+	click("Open");
+	await queryMatches({ state: "open", draft: "exclude" });
 	click("Watched");
 	click("Running");
 	await queryMatches({ state: "open", watching: "true", status: "running" });

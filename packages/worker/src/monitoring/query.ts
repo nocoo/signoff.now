@@ -687,8 +687,10 @@ async function readPullPage(
       WHERE ${where.join(" AND ")} AND (SELECT revision FROM workbench_revisions WHERE source=?)=?
     ), searched AS (
       SELECT * FROM scoped WHERE ?='' OR id IN (SELECT value FROM json_each(?))
+    ), authored AS (
+      SELECT * FROM searched WHERE (json_array_length(?)=0 OR author_key IN (SELECT value FROM json_each(?)))
     ), filtered AS (
-      SELECT * FROM searched WHERE (?='include' OR draft=?) AND (json_array_length(?)=0 OR author_key IN (SELECT value FROM json_each(?)))
+      SELECT * FROM authored WHERE (?='include' OR draft=?)
     ), matched AS (
       SELECT * FROM filtered WHERE (?='all' OR state=?) AND (?='all' OR readiness_kind=?)
     )`;
@@ -699,10 +701,10 @@ async function readPullPage(
 		Number(snapshot.revision),
 		filters.q,
 		JSON.stringify(searchIds),
+		JSON.stringify(filters.author),
+		JSON.stringify(filters.author),
 		filters.draft,
 		Number(filters.draft === "only"),
-		JSON.stringify(filters.author),
-		JSON.stringify(filters.author),
 		filters.state,
 		filters.state,
 		filters.status,
@@ -732,10 +734,10 @@ async function readPullPage(
 			.bind(...binds, filters.limit, position.offset),
 		db.prepare(`${cte} SELECT COUNT(*) total FROM matched`).bind(...binds),
 		db
-			.prepare(`${cte} SELECT COALESCE(SUM(state='open'),0) open,
+			.prepare(`${cte} SELECT (SELECT COUNT(*) FROM authored WHERE state='open') open,
       COALESCE(SUM(readiness_kind='attention'),0) attention,COALESCE(SUM(readiness_kind='skipped'),0) skipped,
  COALESCE(SUM(readiness_kind='running'),0) running,COALESCE(SUM(readiness_kind='conflict'),0) conflict,COALESCE(SUM(readiness_kind='warning'),0) warning,COALESCE(SUM(readiness_kind='ready'),0) ready,COALESCE(SUM(readiness_kind='waiting'),0) waiting,COALESCE(SUM(readiness_kind='unknown'),0) unknown,COALESCE(SUM(readiness_kind='error'),0) error,
-      COALESCE(SUM(state='open' AND draft=1),0) draft,COALESCE(SUM(state='merged'),0) merged,COALESCE(SUM(state='closed'),0) closed FROM filtered`)
+      (SELECT COUNT(*) FROM authored WHERE state='open' AND draft=1) draft,(SELECT COUNT(*) FROM authored WHERE state='merged') merged,(SELECT COUNT(*) FROM authored WHERE state='closed') closed FROM filtered`)
 			.bind(...binds),
 		db
 			.prepare(

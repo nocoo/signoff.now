@@ -27,6 +27,7 @@ vi.mock("./WorkbenchProvider", () => ({
 }));
 afterEach(() => {
 	cleanup();
+	localStorage.clear();
 	vi.resetAllMocks();
 	vi.useRealTimers();
 });
@@ -186,4 +187,44 @@ test("collection list includes history, selects all members and resets selection
 	);
 	act(() => result.current.selectAll(false));
 	expect(result.current.selectedIds.size).toBe(0);
+});
+
+test("restores collection filters and sort before the first cached query without selecting rows", async () => {
+	vi.mocked(loadCollectionPulls).mockResolvedValue(queryFixture().pulls);
+	const first = renderHook(() => useCollectionPullList("cli", "saved"));
+	await waitFor(() => expect(first.result.current.pullsLoaded).toBe(true));
+	act(() =>
+		first.result.current.setFilter({
+			state: "open",
+			draft: "only",
+			query: "review",
+			authors: ["author-key"],
+			watching: "unwatched",
+			sort: "title",
+			sortDirection: "desc",
+		}),
+	);
+	const saved = first.result.current.filter;
+	first.unmount();
+	vi.mocked(loadCollectionPulls).mockClear();
+	const restored = renderHook(() => useCollectionPullList("cli", "saved"));
+	expect(restored.result.current.filter).toEqual(saved);
+	expect(restored.result.current.selectedIds.size).toBe(0);
+	await waitFor(() => expect(loadCollectionPulls).toHaveBeenCalled());
+	const query = new URLSearchParams(
+		vi.mocked(loadCollectionPulls).mock.calls[0]![0],
+	);
+	expect(query.get("q")).toBe("review");
+	expect(query.get("draft")).toBe("only");
+	expect(query.get("sort")).toBe("title");
+	expect(query.get("direction")).toBe("desc");
+	expect(query.getAll("author")).toEqual(["author-key"]);
+	const other = renderHook(() => useCollectionPullList("cli", "other"));
+	expect(other.result.current.filter).toMatchObject({
+		state: "all",
+		draft: "include",
+		query: "",
+		sort: "updated",
+		sortDirection: "desc",
+	});
 });

@@ -1,16 +1,16 @@
 import type { DataSource } from "@signoff/domain/monitoring";
 import { useEffect, useRef, useState } from "react";
+import {
+	readCollectionFilters,
+	saveCollectionFilters,
+} from "@/models/collectionFilters";
 import { pullQueryParams, queryRow } from "@/models/monitoringApi";
 import {
 	loadCollectionPulls,
 	loadCollections,
 	loadMemberships,
 } from "@/models/prCollectionsApi";
-import {
-	DEFAULT_PULL_FILTER,
-	type PullFilter,
-	updatePullFilter,
-} from "@/models/workbench";
+import { type PullFilter, updatePullFilter } from "@/models/workbench";
 import { useQueryBlock } from "./useQueryBlock";
 import { useWorkbench } from "./WorkbenchProvider";
 
@@ -59,9 +59,9 @@ export function useCollectionMutation(onChange: () => Promise<unknown>) {
 	}
 	return { busy, error, run };
 }
-export function useCollectionSearch() {
-	const [search, setSearch] = useState(""),
-		[query, setQuery] = useState("");
+export function useCollectionSearch(initialSearch = "") {
+	const [search, setSearch] = useState(initialSearch),
+		[query, setQuery] = useState(initialSearch.trim());
 	useEffect(() => {
 		const timer = setTimeout(() => setQuery(search.trim()), 300);
 		return () => clearTimeout(timer);
@@ -74,16 +74,14 @@ export function useCollectionPullList(
 	collectionId: string,
 ) {
 	const workbench = useWorkbench();
-	const [filter, updateFilter] = useState<PullFilter>({
-		...DEFAULT_PULL_FILTER,
-		source,
-		state: "all",
-		draft: "include",
-		sort: "updated",
-		sortDirection: "desc",
-	});
+	const [filter, updateFilter] = useState(() =>
+		readCollectionFilters(source, collectionId),
+	);
+	useEffect(() => {
+		saveCollectionFilters(source, collectionId, filter);
+	}, [source, collectionId, filter]);
 	const [selected, setSelected] = useState(new Set<string>());
-	const search = useCollectionSearch();
+	const search = useCollectionSearch(filter.query);
 	const params = new URLSearchParams(
 		pullQueryParams({ ...filter, query: search.query }, 1),
 	);

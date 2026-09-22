@@ -1738,13 +1738,18 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 	await page.reload();
 	await expect(rows).toHaveCount(26);
 	const filters = page.getByRole("region", { name: "PR filters" });
-	await filters.getByLabel("Draft", { exact: true }).click();
-	await page.getByRole("option", { name: "Drafts only", exact: true }).click();
+	await filters.getByRole("button", { name: "Draft", exact: true }).click();
 	await expect(rows).toHaveCount(1);
-	await filters.getByLabel("Draft", { exact: true }).click();
-	await page
-		.getByRole("option", { name: "Include drafts", exact: true })
-		.click();
+	await page.reload();
+	await expect(
+		filters.getByRole("button", { name: "Draft", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(rows).toHaveCount(1);
+	await filters.getByRole("button", { name: "Open", exact: true }).click();
+	await expect(rows).toHaveCount(23);
+	await expect(
+		filters.getByRole("button", { name: "Draft", exact: true }),
+	).toContainText("1");
 	for (const state of ["Merged", "Closed"]) {
 		await filters.getByRole("button", { name: state, exact: true }).click();
 		await expect(rows).toHaveCount(1);
@@ -1835,6 +1840,55 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 			exact: true,
 		}),
 	).toHaveAttribute("aria-sort", "ascending");
+	await filters.getByRole("button", { name: "Draft", exact: true }).click();
+	await page.reload();
+	await expect(rows).toHaveCount(1);
+	await expect(
+		memberTable.getByRole("columnheader", {
+			name: "Sort by Pull request",
+			exact: true,
+		}),
+	).toHaveAttribute("aria-sort", "ascending");
+	await page.goto(`/collections/${second.id}?source=live`);
+	await expect(
+		filters.getByRole("button", { name: "All states", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(
+		memberTable.getByRole("columnheader", {
+			name: "Sort by PR updated",
+			exact: true,
+		}),
+	).toHaveAttribute("aria-sort", "descending");
+	await filters.getByRole("button", { name: "Closed", exact: true }).click();
+	await memberTable
+		.getByRole("button", { name: "Sort by Readiness", exact: true })
+		.click();
+	await page.reload();
+	await expect(
+		filters.getByRole("button", { name: "Closed", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(
+		memberTable.getByRole("columnheader", {
+			name: "Sort by Readiness",
+			exact: true,
+		}),
+	).toHaveAttribute("aria-sort", "ascending");
+	await page.goto(collectionUrl);
+	await expect(
+		filters.getByRole("button", { name: "Draft", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(rows).toHaveCount(1);
+	await expect(
+		memberTable.getByRole("columnheader", {
+			name: "Sort by Pull request",
+			exact: true,
+		}),
+	).toHaveAttribute("aria-sort", "ascending");
+	await filters
+		.getByRole("button", { name: "All states", exact: true })
+		.click();
+	await expect(rows).toHaveCount(26);
+
 	await expect(
 		memberTable.locator("tbody tr[data-pull-id]").first(),
 	).toHaveClass(/h-16/);

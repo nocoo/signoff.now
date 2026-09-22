@@ -7,6 +7,7 @@ import {
 	GitMerge,
 	GitPullRequest,
 	GitPullRequestClosed,
+	GitPullRequestDraft,
 	Layers,
 	type LucideIcon,
 	ShieldAlert,
@@ -22,6 +23,7 @@ const states = [
 		GitPullRequest,
 		"text-emerald-600 hover:text-emerald-600 basalt-dark:text-emerald-400 basalt-dark:hover:text-emerald-400",
 	],
+	["draft", "Draft", GitPullRequestDraft, "text-basalt-muted-foreground"],
 	[
 		"merged",
 		"Merged",
@@ -138,16 +140,32 @@ export function PullQuickFilters({
 							label={label}
 							Icon={Icon}
 							color={color}
-							selected={filter.state === state}
+							selected={
+								state === "draft"
+									? filter.state === "open" && filter.draft === "only"
+									: filter.state === state &&
+										!(state === "open" && filter.draft === "only")
+							}
 							count={
 								state === "all"
 									? undefined
 									: vm.pullsLoaded
-										? vm.metrics[state]
+										? state === "open"
+											? vm.metrics.open - vm.metrics.draft
+											: vm.metrics[state]
 										: null
 							}
 							title={`Show ${state === "all" ? "all" : state} PRs`}
-							onClick={() => vm.setFilter({ state })}
+							onClick={() =>
+								vm.setFilter(
+									state === "draft"
+										? { state: "open", draft: "only" }
+										: {
+												state,
+												draft: state === "open" ? "exclude" : "include",
+											},
+								)
+							}
 						/>
 					))}
 				</fieldset>

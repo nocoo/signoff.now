@@ -1926,3 +1926,36 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		});
 	}
 });
+
+test("lifecycle filter counts retain drafts and history while draft mode filters rows", async () => {
+	seedProject(sqlite, { repositories: [] });
+	for (const [index, id] of ["open", "draft", "merged", "closed"].entries()) {
+		seedPull(sqlite, {
+			id,
+			number: index + 1,
+			externalId: String(index + 1),
+			state: id === "merged" || id === "closed" ? id : "open",
+			draft: id === "draft",
+		});
+	}
+	for (const [mode, expected] of [
+		["exclude", ["open"]],
+		["only", ["draft"]],
+		["include", ["draft", "open"]],
+	] as const) {
+		const result = pullListSchema.parse(
+			await (
+				await request(
+					`/api/query/v1/prs?state=open&draft=${mode}&sort=identity`,
+				)
+			).json(),
+		);
+		expect(result.data.map((p) => p.id)).toEqual([...expected]);
+		expect(result.metrics).toMatchObject({
+			open: 2,
+			draft: 1,
+			merged: 1,
+			closed: 1,
+		});
+	}
+});
