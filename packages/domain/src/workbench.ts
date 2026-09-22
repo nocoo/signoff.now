@@ -429,7 +429,10 @@ const requirementKey = (gate: MergeRequirement) =>
 /** One sortable step per logical requirement; each underlying source evaluation still has to pass. */
 export function projectMergeRequirements(
 	project: Project,
-	pulls: PullRequest[] = [],
+	pulls: Pick<
+		PullRequest,
+		"projectId" | "policies" | "builds" | "reviewers" | "requiredApprovals"
+	>[] = [],
 ): MergeRequirement[] {
 	const scoped = pulls.filter((pull) => pull.projectId === project.id);
 	const requirements = new Map(

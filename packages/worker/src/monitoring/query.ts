@@ -204,6 +204,15 @@ function pullScopeSql(
 	const where = ["p.source=?"];
 	const values: (string | number)[] = [source];
 	if (filters) {
+		if (filters.watching !== undefined) {
+			where.push(`pr.id ${filters.watching === "false" ? "NOT IN" : "IN"} (
+        SELECT watched.id FROM pr_observations o JOIN pull_requests watched
+          ON watched.project_id=o.project_id
+          AND lower(watched.repository_id)=lower(json_extract(o.ref_json,'$.repository.id'))
+          AND CAST(watched.external_id AS INTEGER)=json_extract(o.ref_json,'$.number')
+        WHERE o.source=? AND o.active=1)`);
+			values.push(source);
+		}
 		if (filters.collectionId) {
 			where.push(
 				"pr.id IN (SELECT pull_id FROM pr_collection_members WHERE collection_id=?)",
@@ -264,6 +273,10 @@ async function readSnapshot(
 			: undefined;
 	const { where, values } = pullScopeSql(source, filters, scope);
 	const searchScope = pullScopeSql(source, filters, scope);
+	const requirementsScope =
+		options.openOnly && filters?.watching !== undefined
+			? pullScopeSql(source, { ...filters, watching: undefined }, scope)
+			: null;
 	const searching = options.openOnly && Boolean(filters?.q);
 	if (detailId) {
 		where.push("pr.id=?");
@@ -319,6 +332,17 @@ async function readSnapshot(
 						.bind(...searchScope.values),
 				]
 			: []),
+		...(requirementsScope
+			? [
+					db
+						.prepare(`SELECT pr.project_id,
+        json_extract(pr.snapshot,'$.policies') policies,json_extract(pr.snapshot,'$.builds') builds,
+        json_extract(pr.snapshot,'$.reviewers') reviewers,json_extract(pr.snapshot,'$.requiredApprovals') required_approvals
+        FROM pull_requests pr JOIN projects p ON p.id=pr.project_id
+        WHERE ${requirementsScope.where.join(" AND ")} AND pr.state='open' ORDER BY pr.id`)
+						.bind(...requirementsScope.values),
+				]
+			: []),
 		db
 			.prepare(
 				"SELECT e.*,o.pull_id FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id AND o.generation=e.generation WHERE o.source=?",
@@ -341,14 +365,28 @@ async function readSnapshot(
 			pull: pullRequestSchema.parse(JSON.parse(stored.snapshot)),
 		}),
 	);
+	const requirementPulls = requirementsScope
+		? (
+				results[results.length - 5]?.results as {
+					project_id: string;
+					policies: string;
+					builds: string;
+					reviewers: string;
+					required_approvals: number;
+				}[]
+			).map((row) => ({
+				projectId: row.project_id,
+				policies: JSON.parse(row.policies) as PullRequest["policies"],
+				builds: JSON.parse(row.builds) as PullRequest["builds"],
+				reviewers: JSON.parse(row.reviewers) as PullRequest["reviewers"],
+				requiredApprovals: row.required_approvals,
+			}))
+		: pulls.map((row) => row.pull);
 	const projects = ((results[0]?.results ?? []) as ProjectRow[])
 		.map(mapProject)
 		.map((p) => ({
 			...p,
-			mergeRequirements: projectMergeRequirements(
-				p,
-				pulls.map((row) => row.pull),
-			),
+			mergeRequirements: projectMergeRequirements(p, requirementPulls),
 		}));
 	const context = decisionContext(results.slice(-3));
 	const evaluations = (
@@ -677,11 +715,6 @@ async function readPullPage(
 		)
 		.map((row) => row.id);
 	const { where, values } = pullScopeSql(source, filters, snapshot);
-	if (filters.watching !== undefined)
-		where.push(`${filters.watching === "false" ? "NOT " : ""}EXISTS (
-      SELECT 1 FROM pr_observations o WHERE o.project_id=pr.project_id AND o.source=p.source AND o.active=1
-      AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id)
-      AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER))`);
 	// Only progress sorting requires historical check arrays, and SQLite reduces them to a scalar.
 	const historyCompletion =
 		filters.sort === "progress"
@@ -691,8 +724,9 @@ async function readPullPage(
         FROM (SELECT value FROM json_each(pr.snapshot,'$.policies') UNION ALL SELECT value FROM json_each(pr.snapshot,'$.builds'))
         WHERE json_extract(value,'$.required')=1),1) END`
 			: "0";
+	// TEXT affinity lets SQLite index the materialized JSON facts instead of scanning them for every PR.
 	const cte = `WITH open_facts AS MATERIALIZED (
-      SELECT json_extract(value,'$.id') id,json_extract(value,'$.kind') kind,json_extract(value,'$.rank') rank,
+		SELECT CAST(json_extract(value,'$.id') AS TEXT) id,json_extract(value,'$.kind') kind,json_extract(value,'$.rank') rank,
         json_extract(value,'$.evaluated') evaluated,json_extract(value,'$.action') action,json_extract(value,'$.owner') owner,json_extract(value,'$.completion') completion FROM json_each(?)
     ), scoped AS (
       SELECT pr.*,p.provider,p.organization,p.project_key,p.name project_name,
@@ -747,6 +781,10 @@ async function readPullPage(
 		updated: "updated_at",
 		oldest: "json_extract(snapshot,'$.createdAt')",
 	}[filters.sort];
+	const draftScope =
+		filters.draft === "include"
+			? "1"
+			: `draft=${Number(filters.draft === "only")}`;
 	const results = await db.batch([
 		db
 			.prepare(`${cte} SELECT id,project_id,repository_id,external_id,version,published_at,
@@ -754,10 +792,26 @@ async function readPullPage(
 			.bind(...binds, filters.limit, position.offset),
 		db.prepare(`${cte} SELECT COUNT(*) total FROM matched`).bind(...binds),
 		db
-			.prepare(`${cte} SELECT (SELECT COUNT(*) FROM authored WHERE state='open') open,
-      COALESCE(SUM(readiness_kind='attention'),0) attention,COALESCE(SUM(readiness_kind='review_needed'),0) review_needed,COALESCE(SUM(readiness_kind='skipped'),0) skipped,
- COALESCE(SUM(readiness_kind='running'),0) running,COALESCE(SUM(readiness_kind='conflict'),0) conflict,COALESCE(SUM(readiness_kind='warning'),0) warning,COALESCE(SUM(readiness_kind='ready'),0) ready,COALESCE(SUM(readiness_kind='waiting'),0) waiting,COALESCE(SUM(readiness_kind='unknown'),0) unknown,COALESCE(SUM(readiness_kind='error'),0) error,
-      (SELECT COUNT(*) FROM authored WHERE state='open' AND draft=1) draft,(SELECT COUNT(*) FROM authored WHERE state='merged') merged,(SELECT COUNT(*) FROM authored WHERE state='closed') closed FROM filtered`)
+			.prepare(`${cte} SELECT COUNT(CASE WHEN state='open' THEN 1 END) open,
+      ${[
+				"attention",
+				"review_needed",
+				"skipped",
+				"running",
+				"conflict",
+				"warning",
+				"ready",
+				"waiting",
+				"unknown",
+				"error",
+			]
+				.map(
+					(kind) =>
+						`COALESCE(SUM((${draftScope}) AND readiness_kind='${kind}'),0) ${kind}`,
+				)
+				.join(",")},
+      COUNT(CASE WHEN state='open' AND draft=1 THEN 1 END) draft,
+      COUNT(CASE WHEN state='merged' THEN 1 END) merged,COUNT(CASE WHEN state='closed' THEN 1 END) closed FROM authored`)
 			.bind(...binds),
 		db
 			.prepare(
@@ -932,7 +986,10 @@ async function readRepositoryPage(
 	filters: QueryFilters,
 	timestamp: number,
 ) {
-	const snapshot = await readSnapshot(db, source, { catalog: true, filters });
+	const snapshot = await readSnapshot(db, source, {
+		catalog: true,
+		filters: { ...filters, watching: undefined },
+	});
 	const output: RepositoryQueryItem[] = [];
 	const matches = scopeMatcher(filters, snapshot.identities);
 	for (const project of snapshot.projects) {

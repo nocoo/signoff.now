@@ -912,6 +912,103 @@ describe("v1 cache queries", () => {
 		expect(history.data).toHaveLength(20);
 		expect(snapshotsRead).toBe(20);
 	});
+	test("watched PR queries use identity indexes and hydrate only watches while preserving project requirements", async () => {
+		const { pull } = seed();
+		const watch = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			PR_TEST_NOW,
+		);
+		for (let number = 2; number <= 201; number++)
+			seedPull(sqlite, {
+				id: `unwatched-${number}`,
+				number,
+				externalId: String(number),
+				state: number > 101 ? "merged" : "open",
+				policies: [
+					{
+						id: "other-policy",
+						name: "Unwatched repository policy",
+						kind: "build",
+						state: "passed",
+						required: true,
+						detail: "Cached policy evidence",
+						owner: "Maintainers",
+					},
+				],
+			});
+		sqlite.raw
+			.query(
+				"UPDATE pr_observations SET pull_id=NULL,ref_json=json_set(ref_json,'$.repository.id',upper(json_extract(ref_json,'$.repository.id'))) WHERE id=?",
+			)
+			.run(watch.observation.id);
+		const hydrated: string[] = [];
+		const plans: string[] = [];
+		const db = {
+			prepare: sqlite.db.prepare.bind(sqlite.db),
+			batch: async <T>(statements: D1PreparedStatement[]) => {
+				for (const statement of statements) {
+					const { sql, args } = statement as D1PreparedStatement & {
+						sql: string;
+						args: (string | number | null)[];
+					};
+					plans.push(
+						...(
+							sqlite.raw.query(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as {
+								detail: string;
+							}[]
+						).map((row) => row.detail),
+					);
+				}
+				const results = await sqlite.db.batch<T>(statements);
+				for (const row of results.flatMap((result) => result.results))
+					if (
+						typeof row === "object" &&
+						row !== null &&
+						"snapshot" in row &&
+						typeof row.snapshot === "string"
+					)
+						hydrated.push(JSON.parse(row.snapshot).id);
+				return results;
+			},
+		};
+		const watched = await queryPulls(
+			db,
+			"cli",
+			parseQuery(new URLSearchParams("watching=true&draft=include&q=Alice")),
+			PR_TEST_NOW,
+		);
+		expect(watched.data.map((item) => item.id)).toEqual([pull.id]);
+		expect(watched.page.total).toBe(1);
+		expect(watched.metrics).toMatchObject({ open: 1, merged: 0 });
+		expect(watched.data[0]?.project.mergeRequirements).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ sourceIds: ["other-policy"] }),
+			]),
+		);
+		expect(hydrated).toEqual([pull.id, pull.id]);
+		expect(
+			plans.some((plan) =>
+				plan.includes(
+					"SEARCH watched USING INDEX pull_requests_watch_identity",
+				),
+			),
+		).toBe(true);
+		const unwatched = await queryPulls(
+			db,
+			"cli",
+			parseQuery(new URLSearchParams("watching=false&limit=1")),
+			PR_TEST_NOW,
+		);
+		expect(unwatched.page.total).toBe(100);
+		expect(unwatched.data[0]?.id).not.toBe(pull.id);
+		expect(unwatched.metrics).toMatchObject({ open: 100, merged: 100 });
+		expect(plans.some((plan) => plan.includes("SCAN f LEFT-JOIN"))).toBe(false);
+		expect(
+			plans.some((plan) => plan.includes("SEARCH f USING AUTOMATIC")),
+		).toBe(true);
+	});
 	test("facts and SQL pagination retry as one revision when a publication races the query", async () => {
 		const { pull } = seed();
 		sqlite.beforeBatch("WITH open_facts", () => {
