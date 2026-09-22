@@ -1,3 +1,4 @@
+import { readinessBadge } from "@signoff/domain/ai-readiness";
 import {
 	canonicalObservationKey,
 	type DataSource,
@@ -611,6 +612,7 @@ async function readPullPage(
 			Boolean(observation?.active),
 			pull,
 		);
+		const badge = readinessBadge(readiness);
 		return {
 			id: pull.id,
 			kind:
@@ -628,7 +630,7 @@ async function readPullPage(
 							running: 5,
 							waiting: 6,
 							ready: 7,
-						}[readiness.kind],
+						}[badge.kind],
 			action: readiness.nextAction,
 			evaluated: (readiness.current ?? readiness.previous)?.evaluatedAt ?? "",
 			owner: "",
@@ -677,7 +679,7 @@ async function readPullPage(
         json_extract(pr.snapshot,'$.draft') draft,json_extract(pr.snapshot,'$.author.name') author_name,
         json_array(p.provider,lower(p.organization),json_extract(pr.snapshot,'$.author.id')) author_key,
         COALESCE(f.kind,'not_evaluated') readiness_kind,COALESCE(f.evaluated,'') evaluated,
-        COALESCE(f.rank,CASE pr.state WHEN 'merged' THEN 4 ELSE 5 END) readiness_rank,
+        COALESCE(f.rank,CASE WHEN json_extract(pr.snapshot,'$.targetBranch') IN ('main','master','refs/heads/main','refs/heads/master') THEN 9 ELSE 8 END) readiness_rank,
         COALESCE(f.action,CASE pr.state WHEN 'merged' THEN 'Merged into '||json_extract(pr.snapshot,'$.targetBranch') ELSE 'Closed without merging' END) next_action,
         COALESCE(f.owner,CASE pr.state WHEN 'merged' THEN p.owner ELSE json_extract(pr.snapshot,'$.author.name') END) next_owner,
         COALESCE(f.completion,${historyCompletion}) completion

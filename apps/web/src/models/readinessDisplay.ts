@@ -1,7 +1,4 @@
-import {
-	type AiReadiness,
-	presentReadiness,
-} from "@signoff/domain/ai-readiness";
+import { type AiReadiness, readinessBadge } from "@signoff/domain/ai-readiness";
 import type { loadAiSchedule } from "./aiScheduleApi";
 
 export type AiSchedule = Awaited<ReturnType<typeof loadAiSchedule>>;
@@ -14,7 +11,7 @@ export function readinessDisplay(
 ) {
 	const updating = ["pending", "running", "error"].includes(readiness.status);
 	const previous = updating ? readiness.previous : null;
-	const badge = previous ? presentReadiness("complete", previous) : readiness;
+	const badge = readinessBadge(readiness);
 	if (!updating) return { badge, note: null, detail: "" };
 	const history = previous
 		? `Last Jev result: ${new Date(previous.evaluatedAt).toLocaleString()}. This result has not been verified against the latest evidence or instructions.`

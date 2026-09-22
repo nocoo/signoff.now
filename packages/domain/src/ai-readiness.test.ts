@@ -11,6 +11,7 @@ import {
 	policyCatalog,
 	policyInstructions,
 	presentReadiness,
+	readinessBadge,
 } from "./ai-readiness.js";
 import { demoWorkspace } from "./demo.js";
 import {
@@ -61,7 +62,7 @@ const result = jevResultSchema.parse({
 	confidence: 1,
 });
 test("operational states cannot masquerade as a current model judgment", () => {
-	expect(presentReadiness("complete", result)).toMatchObject({
+	expect(readinessBadge(presentReadiness("complete", result))).toMatchObject({
 		kind: "running",
 		current: result,
 		previous: null,
@@ -89,6 +90,11 @@ test("operational states cannot masquerade as a current model judgment", () => {
 		);
 		expect(value.current).toBeNull();
 		expect(value.kind).toBe(status === "error" ? "error" : "unknown");
+		expect(readinessBadge(value).kind).toBe(
+			status === "not_watched" ? "unknown" : result.kind,
+		);
+		const empty = presentReadiness(status);
+		expect(readinessBadge(empty)).toBe(empty);
 	}
 });
 test("all policies and exact review facts enter context without generated action summaries", async () => {

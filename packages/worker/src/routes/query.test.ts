@@ -1807,3 +1807,122 @@ test("Jev evaluation age sorts successful current and historical answers, with n
 		).not.toBeNull();
 	}
 });
+
+test("readiness sorts visible prior judgments and groups unwatched history consistently", async () => {
+	seedProject(sqlite, { repositories: [] });
+	const cases = [
+		["attention-current", "attention", "complete"],
+		["attention-pending", "attention", "pending"],
+		["attention-error", "attention", "error"],
+		["running-current", "running", "complete"],
+		["running-refresh", "running", "running"],
+		["waiting-current", "waiting", "complete"],
+		["ready-current", "ready", "complete"],
+		["unknown", null, "pending"],
+		["error", null, "error"],
+		["conflict", null, "pending"],
+		["skipped", null, "pending"],
+		["unwatched", null, null],
+		["merged", null, null],
+		["closed", null, null],
+		["history-skipped", null, null],
+	] as const;
+	for (const [index, [id, kind, status]] of cases.entries()) {
+		seedPull(sqlite, {
+			id,
+			number: index + 1,
+			externalId: String(index + 1),
+			targetBranch: id.includes("skipped") ? "release/test" : "main",
+			state:
+				id === "merged" || id === "closed"
+					? id
+					: id === "history-skipped"
+						? "merged"
+						: "open",
+			mergeable: id === "conflict" ? "conflicts" : "clear",
+		});
+		if (!status) continue;
+		const { observation } = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: id },
+			PR_TEST_NOW,
+		);
+		const answer = kind
+			? JSON.stringify({
+					kind,
+					model: "test",
+					rubric: "test",
+					fingerprint: id,
+					evaluatedAt: new Date(PR_TEST_NOW * 1000).toISOString(),
+					confidence: 1,
+					probabilities: { [kind]: 1 },
+				})
+			: null;
+		sqlite.raw
+			.query(
+				"UPDATE ai_evaluations SET status=?, result_json=?, previous_json=? WHERE observation_id=?",
+			)
+			.run(
+				status,
+				status === "complete" ? answer : null,
+				status !== "complete" ? answer : null,
+				observation.id,
+			);
+	}
+	const ascending = [
+		"conflict",
+		"error",
+		"attention-current",
+		"attention-error",
+		"attention-pending",
+		"unknown",
+		"running-current",
+		"running-refresh",
+		"waiting-current",
+		"ready-current",
+		"history-skipped",
+		"skipped",
+		"closed",
+		"merged",
+		"unwatched",
+	];
+	const descending = [
+		"closed",
+		"merged",
+		"unwatched",
+		"history-skipped",
+		"skipped",
+		"ready-current",
+		"waiting-current",
+		"running-current",
+		"running-refresh",
+		"unknown",
+		"attention-current",
+		"attention-error",
+		"attention-pending",
+		"error",
+		"conflict",
+	];
+	for (const [direction, expected] of [
+		["asc", ascending],
+		["desc", descending],
+	] as const) {
+		const result = pullListSchema.parse(
+			await (
+				await request(
+					`/api/query/v1/prs?state=all&draft=include&sort=readiness&direction=${direction}`,
+				)
+			).json(),
+		);
+		expect(result.data.map((p) => p.id)).toEqual(expected);
+		expect(
+			result.data.find((p) => p.id === "attention-pending")?.readiness,
+		).toMatchObject({
+			kind: "unknown",
+			status: "pending",
+			current: null,
+			previous: { kind: "attention" },
+		});
+	}
+});

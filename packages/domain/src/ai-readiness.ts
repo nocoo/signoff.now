@@ -138,6 +138,12 @@ export function presentReadiness(
 		previous: status === "complete" ? null : previous,
 	};
 }
+export function readinessBadge(readiness: AiReadiness): AiReadiness {
+	return ["pending", "running", "error"].includes(readiness.status) &&
+		readiness.previous
+		? presentReadiness("complete", readiness.previous)
+		: readiness;
+}
 export function policyInstructions(
 	project: Project,
 	repositoryId?: string,
