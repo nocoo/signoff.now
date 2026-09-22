@@ -1,34 +1,13 @@
-import {
-	Badge,
-	Button,
-	Checkbox,
-	Field,
-	Input,
-	LayerCard,
-} from "@nocoo/basalt";
+import { Button, Checkbox, Field, Input, LayerCard } from "@nocoo/basalt";
 import { MultiSelect } from "@nocoo/basalt/components/multi-select";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SectionRule } from "@nocoo/basalt/components/section-rule";
 import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@nocoo/basalt/components/table";
-import { pullUrl, repositoryBranchUrl } from "@signoff/domain/workbench";
-import {
-	ArrowDown,
 	ArrowRight,
-	ArrowUp,
-	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
-	ExternalLink,
 	Eye,
 	EyeOff,
-	GitBranch,
 	GitPullRequest,
 	ListOrdered,
 	ScanLine,
@@ -38,44 +17,29 @@ import { useRef } from "react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
-import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
+import { EntityAvatar } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
-import { Skeleton } from "@/components/Skeleton";
 import { SERVICE_UNAVAILABLE } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { relativeAge } from "@/models/freshness";
-import { type AiSchedule, readinessDisplay } from "@/models/readinessDisplay";
 import {
 	DEFAULT_PULL_FILTER,
 	nextPullSort,
 	type PullFilter,
-	type PullRow,
 } from "@/models/workbench";
 import { machineHref } from "@/models/workspaceLocation";
 import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
-import { useMinuteNow } from "@/viewmodels/useMinuteNow";
-import { usePullTableLayout } from "@/viewmodels/usePullTableLayout";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import {
-	PrCollectionMarker,
-	PrCollectionMembershipProvider,
-} from "../collections/PrCollectionMemberships";
+import { PrCollectionMembershipProvider } from "../collections/PrCollectionMemberships";
 import { PullDetailSheet } from "./PullDetailSheet";
+import { PullList, PullListPagination } from "./PullList";
 import { PullQuickFilters } from "./PullQuickFilters";
-import { ReadinessCell } from "./ReadinessCell";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
-import { LifecycleBadge, StageBar, StageLegend } from "./WorkbenchStatus";
-
-const repositoryColumn = "group-data-[hidden-columns~=repository]/pulls:hidden";
-const authorColumn = "group-data-[hidden-columns~=author]/pulls:hidden";
+import { StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
 	const vm = useWorkbench();
-	const tableContainer = usePullTableLayout();
-	const now = useMinuteNow();
 	const aiSchedule = useAiScheduleViewModel(vm.filter.source);
-	const evaluationNow = Math.floor(Date.now() / 1000);
 	const opener = useRef<HTMLElement | null>(null);
 
 	const scopedProject = vm.projectOptions.find(
@@ -260,85 +224,35 @@ export function PullsPage() {
 						{!vm.loading && (!vm.pullsLoaded || vm.total === 0) ? (
 							<PullsEmptyState vm={vm} />
 						) : (
-							<div ref={tableContainer} className="group/pulls overflow-x-auto">
-								<Table
-									aria-label="Pull requests"
-									aria-busy={vm.loading}
-									className="table-auto text-[11px] [&_th]:w-px [&_th]:whitespace-nowrap [&_th]:px-3 [&_td]:whitespace-nowrap [&_td]:px-3"
-								>
-									<TableHeader>
-										<TableRow>
-											<TableHead className="px-2 text-center">
-												<div className="flex items-center justify-center">
-													<PageSelectionCheckbox vm={vm} />
-												</div>
-											</TableHead>
-											<TableHead className="px-1 text-center">
-												<span className="sr-only">Watch list</span>
-												<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
-											</TableHead>
-											<SortableHead
-												sort="title"
-												label="Pull request"
-												className=""
-												filter={vm.filter}
-												disabled={vm.loading}
-												onSort={() =>
-													vm.setFilter(nextPullSort(vm.filter, "title"))
-												}
-											/>
-
-											{(
-												[
-													["repository", "Repository", repositoryColumn],
-													["author", "Author", authorColumn],
-													["readiness", "Readiness", ""],
-													["progress", "Checks & stages", "!w-full min-w-56"],
-													["action", "Next action", ""],
-													["evaluated", "Jev evaluated", "text-right"],
-													["updated", "PR updated", "text-right"],
-													["stateChecked", "State checked", "text-right"],
-													["checksChecked", "Checks collected", "text-right"],
-												] as const
-											).map(([sort, label, className]) => (
-												<SortableHead
-													key={sort}
-													sort={sort}
-													label={label}
-													className={className}
-													filter={vm.filter}
-													disabled={vm.loading}
-													onSort={() =>
-														vm.setFilter(nextPullSort(vm.filter, sort))
-													}
-												/>
-											))}
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{vm.loading ? (
-											<PullTableSkeleton />
-										) : (
-											vm.pageRows.map((row) => (
-												<PullTableRow
-													key={row.pull.id}
-													row={row}
-													vm={vm}
-													now={now}
-													aiSchedule={aiSchedule.error ? null : aiSchedule.data}
-													evaluationNow={evaluationNow}
-													onOpen={(element) => {
-														opener.current = element;
-														vm.selectPull(row.pull.id);
-													}}
-												/>
-											))
-										)}
-									</TableBody>
-								</Table>
-							</div>
+							<PullList
+								rows={vm.pageRows}
+								loading={vm.loading}
+								busy={Boolean(vm.busy)}
+								sort={vm.filter}
+								onSort={(column) =>
+									vm.setFilter(nextPullSort(vm.filter, column))
+								}
+								aiSchedule={aiSchedule.error ? null : aiSchedule.data}
+								onToggleWatch={(row) => void vm.toggleWatch(row.pull.id)}
+								selection={{
+									ids: vm.selectedIds,
+									header: <PageSelectionCheckbox vm={vm} />,
+									onToggle: vm.toggleSelection,
+								}}
+								onOpen={(row, element) => {
+									opener.current = element;
+									vm.selectPull(row.pull.id);
+								}}
+							/>
 						)}
-						<PullPagination vm={vm} />
+						<PullListPagination
+							page={vm.page}
+							pageSize={vm.pageSize}
+							total={vm.total}
+							loaded={vm.pullsLoaded}
+							loading={vm.loading}
+							onPage={vm.setPage}
+						/>
 					</LayerCard>
 				</SectionRule>
 				<div className="flex flex-wrap items-center justify-between gap-3">
@@ -369,143 +283,6 @@ export function PullsPage() {
 				/>
 			</div>
 		</PrCollectionMembershipProvider>
-	);
-}
-
-function PullTableSkeleton() {
-	return [1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
-		<TableRow
-			key={row}
-			aria-hidden="true"
-			className="pointer-events-none h-16 [&_td]:py-2 [&_td]:align-middle [&_div[aria-hidden=true]]:bg-basalt-muted-foreground/10"
-		>
-			<TableCell>
-				<Skeleton className="mx-auto h-4 w-4 [&>div]:rounded" />
-			</TableCell>
-			<TableCell>
-				<div className="mx-auto flex h-8 w-8 items-center justify-center rounded-md bg-basalt-primary/5">
-					<Skeleton className="h-4 w-4 [&>div]:rounded-full" />
-				</div>
-			</TableCell>
-			<TableCell>
-				<div className="w-[32rem] space-y-2">
-					<Skeleton
-						className={cn("h-3", row % 3 === 0 ? "w-3/4" : "w-11/12")}
-					/>
-					<div className="flex items-center gap-2">
-						<Skeleton className="h-2.5 w-10" />
-						<Skeleton className="h-5 w-12 [&>div]:rounded-full" />
-						<Skeleton className="h-2.5 w-28" />
-					</div>
-				</div>
-			</TableCell>
-			<TableCell className={repositoryColumn}>
-				<Skeleton className="h-2.5 w-44" />
-			</TableCell>
-			<TableCell className={authorColumn}>
-				<div className="flex items-center gap-2">
-					<Skeleton className="h-5 w-5 [&>div]:rounded-full" />
-					<Skeleton className="h-2.5 w-16" />
-				</div>
-			</TableCell>
-			<TableCell>
-				<Skeleton className="h-6 w-24 [&>div]:rounded-full" />
-			</TableCell>
-			<TableCell>
-				<div className="mb-1 flex items-center justify-between gap-4">
-					<Skeleton className="h-3 w-20" />
-					<Skeleton className="h-2.5 w-10" />
-				</div>
-				<div className="flex gap-1">
-					{[1, 2, 3, 4, 5, 6, 7, 8].map((stage) => (
-						<Skeleton key={stage} className="h-1.5 min-w-0 flex-1" />
-					))}
-				</div>
-				<Skeleton className="mt-1 h-2.5 w-28" />
-			</TableCell>
-			<TableCell>
-				<Skeleton className="h-2.5 w-64" />
-			</TableCell>
-			{["evaluated", "updated", "stateChecked", "checksChecked"].map(
-				(column) => (
-					<TableCell key={column}>
-						<Skeleton className="ml-auto h-2.5 w-14" />
-					</TableCell>
-				),
-			)}
-		</TableRow>
-	));
-}
-
-function SortableHead({
-	sort,
-	label,
-	className,
-	filter,
-	disabled,
-	onSort,
-}: {
-	sort: PullFilter["sort"];
-	label: string;
-	className: string;
-	filter: PullFilter;
-	disabled: boolean;
-	onSort: () => void;
-}) {
-	const active = filter.sort === sort;
-	const Icon = active
-		? filter.sortDirection === "asc"
-			? ArrowUp
-			: ArrowDown
-		: ArrowUpDown;
-	return (
-		<TableHead
-			className={className}
-			aria-sort={
-				active
-					? filter.sortDirection === "asc"
-						? "ascending"
-						: "descending"
-					: "none"
-			}
-		>
-			<Button
-				variant="ghost"
-				size="sm"
-				aria-label={`Sort by ${label}`}
-				disabled={disabled}
-				onClick={onSort}
-				className={cn(
-					"h-8 gap-1 px-0 text-xs hover:bg-transparent",
-					active && "text-basalt-foreground",
-				)}
-			>
-				{label}
-				<Icon className="h-3 w-3 shrink-0" aria-hidden />
-			</Button>
-		</TableHead>
-	);
-}
-
-function PullSourceLink({ pull, project }: Pick<PullRow, "pull" | "project">) {
-	if (project.source !== "cli") return null;
-	return (
-		<Button
-			asChild
-			variant="ghost"
-			size="icon"
-			className="h-5 w-5 shrink-0 text-basalt-muted-foreground"
-		>
-			<a
-				href={pullUrl(project, pull)}
-				target="_blank"
-				rel="noopener noreferrer"
-				aria-label={`Open PR #${pull.number} in ${project.provider === "ado" ? "Azure DevOps" : "GitHub"} (new tab)`}
-				title="Open source PR in a new tab"
-			>
-				<ExternalLink className="h-3.5 w-3.5" aria-hidden />
-			</a>
-		</Button>
 	);
 }
 
@@ -602,292 +379,6 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 				</span>
 			</div>
 		</div>
-	);
-}
-
-function PullTableRow({
-	row,
-	vm,
-	now,
-	aiSchedule,
-	evaluationNow,
-	onOpen,
-}: {
-	row: PullRow;
-	vm: ReturnType<typeof useWorkbench>;
-	now: number;
-	aiSchedule: AiSchedule | null;
-	evaluationNow: number;
-	onOpen: (element: HTMLButtonElement) => void;
-}) {
-	const { pull, project, readiness, progress, observation } = row;
-	const watching = row.watching ?? Boolean(observation?.active);
-	const evaluation = readiness.current ?? readiness.previous;
-	const evaluatedAt = evaluation
-		? Date.parse(evaluation.evaluatedAt) / 1000
-		: null;
-	const stateAt = pull.summaryObservedAt ?? pull.observedAt;
-	const checksAt =
-		pull.checksObservedAt === null
-			? null
-			: (pull.checksObservedAt ?? pull.observedAt);
-	return (
-		<TableRow
-			data-pull-id={pull.id}
-			className={cn(
-				"group h-16",
-				vm.selectedIds.has(pull.id) && "bg-basalt-primary/4",
-			)}
-		>
-			<TableCell className="w-10 px-2 py-2 align-middle">
-				<div className="flex items-center justify-center">
-					<Checkbox
-						aria-label={`Select PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
-						checked={vm.selectedIds.has(pull.id)}
-						disabled={
-							(pull.state !== "open" && !observation?.active) ||
-							Boolean(vm.busy)
-						}
-						onCheckedChange={(checked) =>
-							vm.toggleSelection(pull.id, checked === true)
-						}
-					/>
-				</div>
-			</TableCell>
-			<TableCell className="w-12 px-1 py-2 align-middle">
-				<div className="flex items-center justify-center">
-					<Button
-						variant="ghost"
-						size="icon"
-						className={cn(
-							"h-8 w-8",
-							watching
-								? "bg-basalt-primary/10 text-basalt-primary hover:bg-basalt-primary/15 hover:text-basalt-primary"
-								: "text-basalt-muted-foreground hover:bg-basalt-muted hover:text-basalt-foreground",
-						)}
-						aria-label={`Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`}
-						aria-pressed={watching}
-						aria-busy={Boolean(row.watchPending)}
-						title={
-							row.watchPending
-								? "Saving watch list change…"
-								: watching
-									? "In watch list · Click to remove"
-									: pull.state === "open"
-										? "Not in watch list · Click to watch"
-										: "Completed PRs are no longer watched"
-						}
-						disabled={
-							Boolean(vm.busy) ||
-							row.watchPending ||
-							(pull.state !== "open" && !observation?.active)
-						}
-						onClick={() => void vm.toggleWatch(pull.id)}
-					>
-						{watching ? (
-							<Eye aria-hidden className="h-4 w-4" />
-						) : (
-							<EyeOff aria-hidden className="h-4 w-4" />
-						)}
-					</Button>
-				</div>
-			</TableCell>
-			<TableCell className="py-2 align-middle">
-				<div className="flex items-start gap-1.5">
-					<Button
-						variant="link"
-						className="h-auto min-w-0 justify-start whitespace-nowrap p-0 text-left text-xs font-semibold leading-5 text-basalt-foreground"
-						aria-label={`Open PR #${pull.number}: ${pull.title}`}
-						onClick={(event) => {
-							onOpen(event.currentTarget);
-						}}
-					>
-						{pull.title}
-					</Button>
-					<PullSourceLink pull={pull} project={project} />
-				</div>
-				<div className="mt-1 flex items-center gap-x-1.5 gap-y-1 text-[11px] text-basalt-muted-foreground">
-					<a
-						href={pullUrl(project, pull)}
-						target="_blank"
-						rel="noopener noreferrer"
-						title={`Open PR #${pull.number} in ${project.provider === "ado" ? "Azure DevOps" : "GitHub"} (new tab)`}
-						className="rounded-sm font-mono text-basalt-foreground/75 underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
-					>
-						#{pull.number}
-					</a>
-					<LifecycleBadge pull={pull} />
-					<a
-						href={repositoryBranchUrl(
-							project,
-							pull.repository,
-							pull.targetBranch,
-						)}
-						target="_blank"
-						rel="noopener noreferrer"
-						aria-label={`Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`}
-						title={`Target branch: ${pull.targetBranch} · Open in a new tab`}
-						className="flex min-w-0 items-center gap-1.5 rounded-sm font-mono text-[11px] text-basalt-muted-foreground underline-offset-4 hover:text-basalt-primary hover:underline focus-visible:outline-2 focus-visible:outline-basalt-ring"
-					>
-						<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
-						<span className="whitespace-nowrap">{pull.targetBranch}</span>
-					</a>
-					<PrCollectionMarker id={pull.id} number={pull.number} />
-					{pull.labels.includes("release blocker") ? (
-						<Badge variant="error" className="ml-2 px-1.5 py-0 text-[11px]">
-							release blocker
-						</Badge>
-					) : null}
-				</div>
-			</TableCell>
-			<TableCell
-				className={cn(repositoryColumn, "py-2 align-middle text-[11px]")}
-			>
-				<RepositoryScopeLinks project={project} repository={pull.repository} />
-			</TableCell>
-			<TableCell className={cn(authorColumn, "py-2 align-middle text-[11px]")}>
-				<EntityLabel
-					name={pull.author.name}
-					avatarUrl={pull.author.avatarUrl}
-					size="xs"
-				/>
-			</TableCell>
-
-			<TableCell className="py-2 align-middle">
-				<ReadinessCell
-					display={readinessDisplay(
-						readiness,
-						project.id,
-						aiSchedule,
-						evaluationNow,
-					)}
-					failed={readiness.status === "error"}
-				/>
-			</TableCell>
-			<TableCell className="py-2 align-middle">
-				{pull.checksObservedAt === null ? (
-					<p
-						className="text-[11px] text-basalt-muted-foreground"
-						title="Add to watch list to collect policies, builds and stages"
-					>
-						Checks not collected
-					</p>
-				) : (
-					<>
-						<div className="mb-1 flex items-baseline justify-between gap-4 text-xs">
-							<span className="font-medium tabular-nums">
-								{progress.checksPassed}/{progress.checksTotal} required
-							</span>
-							<span className="text-[11px] text-basalt-muted-foreground">
-								{pull.builds.length} builds
-							</span>
-						</div>
-						<StageBar builds={pull.builds} />
-						<p className="mt-1 text-[11px] text-basalt-muted-foreground">
-							{progress.stagesPassed}/{progress.stagesTotal} stages passed
-							{progress.optionalFailures
-								? ` · ${progress.optionalFailures} advisory`
-								: ""}
-						</p>
-					</>
-				)}
-			</TableCell>
-			<TableCell className="py-2 align-middle">
-				<p className="text-[11px] leading-4" title={readiness.nextAction}>
-					{readiness.nextAction}
-				</p>
-			</TableCell>
-			<TableCell className="py-2 align-middle text-right text-[11px] text-basalt-muted-foreground">
-				{evaluation && evaluatedAt !== null ? (
-					<time
-						dateTime={evaluation.evaluatedAt}
-						title={`Last successful Jev evaluation: ${new Date(evaluation.evaluatedAt).toLocaleString()}${readiness.current ? "" : " · Previous evidence"}`}
-					>
-						{relativeAge(evaluatedAt, now)}
-					</time>
-				) : (
-					<span
-						title={
-							readiness.kind === "skipped"
-								? "Jev evaluation skipped for this target branch"
-								: "No successful Jev evaluation"
-						}
-					>
-						—
-					</span>
-				)}
-			</TableCell>
-			<TableCell className="py-2 align-middle text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
-				<time
-					dateTime={new Date(pull.updatedAt * 1000).toISOString()}
-					title={new Date(pull.updatedAt * 1000).toLocaleString()}
-				>
-					{relativeAge(pull.updatedAt, now)}
-				</time>
-			</TableCell>
-			<TableCell className="py-2 align-middle text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
-				<time
-					dateTime={new Date(stateAt * 1000).toISOString()}
-					title={`PR state checked: ${new Date(stateAt * 1000).toLocaleString()}`}
-				>
-					{relativeAge(stateAt, now)}
-				</time>
-			</TableCell>
-			<TableCell className="py-2 align-middle text-right text-[11px] whitespace-nowrap text-basalt-muted-foreground">
-				{checksAt === null ? (
-					<abbr title="Checks have not been collected" className="no-underline">
-						—
-					</abbr>
-				) : (
-					<time
-						dateTime={new Date(checksAt * 1000).toISOString()}
-						title={`Checks collected: ${new Date(checksAt * 1000).toLocaleString()}${pull.checksInvalidated ? " · PR changed; checks need refreshing" : ""}`}
-					>
-						{pull.checksInvalidated ? "outdated" : relativeAge(checksAt, now)}
-					</time>
-				)}
-			</TableCell>
-		</TableRow>
-	);
-}
-
-function PullPagination({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
-	if (vm.total === 0 && vm.page <= 1) return null;
-	return (
-		<LayerCard.Footer className="justify-between">
-			<p className="text-xs text-basalt-muted-foreground">
-				{vm.pullsLoaded
-					? `${(vm.page - 1) * vm.pageSize + 1}–${Math.min(vm.page * vm.pageSize, vm.total)} of ${vm.total} pull requests`
-					: vm.loading
-						? "Loading pull requests…"
-						: "Result count unavailable"}
-			</p>
-			<div className="flex items-center gap-2">
-				<Button
-					variant="outline"
-					size="icon"
-					className="h-7 w-7"
-					aria-label="Previous page"
-					disabled={vm.page <= 1}
-					onClick={() => vm.setPage(vm.page - 1)}
-				>
-					<ChevronLeft aria-hidden className="h-4 w-4" />
-				</Button>
-				<span className="text-xs tabular-nums">
-					{vm.pullsLoaded ? `${vm.page} / ${vm.pageCount}` : `Page ${vm.page}`}
-				</span>
-				<Button
-					variant="outline"
-					size="icon"
-					className="h-7 w-7"
-					aria-label="Next page"
-					disabled={!vm.pullsLoaded || vm.page >= vm.pageCount}
-					onClick={() => vm.setPage(vm.page + 1)}
-				>
-					<ChevronRight aria-hidden className="h-4 w-4" />
-				</Button>
-			</div>
-		</LayerCard.Footer>
 	);
 }
 

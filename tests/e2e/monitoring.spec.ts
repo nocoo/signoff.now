@@ -1725,14 +1725,14 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 	for (const checkbox of await candidates.getByRole("checkbox").all())
 		await checkbox.check();
 	await page.getByRole("button", { name: "Add 26 PRs", exact: true }).click();
-	const rows = page.locator("tr[data-collection-pull-id]");
+	const rows = page.locator("tr[data-pull-id]");
 	await expect(rows).toHaveCount(20);
 	await expect(
 		page.getByRole("img", {
 			name: "1 merged, 23 open, 1 draft, 1 closed out of 26",
 		}),
 	).toBeVisible();
-	await page.getByRole("button", { name: "Next collection page" }).click();
+	await page.getByRole("button", { name: "Next page" }).click();
 	await expect(rows).toHaveCount(6);
 	await page.reload();
 	await expect(rows).toHaveCount(20);
@@ -1799,6 +1799,36 @@ test("collections persist all PR states, multiple memberships and compact CRUD f
 		"Release quality updated",
 	);
 	await page.goto(collectionUrl);
+	const memberTable = page.getByRole("table", {
+		name: "Collection pull requests",
+	});
+	await expect(memberTable).toHaveAttribute("aria-busy", "false");
+	const watchButton = memberTable.getByRole("button", {
+		name: "Watch PR #1 in Collection space/collection-flow",
+		exact: true,
+	});
+	await watchButton.click();
+	await expect(watchButton).toHaveAttribute("aria-pressed", "true");
+	await expect(watchButton).toBeEnabled();
+	await page.reload();
+	await expect(watchButton).toHaveAttribute("aria-pressed", "true");
+	await watchButton.click();
+	await expect(watchButton).toHaveAttribute("aria-pressed", "false");
+	await expect(watchButton).toBeEnabled();
+	const sortTitle = memberTable.getByRole("button", {
+		name: "Sort by Pull request",
+		exact: true,
+	});
+	await sortTitle.click();
+	await expect(
+		memberTable.getByRole("columnheader", {
+			name: "Sort by Pull request",
+			exact: true,
+		}),
+	).toHaveAttribute("aria-sort", "ascending");
+	await expect(
+		memberTable.locator("tbody tr[data-pull-id]").first(),
+	).toHaveClass(/h-16/);
 	await page
 		.getByRole("button", { name: "Remove PR #1 from collection", exact: true })
 		.click();

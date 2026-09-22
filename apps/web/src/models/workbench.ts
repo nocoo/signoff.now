@@ -196,7 +196,7 @@ function defaultSortDirection(
 		: "asc";
 }
 export function nextPullSort(
-	filter: PullFilter,
+	filter: Pick<PullFilter, "sort" | "sortDirection">,
 	sort: PullFilter["sort"],
 ): Pick<PullFilter, "sort" | "sortDirection"> {
 	return {

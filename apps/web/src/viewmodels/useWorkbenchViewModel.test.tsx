@@ -2217,3 +2217,50 @@ it("shows one connection alert for simultaneous cache failures and clears it aft
 	expect(screen.queryAllByRole("alert")).toHaveLength(0);
 	expect(screen.getByRole("table", { name: "Pull requests" })).toBeDefined();
 });
+
+it("watches collection rows outside the main page with the same identity and generation guards", async () => {
+	const { result } = render();
+	await loaded(result);
+	const external = api.queryRow(
+		publicPull({ ...pull, id: "collection-member", number: 8080 }),
+	);
+	expect(
+		result.current.vm.pageRows.some((row) => row.pull.id === external.pull.id),
+	).toBe(false);
+	const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+	vi.mocked(api.addWatches).mockReturnValue(response.promise);
+	let pending!: Promise<boolean>;
+	act(() => {
+		pending = result.current.vm.toggleWatchRow(external);
+	});
+	expect(result.current.vm.withWatchState(external).watchPending).toBe(true);
+	expect(result.current.vm.withWatchState(external).watching).toBe(true);
+	await act(async () => {
+		expect(await result.current.vm.toggleWatchRow(external)).toBe(false);
+	});
+	expect(api.addWatches).toHaveBeenCalledTimes(1);
+	expect(api.addWatches).toHaveBeenCalledWith("cli", ["collection-member"]);
+	await act(async () => {
+		response.resolve({ results: [{ status: "added" }] });
+		await pending;
+	});
+	expect(result.current.vm.withWatchState(external).watchPending).toBe(false);
+	const watched = {
+		...external,
+		observation: fixtureObservation({ generation: 9 }),
+	};
+	await act(async () => {
+		await result.current.vm.toggleWatchRow(watched);
+	});
+	expect(api.removeWatches).toHaveBeenCalledWith("cli", [watched.observation]);
+	vi.mocked(api.addWatches).mockClear();
+	await act(async () => {
+		expect(
+			await result.current.vm.toggleWatchRow({
+				...external,
+				project: { ...external.project, source: "demo" },
+			}),
+		).toBe(false);
+	});
+	expect(api.addWatches).not.toHaveBeenCalled();
+});

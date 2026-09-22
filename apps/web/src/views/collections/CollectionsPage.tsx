@@ -10,21 +10,11 @@ import {
 	LayerCard,
 } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@nocoo/basalt/components/table";
 import type { DataSource } from "@signoff/domain/monitoring";
 import type { PrCollection } from "@signoff/domain/pr-collections";
 import {
 	ArrowLeft,
 	ArrowUpRight,
-	ChevronLeft,
-	ChevronRight,
 	GitMerge,
 	Layers3,
 	Pencil,
@@ -42,9 +32,13 @@ import {
 	collectionHref,
 	deleteCollection,
 } from "@/models/prCollectionsApi";
-import { readinessDisplay } from "@/models/readinessDisplay";
-import { type PullRow, relativeTime } from "@/models/workbench";
+import {
+	nextPullSort,
+	type PullFilter,
+	relativeTime,
+} from "@/models/workbench";
 import { pullHref } from "@/models/workspaceLocation";
+import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
 import {
 	useCollectionMutation,
 	useCollectionSearch,
@@ -52,8 +46,7 @@ import {
 } from "@/viewmodels/usePrCollections";
 import { useQueryBlock } from "@/viewmodels/useQueryBlock";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import { ReadinessCell } from "../workbench/ReadinessCell";
-import { LifecycleBadge, StageBar } from "../workbench/WorkbenchStatus";
+import { PullList, PullListPagination } from "../workbench/PullList";
 import { CollectionEditor } from "./CollectionEditor";
 import {
 	CollectionIcon,
@@ -61,6 +54,7 @@ import {
 	collectionStyle,
 } from "./CollectionIdentity";
 import { CollectionMemberPicker } from "./CollectionMemberPicker";
+import { PrCollectionMembershipProvider } from "./PrCollectionMemberships";
 
 export function CollectionsPage() {
 	const { filter } = useWorkbench();
@@ -249,6 +243,12 @@ function CollectionDetail({
 	reload: () => Promise<unknown>;
 	onEdit: () => void;
 }) {
+	const workbench = useWorkbench();
+	const aiSchedule = useAiScheduleViewModel(source);
+	const [sort, setSort] = useState<Pick<PullFilter, "sort" | "sortDirection">>({
+		sort: "updated",
+		sortDirection: "desc",
+	});
 	const [adding, setAdding] = useState(false),
 		[removing, setRemoving] = useState(false),
 		[page, setPage] = useState(1),
@@ -264,8 +264,8 @@ function CollectionDetail({
 		q: search.query,
 		limit: "20",
 		page: String(page),
-		sort: "updated",
-		direction: "desc",
+		sort: sort.sort,
+		direction: sort.sortDirection,
 	}).toString();
 	const pulls = useQueryBlock(`collection-prs:${query}`, (signal) =>
 		loadPulls(query, signal),
@@ -273,6 +273,10 @@ function CollectionDetail({
 	const mutation = useCollectionMutation(async () => {
 		await Promise.all([reload(), pulls.reload()]);
 	});
+	const watchMutation = useCollectionMutation(pulls.reload);
+	const rows =
+		pulls.data?.data.map((item) => workbench.withWatchState(queryRow(item))) ??
+		[];
 	const total = pulls.data?.page.total;
 	useEffect(() => {
 		if (total !== undefined)
@@ -280,8 +284,7 @@ function CollectionDetail({
 				Math.min(current, Math.max(1, Math.ceil(total / 20))),
 			);
 	}, [total]);
-	const count = total ?? 0,
-		now = Math.floor(Date.now() / 1000);
+	const count = total ?? 0;
 	return (
 		<>
 			<div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:flex sm:flex-wrap">
@@ -324,9 +327,9 @@ function CollectionDetail({
 					Completion means merged. Closed PRs remain visible.
 				</p>
 			</div>
-			{mutation.error || pulls.error ? (
+			{mutation.error || watchMutation.error || pulls.error ? (
 				<AlertBanner variant="error">
-					{mutation.error || pulls.error}
+					{mutation.error || watchMutation.error || pulls.error}
 					<Button variant="link" size="sm" onClick={() => void pulls.reload()}>
 						Retry
 					</Button>
@@ -369,77 +372,86 @@ function CollectionDetail({
 					}}
 				/>
 			</div>
-			<LayerCard padding="none">
-				<div className="overflow-x-auto">
-					<Table
-						className="w-full text-left text-xs"
-						aria-label="Collection pull requests"
-					>
-						<TableHeader className="border-b border-basalt-border text-[11px] text-basalt-muted-foreground">
-							<TableRow>
-								{[
-									"Pull request",
-									"State",
-									"Readiness",
-									"Checks & stages",
-									"Updated",
-									"",
-								].map((label, i) => (
-									<TableHead
-										key={label || String(i)}
-										className="whitespace-nowrap px-3 py-3 font-medium"
-									>
-										{label || <span className="sr-only">Membership</span>}
-									</TableHead>
-								))}
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{pulls.data?.data.map((item) => (
-								<CollectionPullRow
-									key={item.id}
-									row={queryRow(item)}
-									now={now}
-									busy={mutation.busy}
-									onRemove={() =>
-										void mutation.run(() =>
-											changeMembers(source, c, [item.id], "remove"),
-										)
-									}
-								/>
-							))}
-						</TableBody>
-					</Table>
-				</div>
-				{pulls.loading ? (
-					<LayerCard.Loading label="Loading collection PRs" />
-				) : count === 0 && !pulls.error ? (
-					<EmptyState
-						compact
-						icon={Layers3}
-						title={
-							c.counts.total ? "No matching PRs" : "Your collection is ready"
+			<PrCollectionMembershipProvider
+				source={source}
+				ids={rows.map((row) => row.pull.id)}
+			>
+				<LayerCard padding="none">
+					{workbench.feedbackKind === "watch" &&
+					(workbench.mutationError || workbench.notice) ? (
+						<p
+							role="status"
+							className={`px-3 py-2 text-xs ${workbench.mutationError ? "text-basalt-destructive" : "text-basalt-muted-foreground"}`}
+						>
+							{workbench.mutationError || workbench.notice}
+						</p>
+					) : null}
+					<PullList
+						label="Collection pull requests"
+						rows={rows}
+						loading={pulls.loading}
+						busy={
+							mutation.busy || watchMutation.busy || Boolean(workbench.busy)
 						}
-						description={
-							c.counts.total
-								? "Try another state or search."
-								: "Add PRs from the cache. Draft, merged and closed PRs are welcome."
+						sort={sort}
+						onSort={(column) => {
+							setSort(nextPullSort(sort, column));
+							setPage(1);
+						}}
+						aiSchedule={aiSchedule.error ? null : aiSchedule.data}
+						onOpen={(row) => navigate(pullHref(row.project, row.pull))}
+						onToggleWatch={(row) =>
+							void watchMutation.run(() => workbench.toggleWatchRow(row))
 						}
-						action={
-							<Button size="sm" onClick={() => setAdding(true)}>
-								<Plus className="size-4" />
-								Add PRs
+						actions={(row) => (
+							<Button
+								size="icon"
+								variant="ghost"
+								className="size-7 text-basalt-muted-foreground"
+								aria-label={`Remove PR #${row.pull.number} from collection`}
+								title="Remove from this collection"
+								disabled={mutation.busy}
+								onClick={() =>
+									void mutation.run(() =>
+										changeMembers(source, c, [row.pull.id], "remove"),
+									)
+								}
+							>
+								<Trash2 className="size-3.5" />
 							</Button>
-						}
+						)}
 					/>
-				) : null}
-				<CollectionPagination
-					page={page}
-					total={count}
-					busy={pulls.refreshing}
-					onPage={setPage}
-				/>
-			</LayerCard>
+					{!pulls.loading && count === 0 && !pulls.error ? (
+						<EmptyState
+							compact
+							icon={Layers3}
+							title={
+								c.counts.total ? "No matching PRs" : "Your collection is ready"
+							}
+							description={
+								c.counts.total
+									? "Try another state or search."
+									: "Add PRs from the cache. Draft, merged and closed PRs are welcome."
+							}
+							action={
+								<Button size="sm" onClick={() => setAdding(true)}>
+									<Plus className="size-4" />
+									Add PRs
+								</Button>
+							}
+						/>
+					) : null}
+					<PullListPagination
+						page={page}
+						pageSize={20}
+						total={count}
+						loaded={pulls.data !== null}
+						loading={pulls.loading}
+						busy={pulls.refreshing}
+						onPage={setPage}
+					/>
+				</LayerCard>
+			</PrCollectionMembershipProvider>
 			{adding ? (
 				<CollectionMemberPicker
 					source={source}
@@ -492,129 +504,5 @@ function CollectionDetail({
 				</AlertDialogContent>
 			</AlertDialog>
 		</>
-	);
-}
-function CollectionPullRow({
-	row,
-	now,
-	busy,
-	onRemove,
-}: {
-	row: PullRow;
-	now: number;
-	busy: boolean;
-	onRemove: () => void;
-}) {
-	const { pull, project, progress } = row,
-		display = readinessDisplay(row.readiness, project.id, null, now);
-	return (
-		<TableRow
-			className="border-b border-basalt-border/60 last:border-0 hover:bg-basalt-muted/20"
-			data-collection-pull-id={pull.id}
-		>
-			<TableCell className="min-w-64 px-3 py-3">
-				<Link
-					to={pullHref(project, pull)}
-					className="text-xs font-medium hover:text-basalt-primary hover:underline"
-				>
-					{pull.title}
-				</Link>
-				<div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-basalt-muted-foreground">
-					<span className="font-mono">#{pull.number}</span>
-					<span>{pull.repository.name}</span>
-					<span>· {pull.author.name}</span>
-				</div>
-			</TableCell>
-			<TableCell className="whitespace-nowrap px-3 py-3">
-				<LifecycleBadge pull={pull} />
-			</TableCell>
-			<TableCell className="whitespace-nowrap px-3 py-3">
-				{pull.state === "open" ? (
-					<ReadinessCell
-						display={display}
-						failed={row.readiness.status === "error"}
-					/>
-				) : (
-					<span className="text-basalt-muted-foreground">—</span>
-				)}
-			</TableCell>
-			<TableCell className="min-w-36 px-3 py-3">
-				<p className="mb-1 text-[11px]">
-					{progress.checksTotal
-						? `${progress.checksPassed}/${progress.checksTotal} required checks`
-						: "No check results"}
-				</p>
-				<StageBar builds={pull.builds} />
-				{pull.coverage === "partial" ? (
-					<p className="mt-1 text-[11px] text-basalt-warning">
-						Partial coverage
-					</p>
-				) : null}
-			</TableCell>
-			<TableCell
-				className="whitespace-nowrap px-3 py-3 text-[11px] text-basalt-muted-foreground"
-				title={new Date(pull.updatedAt * 1000).toLocaleString()}
-			>
-				{relativeTime(pull.updatedAt, now)}
-			</TableCell>
-			<TableCell className="px-2 py-2">
-				<Button
-					size="icon"
-					variant="ghost"
-					className="size-7 text-basalt-muted-foreground"
-					aria-label={`Remove PR #${pull.number} from collection`}
-					disabled={busy}
-					onClick={onRemove}
-				>
-					<Trash2 className="size-3.5" />
-				</Button>
-			</TableCell>
-		</TableRow>
-	);
-}
-export function CollectionPagination({
-	page,
-	total,
-	busy,
-	onPage,
-}: {
-	page: number;
-	total: number;
-	busy: boolean;
-	onPage: (page: number) => void;
-}) {
-	return (
-		<div className="flex items-center justify-between gap-3 border-t border-basalt-border px-3 py-2 text-[11px] text-basalt-muted-foreground">
-			<span>
-				{total
-					? `${(page - 1) * 20 + 1}–${Math.min(page * 20, total)} of ${total} PRs`
-					: "0 PRs"}
-			</span>
-			<div className="flex items-center gap-2">
-				<Button
-					variant="ghost"
-					size="icon"
-					className="size-7"
-					aria-label="Previous collection page"
-					disabled={page <= 1 || busy}
-					onClick={() => onPage(page - 1)}
-				>
-					<ChevronLeft className="size-4" />
-				</Button>
-				<span className="tabular-nums">
-					{page} / {Math.max(1, Math.ceil(total / 20))}
-				</span>
-				<Button
-					variant="ghost"
-					size="icon"
-					className="size-7"
-					aria-label="Next collection page"
-					disabled={page * 20 >= total || busy}
-					onClick={() => onPage(page + 1)}
-				>
-					<ChevronRight className="size-4" />
-				</Button>
-			</div>
-		</div>
 	);
 }

@@ -935,6 +935,19 @@ export function useWorkbenchViewModel() {
 			if (mounted.current) setOptimisticWatches(new Map(watchRequests.current));
 		}
 	};
+	const toggleWatchRow = (row: PullRow | null | undefined) => {
+		return row &&
+			row.project.source === filter.source &&
+			(row.pull.state === "open" || row.observation?.active)
+			? changeWatches(!row.observation?.active, [
+					{
+						key: rowWatchKey(filter.source, row),
+						pullId: row.pull.id,
+						observation: row.observation ?? null,
+					},
+				])
+			: Promise.resolve(false);
+	};
 	const canScan = (project: Project) =>
 		(project.source === "demo"
 			? collector.data?.sampleCommandsEnabled === true
@@ -1065,20 +1078,12 @@ export function useWorkbenchViewModel() {
 					: [],
 			}),
 		watchSelected: (adding: boolean) => changeWatches(adding, selectionItems),
-		toggleWatch: (pullId?: string) => {
-			const row = pullId
-				? pageRows.find((item) => item.pull.id === pullId)
-				: selected;
-			return row && (row.pull.state === "open" || row.observation?.active)
-				? changeWatches(!row.observation?.active, [
-						{
-							key: rowWatchKey(filter.source, row),
-							pullId: row.pull.id,
-							observation: row.observation ?? null,
-						},
-					])
-				: Promise.resolve(false);
-		},
+		withWatchState,
+		toggleWatchRow,
+		toggleWatch: (pullId?: string) =>
+			toggleWatchRow(
+				pullId ? pageRows.find((item) => item.pull.id === pullId) : selected,
+			),
 		pendingObservations,
 		pendingTotal: (pending.data?.page.total ?? 0) - pendingRemoved,
 		pendingError: pending.error,

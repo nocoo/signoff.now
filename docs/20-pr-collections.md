@@ -8,6 +8,8 @@ A PR can belong to multiple collections. The small collection icon below its tit
 
 Live and Sample collections are isolated. Switching the data source changes the catalog and membership choices. On narrow screens, controls wrap and the member table scrolls horizontally while retaining its contents.
 
+The main PR list and collection detail use the same `PullList` and pagination components: 12px primary text, 11px metadata, 64px rows and matching loading skeletons, lifecycle badges, target branches, checks/stages, readiness, next actions, and freshness columns. Columns can be enabled by key; selection and trailing row actions are optional. Collection details add a removal action and reuse the existing shared-watch commands, including optimistic state, duplicate-request protection, source checks, and watch-generation fencing. Only clicking Watch changes watch membership; adding/removing a collection member still does not. Collection sorting is performed against its full cached membership, not just the current page.
+
 ## Cached API
 
 All routes use the existing API authorization. Reads use cached D1 data and perform no provider requests. Responses are not browser-cached. `source=live|sample` defaults to `live`.
@@ -35,4 +37,4 @@ The local `wb-unittest` collection was populated from all Live cached PRs whose 
 
 Worker integration tests exercise CRUD, validation, revision conflicts, source isolation, multi-collection membership, all lifecycle counts, pagination, idempotent adds, atomic rejection, and membership persistence through lifecycle updates. Client and ViewModel tests cover HTTP contracts, source switching, batched lookups, debounced search, duplicate-click prevention, errors, and late completion after unmount.
 
-The disposable browser suite provisions synthetic provider results and checks collection CRUD, multi-page selection, state filters, reload persistence, multi-collection tooltips, removal/deletion, source isolation, and mobile containment. It verifies collection actions do not change watches or issue provider requests. Local acceptance also exercises the actual HTTPS application and its cached PRs.
+The disposable browser suite provisions synthetic provider results and checks collection CRUD, multi-page selection, state filters, reload persistence, multi-collection tooltips, removal/deletion, source isolation, and mobile containment. It verifies membership edits do not change watches or issue provider requests, and explicit Watch controls persist through reload and can stop a watch without removing collection membership. Local acceptance also exercises the actual HTTPS application and its cached PRs.
