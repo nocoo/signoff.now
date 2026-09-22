@@ -1,6 +1,6 @@
 # Retrospective
 
-Accident narratives belong here. Keep only recurring project rules in `CLAUDE.md`; cross-project lessons belong in global rules and deterministic checks in hooks/tests.
+Accident narratives belong here. Keep only recurring project rules in `AGENTS.md`; cross-project lessons belong in global rules and deterministic checks in hooks/tests.
 
 ### 2026-07-28 — D1 batch 不因 0 行回滚；预读回写会吞掉并发修改
 

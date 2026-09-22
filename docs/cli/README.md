@@ -29,7 +29,7 @@ bun run gitinfo --help
 bun run pulse --help
 ```
 
-`gitinfo` / `pulse` 使用 JSON 输出，`--pretty` 用于缩进显示；`signoff` 查询默认输出 JSON，进度与错误写 stderr；`workbench watch` 是 daemon 别名，`workbench sync` 只排入显式发现任务。运行时为 Bun，类型与静态检查沿用根目录命令；各包实际测试 runner 和门禁见 [CLAUDE.md](../../CLAUDE.md)。
+`gitinfo` / `pulse` 使用 JSON 输出，`--pretty` 用于缩进显示；`signoff` 查询默认输出 JSON，进度与错误写 stderr；`workbench watch` 是 daemon 别名，`workbench sync` 只排入显式发现任务。运行时为 Bun，类型与静态检查沿用根目录命令；各包实际测试 runner 和门禁见 [AGENTS.md](../../AGENTS.md)。
 
 ## 历史记录
 
