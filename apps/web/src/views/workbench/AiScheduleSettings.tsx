@@ -19,7 +19,7 @@ export function AiScheduleSettings({
 			<h3 className="text-sm font-semibold">Jev readiness</h3>
 			<div className="flex items-center justify-between gap-3">
 				<Label htmlFor={id} className="text-xs">
-					Per-project cooldown
+					Per-PR cooldown
 				</Label>
 				<SelectControl
 					id={id}
@@ -37,9 +37,9 @@ export function AiScheduleSettings({
 				</SelectControl>
 			</div>
 			<p className="text-xs text-basalt-muted-foreground">
-				Only changed watched PRs, grouped by project. The daemon evaluates in
-				the background, even with the dashboard closed. Each project waits from
-				batch completion.
+				Changed watched PRs are evaluated individually in the background.
+				Identical evidence reuses the project cache. Each PR waits from request
+				completion.
 			</p>
 			{Boolean(vm.error || vm.mutationError) && (
 				<p role="alert" className="text-xs text-basalt-destructive">
@@ -57,15 +57,13 @@ export function AiScheduleSettings({
 								: undefined
 						}
 					>
-						{project.nextEligibleAt === null
+						{project.lastCompletedAt === null
 							? "Awaiting first evaluation"
-							: project.nextEligibleAt > now
-								? `Eligible in ${Math.ceil(project.nextEligibleAt - now)}s`
-								: "Cooldown elapsed · Waiting for changed PRs"}
+							: `Last request ${Math.max(0, Math.floor((now - project.lastCompletedAt) / 60))}m ago`}
 					</p>
-					{project.lastBatchSize > 0 && (
+					{project.requestCount > 0 && (
 						<p className="text-basalt-muted-foreground">
-							Last batch: {project.lastBatchSize} PRs
+							{project.requestCount} requests
 							{project.inputTokens !== null
 								? ` · ${project.inputTokens.toLocaleString()} input tokens`
 								: ""}

@@ -5,7 +5,7 @@ export type AiSchedule = Awaited<ReturnType<typeof loadAiSchedule>>;
 
 export function readinessDisplay(
 	readiness: AiReadiness,
-	projectId: string,
+	pullId: string,
 	schedule: AiSchedule | null,
 	now: number,
 ) {
@@ -31,13 +31,11 @@ export function readinessDisplay(
 		return explain("updating…", "Jev is evaluating the latest evidence.");
 	if (!schedule)
 		return explain("queued", "The next evaluation time is unavailable.");
-	const next = schedule.projects.find(
-		(p) => p.id === projectId,
-	)?.nextEligibleAt;
+	const next = schedule.pulls.find((p) => p.id === pullId)?.nextEligibleAt;
 	const eta = next && next > now ? next : null;
 	const timing = eta
 		? `Earliest Jev request: ${new Date(eta * 1000).toLocaleString()}.`
-		: "The project cooldown has elapsed; waiting for the next available batch.";
+		: "The PR cooldown has elapsed; waiting for the next available evaluation.";
 	return explain(
 		eta ? `~${Math.ceil((eta - now) / 60)}m` : "queued",
 		`New evidence or instructions await evaluation. ${timing} Timing depends on daemon availability and queued work; this is not a completion estimate.`,

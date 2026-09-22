@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Project discovery | 10 minutes after each project's completed attempt | Paginate repository PR lists and update all returned PR states. |
 | Watched PR refresh | 5 minutes after each PR's completed attempt | Fetch the full PR state, checks, builds and stages. |
-| Jev readiness | 5 minutes after each project batch completes | The daemon evaluates only changed live watched PRs, even with the dashboard closed. Configure in Connector details. |
+| Jev readiness | 5 minutes after each PR request completes | The daemon evaluates only changed live watched PRs, even with the dashboard closed. Configure in Connector details. |
 | Jev scheduler polling | 3 seconds after each awaited local tick; 10 seconds after transport errors | Independent of ADO lanes. Unchanged decision fingerprints make no Jev request. |
 | Daemon queue polling | 3 seconds while idle; 10 seconds after transport errors | Read local scheduler state; contact ADO only after claiming eligible work. |
 | Running-task heartbeat | 20 seconds | Renew the local lease and report current phase. |
@@ -110,3 +110,5 @@ ADO `targetSha` 仍来自源 PR 的 `lastMergeTargetCommit`，不是另外读取
 - 统计恰好 24h / 72h 保持前一等级，超过边界才黄 / 红；分钟显示小于 1 分钟、3 分钟等，不出现秒级闪动。
 
 浏览器的读取状态机、调度时钟和显示用时钟分别测试；不需要让测试真实等待两分钟或五分钟。
+
+Readiness architecture: [Evidence-driven readiness](21-readiness-architecture.md). The shared state machine exposes `readiness.phase` (collecting, queued, evaluating, decided, error, stopped) and judgment provenance (`model`, `rubric`, `fingerprint`, `reusedAt`). `evaluatedAt` is the original Jev judgment time; cache reuse does not claim a new inference. Stage details and observation clocks alone do not trigger inference.

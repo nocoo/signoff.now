@@ -2,7 +2,7 @@
 
 [中文 README](../README.md) · [English README](README.en.md)
 
-当前架构从 [14 — 共享监控清单](14-collector-architecture.md) 开始，再读 15–18。网页 / CLI 共用持久清单，确认终态后自动淘汰；发现只由明确命令提交，查询只读缓存。
+Start with [Evidence-driven readiness](21-readiness-architecture.md), then [Collector architecture](14-collector-architecture.md) and documents 15–19. Web and CLI share persistent watches and judgments. The daemon runs discovery, full watched-PR collection and independent Jev evaluation; queries read cached data only.
 
 当前系统从 01、11、13 阅读；10 是 Mock 场景与早期 UI 记录。02、04–08 保留仍在使用的 Activity / Score 契约及阶段背景，不能用其中的旧 Dashboard 或命令状态推断当前 PR 工作台。工程质量要求及实际门禁差距以 [CLAUDE.md](../CLAUDE.md) 为准。
 
@@ -26,8 +26,9 @@
 | 16 | [观察列表与刷新状态机](16-scheduler-state-machine.md) | 当前实现：按需发现、冷却、终态淘汰与在途竞争 |
 | 17 | [Query 周期与新鲜度](17-query-cadence.md) | 当前实现：采集 / 网页 / 外部项目周期，时间与完整性 |
 | 18 | [CLI 查询与命令契约](18-cli-query-contract.md) | 当前实现：pr / watch / discover / refresh、API、JSON 与退出码 |
-
+| 19 | [Jev developer readiness](19-pr-state-machines.md) | Classification, editable policy context, credentials and state machine workspace |
 | 20 | [PR collections](20-pr-collections.md) | Workspace grouping, all-state progress, membership CRUD, cached API and verification |
+| 21 | [Evidence-driven readiness](21-readiness-architecture.md) | Shared evidence, per-PR inference, project SQLite cache and consistency boundaries |
 
 ## 辅助工具与归档
 

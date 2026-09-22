@@ -21,6 +21,7 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 		fingerprint: "previous-evidence",
 		evaluatedAt: new Date((now - 300) * 1000).toISOString(),
 		confidence: 1,
+		reusedAt: null,
 		probabilities: { ready: 1 },
 	};
 	let readiness = presentReadiness("pending", null, null, previous);
@@ -33,6 +34,7 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 			json: {
 				revision: 1,
 				cooldownSeconds: 300,
+				pulls: [{ id: fixturePull.id, nextEligibleAt: now + 120 }],
 
 				projects: [
 					{
@@ -40,8 +42,7 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 						name: fixtureProject.name,
 						lastStartedAt: now - 180,
 						lastCompletedAt: now - 180,
-						nextEligibleAt: now + 120,
-						lastBatchSize: 1,
+						requestCount: 1,
 						inputTokens: null,
 						outputTokens: null,
 					},

@@ -137,6 +137,11 @@ const inspection = {
 		source: null,
 		evaluatedAt: null,
 		isCurrent: false,
+		phase: "collecting",
+		model: null,
+		rubric: null,
+		fingerprint: null,
+		reusedAt: null,
 		update: {
 			state: "blocked",
 			reason: "awaiting_collection",

@@ -1,11 +1,7 @@
 import {
-	COMMON_RULES,
-	decisionFingerprint,
-	decisionState,
-	defaultProjectRules,
-	isMainTarget,
 	jevResultSchema,
 	POLICY_CODES,
+	readinessShortcut,
 } from "@signoff/domain/ai-readiness";
 import type { Observation } from "@signoff/domain/monitoring";
 import { observationItemSchema } from "@signoff/domain/query";
@@ -16,7 +12,13 @@ import {
 	projectUrl,
 	pullUrl,
 } from "@signoff/domain/workbench";
-import type { EvaluationRow } from "../ai/scheduler.js";
+import type { EvaluationRow } from "../ai/decision.js";
+import {
+	currentEvaluation,
+	decisionContext,
+	decisionContextQueries,
+	readinessPhase,
+} from "../ai/decision.js";
 
 type Database = Pick<D1Database, "prepare" | "batch">;
 const iso = (at: number | null | undefined) =>
@@ -39,69 +41,25 @@ export async function inspectionContext(
 	observations: Observation[],
 ) {
 	const projects = [...new Set(observations.map((o) => o.ref.projectId))];
-	const [settings, cadence, rules, codes, schedules, attempts] = await db.batch(
-		[
-			db.prepare(
-				"SELECT revision,encrypted_key IS NOT NULL AS configured,cooldown_seconds FROM ai_settings WHERE id=1",
-			),
-			db.prepare(
-				"SELECT cooldown_seconds FROM collection_refresh WHERE kind='details'",
-			),
-			db.prepare("SELECT scope,text FROM ai_rules"),
-			db
-				.prepare(
-					"SELECT a.project_id,a.gate_id,p.id,p.code FROM ai_policy_aliases a JOIN ai_policy_codes p ON p.id=a.policy_id WHERE a.project_id IN (SELECT value FROM json_each(?))",
-				)
-				.bind(JSON.stringify(projects)),
-			db
-				.prepare(
-					"SELECT project_id,last_started_at,last_completed_at FROM ai_project_schedule WHERE project_id IN (SELECT value FROM json_each(?))",
-				)
-				.bind(JSON.stringify(projects)),
-			db
-				.prepare(`SELECT * FROM (
+	const [rules, codes, settings, attempts] = await db.batch([
+		...decisionContextQueries(db),
+		db
+			.prepare(`SELECT * FROM (
    SELECT observation_id,observation_generation,project_id,kind,scope_json,state,updated_at,completed_at,error_kind,message,
    ROW_NUMBER() OVER(PARTITION BY project_id,kind,scope_json,observation_id,observation_generation ORDER BY updated_at DESC,id DESC) rank
    FROM collection_jobs WHERE source=? AND project_id IN (SELECT value FROM json_each(?))
    AND (completed_at IS NOT NULL OR state='auth_required') AND (kind='list' OR observation_id IN (SELECT value FROM json_each(?)))
   ) WHERE rank=1`)
-				.bind(
-					source,
-					JSON.stringify(projects),
-					JSON.stringify(observations.map((o) => o.id)),
-				),
-		],
-	);
+			.bind(
+				source,
+				JSON.stringify(projects),
+				JSON.stringify(observations.map((o) => o.id)),
+			),
+	]);
 	return {
-		settings: settings?.results[0] as {
-			revision: number;
-			configured: number;
-			cooldown_seconds: number;
-		},
-		detailCooldown: (cadence?.results[0] as { cooldown_seconds: number })
-			.cooldown_seconds,
-		rules: new Map(
-			(rules?.results as { scope: string; text: string }[]).map((r) => [
-				r.scope,
-				r.text,
-			]),
+		...decisionContext(
+			[rules, codes, settings].filter((r): r is D1Result => r !== undefined),
 		),
-		codes: new Map(
-			(
-				codes?.results as {
-					project_id: string;
-					gate_id: string;
-					id: number;
-					code: string | null;
-				}[]
-			).map((r) => [`${r.project_id}:${r.gate_id}`, r.code ?? `P${r.id}`]),
-		),
-		schedules: schedules?.results as {
-			project_id: string;
-			last_started_at: number | null;
-			last_completed_at: number | null;
-			updated_at: number;
-		}[],
 		attempts: attempts?.results as Attempt[],
 	};
 }
@@ -301,47 +259,20 @@ async function inspectReadiness(
 	const parse = (value: string | null | undefined) =>
 		value ? jevResultSchema.parse(JSON.parse(value)) : null;
 	const judgment = parse(row?.result_json ?? row?.previous_json);
-	const direct =
-		pull && !isMainTarget(pull)
-			? "skipped"
-			: pull?.mergeable === "conflicts" && o.active
-				? "conflict"
-				: null;
-	let current = false;
-	if (
-		judgment &&
-		pull &&
-		project &&
-		o.active &&
-		row?.config_revision === context.settings.revision
-	) {
-		const state = decisionState(pull, project, now, context.detailCooldown, {
-			common: context.rules.get("common") ?? COMMON_RULES,
-			project:
-				context.rules.get(project.id) ??
-				(project.source === "cli" ? defaultProjectRules(project.id) : ""),
-		});
-		for (const gate of state.policiesInPriorityOrder)
-			gate.code = context.codes.get(`${project.id}:${gate.id}`) ?? gate.code;
-		current = judgment.fingerprint === (await decisionFingerprint(state));
-	}
+	const direct = readinessShortcut(pull, o.active);
+	const evaluated =
+		pull && project
+			? currentEvaluation(row, pull, project, context)
+			: undefined;
+	const current = evaluated?.status === "complete";
 	const kind = direct ?? judgment?.kind ?? null;
-	const schedule = context.schedules.find(
-		(s) => s.project_id === o.ref.projectId,
-	);
-	const notBefore = Math.max(
-		row?.not_before ?? 0,
-		!schedule?.last_started_at
-			? 0
-			: Math.max(schedule.last_started_at, schedule.last_completed_at ?? 0) +
-					context.settings.cooldown_seconds,
-	);
+	const notBefore = evaluated?.not_before ?? row?.not_before ?? 0;
 	const isCurrent = Boolean(o.active && (direct || current));
 	const update = inspectUpdate(
 		o.active,
 		Boolean(direct || current),
-		Boolean(pull),
-		row,
+		Boolean(pull && checksValidity(pull) === "valid"),
+		evaluated ?? row,
 		context,
 		notBefore || now,
 	);
@@ -359,6 +290,16 @@ async function inspectReadiness(
 							: null,
 			evaluatedAt: direct ? iso(summaryAt) : (judgment?.evaluatedAt ?? null),
 			isCurrent,
+			model: direct ? null : (judgment?.model ?? null),
+			rubric: direct ? null : (judgment?.rubric ?? null),
+			fingerprint: direct ? null : (judgment?.fingerprint ?? null),
+			reusedAt: direct ? null : (judgment?.reusedAt ?? null),
+			phase: readinessPhase(
+				o.active,
+				pull,
+				evaluated,
+				Boolean(context.settings.configured),
+			),
 			update,
 		},
 		nextAction:

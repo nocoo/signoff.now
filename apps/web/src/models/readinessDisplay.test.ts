@@ -12,12 +12,14 @@ const previous: NonNullable<AiReadiness["previous"]> = {
 	rubric: "test",
 	fingerprint: "old-evidence",
 	evaluatedAt: new Date((now - 300) * 1000).toISOString(),
+	reusedAt: null,
 	confidence: 1,
 	probabilities: { ready: 1 },
 };
 const schedule: AiSchedule = {
 	revision: 1,
 	cooldownSeconds: 300,
+	pulls: [{ id: "pull", nextEligibleAt: now + 120 }],
 
 	projects: [
 		{
@@ -25,8 +27,7 @@ const schedule: AiSchedule = {
 			name: "Project",
 			lastStartedAt: now - 200,
 			lastCompletedAt: now - 180,
-			nextEligibleAt: now + 120,
-			lastBatchSize: 2,
+			requestCount: 2,
 			inputTokens: null,
 			outputTokens: null,
 		},
@@ -34,9 +35,9 @@ const schedule: AiSchedule = {
 };
 const pending = presentReadiness("pending", null, null, previous);
 const display = (readiness = pending, plan: AiSchedule | null = schedule) =>
-	readinessDisplay(readiness, "project", plan, now);
+	readinessDisplay(readiness, "pull", plan, now);
 
-it("keeps the last judgment explicitly historical while new evidence waits for that project's ETA", () => {
+it("keeps the last judgment explicitly historical while new evidence waits for that PR's ETA", () => {
 	const result = display();
 	expect(result.badge.kind).toBe("ready");
 	expect(result.note).toBe("Last result · ~2m");
@@ -44,10 +45,10 @@ it("keeps the last judgment explicitly historical while new evidence waits for t
 	expect(result.detail).toContain("not a completion estimate");
 	expect(pending.status).toBe("pending");
 	expect(pending.current).toBeNull();
-	expect(readinessDisplay(pending, "another-project", schedule, now).note).toBe(
+	expect(readinessDisplay(pending, "another-pull", schedule, now).note).toBe(
 		"Last result · queued",
 	);
-	expect(readinessDisplay(pending, "project", schedule, now + 120).note).toBe(
+	expect(readinessDisplay(pending, "pull", schedule, now + 120).note).toBe(
 		"Last result · queued",
 	);
 });
@@ -90,7 +91,7 @@ it("shows daemon scheduling and unavailable timing honestly", () => {
 	expect(display(pending, null).detail).toContain("time is unavailable");
 	const first = {
 		...schedule,
-		projects: [{ ...schedule.projects[0]!, nextEligibleAt: null }],
+		pulls: [{ id: "pull", nextEligibleAt: null }],
 	};
 	expect(display(pending, first).note).toBe("Last result · queued");
 });

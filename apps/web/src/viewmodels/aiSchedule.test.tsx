@@ -5,6 +5,7 @@ import { useAiScheduleViewModel } from "./useAiScheduleViewModel";
 const schedule = {
 	revision: 1,
 	cooldownSeconds: 300,
+	pulls: [],
 
 	projects: [],
 };

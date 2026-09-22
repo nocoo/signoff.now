@@ -194,7 +194,8 @@ test("daemon ticks need no browser presence and cooldown saves use CAS", async (
 		};
 	expect(await schedule()).toMatchObject({
 		cooldownSeconds: 300,
-		projects: [{ name: expect.any(String), nextEligibleAt: null }],
+		projects: [{ name: expect.any(String), requestCount: 0 }],
+		pulls: [{ id: "pull-1", nextEligibleAt: null }],
 	});
 	expect((await schedule("demo")).projects).toEqual([]);
 	expect((await request("/tick", "POST", { source: "cli" })).status).toBe(200);
@@ -215,13 +216,11 @@ test("daemon ticks need no browser presence and cooldown saves use CAS", async (
 	).toBe(400);
 	sqlite.raw
 		.query(
-			"INSERT OR REPLACE INTO ai_project_schedule(project_id,last_started_at,last_completed_at,last_batch_size,input_tokens,output_tokens) VALUES('live-project',?,?,2,100,20)",
+			"INSERT OR REPLACE INTO ai_project_schedule(project_id,last_started_at,last_completed_at,request_count,input_tokens,output_tokens) VALUES('live-project',?,?,2,100,20)",
 		)
 		.run(now - 10, now);
 	expect(await schedule()).toMatchObject({
-		projects: [
-			{ nextEligibleAt: now + 600, inputTokens: 100, lastBatchSize: 2 },
-		],
+		projects: [{ inputTokens: 100, requestCount: 2 }],
 	});
 });
 

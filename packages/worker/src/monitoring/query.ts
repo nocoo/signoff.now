@@ -29,7 +29,13 @@ import {
 	repositoryUrl,
 } from "@signoff/domain/workbench";
 import { z } from "zod";
-import { type EvaluationRow, evaluationOutput } from "../ai/scheduler.js";
+import {
+	currentEvaluation,
+	decisionContext,
+	decisionContextQueries,
+	type EvaluationRow,
+	evaluationOutput,
+} from "../ai/decision.js";
 import { inspectionContext, inspectObservation } from "./inspection.js";
 import {
 	type JobRepositoryRow,
@@ -315,9 +321,10 @@ async function readSnapshot(
 			: []),
 		db
 			.prepare(
-				"SELECT e.* FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id AND o.generation=e.generation WHERE o.source=?",
+				"SELECT e.*,o.pull_id FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id AND o.generation=e.generation WHERE o.source=?",
 			)
 			.bind(source),
+		...decisionContextQueries(db),
 	]);
 	const revision = String(
 		(results[4]?.results[0] as { revision: number }).revision,
@@ -343,9 +350,20 @@ async function readSnapshot(
 				pulls.map((row) => row.pull),
 			),
 		}));
+	const context = decisionContext(results.slice(-3));
+	const evaluations = (
+		(results[results.length - 4]?.results ?? []) as (EvaluationRow & {
+			pull_id: string;
+		})[]
+	).map((row) => {
+		const pull = pulls.find((p) => p.pull.id === row.pull_id)?.pull;
+		const project = projects.find((p) => p.id === pull?.projectId);
+		return pull && project
+			? (currentEvaluation(row, pull, project, context) ?? row)
+			: row;
+	});
 	return {
-		evaluations: (results[results.length - 1]?.results ??
-			[]) as EvaluationRow[],
+		evaluations,
 		projects,
 		pulls,
 		observations: ((results[2]?.results ?? []) as ObservationRow[]).map(

@@ -36,6 +36,7 @@ test.each([
 		evaluatedAt: new Date().toISOString(),
 		probabilities: { running: 1 },
 		confidence: 1,
+		reusedAt: null,
 	};
 	const failing = {
 		...pull,

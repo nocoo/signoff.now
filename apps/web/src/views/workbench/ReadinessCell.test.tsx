@@ -15,6 +15,7 @@ it("retains the prior badge with an accessible update note, then replaces it wit
 		evaluatedAt: "2026-09-21T00:00:00Z",
 		probabilities: { running: 1 },
 		confidence: 1,
+		reusedAt: null,
 	};
 	const pending = readinessDisplay(
 		presentReadiness("pending", null, null, result),

@@ -57,6 +57,7 @@ vi.mock("@/models/aiScheduleApi", () => ({
 	loadAiSchedule: vi.fn(async () => ({
 		revision: 1,
 		cooldownSeconds: 300,
+		pulls: [],
 
 		projects: [],
 	})),

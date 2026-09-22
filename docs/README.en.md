@@ -19,19 +19,19 @@ The existing Activity / Score APIs and ADO activity CLI remain available separat
 ## Features
 
 - **Manage projects:** add, edit, and remove ADO projects across organizations, with repository scopes and saved task history.
-- **Jev readiness:** configure the encrypted API key in AI Settings, explain project policies, and classify watched PRs as Conflict / Attention / Warning / Running / Ready / Waiting, with separate pending/error states. Rules are editable; provider merge requirements remain authoritative. See [the contract](19-pr-state-machines.md).
+- **Jev readiness:** configure the encrypted API key in AI Settings and explain project policies. Each watched PR receives an independent Attention / Review Needed / Warning / Running / Ready / Waiting judgment; Conflict and non-main Skipped are direct shortcuts. Project-scoped SQLite caches reuse identical evidence. Rules are editable and provider merge requirements remain authoritative. See [the contract](19-pr-state-machines.md) and [architecture](21-readiness-architecture.md).
 - **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
 - **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
 - **Inspect builds:** expand each build to see all stages, durations, results, and owners.
 - **Organize PR collections:** create purpose-driven groups with colors and icons, add PRs to multiple collections, and track all lifecycle states with merged progress. Membership stays independent of watches. See [PR collections](20-pr-collections.md).
 - **Share a watch list:** select rows or the current page, add/remove watches in batches, and filter watched/unwatched candidates. The web and CLI share persistent identities scoped by provider, organization, project, repository ID and PR number. Drafts can be watched.
-- **Observe progress:** explicit discovery reads all accessible PR history and states without adding watches. The daemon refreshes only active watches, with a configurable five-minute cooldown after each project round. It keeps running when the browser closes and retires watches only after a confirmed terminal snapshot. Errors preserve watches and cached data.
+- **Observe progress:** project discovery reads accessible PR history and states without adding watches, with a default ten-minute cooldown. The daemon refreshes full details for active watches with a five-minute cooldown per PR after completion. Jev has its own per-PR completion cooldown and runs only for changed decision evidence without a cache hit. Background work continues when the browser closes; confirmed terminal snapshots retire watches. Errors preserve watches and cached data.
 - **Manage contributors:** follow observed PR authors, explicitly link provider accounts, and maintain teams and tags separately for Live and Sample.
 - **Compare contributions:** Repos and Insights use normalized PR records, using PR merge dates, with repository, member, team, and tag filters. Only PRs merged in the selected date range contribute. Each chart module calculates only on request; calculation age turns yellow after 24 hours and red after 72 hours. Drafts are excluded by default. See [Directory and contributions](13-成员目录与PR贡献统计.md).
 
 ## Usage
 
-Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. Start `bun run dev:collector`, click **Discover PRs**, then select candidates and choose **Add to watch list**. Upgrades preserve cached PRs but start with zero watches. Starting services, registering a repository, opening pages and reading queries never invoke Azure.
+Start the Worker and frontend using [Development](#development), then add an ADO organization and project in **Projects**. Repository scope is optional; blank includes every repository in that project. Start `bun run dev:collector`, click **Discover PRs**, then select candidates and choose **Add to watch list**. Existing caches and watches persist across restarts. The daemon executes scheduled provider work; opening pages and cached CLI/HTTP queries never invoke Azure or Jev.
 
 ```bash
 # Needed only when the existing Azure session is unavailable or expired:
@@ -53,7 +53,7 @@ The short-lived CLI reads the local Worker cache without Azure authentication or
 
 Filters follow Organization → Project → Repository, exclude drafts by default, and support multiple authors. Filters and column sort directions persist in localStorage and shareable URLs; pages contain 20 PRs. PR numbers and the link beside live PR titles open the source in a new tab. People have circular avatars with two initials. Descriptions render Markdown, tables, and task lists.
 
-Each project discovers its actual required policies and merge conditions. A draggable Readiness list sets their processing order, colors, and display names; keyboard arrows also work. The first unfinished requirement determines the main blocker. PRs waiting only on later requirements sort first. Settings persist in D1 with an independent revision and do not interrupt collection. Proof Of Presence has no built-in exception.
+Each project discovers its policies and merge conditions. System → Policy instructions edits explanations and priority with project/repository scope and revision protection. The State machines graph displays collection evidence and the persisted Jev judgment. Priority informs Jev without a first-failing-gate override. Default rules defer Proof Of Presence until builds and reviews finish; a PoP-only final step may be Ready, subject to real provider merge requirements. Changed instructions invalidate affected judgments without interrupting collection.
 
 Every page uses a main title, subtitle, and the global breadcrumb trail. The PR subtitle shows the selected organization / project / repository, without a separate repository banner.
 
@@ -212,7 +212,8 @@ Use a separate test checkout for the pipeline fixture. Run `bun run build:web`, 
 The design and operational documents below are primarily in Chinese.
 
 - [Documentation index](README.md): product scope, D1, web, Settings, and pipeline design.
-- [Architecture review draft](14-collector-architecture.md): explicit PR watch lists, automatic retirement, separate scheduling, and cached web/CLI queries. Documents 14–18 describe proposed behavior; the new commands and watch-list UI are not implemented yet.
+- [Collector architecture](14-collector-architecture.md): shared PR watches, automatic retirement, separate scheduling, and cached web/CLI queries.
+- [Evidence-driven readiness](21-readiness-architecture.md): shared decision state, minimal Jev input, per-PR scheduling, SQLite reuse, and concurrency safeguards.
 - [Collection commands, artifacts, and cursors](07-CLI命令矩阵与ADO落盘.md) · [Activity and Score rules](06-Activity重建与Score算法.md).
 - [Deployment and Dashboard statistics](08-真实数据上线与Dashboard统计.md): deployment, queries, and reconciliation.
 - [Helper CLIs](cli/README.md) · [Logo usage](09-logo-usage.md) · [Brand presentation](https://hexly.ai/logos/signoff-now).

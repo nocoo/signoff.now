@@ -88,6 +88,18 @@ export const inspectionSchema = z.object({
 		source: z.enum(["jev", "provider", "target_branch"]).nullable(),
 		evaluatedAt: timestamp,
 		isCurrent: z.boolean(),
+		phase: z.enum([
+			"collecting",
+			"queued",
+			"evaluating",
+			"decided",
+			"error",
+			"stopped",
+		]),
+		fingerprint: text,
+		model: text,
+		rubric: text,
+		reusedAt: timestamp,
 		update: z.object({
 			state: z.enum([
 				"idle",

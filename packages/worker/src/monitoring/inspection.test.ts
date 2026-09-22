@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
-	COMMON_RULES,
+	canonicalJson,
 	decisionFingerprint,
-	decisionState,
-	defaultProjectRules,
 	JEV_MODEL,
 	JEV_RUBRIC,
+	policyCatalog,
 } from "@signoff/domain/ai-readiness";
-import type { EvaluationRow } from "../ai/scheduler";
+import { type EvaluationRow, inputState } from "../ai/decision";
 import { PR_TEST_NOW as now, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 import { inspectionContext, inspectObservation } from "./inspection";
@@ -241,10 +240,7 @@ test.each([
 	["waiting", "wait_ci"],
 ])("%s advice keeps current and historical judgments distinct", async (kind, code) => {
 	const { project, pull, watch, context } = await setup();
-	const state = decisionState(pull, project, now, context.detailCooldown, {
-		common: COMMON_RULES,
-		project: defaultProjectRules(project.id),
-	});
+	const state = inputState(pull, project, context);
 	const judgment = {
 		kind,
 		model: JEV_MODEL,
@@ -267,6 +263,9 @@ test.each([
 		attempts: 1,
 		not_before: now + 200,
 		lease_token: null,
+		state_json: canonicalJson(state),
+		last_started_at: null,
+		last_completed_at: null,
 	};
 	const read = () =>
 		inspectObservation(watch, pull, project, null, row, context, now);
@@ -293,6 +292,9 @@ test.each([
 		},
 	});
 	expect((await read()).readiness.update.state).toBe("scheduled");
+	row.state_json = canonicalJson(inputState(pull, project, context));
+	row.result_json = null;
+	row.previous_json = JSON.stringify(judgment);
 	row.status = "running";
 	expect((await read()).readiness.update.state).toBe("evaluating");
 	row.status = "error";
@@ -303,7 +305,7 @@ test.each([
 	});
 	context.rules.clear();
 	row.status = "complete";
-	pull.headSha = "new-head";
+	pull.draft = true;
 	expect((await read()).readiness.isCurrent).toBe(false);
 	pull.mergeable = "conflicts";
 	expect((await read()).readiness).toMatchObject({
@@ -397,7 +399,7 @@ test("read-only query exposes failed attempts without replacing old evidence and
 });
 test("saved policy codes and project instructions share the scheduler fingerprint and completion cooldown", async () => {
 	const { project, pull, watch } = await setup();
-	const gate = decisionState(pull, project, now).policiesInPriorityOrder.find(
+	const gate = policyCatalog(project, [pull]).find(
 		(g) => g.id !== "merge-conflicts",
 	)!;
 	sqlite.raw
@@ -417,11 +419,7 @@ test("saved policy codes and project instructions share the scheduler fingerprin
 		.run(project.id, now - 100, now - 20);
 	const context = await inspectionContext(sqlite.db, "cli", [watch]);
 	context.settings.configured = 1;
-	const state = decisionState(pull, project, now, context.detailCooldown, {
-		common: "Common instructions",
-		project: "Project instructions",
-	});
-	state.policiesInPriorityOrder.find((p) => p.id === gate.id)!.code = "X1";
+	const state = inputState(pull, project, context);
 	const judgment = {
 		kind: "running",
 		model: JEV_MODEL,
@@ -444,12 +442,22 @@ test("saved policy codes and project instructions share the scheduler fingerprin
 		attempts: 1,
 		not_before: 0,
 		lease_token: null,
+		state_json: canonicalJson(state),
+		last_started_at: null,
+		last_completed_at: null,
 	};
 	expect(
 		(await inspectObservation(watch, pull, project, null, row, context, now))
 			.readiness.isCurrent,
 	).toBe(true);
 	context.settings.revision++;
+	expect(
+		(await inspectObservation(watch, pull, project, null, row, context, now))
+			.readiness.isCurrent,
+	).toBe(true);
+	row.last_started_at = now - 100;
+	row.last_completed_at = now - 20;
+	context.rules.set("common", "Updated common instructions");
 	const pending = await inspectObservation(
 		watch,
 		pull,

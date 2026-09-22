@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+	canonicalJson,
+	decisionState,
+	JEV_MODEL,
+	JEV_RUBRIC,
+} from "@signoff/domain/ai-readiness";
+import {
 	canonicalObservationKey,
 	makeWatchRef,
 } from "@signoff/domain/monitoring";
@@ -1755,9 +1761,9 @@ test("non-main PRs expose Skipped consistently in lists, details, filters and re
 });
 
 test("Jev evaluation age sorts successful current and historical answers, with never evaluated distinct", async () => {
-	seedProject(sqlite, { repositories: [] });
+	const project = seedProject(sqlite, { repositories: [] });
 	for (const [index, id] of ["a", "b", "c"].entries()) {
-		seedPull(sqlite, {
+		const pull = seedPull(sqlite, {
 			id,
 			number: index + 1,
 			externalId: String(index + 1),
@@ -1772,8 +1778,8 @@ test("Jev evaluation age sorts successful current and historical answers, with n
 		if (id === "c") continue;
 		const answer = JSON.stringify({
 			kind: "running",
-			model: "test",
-			rubric: "test",
+			model: JEV_MODEL,
+			rubric: JEV_RUBRIC,
 			fingerprint: id,
 			evaluatedAt: new Date(
 				(PR_TEST_NOW - (id === "a" ? 20 : 10)) * 1000,
@@ -1783,9 +1789,10 @@ test("Jev evaluation age sorts successful current and historical answers, with n
 		});
 		sqlite.raw
 			.query(
-				"UPDATE ai_evaluations SET status=?,result_json=?,previous_json=? WHERE observation_id=?",
+				"UPDATE ai_evaluations SET state_json=?,config_revision=1,status=?,result_json=?,previous_json=? WHERE observation_id=?",
 			)
 			.run(
+				canonicalJson(decisionState(pull, project)),
 				id === "a" ? "complete" : "pending",
 				id === "a" ? answer : null,
 				id === "b" ? answer : null,
@@ -1809,7 +1816,7 @@ test("Jev evaluation age sorts successful current and historical answers, with n
 });
 
 test("readiness sorts visible prior judgments and groups unwatched history consistently", async () => {
-	seedProject(sqlite, { repositories: [] });
+	const project = seedProject(sqlite, { repositories: [] });
 	const cases = [
 		["attention-current", "attention", "complete"],
 		["attention-pending", "attention", "pending"],
@@ -1829,7 +1836,7 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		["history-skipped", null, null],
 	] as const;
 	for (const [index, [id, kind, status]] of cases.entries()) {
-		seedPull(sqlite, {
+		const pull = seedPull(sqlite, {
 			id,
 			number: index + 1,
 			externalId: String(index + 1),
@@ -1852,8 +1859,8 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		const answer = kind
 			? JSON.stringify({
 					kind,
-					model: "test",
-					rubric: "test",
+					model: JEV_MODEL,
+					rubric: JEV_RUBRIC,
 					fingerprint: id,
 					evaluatedAt: new Date(PR_TEST_NOW * 1000).toISOString(),
 					confidence: 1,
@@ -1862,9 +1869,10 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 			: null;
 		sqlite.raw
 			.query(
-				"UPDATE ai_evaluations SET status=?, result_json=?, previous_json=? WHERE observation_id=?",
+				"UPDATE ai_evaluations SET state_json=?,config_revision=1,status=?, result_json=?, previous_json=? WHERE observation_id=?",
 			)
 			.run(
+				canonicalJson(decisionState(pull, project)),
 				status,
 				status === "complete" ? answer : null,
 				status !== "complete" ? answer : null,

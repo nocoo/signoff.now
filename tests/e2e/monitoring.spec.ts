@@ -962,8 +962,11 @@ test("policy instructions persist with priority, scope and cached Jev errors", a
 		`/policy-instructions/ado/${repo.org}/${repo.project}/${repo.name}`,
 	);
 	const area = page
-		.getByRole("textbox", { name: "Meaning and human action instructions" })
-		.first();
+		.getByRole("listitem")
+		.filter({
+			has: page.getByRole("heading", { name: /Required reviewer approvals$/ }),
+		})
+		.getByRole("textbox", { name: "Meaning and human action instructions" });
 	await area.fill(
 		"A person should approve this gate after checking the provider evidence.",
 	);
@@ -1430,7 +1433,7 @@ test("collector dialog persists all three cooldowns with background evaluation a
 	await expect(dialog).toBeVisible();
 	await expect(
 		dialog.getByRole("region", { name: "Jev scheduling" }),
-	).toContainText("dashboard closed");
+	).toContainText("evaluated individually in the background");
 	await expect(
 		dialog.getByRole("combobox", { name: "Project discovery cooldown" }),
 	).toBeVisible();
@@ -1695,10 +1698,14 @@ test("browsers never drive inference on focus changes or reload", async ({
 		expect(ticks).toBe(0);
 		const other = await context.newPage();
 		await other.goto("about:blank");
-		await other.bringToFront();
 		await expect
-			.poll(() => page.evaluate(() => document.hasFocus()))
-			.toBe(false);
+			.poll(async () => {
+				await other.bringToFront();
+				return page.evaluate(
+					() => document.visibilityState === "hidden" && !document.hasFocus(),
+				);
+			})
+			.toBe(true);
 		const before = ticks;
 		await page.waitForTimeout(6000);
 		expect(ticks).toBe(before);

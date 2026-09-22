@@ -425,7 +425,7 @@ function PullTableRow({
 				<ReadinessCell
 					display={readinessDisplay(
 						readiness,
-						project.id,
+						pull.id,
 						aiSchedule,
 						evaluationNow,
 					)}

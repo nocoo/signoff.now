@@ -1,19 +1,15 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import {
-	CLASSIFICATION,
-	decisionFingerprint,
-	decisionState,
-	JEV_MODEL,
-} from "@signoff/domain/ai-readiness";
+import { CLASSIFICATION, JEV_MODEL } from "@signoff/domain/ai-readiness";
 import { addObservation, removeObservation } from "../monitoring/observations";
+import { parseQuery, queryObservations, queryPulls } from "../monitoring/query";
 import { PR_TEST_NOW as now, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
+import { type EvaluationRow, evaluationOutput } from "./decision";
 import { evaluateJev } from "./jev";
-import { type EvaluationRow, evaluationOutput, runAiOnce } from "./scheduler";
+import { runAiOnce } from "./scheduler";
 import { openKey, sealKey } from "./secrets";
 
 let sqlite: SqliteD1;
-const source = "cli";
 const master = btoa("x".repeat(32));
 const env = () => ({ DB: sqlite.db, SIGNOFF_AI_ENCRYPTION_KEY: master });
 beforeEach(() => {
@@ -23,18 +19,18 @@ beforeEach(() => {
 });
 afterEach(() => sqlite.close());
 export function response(kind = "running") {
-	const choice = (selected: string, options: string[]) => ({
-		type: "choice",
-		choice: selected,
-		probabilities: Object.fromEntries(
-			options.map((o) => [o, o === selected ? 1 : 0]),
-		),
-		confidence: 1,
-	});
 	return Response.json({
 		model: JEV_MODEL,
+		usage: { input_tokens: 100, output_tokens: 10 },
 		answers: {
-			p0_readiness: choice(kind, Object.keys(CLASSIFICATION)),
+			readiness: {
+				type: "choice",
+				choice: kind,
+				probabilities: Object.fromEntries(
+					Object.keys(CLASSIFICATION).map((k) => [k, Number(k === kind)]),
+				),
+				confidence: 1,
+			},
 		},
 	});
 }
@@ -50,13 +46,392 @@ async function setup() {
 	return (await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now))
 		.observation;
 }
-function change(field: string, value: unknown) {
+function change(field: string, value: unknown, id = "pull-1") {
 	sqlite.raw
 		.query(
-			`UPDATE pull_requests SET snapshot=json_set(snapshot,?,json(?)) WHERE id='pull-1'`,
+			"UPDATE pull_requests SET snapshot=json_set(snapshot,?,json(?)) WHERE id=?",
 		)
-		.run(`$.${field}`, JSON.stringify(value));
+		.run(`$.${field}`, JSON.stringify(value), id);
 }
+const fake = (
+	callback: (
+		_url: RequestInfo | URL,
+		init?: RequestInit,
+	) => Promise<Response> | Response,
+) => callback as typeof fetch;
+const tick = (at = now, fetcher: typeof fetch = fake(() => response())) =>
+	runAiOnce(env(), "cli", at, fetcher);
+
+test("only watched valid evidence evaluates and unchanged semantic states never pay again", async () => {
+	let calls = 0;
+	const fetcher = fake((_url, init) => {
+		calls++;
+		const body = JSON.parse(String(init?.body));
+		expect(Object.keys(body.questions)).toEqual(["readiness"]);
+		expect(body.state).not.toHaveProperty("prs");
+		expect(JSON.stringify(body.state)).not.toContain("stages");
+		return response();
+	});
+	expect(await tick(now, fetcher)).toEqual({ processed: false });
+	await setup();
+	await tick(now, fetcher);
+	expect(evaluationOutput(row(), true).kind).toBe("running");
+	for (const time of [1, 301, 10000]) {
+		change("observedAt", now + time);
+		change("title", `new title ${time}`);
+		change("builds[0].stages[0].detail", "Different failure detail");
+		await tick(now + time, fetcher);
+	}
+	expect(calls).toBe(1);
+	expect(
+		sqlite.raw.query("SELECT count(*) n FROM ai_decision_cache").get(),
+	).toEqual({ n: 1 });
+	change("draft", true);
+	await tick(now + 10001, fetcher);
+	expect(calls).toBe(2);
+});
+
+test("per-PR cooldown starts at completion; another PR is independent", async () => {
+	await setup();
+	let clock = now * 1000,
+		calls = 0;
+	const timer = spyOn(Date, "now").mockImplementation(() => clock);
+	const fetcher = fake(() => {
+		calls++;
+		clock += 12000;
+		return response();
+	});
+	try {
+		await tick(now, fetcher);
+		change("draft", true);
+		clock = (now + 300) * 1000;
+		expect(await tick(now + 300, fetcher)).toEqual({ processed: false });
+		seedPull(sqlite, {
+			id: "pull-2",
+			number: 2,
+			externalId: "2",
+			coverage: "partial",
+		});
+		await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now + 300);
+		await tick(now + 300, fetcher);
+		expect(calls).toBe(2);
+		clock = (now + 312) * 1000;
+		await tick(now + 312, fetcher);
+		expect(calls).toBe(3);
+	} finally {
+		timer.mockRestore();
+	}
+});
+
+test("database preparation time cannot shorten completion cooldown", async () => {
+	await setup();
+	let clock = now * 1000,
+		prepared = false,
+		calls = 0;
+	const timer = spyOn(Date, "now").mockImplementation(() => clock);
+	const original = sqlite.db.prepare.bind(sqlite.db);
+	const prepare = spyOn(sqlite.db, "prepare").mockImplementation((sql) => {
+		if (!prepared && sql === "SELECT * FROM projects WHERE source=?") {
+			prepared = true;
+			clock += 7000;
+		}
+		return original(sql);
+	});
+	const fetcher = fake(() => {
+		calls++;
+		clock += 12000;
+		return response();
+	});
+	try {
+		await tick(now, fetcher);
+		expect(row().last_completed_at).toBe(now + 19);
+		change("draft", true);
+		clock = (now + 318) * 1000;
+		await tick(now + 318, fetcher);
+		expect(calls).toBe(1);
+		clock = (now + 319) * 1000;
+		await tick(now + 319, fetcher);
+		expect(calls).toBe(2);
+	} finally {
+		prepare.mockRestore();
+		timer.mockRestore();
+	}
+});
+
+test("same-project evidence shares persistent cache across PRs, rewatch and A-B-A transitions", async () => {
+	const watch = await setup();
+	let calls = 0;
+	const fetcher = fake(() => {
+		calls++;
+		return response();
+	});
+	seedPull(sqlite, { id: "pull-2", number: 2, externalId: "2" });
+	await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now);
+	await tick(now, fetcher);
+	expect(calls).toBe(1);
+	expect(
+		sqlite.raw
+			.query("SELECT count(*) n FROM ai_evaluations WHERE status='complete'")
+			.get(),
+	).toEqual({ n: 2 });
+	change("draft", true);
+	await tick(now + 301, fetcher);
+	expect(calls).toBe(2);
+	change("draft", false);
+	await tick(now + 302, fetcher);
+	expect(calls).toBe(2);
+	expect(JSON.parse(row().result_json ?? "{}").reusedAt).toBeTruthy();
+	await removeObservation(
+		sqlite.db,
+		"cli",
+		watch.id,
+		watch.generation,
+		now + 303,
+	);
+	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now + 304);
+	await sqlite.db
+		.prepare("UPDATE ai_settings SET encrypted_key=NULL,revision=revision+1")
+		.run();
+	await tick(now + 304, fetcher);
+	expect(calls).toBe(2);
+	expect(row().generation).toBe(2);
+	expect(row().status).toBe("complete");
+	seedProject(sqlite, {
+		id: "other-project",
+		projectKey: "Other",
+		repositories: [],
+	});
+	seedPull(sqlite, {
+		id: "other-pull",
+		projectId: "other-project",
+		number: 3,
+		externalId: "3",
+	});
+	await addObservation(sqlite.db, "cli", { pullId: "other-pull" }, now + 305);
+	await sqlite.db
+		.prepare("UPDATE ai_settings SET encrypted_key=?,revision=revision+1")
+		.bind(await sealKey("test-key", master))
+		.run();
+	await tick(now + 305, fetcher);
+	expect(calls).toBe(3);
+});
+
+test("independent evidence requests run concurrently with a fixed bound", async () => {
+	await setup();
+	for (let i = 2; i <= 4; i++) {
+		seedPull(sqlite, {
+			id: `p${i}`,
+			externalId: String(i),
+			number: i,
+			requiredApprovals: i + 3,
+		});
+		await addObservation(sqlite.db, "cli", { pullId: `p${i}` }, now);
+	}
+	let active = 0,
+		peak = 0,
+		calls = 0;
+	const fetcher = fake(async () => {
+		active++;
+		calls++;
+		peak = Math.max(peak, active);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		active--;
+		return response();
+	});
+	await tick(now, fetcher);
+	expect(calls).toBe(3);
+	expect(peak).toBe(3);
+	await tick(now + 1, fetcher);
+	expect(calls).toBe(4);
+});
+
+test.each([
+	"conflicts",
+	"feature",
+	"missing",
+	"invalidated",
+])("%s bypasses Jev before inference", async (kind) => {
+	await setup();
+	if (kind === "conflicts") change("mergeable", "conflicts");
+	if (kind === "feature") change("targetBranch", "feature/test");
+	if (kind === "missing") change("checksObservedAt", null);
+	if (kind === "invalidated") change("checksInvalidated", true);
+	let calls = 0;
+	await tick(
+		now,
+		fake(() => {
+			calls++;
+			return response();
+		}),
+	);
+	expect(calls).toBe(0);
+	const result = await queryObservations(
+		sqlite.db,
+		"cli",
+		parseQuery(new URLSearchParams()),
+		now,
+	);
+	expect(
+		(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
+			.phase,
+	).toBe(["missing", "invalidated"].includes(kind) ? "collecting" : "decided");
+	if (kind === "conflicts")
+		expect(
+			(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
+				.state,
+		).toBe("conflict");
+	if (kind === "feature")
+		expect(
+			(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
+				.state,
+		).toBe("skipped");
+});
+
+test.each([
+	"facts",
+	"rules",
+	"watch",
+	"key",
+	"clock",
+	"stage",
+])("late response handles %s changes without exposing obsolete judgments", async (kind) => {
+	const watch = await setup();
+	await tick(
+		now,
+		fake(async () => {
+			if (kind === "facts") change("draft", true);
+			if (kind === "rules")
+				sqlite.raw
+					.query(
+						"INSERT INTO ai_rules(scope,revision,text) VALUES('common',1,'Review carefully')",
+					)
+					.run();
+			if (kind === "watch") {
+				await removeObservation(
+					sqlite.db,
+					"cli",
+					watch.id,
+					watch.generation,
+					now + 1,
+				);
+				await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now + 2);
+			}
+			if (kind === "key")
+				sqlite.raw.query("UPDATE ai_settings SET revision=revision+1").run();
+			if (kind === "clock") change("observedAt", now + 2);
+			if (kind === "stage")
+				change("builds[0].stages[0].detail", "A different task failed");
+			return response("attention");
+		}),
+	);
+	expect(row().status).toBe(
+		["clock", "stage"].includes(kind) ? "complete" : "pending",
+	);
+	if (!["clock", "stage"].includes(kind)) expect(row().result_json).toBeNull();
+});
+
+test("read-only HTTP projections share currentness before scheduler reconciliation", async () => {
+	await setup();
+	await tick();
+	change("draft", true);
+	const observation = await queryObservations(
+		sqlite.db,
+		"cli",
+		parseQuery(new URLSearchParams()),
+		now + 1,
+	);
+	expect(
+		(Array.isArray(observation.data) ? observation.data[0] : observation.data)
+			?.readiness,
+	).toMatchObject({
+		state: "running",
+		isCurrent: false,
+		phase: "queued",
+	});
+	const list = await queryPulls(
+		sqlite.db,
+		"cli",
+		parseQuery(new URLSearchParams("draft=include")),
+		now + 1,
+	);
+	expect(list.data[0]?.readiness).toMatchObject({
+		status: "pending",
+		previous: { kind: "running" },
+		current: null,
+	});
+});
+
+test("policy instructions change only their project input and revert through cache", async () => {
+	await setup();
+	let calls = 0;
+	const fetcher = fake(() => {
+		calls++;
+		return response("review_needed");
+	});
+	await tick(now, fetcher);
+	sqlite.raw
+		.query(
+			"INSERT INTO ai_rules(scope,revision,text) VALUES('unrelated',1,'irrelevant')",
+		)
+		.run();
+	await tick(now + 1, fetcher);
+	expect(calls).toBe(1);
+	sqlite.raw
+		.query(
+			"INSERT INTO ai_rules(scope,revision,text) VALUES('live-project',1,'Optional failures are expected')",
+		)
+		.run();
+	await tick(now + 301, fetcher);
+	expect(calls).toBe(2);
+	sqlite.raw
+		.query("UPDATE ai_rules SET text='' WHERE scope='live-project'")
+		.run();
+	await tick(now + 302, fetcher);
+	expect(calls).toBe(2);
+});
+
+test("bounded retries respect cooldown and exhausted operational errors are not cacheable judgments", async () => {
+	await setup();
+	let calls = 0;
+	const fetcher = fake(() => {
+		calls++;
+		return new Response("private upstream data", { status: 503 });
+	});
+	for (const time of [0, 301, 602]) await tick(now + time, fetcher);
+	expect(row().status).toBe("error");
+	expect(row().attempts).toBe(3);
+	expect(row().result_json).toBeNull();
+	await tick(now + 2000, fetcher);
+	expect(calls).toBe(3);
+	expect(
+		sqlite.raw.query("SELECT count(*) n FROM ai_decision_cache").get(),
+	).toEqual({ n: 0 });
+	expect(row().error).not.toContain("private upstream data");
+});
+
+test("missing credentials fail operationally and a restored key retries without resetting facts", async () => {
+	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now);
+	await tick();
+	expect(evaluationOutput(row(), true).kind).toBe("error");
+	await sqlite.db
+		.prepare("UPDATE ai_settings SET encrypted_key=?,revision=revision+1")
+		.bind(await sealKey("test-key", master))
+		.run();
+	await tick(now + 301);
+	expect(row().status).toBe("complete");
+});
+
+test.each(
+	Object.keys(CLASSIFICATION) as (keyof typeof CLASSIFICATION)[],
+)("Jev's valid %s choice is authoritative", async (kind) => {
+	await setup();
+	await tick(
+		now,
+		fake(() => response(kind)),
+	);
+	expect(evaluationOutput(row(), true).current?.kind).toBe(kind);
+});
+
 test("encrypts at rest and rejects missing, corrupt or unavailable credentials", async () => {
 	const encrypted = await sealKey("test-key", master);
 	expect(encrypted).not.toContain("test-key");
@@ -66,209 +441,7 @@ test("encrypts at rest and rejects missing, corrupt or unavailable credentials",
 	await expect(sealKey("key", "invalid")).rejects.toThrow("not configured");
 	await expect(openKey(encrypted, undefined)).rejects.toThrow("not configured");
 });
-test("only watches evaluate, identical facts dedupe, real facts and instructions invalidate", async () => {
-	let calls = 0;
-	const fetcher = (async () => {
-		calls++;
-		return response();
-	}) as unknown as typeof fetch;
-	expect(await runAiOnce(env(), source, now, fetcher)).toEqual({
-		processed: false,
-	});
-	await setup();
-	await runAiOnce(env(), source, now, fetcher);
-	expect(evaluationOutput(row(), true).kind).toBe("running");
-	expect(evaluationOutput(row(), false).status).toBe("not_watched");
-	await runAiOnce(env(), source, now + 1, fetcher);
-	change("observedAt", now + 1);
-	expect(evaluationOutput(row(), true).current?.kind).toBe("running");
-	await runAiOnce(env(), source, now + 1, fetcher);
-	expect(calls).toBe(1);
-	change("headSha", "new-head");
-	expect(evaluationOutput(row(), true).previous?.kind).toBe("running");
-	await runAiOnce(env(), source, now + 300, fetcher);
-	expect(calls).toBe(2);
-	sqlite.raw.query("UPDATE projects SET policy_context_json=?").run(
-		JSON.stringify({
-			default: [
-				{
-					gateId: "merge-conflicts",
-					description: "Wait for the scheduled repair.",
-				},
-			],
-			repositories: {},
-		}),
-	);
-	await runAiOnce(env(), source, now + 600, fetcher);
-	expect(calls).toBe(3);
-	expect(row().status).toBe("complete");
-	await runAiOnce(env(), source, now + 1300, fetcher);
-	expect(calls).toBe(4);
-});
-test("observation clocks preserve an in-flight request and its completed result across cooldowns", async () => {
-	await setup();
-	let calls = 0;
-	const fetcher = (async () => {
-		calls++;
-		const claimed = row();
-		if (calls === 1) {
-			change("observedAt", now + 1);
-			change("summaryObservedAt", now + 1);
-			change("checksObservedAt", now + 1);
-			change("updatedAt", now + 1);
-		}
-		expect(row()).toEqual(claimed);
-		return response();
-	}) as unknown as typeof fetch;
-	await runAiOnce(env(), source, now, fetcher);
-	const completed = row();
-	expect(completed.status).toBe("complete");
-	for (const elapsed of [10, 301, 601]) {
-		change("observedAt", now + elapsed);
-		change("summaryObservedAt", now + elapsed);
-		change("checksObservedAt", now + elapsed);
-		expect(row()).toEqual(completed);
-		expect(await runAiOnce(env(), source, now + elapsed, fetcher)).toEqual({
-			processed: false,
-		});
-		expect(row()).toEqual(completed);
-	}
-	expect(calls).toBe(1);
-	change("checksObservedAt", null);
-	expect(row().status).toBe("pending");
-	await runAiOnce(env(), source, now + 602, fetcher);
-	expect(calls).toBe(2);
-	change("checksObservedAt", now + 603);
-	expect(row().status).toBe("pending");
-});
-test("pending changes cannot bypass the project cooldown measured from request completion", async () => {
-	await setup();
-	let clock = now * 1000;
-	const time = spyOn(Date, "now").mockImplementation(() => clock);
-	let calls = 0;
-	const fetcher = (async () => {
-		calls++;
-		clock += 12000;
-		return response();
-	}) as unknown as typeof fetch;
-	try {
-		await runAiOnce(env(), source, now, fetcher);
-		change("headSha", "changed-after-completion");
-		expect(row().status).toBe("pending");
-		for (const elapsed of [13, 60, 299, 300, 311]) {
-			clock = (now + elapsed) * 1000;
-			expect(await runAiOnce(env(), source, now + elapsed, fetcher)).toEqual({
-				processed: false,
-			});
-			expect(row().status).toBe("pending");
-			expect(calls).toBe(1);
-		}
-		clock = (now + 312) * 1000;
-		await runAiOnce(env(), source, now + 312, fetcher);
-		expect(calls).toBe(2);
-		expect(row().status).toBe("complete");
-	} finally {
-		time.mockRestore();
-	}
-});
-test.each([
-	"facts",
-	"instructions",
-	"key",
-	"common rules",
-	"project rules",
-	"unwatch",
-	"rewatch",
-])("late response cannot overwrite newer %s", async (mode) => {
-	const watch = await setup();
-	let release: (value: Response) => void = () => {};
-	let entered: () => void = () => {};
-	const started = new Promise<void>((r) => {
-		entered = r;
-	});
-	const request = runAiOnce(env(), source, now, (async () => {
-		entered();
-		return new Promise<Response>((r) => {
-			release = r;
-		});
-	}) as unknown as typeof fetch);
-	await started;
-	expect(await runAiOnce(env(), source, now)).toEqual({ processed: false });
-	if (mode === "facts") change("headSha", "superseded");
-	if (mode === "instructions")
-		sqlite.raw.query("UPDATE projects SET policy_context_json=?").run(
-			JSON.stringify({
-				default: [{ gateId: "merge-conflicts", description: "Changed" }],
-				repositories: {},
-			}),
-		);
-	if (mode.endsWith("rules"))
-		sqlite.raw
-			.query("INSERT INTO ai_rules(scope,revision,text) VALUES(?,1,?)")
-			.run(
-				mode === "common rules" ? "common" : "live-project",
-				"A changed instruction",
-			);
-	if (mode === "key")
-		sqlite.raw.query("UPDATE ai_settings SET revision=revision+1").run();
-	if (mode === "unwatch" || mode === "rewatch") {
-		await removeObservation(
-			sqlite.db,
-			"cli",
-			watch.id,
-			watch.generation,
-			now + 1,
-		);
-		if (mode === "rewatch")
-			await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now + 2);
-	}
-	release(response());
-	await request;
-	expect(row().result_json).toBeNull();
-	if (mode === "unwatch")
-		expect(await runAiOnce(env(), source, now + 3)).toEqual({
-			processed: false,
-		});
-	else {
-		await runAiOnce(env(), source, now + 300, (async () =>
-			response("attention")) as unknown as typeof fetch);
-		expect(evaluationOutput(row(), true).kind).toBe("attention");
-	}
-});
-test("bounded retry respects backoff and identical polling cannot restart exhausted errors", async () => {
-	await setup();
-	let calls = 0;
-	const fail = (async () => {
-		calls++;
-		return new Response(null, { status: 529 });
-	}) as unknown as typeof fetch;
-	await runAiOnce(env(), source, now, fail);
-	expect(row().status).toBe("pending");
-	await runAiOnce(env(), source, now + 1, fail);
-	expect(calls).toBe(1);
-	await runAiOnce(env(), source, now + 300, fail);
-	await runAiOnce(env(), source, now + 600, fail);
-	expect(row().status).toBe("error");
-	change("observedAt", now + 16);
-	await runAiOnce(env(), source, now + 601, fail);
-	expect(calls).toBe(3);
-	expect(evaluationOutput(row(), true)).toMatchObject({
-		kind: "error",
-		current: null,
-	});
-	change("headSha", "changed");
-	await runAiOnce(env(), source, now + 900, (async () =>
-		response("running")) as unknown as typeof fetch);
-	expect(evaluationOutput(row(), true).kind).toBe("running");
-});
-test("missing key is an operational error, never a rule judgment or repeated request", async () => {
-	await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now);
-	await runAiOnce(env(), source, now);
-	expect(row().error).toContain("missing_key");
-	change("observedAt", now + 1);
-	expect(await runAiOnce(env(), source, now + 1)).toEqual({ processed: false });
-	expect(row().status).toBe("error");
-});
+
 test.each([
 	401, 403, 429, 500,
 ])("provider HTTP %s remains sanitized", async (status) => {
@@ -306,640 +479,88 @@ test("invalid typed responses, transport failures and oversized state fail expli
 		"request budget",
 	);
 });
-test("state has all policy evidence and priorities, excludes generated answers and poll clocks", async () => {
-	const project = seedProject(sqlite, {
-		id: "other",
-		projectKey: "Other",
-		policyContext: {
-			default: [
-				{
-					gateId: "policy-1",
-					description: "Advisory failures are expected; do not rerun.",
-				},
-			],
-			repositories: {},
-		},
-	});
-	const pull = seedPull(sqlite, { id: "another", projectId: "other" });
-	const state = decisionState(pull, project, now);
-	expect(state.policiesInPriorityOrder[0]?.description).toContain("Advisory");
-	expect(state.policies).toHaveLength(pull.policies.length);
-	expect(state).not.toHaveProperty("readiness");
-	expect(JSON.stringify(state)).not.toContain("Resolve X, then rerun");
-	expect(await decisionFingerprint(state)).toBe(
-		await decisionFingerprint(
-			decisionState(
-				{ ...pull, observedAt: now + 1, updatedAt: now + 1 },
-				project,
-				now + 1,
-			),
-		),
-	);
-});
-test.each([
-	[
-		"automatic CI",
-		"running",
-		"running",
-		false,
-		true,
-		"complete",
-		"clear",
-		"running",
-		null,
-	],
-	[
-		"human stage",
-		"running",
-		"waiting",
-		false,
-		true,
-		"complete",
-		"clear",
-		"attention",
-		"approve",
-	],
-	[
-		"explicit expiry",
-		"passed",
-		"passed",
-		true,
-		true,
-		"complete",
-		"clear",
-		"attention",
-		"rerun",
-	],
-	[
-		"queued build with human gate",
-		"queued",
-		"queued",
-		false,
-		true,
-		"complete",
-		"clear",
-		"attention",
-		"resolve_conflict",
-	],
-	[
-		"missing evidence",
-		"unknown",
-		"unknown",
-		false,
-		true,
-		"partial",
-		"unknown",
-		"running",
-		null,
-	],
-	[
-		"advisory failure with instructions",
-		"failed",
-		"failed",
-		false,
-		false,
-		"complete",
-		"clear",
-		"attention",
-		null,
-	],
-	[
-		"contradictory instructions",
-		"passed",
-		"failed",
-		false,
-		true,
-		"partial",
-		"clear",
-		"running",
-		null,
-	],
-] as const)("typed Jev judgment is authoritative for %s", async (_name, buildState, stageState, expired, required, coverage, mergeable, kind, _action) => {
-	seedPull(sqlite, {
-		mergeable,
-		coverage,
-		policies: [
-			{
-				id: "gate",
-				name: "Gate",
-				kind: "build",
-				definitionId: "42",
-				required,
-				state: expired ? "failed" : "passed",
-				detail: "Generated action must be omitted",
-				owner: "Owner",
-				evidence: {
-					status: "approved",
-					isExpired: expired,
-					buildIsNotCurrent: true,
-					isBlocking: required,
-					description: "Raw provider description",
-				},
-			},
-		],
-		builds: [
-			{
-				id: "build",
-				name: "CI",
-				definitionId: "42",
-				number: 1,
-				required,
-				state: buildState,
-				stages: [
-					{
-						id: "stage",
-						name: "Stage",
-						required,
-						state: stageState,
-						detail: "Generated stage action",
-						owner: "Owner",
-						durationSeconds: null,
-						evidence: {
-							status: stageState,
-							attempt: 2,
-							description: "Raw stage message",
-						},
-					},
-				],
-			},
-		],
-	});
-	sqlite.raw.query("UPDATE projects SET policy_context_json=?").run(
-		JSON.stringify({
-			default: [
-				{
-					gateId: "build:42",
-					description: required
-						? "Wait for automatic progress unless provider evidence requires a person."
-						: "This advisory validation is being repaired independently; no PR author action is required.",
-				},
-			],
-			repositories: {},
-		}),
-	);
-	await setup();
-	await runAiOnce(env(), source, now, (async (
-		_url: string,
-		init?: RequestInit,
-	) => {
-		const body = JSON.parse(String(init?.body));
-		const state = {
-			...body.state.prs[0],
-			...body.state.contexts[body.state.prs[0].contextRef],
-		};
-		expect(body.state.policyFacts[state.policies[0]].evidence).toMatchObject({
-			isExpired: expired,
-			buildIsNotCurrent: true,
-		});
-		expect(
-			body.state.policyInstructions[state.policiesInPriorityOrder[0]]
-				.description,
-		).toBeTruthy();
-		expect(JSON.stringify(state)).not.toContain("Generated action");
-		return response(kind);
-	}) as unknown as typeof fetch);
-	expect(evaluationOutput(row(), true).current).toMatchObject({ kind });
-});
 
-test("background project batches include only changed watches and respect independent completion cooldowns", async () => {
+test("a publication between semantic recheck and result write is fenced and retains completion cooldown", async () => {
 	await setup();
-	seedPull(sqlite, { id: "pull-2", number: 2, externalId: "2" });
-	seedPull(sqlite, { id: "unwatched", number: 3, externalId: "3" });
-	await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now);
-	const payloads: {
-		state: { contexts: unknown[]; prs: { pr: { id: string } }[] };
-		questions: Record<
-			string,
-			{ criteria: Record<string, string>; instructions: string }
-		>;
-	}[] = [];
-	const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-		const body = JSON.parse(String(init?.body));
-		payloads.push(body);
-		return Response.json({
-			model: JEV_MODEL,
-			usage: { input_tokens: 100, output_tokens: 10 },
-			answers: Object.fromEntries(
-				Object.entries(body.questions).map(([id, q]) => {
-					const options = Object.keys((q as { criteria: object }).criteria),
-						choice = "running";
-					return [
-						id,
-						{
-							type: "choice",
-							choice,
-							probabilities: Object.fromEntries(
-								options.map((k) => [k, Number(k === choice)]),
-							),
-							confidence: 1,
-						},
-					];
-				}),
-			),
-		});
-	}) as unknown as typeof fetch;
-	await runAiOnce(env(), source, now, fetcher);
-	expect(payloads).toHaveLength(1);
-	expect(
-		payloads[0]?.state.prs
-			.map((p) => p.pr.id)
-			.sort((a, b) => a.localeCompare(b)),
-	).toEqual(["pull-1", "pull-2"]);
-	expect(payloads[0]?.state.contexts).toHaveLength(1);
-	expect(Object.keys(payloads[0]?.questions ?? {})).toHaveLength(2);
-	expect(payloads[0]?.questions.p1_readiness?.instructions).toContain("prs[1]");
-	const unchanged = sqlite.raw
-		.query(
-			"SELECT e.* FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id WHERE o.pull_id='pull-2'",
-		)
-		.get();
-	change("headSha", "changed-head");
-	expect(await runAiOnce(env(), source, now + 299, fetcher)).toEqual({
-		processed: false,
+	let clock = now * 1000,
+		calls = 0,
+		intercept = true;
+	const time = spyOn(Date, "now").mockImplementation(() => clock);
+	const original = sqlite.db.prepare.bind(sqlite.db);
+	const prepare = spyOn(sqlite.db, "prepare").mockImplementation((sql) => {
+		if (
+			intercept &&
+			sql.startsWith("UPDATE ai_evaluations SET status=?,result_json=?")
+		) {
+			intercept = false;
+			change("draft", true);
+		}
+		return original(sql);
 	});
-	seedProject(sqlite, {
-		id: "another-project",
-		projectKey: "Another",
-		repositories: [],
-	});
-	seedPull(sqlite, {
-		id: "another-pr",
-		projectId: "another-project",
-		number: 4,
-		externalId: "4",
-	});
-	await addObservation(sqlite.db, "cli", { pullId: "another-pr" }, now + 299);
-	await runAiOnce(env(), source, now + 299, fetcher);
-	expect(payloads[1]?.state.prs.map((p) => p.pr.id)).toEqual(["another-pr"]);
-	await runAiOnce(env(), source, now + 301, fetcher);
-	expect(payloads[2]?.state.prs.map((p) => p.pr.id)).toEqual(["pull-1"]);
-	expect(
-		sqlite.raw
-			.query(
-				"SELECT e.* FROM ai_evaluations e JOIN pr_observations o ON o.id=e.observation_id WHERE o.pull_id='pull-2'",
-			)
-			.get(),
-	).toEqual(unchanged);
-	expect(await runAiOnce(env(), source, now + 700, fetcher)).toEqual({
-		processed: false,
-	});
-	expect(
-		sqlite.raw
-			.query(
-				"SELECT input_tokens,last_batch_size FROM ai_project_schedule WHERE project_id='live-project'",
-			)
-			.get(),
-	).toMatchObject({ input_tokens: 100, last_batch_size: 1 });
-	change("headSha", "another-change");
-	expect(await runAiOnce(env(), source, now + 702, fetcher)).toEqual({
-		processed: true,
-	});
-});
-
-test("oversized projects are split across cooldowns without truncation and one oversized PR fails locally", async () => {
-	await setup();
-	change(
-		"collectionIssues",
-		Array.from({ length: 40 }, () => "a".repeat(1000)),
-	);
-	seedPull(sqlite, {
-		id: "pull-2",
-		number: 2,
-		externalId: "2",
-		collectionIssues: Array.from({ length: 40 }, () => "b".repeat(1000)),
-	});
-	await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now);
-	let calls = 0;
-	const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-		const body = JSON.parse(String(init?.body));
-		expect(body.state.prs).toHaveLength(1);
-		expect(body.state.prs[0].collection.missing).toHaveLength(40);
+	const fetcher = fake(() => {
 		calls++;
+		clock += 12000;
 		return response();
-	}) as unknown as typeof fetch;
-	await runAiOnce(env(), source, now, fetcher);
-	expect(await runAiOnce(env(), source, now + 299, fetcher)).toEqual({
-		processed: false,
 	});
-	await runAiOnce(env(), source, now + 300, fetcher);
-	expect(calls).toBe(2);
-	change(
-		"collectionIssues",
-		Array.from({ length: 70 }, () => "x".repeat(1000)),
-	);
-	await runAiOnce(env(), source, now + 600, fetcher);
-	expect(calls).toBe(2);
-	expect(
-		sqlite.raw
-			.query(
-				"SELECT error FROM ai_evaluations WHERE observation_id=(SELECT id FROM pr_observations WHERE pull_id='pull-1')",
-			)
-			.get(),
-	).toMatchObject({ error: expect.stringContaining("input_too_large") });
-});
-
-test("one malformed answer does not discard a valid sibling result", async () => {
-	await setup();
-	seedPull(sqlite, { id: "pull-2", number: 2, externalId: "2" });
-	await addObservation(sqlite.db, "cli", { pullId: "pull-2" }, now);
-	await runAiOnce(
-		env(),
-		source,
-		now,
-		Object.assign(async () => response(), { preconnect: fetch.preconnect }),
-	);
-	const statuses = sqlite.raw
-		.query("SELECT status FROM ai_evaluations ORDER BY status")
-		.all();
-	expect(statuses).toEqual([{ status: "complete" }, { status: "error" }]);
-});
-
-test("daemon live ticks do not evaluate sample watches", async () => {
-	await setup();
-	sqlite.raw.query("UPDATE projects SET source='demo'").run();
-	const fetcher = Object.assign(
-		async () => {
-			throw Error("Must not request Jev");
-		},
-		{ preconnect: fetch.preconnect },
-	);
-	expect(await runAiOnce(env(), source, now, fetcher)).toEqual({
-		processed: false,
-	});
-	expect(row().status).toBe("pending");
-});
-
-test("conflicts bypass Jev and unwatched conflicts remain not evaluated", async () => {
-	await setup();
-	change("mergeable", "conflicts");
-	let calls = 0;
-	await runAiOnce(env(), source, now, (async () => {
-		calls++;
-		return response();
-	}) as unknown as typeof fetch);
-	expect(calls).toBe(0);
-	expect(
-		evaluationOutput(row(), true, {
-			mergeable: "conflicts",
-			targetBranch: "main",
-		}),
-	).toMatchObject({ kind: "conflict", current: null, status: "complete" });
-	expect(
-		evaluationOutput(row(), false, {
-			mergeable: "conflicts",
-			targetBranch: "main",
-		}).status,
-	).toBe("not_watched");
-	change("mergeable", "clear");
-	await runAiOnce(env(), source, now, (async () => {
-		calls++;
-		return response();
-	}) as unknown as typeof fetch);
-	expect(calls).toBe(1);
-});
-
-test("project rules invalidate and enter only that project's watched decision state", async () => {
-	await setup();
-	seedProject(sqlite, {
-		id: "second-project",
-		projectKey: "Second",
-		repositories: [],
-	});
-	seedPull(sqlite, {
-		id: "second-pull",
-		projectId: "second-project",
-		number: 2,
-		externalId: "2",
-	});
-	const second = await addObservation(
-		sqlite.db,
-		"cli",
-		{ pullId: "second-pull" },
-		now,
-	);
-	const firstRevision = row().input_revision;
-	sqlite.raw
-		.query(
-			"INSERT INTO ai_rules(scope,revision,text) VALUES('second-project',1,'Only the second project uses this instruction.')",
-		)
-		.run();
-	const revisions = sqlite.raw
-		.query("SELECT observation_id,input_revision FROM ai_evaluations")
-		.all() as { observation_id: string; input_revision: number }[];
-	expect(
-		revisions.find((r) => r.observation_id === second.observation.id)
-			?.input_revision,
-	).toBe(2);
-	expect(
-		revisions.find((r) => r.observation_id !== second.observation.id)
-			?.input_revision,
-	).toBe(firstRevision);
-	const seen: string[] = [];
-	const fetcher = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-		const body = JSON.parse(String(init?.body));
-		seen.push(JSON.stringify(body.state.ruleSets));
-		return response();
-	}) as unknown as typeof fetch;
-	await runAiOnce(env(), source, now, fetcher);
-	await runAiOnce(env(), source, now + 1, fetcher);
-	expect(seen).toHaveLength(2);
-	expect(seen[0]).not.toContain("Only the second project");
-	expect(seen[1]).toContain("Only the second project");
-});
-
-test("non-main targets skip inference, hide past judgments and allow main-target siblings", async () => {
-	await setup();
-	let calls = 0;
-	const fetcher = (async (_url: string | URL | Request, init?: RequestInit) => {
-		calls++;
-		expect(String(init?.body)).not.toContain("release/do-not-send");
-		return response();
-	}) as unknown as typeof fetch;
-	for (const targetBranch of [
-		"release/do-not-send",
-		"feature/main",
-		"MAIN",
-		"refs/heads/user/topic",
-	]) {
-		change("targetBranch", targetBranch);
-		const pull = { targetBranch, mergeable: "conflicts" as const };
-		expect(evaluationOutput(row(), true, pull)).toMatchObject({
-			kind: "skipped",
-			status: "complete",
-			current: null,
-			previous: null,
-		});
-		expect(evaluationOutput(row(), false, pull).kind).toBe("skipped");
-		expect(await runAiOnce(env(), source, now, fetcher)).toEqual({
-			processed: false,
-		});
+	try {
+		await tick(now, fetcher);
+		expect(row().result_json).toBeNull();
+		expect(row().last_completed_at).toBe(now + 12);
+		clock = (now + 311) * 1000;
+		await tick(now + 311, fetcher);
+		expect(calls).toBe(1);
+		clock = (now + 312) * 1000;
+		await tick(now + 312, fetcher);
+		expect(calls).toBe(2);
+	} finally {
+		prepare.mockRestore();
+		time.mockRestore();
 	}
-	expect(calls).toBe(0);
-	seedPull(sqlite, {
-		id: "sibling",
-		externalId: "2",
-		number: 2,
-		targetBranch: "master",
+});
+
+test("a simultaneous tick cannot duplicate a leased request or evaluate another data source", async () => {
+	await setup();
+	let calls = 0;
+	const fetcher = fake(async () => {
+		calls++;
+		expect(await tick(now)).toEqual({ processed: false });
+		return response();
 	});
-	await addObservation(sqlite.db, "cli", { pullId: "sibling" }, now);
-	expect(await runAiOnce(env(), source, now, fetcher)).toEqual({
-		processed: true,
+	await tick(now, fetcher);
+	expect(calls).toBe(1);
+	expect(await runAiOnce(env(), "demo", now, fetcher)).toEqual({
+		processed: false,
 	});
 	expect(calls).toBe(1);
 });
 
-test("retargeting during inference fences the late result and returning to main evaluates again", async () => {
+test("removing credentials before claiming prevents an old configuration from sending", async () => {
 	await setup();
-	let calls = 0;
-	const fetcher = (async () => {
-		calls++;
-		if (calls === 1) change("targetBranch", "release/new-target");
-		return response("ready");
-	}) as unknown as typeof fetch;
-	await runAiOnce(env(), source, now, fetcher);
-	expect(row().result_json).toBeNull();
-	expect(
-		evaluationOutput(row(), true, {
-			targetBranch: "release/new-target",
-			mergeable: "clear",
-		}).kind,
-	).toBe("skipped");
-	await runAiOnce(env(), source, now + 300, fetcher);
-	expect(calls).toBe(1);
-	change("targetBranch", "refs/heads/main");
-	await runAiOnce(env(), source, now + 301, fetcher);
-	expect(calls).toBe(2);
-	expect(row().status).toBe("complete");
-	change("targetBranch", "release/new-target");
-	expect(
-		evaluationOutput(row(), true, {
-			targetBranch: "release/new-target",
-			mergeable: "clear",
-		}),
-	).toMatchObject({ kind: "skipped", previous: null, current: null });
-});
-
-test("review-only evidence reaches Jev and its Review Needed judgment persists without repeat calls", async () => {
-	const pull = seedPull(sqlite, {
-		mergeable: "clear",
-		targetBranch: "main",
-		requiredApprovals: 2,
-		authorCountsTowardApproval: false,
-		reviewers: [
-			{
-				id: "author",
-				name: "Author",
-				vote: "approved",
-				required: false,
-				countsTowardApproval: false,
-			},
-			{
-				id: "group",
-				name: "Group",
-				vote: "approved",
-				required: true,
-				isGroup: true,
-				countsTowardApproval: false,
-			},
-			{
-				id: "reviewer",
-				name: "Reviewer",
-				vote: "approved",
-				required: false,
-				countsTowardApproval: true,
-			},
-		],
-		policies: [
-			{
-				id: "crc",
-				name: "Code Review Compliance Policy",
-				kind: "status",
-				state: "failed",
-				required: true,
-				detail: "",
-				owner: "Maintainers",
-				evidence: { status: "rejected" },
-			},
-
-			{
-				id: "review",
-				name: "Minimum number of reviewers",
-				kind: "review",
-				state: "queued",
-				required: true,
-				detail: "",
-				owner: "Maintainers",
-				evidence: { minimumApproverCount: 2, creatorVoteCounts: false },
-			},
-			{
-				id: "build",
-				name: "Build",
-				kind: "build",
-				state: "passed",
-				required: true,
-				detail: "",
-				owner: "Maintainers",
-				evidence: {
-					isExpired: false,
-					buildIsNotCurrent: true,
-					buildId: "build",
-				},
-			},
-		],
-		builds: [
-			{
-				id: "build",
-				number: 1,
-				name: "Build",
-				state: "passed",
-				required: true,
-				stages: [],
-			},
-		],
+	let changed = false,
+		calls = 0;
+	const original = sqlite.db.prepare.bind(sqlite.db);
+	const prepare = spyOn(sqlite.db, "prepare").mockImplementation((sql) => {
+		if (!changed && sql === "SELECT * FROM projects WHERE source=?") {
+			changed = true;
+			sqlite.raw
+				.query("UPDATE ai_settings SET encrypted_key=NULL,revision=revision+1")
+				.run();
+		}
+		return original(sql);
 	});
-	await setup();
-	let calls = 0;
-	const fetcher = (async (_url: unknown, init: RequestInit) => {
-		calls++;
-		const request = JSON.parse(String(init.body));
-		expect(request.questions.p0_readiness.criteria.review_needed).toContain(
-			"only project review requirements",
-		);
-		expect(request.state.prs[0].reviews).toMatchObject({
-			approvalCount: 1,
-			remainingApprovals: 1,
-		});
-		expect(request.state.policyFacts).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					evidence: expect.objectContaining({
-						isExpired: false,
-						buildIsNotCurrent: true,
-					}),
+	try {
+		expect(
+			await tick(
+				now,
+				fake(() => {
+					calls++;
+					return response();
 				}),
-			]),
-		);
-		return response("review_needed");
-	}) as typeof fetch;
-	await runAiOnce(env(), source, now, fetcher);
-	expect(evaluationOutput(row(), true)).toMatchObject({
-		kind: "review_needed",
-		label: "Review Needed",
-		nextAction: "Request or follow up on the required reviews.",
-	});
-	await runAiOnce(env(), source, now + 301, fetcher);
-	expect(calls).toBe(1);
-	change("reviewers", [
-		...pull.reviewers,
-		{
-			id: "second",
-			name: "Second",
-			vote: "approved",
-			required: false,
-			countsTowardApproval: true,
-		},
-	]);
-	await runAiOnce(env(), source, now + 302, (async () =>
-		response("ready")) as unknown as typeof fetch);
-	expect(evaluationOutput(row(), true).kind).toBe("ready");
+			),
+		).toEqual({ processed: false });
+		expect(calls).toBe(0);
+		expect(row().status).toBe("pending");
+	} finally {
+		prepare.mockRestore();
+	}
 });

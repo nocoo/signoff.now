@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-	batchDecisionState,
 	canonicalJson,
 	decisionFingerprint,
 	decisionState,
@@ -12,6 +11,7 @@ import {
 	policyInstructions,
 	presentReadiness,
 	readinessBadge,
+	readinessShortcut,
 } from "./ai-readiness.js";
 import { demoWorkspace } from "./demo.js";
 import {
@@ -93,132 +93,11 @@ test("operational states cannot masquerade as a current model judgment", () => {
 		expect(readinessBadge(value).kind).toBe(
 			status === "not_watched" ? "unknown" : result.kind,
 		);
+		if (status !== "not_watched")
+			expect(value.nextAction).toBe("Wait for ongoing work or more evidence.");
 		const empty = presentReadiness(status);
 		expect(readinessBadge(empty)).toBe(empty);
 	}
-});
-test("all policies and exact review facts enter context without generated action summaries", async () => {
-	const snapshot = {
-		...pull,
-		policies: [
-			policy,
-			{
-				...policy,
-				id: "advisory",
-				required: false,
-				evidence: {
-					...policy.evidence,
-					isBlocking: false,
-					isExpired: true,
-					buildIsNotCurrent: false,
-				},
-			},
-		],
-		headSha: "head",
-		evidence: { status: "active", mergeSha: "merge" },
-		builds: [
-			{
-				id: "1",
-				name: "CI",
-				number: 1,
-				definitionId: "42",
-				required: true,
-				state: "running" as const,
-				evidence: { sourceSha: "head", status: "inProgress" },
-				stages: [
-					{
-						...policy,
-						id: "stage",
-						evidence: { status: "pending", attempt: 2 },
-						durationSeconds: 10,
-					},
-				],
-			},
-		],
-		reviewers: [
-			{ id: "a", name: "Approver", vote: "approved" as const, required: true },
-			{
-				id: "group",
-				name: "Group",
-				isGroup: true,
-				vote: "approved" as const,
-				required: true,
-			},
-		],
-		requiredApprovals: 2,
-	};
-	const config = {
-		...project,
-		policyContext: {
-			default: [
-				{
-					gateId: "build:42",
-					description: "Expected wait; a human acts only for explicit expiry.",
-				},
-				{ gateId: "removed", description: "Retained instruction" },
-			],
-			repositories: {},
-		},
-	};
-	const state = decisionState(snapshot, config, now);
-	expect(state.policies).toHaveLength(2);
-	expect(state.policiesInPriorityOrder[0]?.description).toContain(
-		"Expected wait",
-	);
-	expect(state.reviews).toMatchObject({
-		approvalCount: 1,
-		remainingApprovals: 1,
-	});
-	expect(approvalCount(snapshot)).toBe(1);
-	expect(state.builds[0]).toMatchObject({
-		headMatchesSource: true,
-		mergeMatchesSource: false,
-		policyIds: ["advisory", "policy-1"],
-	});
-	expect(state.stageRequiredMeaning).toContain("not provider guarantees");
-	expect(JSON.stringify(state)).not.toContain("Resolve X");
-	expect(state.policies[0]?.evidence).toMatchObject({
-		isExpired: true,
-		buildIsNotCurrent: false,
-	});
-	const later = decisionState(
-		{
-			...snapshot,
-			observedAt: now + 1,
-			updatedAt: now + 1,
-			reviewers: [...snapshot.reviewers].reverse(),
-			policies: [...snapshot.policies].reverse(),
-			builds: snapshot.builds.map((b) => ({
-				...b,
-				stages: b.stages.map((s) => ({ ...s, durationSeconds: 11 })),
-			})),
-		},
-		config,
-		now + 1,
-	);
-	expect(await decisionFingerprint(state)).toBe(
-		await decisionFingerprint(later),
-	);
-	expect(await decisionFingerprint(state)).not.toBe(
-		await decisionFingerprint(
-			decisionState({ ...snapshot, checksInvalidated: true }, config, now),
-		),
-	);
-	expect(
-		policyInstructions(
-			{
-				...config,
-				policyContext: {
-					...config.policyContext,
-					repositories: { [pull.repository.id]: [] },
-				},
-			},
-			pull.repository.id,
-		),
-	).toEqual([]);
-	expect(canonicalJson({ b: 1, a: null, c: undefined })).toBe(
-		'{"a":null,"b":1}',
-	);
 });
 test("provider vocabulary, expiry and review semantics remain raw evidence separate from Jev", () => {
 	const states = {
@@ -366,128 +245,6 @@ test("renaming a discovered policy retains its stable instruction identity", () 
 	expect(renamed.find((g) => g.id === gate.id)?.name).toBe("Renamed policy");
 });
 
-test("compact scope references preserve every policy scope and remain stable across polling order", async () => {
-	const scopes = [
-		{ repositoryId: "repo-a", refName: "refs/heads/main", matchKind: "Exact" },
-		{ repositoryId: null, refName: "refs/heads/release/", matchKind: "Prefix" },
-	];
-	const snapshot = {
-		...pull,
-		policies: [
-			{
-				...policy,
-				evidence: {
-					...policy.evidence,
-					scope: scopes,
-					description: "Actual provider message",
-					isExpired: false,
-					buildIsNotCurrent: true,
-				},
-			},
-			{
-				...policy,
-				id: "second",
-				required: false,
-				evidence: {
-					scope: [scopes[0]!],
-					isBlocking: false,
-					isEnabled: false,
-					minimumApproverCount: 0,
-				},
-			},
-			{ ...policy, id: "empty", evidence: { scope: [] } },
-			{ ...policy, id: "uncollected", evidence: undefined },
-		],
-	};
-	const state = decisionState(snapshot, project, now);
-	expect(state.scopes).toHaveLength(2);
-	for (const source of snapshot.policies) {
-		const facts = state.policies.find((p) => p.id === source.id)!;
-		expect(
-			facts.evidence.scopeRefs?.map((index) => state.scopes[index]),
-		).toEqual(source.evidence?.scope);
-	}
-	expect(state.policies.find((p) => p.id === "second")?.evidence).toMatchObject(
-		{ isBlocking: false, isEnabled: false, minimumApproverCount: 0 },
-	);
-	expect(
-		state.policies.find((p) => p.id === policy.id)?.evidence,
-	).toMatchObject({ isExpired: false, buildIsNotCurrent: true });
-	expect(JSON.stringify(state).split("Actual provider message")).toHaveLength(
-		2,
-	);
-	expect(await decisionFingerprint(state)).toBe(
-		await decisionFingerprint(
-			decisionState(
-				{ ...snapshot, policies: [...snapshot.policies].reverse() },
-				project,
-				now,
-			),
-		),
-	);
-	const changed = decisionState(
-		{
-			...snapshot,
-			policies: snapshot.policies.map((p) => ({
-				...p,
-				evidence: { ...p.evidence, scope: [{ repositoryId: "different" }] },
-			})),
-		},
-		project,
-		now,
-	);
-	expect(await decisionFingerprint(changed)).not.toBe(
-		await decisionFingerprint(state),
-	);
-	expect(state.policiesInPriorityOrder.every((p) => !("policy" in p))).toBe(
-		true,
-	);
-});
-
-test("project batches share identical context but retain repository instructions and all PR facts", () => {
-	const first = decisionState(pull, project, now);
-	const second = decisionState(
-		{ ...pull, id: "second", number: 2 },
-		project,
-		now,
-	);
-	const third = decisionState(
-		{ ...pull, id: "third", number: 3 },
-		{
-			...project,
-			policyContext: {
-				default: [
-					{
-						gateId: first.policiesInPriorityOrder.find(
-							(g) => g.id !== "merge-conflicts",
-						)!.id,
-						description: "Repository-specific instructions",
-					},
-				],
-				repositories: {},
-			},
-		},
-		now,
-	);
-	const batch = batchDecisionState([first, second, third]);
-	expect(batch.contexts).toHaveLength(2);
-	expect(batch.prs.map((p) => p.contextRef)).toEqual([0, 0, 1]);
-	expect(batch.prs.map((p) => p.pr.number)).toEqual([pull.number, 2, 3]);
-	expect(
-		batch.prs[0]?.policies.map(
-			(ref) => (batch.policyFacts[ref] as { evidence: unknown }).evidence,
-		),
-	).toEqual(first.policies.map((p) => p.evidence));
-	expect(batch.prs[1]?.builds.map((b) => b.stages.length)).toEqual(
-		second.builds.map((b) => b.stages.length),
-	);
-	expect(
-		batch.policyInstructions[batch.contexts[1]!.policiesInPriorityOrder[0]!]!
-			.description,
-	).toBe("Repository-specific instructions");
-	expect(batchDecisionState([]).prs).toEqual([]);
-});
-
 test("only exact main/master target names are eligible for Jev", () => {
 	for (const targetBranch of [
 		"main",
@@ -505,4 +262,195 @@ test("only exact main/master target names are eligible for Jev", () => {
 		"",
 	])
 		expect(isMainTarget({ targetBranch })).toBe(false);
+});
+
+test("concise evidence retains conflicting conclusions and scoped instructions without operational detail", async () => {
+	const snapshot = {
+		...pull,
+		headSha: "head",
+		policies: [
+			policy,
+			{
+				...policy,
+				id: "other-evaluation",
+				state: "failed" as const,
+				evidence: { ...policy.evidence, isExpired: true },
+			},
+		],
+		builds: [
+			{
+				id: "b",
+				name: "CI",
+				number: 1,
+				definitionId: "42",
+				state: "passed" as const,
+				required: true,
+				evidence: { sourceSha: "head", result: "succeeded" },
+				stages: [],
+			},
+		],
+	};
+	const config = {
+		...project,
+		policyContext: {
+			default: [
+				{ gateId: "build:42", description: "Inspect expiry; otherwise wait." },
+			],
+			repositories: {},
+		},
+	};
+	const state = decisionState(snapshot, config);
+	expect(
+		structuredClone(
+			state.evidence.requirements.find((r) => r.kind === "build"),
+		),
+	).toMatchObject({
+		instructions: "Inspect expiry; otherwise wait.",
+		facts: expect.arrayContaining([
+			{
+				source: "build",
+				state: "passed",
+				required: true,
+				commitMatch: "match",
+			},
+			expect.objectContaining({
+				source: "policy",
+				isExpired: true,
+				state: "failed",
+			}),
+		]),
+	});
+	const serialized = JSON.stringify(state);
+	for (const omitted of [
+		"headSha",
+		"stages",
+		"durationSeconds",
+		"Resolve X",
+		"other-evaluation",
+	])
+		expect(serialized).not.toContain(omitted);
+	const later = {
+		...snapshot,
+		id: "different-pr",
+		title: "Different title",
+		number: 999,
+		observedAt: now + 5000,
+		updatedAt: now + 5000,
+		policies: [...snapshot.policies].reverse(),
+		builds: snapshot.builds.map((b) => ({
+			...b,
+			id: "new-build-id",
+			number: 22,
+			stages: [
+				{
+					id: "x",
+					name: "Test",
+					state: "failed" as const,
+					required: true,
+					owner: "someone",
+					detail: "Private error",
+					durationSeconds: 5,
+				},
+			],
+		})),
+	};
+	expect(await decisionFingerprint(state)).toBe(
+		await decisionFingerprint(decisionState(later, config)),
+	);
+	expect(await decisionFingerprint(state)).not.toBe(
+		await decisionFingerprint(
+			decisionState({ ...snapshot, checksInvalidated: true }, config),
+		),
+	);
+	expect(await decisionFingerprint(state)).not.toBe(
+		await decisionFingerprint(
+			decisionState(
+				{
+					...snapshot,
+					policies: [
+						{ ...policy, evidence: { ...policy.evidence, isExpired: false } },
+					],
+				},
+				config,
+			),
+		),
+	);
+	const scoped = {
+		...config,
+		policyContext: {
+			...config.policyContext,
+			repositories: {
+				[pull.repository.id]: [
+					{ gateId: "build:42", description: "Repository-specific meaning" },
+				],
+			},
+		},
+	};
+	expect(JSON.stringify(decisionState(snapshot, scoped))).toContain(
+		"Repository-specific meaning",
+	);
+	expect(
+		JSON.stringify(
+			decisionState(snapshot, {
+				...config,
+				policyContext: { default: [], repositories: {} },
+			}),
+		),
+	).not.toContain("Inspect expiry");
+	expect(canonicalJson({ b: 1, a: 2 })).toBe(canonicalJson({ a: 2, b: 1 }));
+});
+
+test("shortcuts and repository-scoped policy context are independent of model judgments", () => {
+	expect(
+		readinessShortcut({ ...pull, targetBranch: "feature/new" }, true),
+	).toBe("skipped");
+	expect(
+		readinessShortcut(
+			{ ...pull, targetBranch: "main", mergeable: "conflicts" },
+			true,
+		),
+	).toBe("conflict");
+	expect(
+		readinessShortcut(
+			{ ...pull, targetBranch: "main", mergeable: "conflicts" },
+			false,
+		),
+	).toBeNull();
+	expect(readinessShortcut(undefined, true)).toBeNull();
+	const config = {
+		...project,
+		policyContext: {
+			default: [{ gateId: "default", description: "Default" }],
+			repositories: { [pull.repository.id]: [] },
+		},
+	};
+	expect(policyInstructions(config)).toHaveLength(1);
+	expect(policyInstructions(config, pull.repository.id)).toEqual([]);
+	expect(policyInstructions({ ...project, policyContext: undefined })).toEqual(
+		[],
+	);
+	const evidence = decisionState(
+		{
+			...pull,
+			policies: [
+				{
+					...policy,
+					kind: "review",
+					evidence: {
+						status: "rejected",
+						minimumApproverCount: 2,
+						creatorVoteCounts: false,
+					},
+				},
+			],
+		},
+		project,
+	).evidence;
+	expect(evidence.requirements.flatMap((r) => r.facts)).toContainEqual(
+		expect.objectContaining({
+			source: "policy",
+			minimumApprovals: 2,
+			authorVoteCounts: false,
+		}),
+	);
 });
