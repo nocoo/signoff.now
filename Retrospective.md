@@ -118,3 +118,10 @@ Adding cached stage `lastModified` exposed a pre-epoch provider placeholder that
 ### 2026-09-21 — PR column breakpoints ignored content overflow
 
 The first responsive PR-column change used fixed container breakpoints. Its browser checks verified those breakpoints but did not test whether the actual table fit. At a 1920px viewport, the live table needed approximately 2337px inside a 1596px container, yet both metadata columns remained visible. Column visibility now measures the actual table: hide Author first, then Repository if it still overflows, and restore each only when it fits. Resize, content and font changes trigger measurement; header, rows and skeleton share visibility. Regression checks include a wide viewport with long content, reload and sidebar resizing. The user explicitly retains complete content and permits residual horizontal scrolling after both columns are hidden.
+
+
+## 2026-09-23: Handbook publication from an uninitialized worktree
+
+The handbook migration was committed and pushed from an isolated worktree before its Husky launchers were installed. Git inherited `.husky/_` as the hook path, but the directory was absent in that worktree, so required local checks did not execute. The published commit remains in history; CI cannot substitute for those missing local checks.
+
+The coordinator took over, installed frozen dependencies and the normal launchers without changing the original checkout. Recovery requires the normal pre-commit and pre-push gates on the corrected worktree; actual results are retained in the rollout evidence. Verify the effective hook path and executable launcher before committing from any new worktree, and preserve existing unpublished developer work.
