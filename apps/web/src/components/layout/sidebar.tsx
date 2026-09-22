@@ -20,6 +20,7 @@ import {
 	FolderGit2,
 	GitBranch,
 	GitPullRequest,
+	Layers3,
 	LayoutDashboard,
 	Network,
 	PanelLeft,
@@ -38,6 +39,7 @@ import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 import { NetworkActivity } from "@/views/workbench/NetworkActivity";
 
 const ICON_MAP: Record<string, ElementType> = {
+	Layers3,
 	GitPullRequest,
 	FolderGit2,
 	LayoutDashboard,

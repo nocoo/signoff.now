@@ -9,6 +9,7 @@ import { type ComponentType, lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
 import { WorkbenchProvider } from "@/viewmodels/WorkbenchProvider";
+import { CollectionsPage } from "@/views/collections/CollectionsPage";
 import {
 	DirectoryTagsPage,
 	DirectoryTeamsPage,
@@ -72,6 +73,11 @@ export default function App() {
 									<Route path="/" element={<PullsPage />} />
 									<Route path="/prs/*" element={<PullsPage />} />
 									<Route path="/projects" element={<ProjectsPage />} />
+									<Route path="/collections" element={<CollectionsPage />} />
+									<Route
+										path="/collections/:id"
+										element={<CollectionsPage />}
+									/>
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
 									<Route path="/ai-settings" element={<AiSettingsPage />} />

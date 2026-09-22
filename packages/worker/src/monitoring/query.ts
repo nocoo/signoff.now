@@ -77,6 +77,7 @@ const querySchema = z.object({
 	org: z.string().max(240).default(""),
 	project: z.string().max(240).default(""),
 	projectId: z.string().max(240).default(""),
+	collectionId: z.string().max(240).default(""),
 	repositoryId: z.string().max(240).default(""),
 	repo: z.array(z.string().max(4096)).default([]),
 	author: z.array(z.string().max(1024)).default([]),
@@ -195,6 +196,12 @@ function pullScopeSql(
 	const where = ["p.source=?"];
 	const values: (string | number)[] = [source];
 	if (filters) {
+		if (filters.collectionId) {
+			where.push(
+				"pr.id IN (SELECT pull_id FROM pr_collection_members WHERE collection_id=?)",
+			);
+			values.push(filters.collectionId);
+		}
 		for (const [sql, value] of [
 			["p.provider=?", filters.provider],
 			["p.id=?", filters.projectId],

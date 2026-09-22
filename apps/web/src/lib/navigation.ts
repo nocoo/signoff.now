@@ -24,6 +24,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
 		items: [
 			{ href: "/sm", label: "State machines", icon: "Network" },
 			{ href: "/prs", label: "Pull requests", icon: "GitPullRequest" },
+			{ href: "/collections", label: "Collections", icon: "Layers3" },
 			{ href: "/repos", label: "Repos", icon: "GitBranch" },
 			{ href: "/projects", label: "Projects", icon: "FolderGit2" },
 		],

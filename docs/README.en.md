@@ -23,6 +23,7 @@ The existing Activity / Score APIs and ADO activity CLI remain available separat
 - **Review across projects:** search and filter by project, repository, PR state, readiness, author, or next action; share the current queue or PR through its URL.
 - **Understand blockers:** distinguish conflicts, required failures, pending reviews, deployment approvals, unavailable checks, and advisory failures.
 - **Inspect builds:** expand each build to see all stages, durations, results, and owners.
+- **Organize PR collections:** create purpose-driven groups with colors and icons, add PRs to multiple collections, and track all lifecycle states with merged progress. Membership stays independent of watches. See [PR collections](20-pr-collections.md).
 - **Share a watch list:** select rows or the current page, add/remove watches in batches, and filter watched/unwatched candidates. The web and CLI share persistent identities scoped by provider, organization, project, repository ID and PR number. Drafts can be watched.
 - **Observe progress:** explicit discovery reads all accessible PR history and states without adding watches. The daemon refreshes only active watches, with a configurable five-minute cooldown after each project round. It keeps running when the browser closes and retires watches only after a confirmed terminal snapshot. Errors preserve watches and cached data.
 - **Manage contributors:** follow observed PR authors, explicitly link provider accounts, and maintain teams and tags separately for Live and Sample.

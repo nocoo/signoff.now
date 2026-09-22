@@ -41,6 +41,7 @@ import {
 	pipelineIngestRoute,
 	pipelineRecomputeCompleteRoute,
 } from "./routes/pipeline.js";
+import { prCollectionRoutes } from "./routes/pr-collections.js";
 import { queryRoutes } from "./routes/query.js";
 import {
 	collectionViewRoute,
@@ -91,6 +92,7 @@ app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
 app.route("/api/query/v1", queryRoutes);
+app.route("/api/pr-collections", prCollectionRoutes);
 app.route("/api/ai", aiRoutes);
 app.route("/api/commands/v1", commandRoutes);
 app.route("/api/state-machines", stateMachineRoutes);

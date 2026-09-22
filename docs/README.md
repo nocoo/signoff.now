@@ -27,6 +27,8 @@
 | 17 | [Query 周期与新鲜度](17-query-cadence.md) | 当前实现：采集 / 网页 / 外部项目周期，时间与完整性 |
 | 18 | [CLI 查询与命令契约](18-cli-query-contract.md) | 当前实现：pr / watch / discover / refresh、API、JSON 与退出码 |
 
+| 20 | [PR collections](20-pr-collections.md) | Workspace grouping, all-state progress, membership CRUD, cached API and verification |
+
 ## 辅助工具与归档
 
 | 路径 | 说明 |

@@ -56,6 +56,10 @@ import { useAiScheduleViewModel } from "@/viewmodels/useAiScheduleViewModel";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { usePullTableLayout } from "@/viewmodels/usePullTableLayout";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
+import {
+	PrCollectionMarker,
+	PrCollectionMembershipProvider,
+} from "../collections/PrCollectionMemberships";
 import { PullDetailSheet } from "./PullDetailSheet";
 import { PullQuickFilters } from "./PullQuickFilters";
 import { ReadinessCell } from "./ReadinessCell";
@@ -84,278 +88,287 @@ export function PullsPage() {
 		(vm.filter.organization ? vm.projectOptions[0]?.project : undefined);
 
 	return (
-		<div className="space-y-2">
-			<PageHeader
-				title="Pull requests"
-				description="Track review progress, checks, and merge blockers."
-			/>
-			<WorkbenchFeedback vm={vm} />
-			<SectionRule
-				title="Filters"
-				className="space-y-2"
-				actions={
-					<span className="max-w-full truncate text-xs text-basalt-muted-foreground">
-						{scopeProject ? (
-							<RepositoryScopeLinks
-								project={scopeProject}
-								repository={
-									repository
-										? {
-												id: repository.identityResolved ? repository.id : null,
-												name: repository.name,
-											}
-										: undefined
-								}
-								organizationOnly={!scopedProject && !repository}
-							/>
-						) : (
-							`${vm.repositories.length} repositories`
-						)}
-					</span>
-				}
-			>
-				<LayerCard
-					padding="sm"
-					role="region"
-					aria-label="PR filters"
-					className="space-y-2.5"
-				>
-					<RepositoryFilters vm={vm} />
-					{vm.catalogError && vm.catalogError !== SERVICE_UNAVAILABLE ? (
-						<p role="alert" className="text-xs text-basalt-warning">
-							Repository filters could not refresh. PR results remain available.
-						</p>
-					) : null}
-					<search
-						aria-label="Filter pull requests"
-						className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_170px_1.2fr]"
-					>
-						<Field label="Search PRs">
-							<div className="relative">
-								<Search
-									className="pointer-events-none absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2"
-									aria-hidden
-								/>
-								<Input
-									aria-label="Search PRs"
-									className="pl-9"
-									placeholder="Title, #number, author…"
-									value={vm.filter.query}
-									onChange={(event) =>
-										vm.setFilter({ query: event.target.value })
+		<PrCollectionMembershipProvider
+			key={vm.filter.source}
+			source={vm.filter.source}
+			ids={vm.rows.map((row) => row.pull.id)}
+		>
+			<div className="space-y-2">
+				<PageHeader
+					title="Pull requests"
+					description="Track review progress, checks, and merge blockers."
+				/>
+				<WorkbenchFeedback vm={vm} />
+				<SectionRule
+					title="Filters"
+					className="space-y-2"
+					actions={
+						<span className="max-w-full truncate text-xs text-basalt-muted-foreground">
+							{scopeProject ? (
+								<RepositoryScopeLinks
+									project={scopeProject}
+									repository={
+										repository
+											? {
+													id: repository.identityResolved
+														? repository.id
+														: null,
+													name: repository.name,
+												}
+											: undefined
 									}
+									organizationOnly={!scopedProject && !repository}
 								/>
-							</div>
-						</Field>
-						<Field label="Draft">
-							<SelectControl
-								value={vm.filter.draft}
-								onChange={(draft) =>
-									vm.setFilter({ draft: draft as PullFilter["draft"] })
-								}
-							>
-								<option value="exclude">Exclude drafts</option>
-								<option value="include">Include drafts</option>
-								<option value="only">Drafts only</option>
-							</SelectControl>
-						</Field>
-						<div className="relative">
-							<Field label="Authors">
-								<MultiSelect
-									label="Authors"
-									placeholder="All authors"
-									showChips={false}
-									searchPlaceholder="Find authors…"
-									value={vm.filter.authors}
-									onValueChange={(authors) => vm.setFilter({ authors })}
-									options={vm.authors.map((author) => ({
-										value: author.id,
-										label: author.name,
-										description: vm.authors.some(
-											(other) =>
-												other.id !== author.id && other.name === author.name,
-										)
-											? author.id
-											: undefined,
-										leading: (
-											<span aria-hidden>
-												<EntityAvatar name={author.name} size="sm" />
-											</span>
-										),
-									}))}
-								/>
-							</Field>
-							{vm.filter.authors.length ? (
-								<Button
-									variant="link"
-									size="sm"
-									className="absolute top-0 right-0 h-5 p-0 text-[11px]"
-									aria-label="Clear author filter"
-									onClick={() => vm.setFilter({ authors: [] })}
-								>
-									Clear
-								</Button>
-							) : null}
-						</div>
-					</search>
-					<PullQuickFilters vm={vm} />
-				</LayerCard>
-			</SectionRule>
-			<SectionRule
-				title={
-					<span aria-live="polite" className="tabular-nums">
-						{vm.pullsLoaded
-							? `${vm.total} results`
-							: vm.loading
-								? "Loading…"
-								: "Results unavailable"}
-					</span>
-				}
-				className="space-y-2"
-				actions={
-					<>
-						<Button asChild variant="ghost" size="sm">
-							<Link
-								to={
-									scopeProject
-										? machineHref(
-												scopeProject,
-												repository?.identityResolved ? repository : null,
-												null,
-												new URLSearchParams({ tab: "priority" }),
-											)
-										: `/sm?source=${vm.filter.source === "demo" ? "sample" : "live"}&tab=priority`
-								}
-							>
-								<ListOrdered className="h-3.5 w-3.5" aria-hidden />
-								Readiness order
-							</Link>
-						</Button>
-						<CollectionActions vm={vm} />
-					</>
-				}
-			>
-				<PendingWatchList vm={vm} />
-				<LayerCard padding="none" role="region" aria-label="PR results">
-					<LayerCard.Header className="px-3 py-0.5">
-						<WatchToolbar vm={vm} />
-						{vm.loading ? (
-							<span role="status" className="sr-only">
-								Loading pull requests
-							</span>
+							) : (
+								`${vm.repositories.length} repositories`
+							)}
+						</span>
+					}
+				>
+					<LayerCard
+						padding="sm"
+						role="region"
+						aria-label="PR filters"
+						className="space-y-2.5"
+					>
+						<RepositoryFilters vm={vm} />
+						{vm.catalogError && vm.catalogError !== SERVICE_UNAVAILABLE ? (
+							<p role="alert" className="text-xs text-basalt-warning">
+								Repository filters could not refresh. PR results remain
+								available.
+							</p>
 						) : null}
-					</LayerCard.Header>
-					{!vm.loading && (!vm.pullsLoaded || vm.total === 0) ? (
-						<PullsEmptyState vm={vm} />
-					) : (
-						<div ref={tableContainer} className="group/pulls overflow-x-auto">
-							<Table
-								aria-label="Pull requests"
-								aria-busy={vm.loading}
-								className="table-auto text-[11px] [&_th]:w-px [&_th]:whitespace-nowrap [&_th]:px-3 [&_td]:whitespace-nowrap [&_td]:px-3"
-							>
-								<TableHeader>
-									<TableRow>
-										<TableHead className="px-2 text-center">
-											<div className="flex items-center justify-center">
-												<PageSelectionCheckbox vm={vm} />
-											</div>
-										</TableHead>
-										<TableHead className="px-1 text-center">
-											<span className="sr-only">Watch list</span>
-											<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
-										</TableHead>
-										<SortableHead
-											sort="title"
-											label="Pull request"
-											className=""
-											filter={vm.filter}
-											disabled={vm.loading}
-											onSort={() =>
-												vm.setFilter(nextPullSort(vm.filter, "title"))
-											}
-										/>
-
-										{(
-											[
-												["repository", "Repository", repositoryColumn],
-												["author", "Author", authorColumn],
-												["readiness", "Readiness", ""],
-												["progress", "Checks & stages", "!w-full min-w-56"],
-												["action", "Next action", ""],
-												["evaluated", "Jev evaluated", "text-right"],
-												["updated", "PR updated", "text-right"],
-												["stateChecked", "State checked", "text-right"],
-												["checksChecked", "Checks collected", "text-right"],
-											] as const
-										).map(([sort, label, className]) => (
+						<search
+							aria-label="Filter pull requests"
+							className="grid w-full grid-cols-2 items-start gap-3 xl:grid-cols-[minmax(180px,1.4fr)_170px_1.2fr]"
+						>
+							<Field label="Search PRs">
+								<div className="relative">
+									<Search
+										className="pointer-events-none absolute top-1/2 left-3 z-10 h-4 w-4 -translate-y-1/2"
+										aria-hidden
+									/>
+									<Input
+										aria-label="Search PRs"
+										className="pl-9"
+										placeholder="Title, #number, author…"
+										value={vm.filter.query}
+										onChange={(event) =>
+											vm.setFilter({ query: event.target.value })
+										}
+									/>
+								</div>
+							</Field>
+							<Field label="Draft">
+								<SelectControl
+									value={vm.filter.draft}
+									onChange={(draft) =>
+										vm.setFilter({ draft: draft as PullFilter["draft"] })
+									}
+								>
+									<option value="exclude">Exclude drafts</option>
+									<option value="include">Include drafts</option>
+									<option value="only">Drafts only</option>
+								</SelectControl>
+							</Field>
+							<div className="relative">
+								<Field label="Authors">
+									<MultiSelect
+										label="Authors"
+										placeholder="All authors"
+										showChips={false}
+										searchPlaceholder="Find authors…"
+										value={vm.filter.authors}
+										onValueChange={(authors) => vm.setFilter({ authors })}
+										options={vm.authors.map((author) => ({
+											value: author.id,
+											label: author.name,
+											description: vm.authors.some(
+												(other) =>
+													other.id !== author.id && other.name === author.name,
+											)
+												? author.id
+												: undefined,
+											leading: (
+												<span aria-hidden>
+													<EntityAvatar name={author.name} size="sm" />
+												</span>
+											),
+										}))}
+									/>
+								</Field>
+								{vm.filter.authors.length ? (
+									<Button
+										variant="link"
+										size="sm"
+										className="absolute top-0 right-0 h-5 p-0 text-[11px]"
+										aria-label="Clear author filter"
+										onClick={() => vm.setFilter({ authors: [] })}
+									>
+										Clear
+									</Button>
+								) : null}
+							</div>
+						</search>
+						<PullQuickFilters vm={vm} />
+					</LayerCard>
+				</SectionRule>
+				<SectionRule
+					title={
+						<span aria-live="polite" className="tabular-nums">
+							{vm.pullsLoaded
+								? `${vm.total} results`
+								: vm.loading
+									? "Loading…"
+									: "Results unavailable"}
+						</span>
+					}
+					className="space-y-2"
+					actions={
+						<>
+							<Button asChild variant="ghost" size="sm">
+								<Link
+									to={
+										scopeProject
+											? machineHref(
+													scopeProject,
+													repository?.identityResolved ? repository : null,
+													null,
+													new URLSearchParams({ tab: "priority" }),
+												)
+											: `/sm?source=${vm.filter.source === "demo" ? "sample" : "live"}&tab=priority`
+									}
+								>
+									<ListOrdered className="h-3.5 w-3.5" aria-hidden />
+									Readiness order
+								</Link>
+							</Button>
+							<CollectionActions vm={vm} />
+						</>
+					}
+				>
+					<PendingWatchList vm={vm} />
+					<LayerCard padding="none" role="region" aria-label="PR results">
+						<LayerCard.Header className="px-3 py-0.5">
+							<WatchToolbar vm={vm} />
+							{vm.loading ? (
+								<span role="status" className="sr-only">
+									Loading pull requests
+								</span>
+							) : null}
+						</LayerCard.Header>
+						{!vm.loading && (!vm.pullsLoaded || vm.total === 0) ? (
+							<PullsEmptyState vm={vm} />
+						) : (
+							<div ref={tableContainer} className="group/pulls overflow-x-auto">
+								<Table
+									aria-label="Pull requests"
+									aria-busy={vm.loading}
+									className="table-auto text-[11px] [&_th]:w-px [&_th]:whitespace-nowrap [&_th]:px-3 [&_td]:whitespace-nowrap [&_td]:px-3"
+								>
+									<TableHeader>
+										<TableRow>
+											<TableHead className="px-2 text-center">
+												<div className="flex items-center justify-center">
+													<PageSelectionCheckbox vm={vm} />
+												</div>
+											</TableHead>
+											<TableHead className="px-1 text-center">
+												<span className="sr-only">Watch list</span>
+												<Eye aria-hidden className="mx-auto h-3.5 w-3.5" />
+											</TableHead>
 											<SortableHead
-												key={sort}
-												sort={sort}
-												label={label}
-												className={className}
+												sort="title"
+												label="Pull request"
+												className=""
 												filter={vm.filter}
 												disabled={vm.loading}
 												onSort={() =>
-													vm.setFilter(nextPullSort(vm.filter, sort))
+													vm.setFilter(nextPullSort(vm.filter, "title"))
 												}
 											/>
-										))}
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{vm.loading ? (
-										<PullTableSkeleton />
-									) : (
-										vm.pageRows.map((row) => (
-											<PullTableRow
-												key={row.pull.id}
-												row={row}
-												vm={vm}
-												now={now}
-												aiSchedule={aiSchedule.error ? null : aiSchedule.data}
-												evaluationNow={evaluationNow}
-												onOpen={(element) => {
-													opener.current = element;
-													vm.selectPull(row.pull.id);
-												}}
-											/>
-										))
-									)}
-								</TableBody>
-							</Table>
-						</div>
-					)}
-					<PullPagination vm={vm} />
-				</LayerCard>
-			</SectionRule>
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<StageLegend />
-				<p className="text-xs text-basalt-muted-foreground">
-					Jev Readiness indicates whether a watched PR needs human intervention.
-					Running is not permission to merge.
-				</p>
+
+											{(
+												[
+													["repository", "Repository", repositoryColumn],
+													["author", "Author", authorColumn],
+													["readiness", "Readiness", ""],
+													["progress", "Checks & stages", "!w-full min-w-56"],
+													["action", "Next action", ""],
+													["evaluated", "Jev evaluated", "text-right"],
+													["updated", "PR updated", "text-right"],
+													["stateChecked", "State checked", "text-right"],
+													["checksChecked", "Checks collected", "text-right"],
+												] as const
+											).map(([sort, label, className]) => (
+												<SortableHead
+													key={sort}
+													sort={sort}
+													label={label}
+													className={className}
+													filter={vm.filter}
+													disabled={vm.loading}
+													onSort={() =>
+														vm.setFilter(nextPullSort(vm.filter, sort))
+													}
+												/>
+											))}
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{vm.loading ? (
+											<PullTableSkeleton />
+										) : (
+											vm.pageRows.map((row) => (
+												<PullTableRow
+													key={row.pull.id}
+													row={row}
+													vm={vm}
+													now={now}
+													aiSchedule={aiSchedule.error ? null : aiSchedule.data}
+													evaluationNow={evaluationNow}
+													onOpen={(element) => {
+														opener.current = element;
+														vm.selectPull(row.pull.id);
+													}}
+												/>
+											))
+										)}
+									</TableBody>
+								</Table>
+							</div>
+						)}
+						<PullPagination vm={vm} />
+					</LayerCard>
+				</SectionRule>
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<StageLegend />
+					<p className="text-xs text-basalt-muted-foreground">
+						Jev Readiness indicates whether a watched PR needs human
+						intervention. Running is not permission to merge.
+					</p>
+				</div>
+				<PullDetailSheet
+					row={vm.selected}
+					missing={vm.missingSelection}
+					onClose={() => vm.selectPull(null)}
+					returnFocus={opener}
+					onScan={() => {
+						if (vm.selected) void vm.refreshPull(vm.selected.pull.id);
+					}}
+					canScan={
+						Boolean(vm.selected?.observation?.active) &&
+						!vm.selected?.watchPending
+					}
+					onToggleWatch={() => void vm.toggleWatch()}
+					loading={vm.detailLoading}
+					error={vm.detailError}
+					onRetry={() => void vm.reloadDetail()}
+					refreshing={vm.detailRefreshing}
+					busy={Boolean(vm.busy)}
+				/>
 			</div>
-			<PullDetailSheet
-				row={vm.selected}
-				missing={vm.missingSelection}
-				onClose={() => vm.selectPull(null)}
-				returnFocus={opener}
-				onScan={() => {
-					if (vm.selected) void vm.refreshPull(vm.selected.pull.id);
-				}}
-				canScan={
-					Boolean(vm.selected?.observation?.active) &&
-					!vm.selected?.watchPending
-				}
-				onToggleWatch={() => void vm.toggleWatch()}
-				loading={vm.detailLoading}
-				error={vm.detailError}
-				onRetry={() => void vm.reloadDetail()}
-				refreshing={vm.detailRefreshing}
-				busy={Boolean(vm.busy)}
-			/>
-		</div>
+		</PrCollectionMembershipProvider>
 	);
 }
 
@@ -719,6 +732,7 @@ function PullTableRow({
 						<GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
 						<span className="whitespace-nowrap">{pull.targetBranch}</span>
 					</a>
+					<PrCollectionMarker id={pull.id} number={pull.number} />
 					{pull.labels.includes("release blocker") ? (
 						<Badge variant="error" className="ml-2 px-1.5 py-0 text-[11px]">
 							release blocker

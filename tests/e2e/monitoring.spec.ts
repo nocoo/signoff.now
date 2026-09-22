@@ -1660,3 +1660,180 @@ test("browsers never drive inference on focus changes or reload", async ({
 		rmSync(directory, { recursive: true, force: true });
 	}
 });
+
+test("collections persist all PR states, multiple memberships and compact CRUD flows", async ({
+	page,
+}) => {
+	const repo = {
+		org: "e2e-collections",
+		project: "Collection space",
+		id: "collection-repository",
+		name: "collection-flow",
+		projectGuid: "collection-project",
+	};
+	repos.push(repo);
+	await cli("repo", "add", repoUrl(repo));
+	const discovery = commandReceiptSchema.parse(
+		await cli("discover", "--repo", repoUrl(repo)),
+	);
+	expect((await execute(false, discovery.jobs[0]!.id)).state).toBe("complete");
+	const providerReads = providerRequests;
+	const beforeWatches = (await watchList()).data.map(
+		({ pull: _pull, ...watch }) => watch,
+	);
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	await page.goto("/collections?source=live");
+	await expect(
+		page.getByRole("button", { name: "Collections", exact: true }),
+	).toBeVisible();
+	await page
+		.getByRole("button", { name: "New collection", exact: true })
+		.first()
+		.click();
+	await page
+		.getByLabel("Collection name", { exact: true })
+		.fill("Release quality");
+	await page
+		.getByLabel("Collection purpose")
+		.fill("Track the complete testing effort.");
+	await page.getByRole("button", { name: "flask icon" }).click();
+	await page.getByRole("button", { name: "teal color" }).click();
+	await page
+		.getByRole("button", { name: "Create collection", exact: true })
+		.click();
+	await expect(
+		page.getByRole("heading", { name: "Release quality", exact: true }),
+	).toBeVisible();
+	const collectionUrl = page.url();
+	const collectionId = new URL(collectionUrl).pathname.split("/").at(-1)!;
+	await page
+		.getByRole("button", { name: "Add PRs", exact: true })
+		.first()
+		.click();
+	await page.getByLabel("Find PRs to add").fill("collection-flow change");
+	await expect(
+		page.getByText("0 selected · 26 matching PRs", { exact: true }),
+	).toBeVisible();
+	const candidates = page.getByRole("region", { name: "PR candidates" });
+	await expect(candidates.getByRole("checkbox").first()).toBeEnabled();
+	for (const checkbox of await candidates.getByRole("checkbox").all())
+		await checkbox.check();
+	await page.getByRole("button", { name: "Next candidate page" }).click();
+	await expect(candidates.getByRole("checkbox")).toHaveCount(6);
+	await expect(candidates.getByRole("checkbox").first()).toBeEnabled();
+	for (const checkbox of await candidates.getByRole("checkbox").all())
+		await checkbox.check();
+	await page.getByRole("button", { name: "Add 26 PRs", exact: true }).click();
+	const rows = page.locator("tr[data-collection-pull-id]");
+	await expect(rows).toHaveCount(20);
+	await expect(
+		page.getByRole("img", {
+			name: "1 merged, 23 open, 1 draft, 1 closed out of 26",
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Next collection page" }).click();
+	await expect(rows).toHaveCount(6);
+	await page.reload();
+	await expect(rows).toHaveCount(20);
+	const filters = page.getByRole("group", { name: "Collection PR state" });
+	for (const state of ["draft", "merged", "closed"]) {
+		await filters
+			.getByRole("button", { name: new RegExp(`^${state} 1$`, "i") })
+			.click();
+		await expect(rows).toHaveCount(1);
+	}
+	await filters.getByRole("button", { name: /^all 26$/i }).click();
+	await page
+		.getByRole("button", { name: "Edit collection", exact: true })
+		.click();
+	await page
+		.getByLabel("Collection name", { exact: true })
+		.fill("Release quality updated");
+	await page.getByRole("button", { name: "Save changes", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: "Release quality updated", exact: true }),
+	).toBeVisible();
+	await page.setViewportSize({ width: 390, height: 844 });
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth > innerWidth,
+		),
+	).toBe(false);
+	await page.screenshot({
+		path: test.info().outputPath("collections-mobile.png"),
+	});
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const second = await (
+		await page.request.post("/api/pr-collections", {
+			data: {
+				name: "Also tracked",
+				description: "Secondary purpose",
+				icon: "flag",
+				color: "amber",
+			},
+		})
+	).json();
+	await page.goto(`/prs?source=live&org=${repo.org}&draft=include&state=all`);
+	const membershipMarker = page.getByRole("button", {
+		name: "Collections for PR #1",
+		exact: true,
+	});
+	await membershipMarker.hover();
+	await expect(page.getByRole("tooltip")).toContainText(
+		"Release quality updated",
+	);
+	await membershipMarker.click();
+	await page
+		.getByRole("checkbox", { name: "Also tracked", exact: true })
+		.click();
+	await expect(
+		page.getByRole("checkbox", { name: "Also tracked", exact: true }),
+	).toBeChecked();
+	await page.getByRole("button", { name: "Done", exact: true }).click();
+	await page.reload();
+	await expect(membershipMarker).toContainText("2");
+	await membershipMarker.hover();
+	await expect(page.getByRole("tooltip")).toContainText("Also tracked");
+	await expect(page.getByRole("tooltip")).toContainText(
+		"Release quality updated",
+	);
+	await page.goto(collectionUrl);
+	await page
+		.getByRole("button", { name: "Remove PR #1 from collection", exact: true })
+		.click();
+	await expect(
+		page.getByRole("img", {
+			name: "1 merged, 22 open, 1 draft, 1 closed out of 25",
+		}),
+	).toBeVisible();
+	await page
+		.getByRole("button", { name: "Delete collection", exact: true })
+		.click();
+	await page
+		.getByRole("alertdialog")
+		.getByRole("button", { name: "Delete collection", exact: true })
+		.click();
+	await expect(
+		page.getByRole("heading", { name: "Collections", exact: true }),
+	).toBeVisible();
+	expect(
+		(await page.request.get(`/api/pr-collections/${collectionId}`)).status(),
+	).toBe(404);
+	const remaining = await (
+		await page.request.get(`/api/pr-collections/${second.id}`)
+	).json();
+	expect(remaining.counts.total).toBe(1);
+	await page.goto("/collections?source=sample");
+	await expect(
+		page.getByRole("heading", { name: "Collections", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("link").filter({ hasText: "Also tracked" }),
+	).toHaveCount(0);
+	expect(providerRequests).toBe(providerReads);
+	expect(
+		(await watchList()).data.map(({ pull: _pull, ...watch }) => watch),
+	).toEqual(beforeWatches);
+	expect(errors).toEqual([]);
+});

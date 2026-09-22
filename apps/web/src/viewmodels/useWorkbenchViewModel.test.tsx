@@ -49,6 +49,10 @@ import { useWorkbench, WorkbenchProvider } from "./WorkbenchProvider";
 const renderView = (ui: ReactNode) =>
 	renderTestingView(<TooltipProvider>{ui}</TooltipProvider>);
 
+vi.mock("@/models/prCollectionsApi", () => ({
+	loadCollections: vi.fn(async () => ({ items: [] })),
+	loadMemberships: vi.fn(async () => ({ items: [] })),
+}));
 vi.mock("@/models/aiScheduleApi", () => ({
 	loadAiSchedule: vi.fn(async () => ({
 		revision: 1,

@@ -14,7 +14,7 @@ describe("navigation", () => {
 			NAV_GROUPS.find((group) => group.label === "Workspace")?.items.map(
 				(item) => item.href,
 			),
-		).toEqual(["/sm", "/prs", "/repos", "/projects"]);
+		).toEqual(["/sm", "/prs", "/collections", "/repos", "/projects"]);
 		expect(breadcrumbsFromPathname("/insights")).toEqual([
 			{ label: "Insights" },
 			{ label: "Contributions" },
