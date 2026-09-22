@@ -1814,6 +1814,7 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		["attention-current", "attention", "complete"],
 		["attention-pending", "attention", "pending"],
 		["attention-error", "attention", "error"],
+		["review-current", "review_needed", "complete"],
 		["running-current", "running", "complete"],
 		["running-refresh", "running", "running"],
 		["waiting-current", "waiting", "complete"],
@@ -1870,12 +1871,18 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 				observation.id,
 			);
 	}
+	const filtered = pullListSchema.parse(
+		await (await request("/api/query/v1/prs?status=review_needed")).json(),
+	);
+	expect(filtered.data.map((p) => p.id)).toEqual(["review-current"]);
+	expect(filtered.metrics.review_needed).toBe(1);
 	const ascending = [
 		"conflict",
 		"error",
 		"attention-current",
 		"attention-error",
 		"attention-pending",
+		"review-current",
 		"unknown",
 		"running-current",
 		"running-refresh",
@@ -1898,6 +1905,7 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		"running-current",
 		"running-refresh",
 		"unknown",
+		"review-current",
 		"attention-current",
 		"attention-error",
 		"attention-pending",

@@ -139,8 +139,13 @@ export function ProjectsPage() {
 								label: "Ready",
 							},
 							{
-								count: metrics.waiting,
+								count: metrics.review_needed,
 								color: "bg-[hsl(var(--basalt-badge-purple))]",
+								label: "Review Needed",
+							},
+							{
+								count: metrics.waiting,
+								color: "bg-basalt-muted-foreground/40",
 								label: "Waiting",
 							},
 							{

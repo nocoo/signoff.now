@@ -117,7 +117,11 @@ const actions = {
 	],
 	warning: ["observe", "Observe the issue for automatic recovery."],
 	running: ["wait_ci", "Wait for ongoing work or more evidence."],
-	waiting: ["wait_review", "Wait for external reviewer input."],
+	review_needed: [
+		"request_review",
+		"Request or follow up on the required reviews.",
+	],
+	waiting: ["wait_ci", "Wait for queued work or automatic prerequisites."],
 	ready: [
 		"verify_merge",
 		"Verify current provider requirements and any final PoP step before merging.",

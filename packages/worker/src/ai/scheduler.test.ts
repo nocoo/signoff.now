@@ -818,3 +818,128 @@ test("retargeting during inference fences the late result and returning to main 
 		}),
 	).toMatchObject({ kind: "skipped", previous: null, current: null });
 });
+
+test("review-only evidence reaches Jev and its Review Needed judgment persists without repeat calls", async () => {
+	const pull = seedPull(sqlite, {
+		mergeable: "clear",
+		targetBranch: "main",
+		requiredApprovals: 2,
+		authorCountsTowardApproval: false,
+		reviewers: [
+			{
+				id: "author",
+				name: "Author",
+				vote: "approved",
+				required: false,
+				countsTowardApproval: false,
+			},
+			{
+				id: "group",
+				name: "Group",
+				vote: "approved",
+				required: true,
+				isGroup: true,
+				countsTowardApproval: false,
+			},
+			{
+				id: "reviewer",
+				name: "Reviewer",
+				vote: "approved",
+				required: false,
+				countsTowardApproval: true,
+			},
+		],
+		policies: [
+			{
+				id: "crc",
+				name: "Code Review Compliance Policy",
+				kind: "status",
+				state: "failed",
+				required: true,
+				detail: "",
+				owner: "Maintainers",
+				evidence: { status: "rejected" },
+			},
+
+			{
+				id: "review",
+				name: "Minimum number of reviewers",
+				kind: "review",
+				state: "queued",
+				required: true,
+				detail: "",
+				owner: "Maintainers",
+				evidence: { minimumApproverCount: 2, creatorVoteCounts: false },
+			},
+			{
+				id: "build",
+				name: "Build",
+				kind: "build",
+				state: "passed",
+				required: true,
+				detail: "",
+				owner: "Maintainers",
+				evidence: {
+					isExpired: false,
+					buildIsNotCurrent: true,
+					buildId: "build",
+				},
+			},
+		],
+		builds: [
+			{
+				id: "build",
+				number: 1,
+				name: "Build",
+				state: "passed",
+				required: true,
+				stages: [],
+			},
+		],
+	});
+	await setup();
+	let calls = 0;
+	const fetcher = (async (_url: unknown, init: RequestInit) => {
+		calls++;
+		const request = JSON.parse(String(init.body));
+		expect(request.questions.p0_readiness.criteria.review_needed).toContain(
+			"only project review requirements",
+		);
+		expect(request.state.prs[0].reviews).toMatchObject({
+			approvalCount: 1,
+			remainingApprovals: 1,
+		});
+		expect(request.state.policyFacts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					evidence: expect.objectContaining({
+						isExpired: false,
+						buildIsNotCurrent: true,
+					}),
+				}),
+			]),
+		);
+		return response("review_needed");
+	}) as typeof fetch;
+	await runAiOnce(env(), source, now, fetcher);
+	expect(evaluationOutput(row(), true)).toMatchObject({
+		kind: "review_needed",
+		label: "Review Needed",
+		nextAction: "Request or follow up on the required reviews.",
+	});
+	await runAiOnce(env(), source, now + 301, fetcher);
+	expect(calls).toBe(1);
+	change("reviewers", [
+		...pull.reviewers,
+		{
+			id: "second",
+			name: "Second",
+			vote: "approved",
+			required: false,
+			countsTowardApproval: true,
+		},
+	]);
+	await runAiOnce(env(), source, now + 302, (async () =>
+		response("ready")) as unknown as typeof fetch);
+	expect(evaluationOutput(row(), true).kind).toBe("ready");
+});

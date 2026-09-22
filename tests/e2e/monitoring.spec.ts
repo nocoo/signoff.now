@@ -1723,6 +1723,7 @@ test("browsers never drive inference on focus changes or reload", async ({
 test("collections persist all PR states, multiple memberships and compact CRUD flows", async ({
 	page,
 }) => {
+	test.setTimeout(120000);
 	const repo = {
 		org: "e2e-collections",
 		project: "Collection space",

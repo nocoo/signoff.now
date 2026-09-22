@@ -40,14 +40,14 @@ it("retains the prior badge with an accessible update note, then replaces it wit
 	mounted.rerender(
 		view(
 			readinessDisplay(
-				presentReadiness("complete", { ...result, kind: "attention" }),
+				presentReadiness("complete", { ...result, kind: "review_needed" }),
 				"project",
 				null,
 				0,
 			),
 		),
 	);
-	expect(screen.getByText("Attention")).toBeTruthy();
+	expect(screen.getByText("Review Needed")).toBeTruthy();
 	expect(screen.queryByText("Running")).toBeNull();
 	expect(screen.queryByRole("button")).toBeNull();
 });

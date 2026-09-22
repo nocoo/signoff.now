@@ -24,9 +24,12 @@ const page = machinePageSchema.parse({
 	policyCodes: {},
 });
 const history: MachineHistory = { events: [] };
-test("renders all lifecycle, priority-ordered policies and actual persisted judgments without reclassification", () => {
+test.each([
+	"running",
+	"review_needed",
+] as const)("renders %s judgment without reclassification", (kind) => {
 	const result = {
-		kind: "running" as const,
+		kind,
 		model: "jev-test",
 		rubric: "test",
 		fingerprint: "f",
@@ -43,7 +46,7 @@ test("renders all lifecycle, priority-ordered policies and actual persisted judg
 		readiness: presentReadiness("complete", result),
 	};
 	const graph = machineGraph(page, failing, history, "model");
-	expect(graph.nodes.find((n) => n.id === "state:running")?.data.active).toBe(
+	expect(graph.nodes.find((n) => n.id === `state:${kind}`)?.data.active).toBe(
 		true,
 	);
 	expect(graph.nodes.find((n) => n.id === "state:attention")?.data.active).toBe(
@@ -68,7 +71,7 @@ test("renders all lifecycle, priority-ordered policies and actual persisted judg
 		"model",
 	);
 	expect(
-		pending.nodes.find((n) => n.id === "state:running")?.data.detail,
+		pending.nodes.find((n) => n.id === `state:${kind}`)?.data.detail,
 	).toContain("Previous judgment");
 	expect(
 		machineGraph(page, undefined, history, "model").nodes.filter(

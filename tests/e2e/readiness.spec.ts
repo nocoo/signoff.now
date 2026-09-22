@@ -100,10 +100,31 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 	await expect(
 		row.getByRole("button", { name: /Last result · failed/ }),
 	).toBeAttached();
-	readiness = presentReadiness("complete", { ...previous, kind: "attention" });
+	readiness = presentReadiness("complete", {
+		...previous,
+		kind: "review_needed",
+	});
 	await page.reload();
-	await expect(row.getByText("Attention", { exact: true })).toBeVisible();
+	await expect(row.getByText("Review Needed", { exact: true })).toBeVisible();
 	await expect(row.getByRole("button", { name: /Last result/ })).toHaveCount(0);
+	await expect(
+		row.getByText("Review Needed", { exact: true }).locator(".."),
+	).toHaveClass(/bg-basalt-badge-purple/);
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const filter = page.getByRole("button", {
+		name: "Review Needed",
+		exact: true,
+	});
+	const filteredRequest = page.waitForRequest(
+		(request) =>
+			new URL(request.url()).searchParams.get("status") === "review_needed",
+	);
+	await filter.click();
+	await filteredRequest;
+	await expect(filter).toHaveAttribute("aria-pressed", "true");
+	await page.reload();
+	await expect(filter).toHaveAttribute("aria-pressed", "true");
+	await expect(row.getByText("Review Needed", { exact: true })).toBeVisible();
 });
 
 test("compact sortable columns preserve full branches and cyan Skipped across reloads", async ({

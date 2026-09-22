@@ -17,23 +17,26 @@ import {
 } from "./workbench.js";
 
 export const JEV_MODEL = "jev-1.13.0";
-export const JEV_RUBRIC = "signoff-developer-v4";
+export const JEV_RUBRIC = "signoff-developer-v5";
 export const CLASSIFICATION = {
 	attention:
-		"A person must inspect or act now. Build failure or explicit expiry needing intervention belongs here. Do not decide rerun versus repair.",
+		"A problem beyond missing review approvals needs human inspection now: failed builds, explicit expiry, requested code changes or another serious blocker. Missing reviewer approvals alone is Review Needed, not Attention. Do not decide rerun versus repair.",
+	review_needed:
+		"Builds passed and remain unexpired, with no more serious blocker; only project review requirements remain unsatisfied (minimum non-author approvals, required/path reviewers or review compliance). Includes awaiting reviewers already assigned and rejected review-compliance evaluations without explicit evidence of requested code changes. A rejected review policy is not a reviewer rejection. PoP follows review and does not block this category. Explicit requested code changes are Attention.",
 	warning:
 		"A known issue deserves observation and has evidence it may resolve automatically; no human action now.",
 	running:
-		"Automatic work is progressing, or there is not enough signal to require action. Includes queued policies and ordinary waits other than external review.",
+		"Automatic work is actively progressing, such as a running build, or evidence is insufficient to identify a blocker. Queued work awaiting execution is Waiting; review-only deficits after valid successful builds are Review Needed.",
 	ready:
 		"Builds succeeded and remain valid, PR is mergeable, all applicable policies passed; a configured PoP-only final-step exception may apply. Provider merge requirements remain authoritative.",
 	waiting:
-		"Only waiting for external reviewers, after successful unexpired builds. Never author changes, queued builds or PoP.",
+		"Waiting for non-review processes, such as a queued build or an automatic prerequisite, with no human intervention needed. Active execution is Running. Never use for external review, failed/expired builds needing intervention, or author changes.",
 } as const;
 export const aiKindSchema = z.enum([
 	"skipped",
 	"conflict",
 	"attention",
+	"review_needed",
 	"warning",
 	"running",
 	"ready",
@@ -51,17 +54,25 @@ export const NEXT_ACTIONS = {
 	skipped: "Non-main target branch; Jev evaluation skipped.",
 	conflict: "Resolve the merge conflict.",
 	attention: "Human inspection is needed. Review the PR evidence.",
+	review_needed: "Request or follow up on the required reviews.",
 	warning: "Observe the issue for automatic recovery.",
 	running: "Wait for ongoing work or more evidence.",
 	ready:
 		"Complete any final PoP step, then confirm provider requirements before merging.",
-	waiting: "Wait for external reviewer input.",
+	waiting: "Wait for queued work or automatic prerequisites.",
 	unknown: "Waiting for a current evaluation.",
 	error: "Check AI Settings and retry the evaluation.",
 } as const;
 const probability = z.number().finite().min(0).max(1);
 export const jevResultSchema = z.object({
-	kind: z.enum(["attention", "warning", "running", "ready", "waiting"]),
+	kind: z.enum([
+		"attention",
+		"review_needed",
+		"warning",
+		"running",
+		"ready",
+		"waiting",
+	]),
 	model: z.string(),
 	rubric: z.string(),
 	fingerprint: z.string(),
@@ -96,6 +107,7 @@ export const AI_LABELS = {
 	skipped: "Skipped",
 	conflict: "Conflict",
 	attention: "Attention",
+	review_needed: "Review Needed",
 	warning: "Warning",
 	running: "Running",
 	ready: "Ready",

@@ -158,6 +158,7 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 		metrics: {
 			open: 1,
 			attention: 1,
+			review_needed: 0,
 			running: 0,
 			conflict: 0,
 			skipped: 0,
@@ -202,6 +203,7 @@ export function queryFixture(source: "cli" | "demo" = "cli") {
 					closed: 0,
 					watching: 0,
 					attention: 1,
+					review_needed: 0,
 					running: 0,
 					conflict: 0,
 					skipped: 0,

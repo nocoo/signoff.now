@@ -73,6 +73,7 @@ const list = {
 		unknown: 0,
 		error: 0,
 		attention: 1,
+		review_needed: 0,
 		merged: 0,
 		closed: 0,
 	},

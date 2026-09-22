@@ -235,19 +235,23 @@ test("inspection keeps raw evidence, nullable validity, SHA provenance and indep
 		).builds[0]?.headMatch.status,
 	).toBe("unknown");
 });
-test("current means cached decision equality, with historical results retained through changes, errors and stopping", async () => {
+test.each([
+	["attention", "inspect_pr"],
+	["review_needed", "request_review"],
+	["waiting", "wait_ci"],
+])("%s advice keeps current and historical judgments distinct", async (kind, code) => {
 	const { project, pull, watch, context } = await setup();
 	const state = decisionState(pull, project, now, context.detailCooldown, {
 		common: COMMON_RULES,
 		project: defaultProjectRules(project.id),
 	});
 	const judgment = {
-		kind: "attention",
+		kind,
 		model: JEV_MODEL,
 		rubric: JEV_RUBRIC,
 		fingerprint: await decisionFingerprint(state),
 		evaluatedAt: new Date((now - 600) * 1000).toISOString(),
-		probabilities: { attention: 1 },
+		probabilities: { [kind]: 1 },
 		confidence: 1,
 	};
 	const row: EvaluationRow = {
@@ -267,20 +271,20 @@ test("current means cached decision equality, with historical results retained t
 	const read = () =>
 		inspectObservation(watch, pull, project, null, row, context, now);
 	expect((await read()).readiness).toMatchObject({
-		state: "attention",
+		state: kind,
 		isCurrent: true,
 		evaluatedAt: judgment.evaluatedAt,
 		update: { state: "idle" },
 	});
 	expect((await read()).nextAction).toMatchObject({
-		code: "inspect_pr",
+		code,
 		evidenceRefs: [],
 	});
 	pull.observedAt = now + 1;
 	expect((await read()).readiness.isCurrent).toBe(true);
 	context.rules.set("common", "Changed instruction");
 	expect((await read()).readiness).toMatchObject({
-		state: "attention",
+		state: kind,
 		isCurrent: false,
 		update: {
 			state: "scheduled",
@@ -294,7 +298,7 @@ test("current means cached decision equality, with historical results retained t
 	row.status = "error";
 	row.error = "Provider unavailable";
 	expect((await read()).readiness).toMatchObject({
-		state: "attention",
+		state: kind,
 		update: { state: "error", error: "Provider unavailable" },
 	});
 	context.rules.clear();

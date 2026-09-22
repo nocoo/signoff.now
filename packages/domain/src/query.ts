@@ -159,6 +159,7 @@ export const repositoryQuerySchema = z.object({
 		closed: z.number(),
 		watching: z.number(),
 		attention: z.number(),
+		review_needed: z.number(),
 		skipped: z.number(),
 		running: z.number(),
 		conflict: z.number(),
@@ -190,6 +191,7 @@ export const pullListSchema = envelopeSchema.extend({
 	metrics: z.object({
 		open: z.number(),
 		attention: z.number(),
+		review_needed: z.number(),
 		skipped: z.number(),
 		running: z.number(),
 		conflict: z.number(),

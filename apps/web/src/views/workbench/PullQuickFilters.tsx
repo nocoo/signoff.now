@@ -11,6 +11,7 @@ import {
 	Layers,
 	type LucideIcon,
 	ShieldAlert,
+	UserRoundCheck,
 } from "lucide-react";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
@@ -60,6 +61,12 @@ const watches = [
 const readiness = [
 	["conflict", "Conflict", ShieldAlert, "text-basalt-destructive"],
 	["attention", "Attention", ShieldAlert, "text-basalt-destructive"],
+	[
+		"review_needed",
+		"Review Needed",
+		UserRoundCheck,
+		"text-basalt-badge-purple",
+	],
 	["warning", "Warning", ShieldAlert, "text-basalt-warning"],
 	["running", "Running", CheckCheck, "text-basalt-primary"],
 	["ready", "Ready", CheckCheck, "text-basalt-success"],
