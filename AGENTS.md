@@ -101,6 +101,8 @@ Move accident narratives to [Retrospective.md](Retrospective.md); keep at most a
 - When starting local development or opening this project's frontend in a browser, use the Caddy HTTPS URL: `https://signoff.dev.hexly.ai`.
 - Do not use direct `localhost` or `127.0.0.1` URLs for browser access. If the Caddy URL is unavailable, diagnose the proxy instead of switching to a direct URL.
 - Start the frontend with `bun run dev` and the local API with `bun run dev:worker` when needed; reuse healthy running instances.
+- `bun run dev:collector` is the canonical standalone Connector command and invokes `daemon` directly.
+- `bun run dev:all` starts the frontend, local API and Connector together. `bun run start:all` first builds the frontend, then starts Vite preview with the same local API and Connector. Both use the Caddy URL and local D1; neither deploys or connects to production D1. Stop the existing stack before switching modes; both reserve ports 7042 and 37042. Ctrl+C stops the grouped processes.
 - Internal upstreams remain unchanged: Caddy forwards to Vite on port `7042`, and Vite proxies `/api` to the local Worker on port `37042`.
 
 ## Cached Reports and Discovery

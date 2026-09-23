@@ -139,16 +139,18 @@ bun install --frozen-lockfile
 bun run build:web
 bun run db:migrate:local
 bun run db:seed:local
-bun run dev:worker
+bun run dev:all
 ```
 
-在另一个终端从仓库根目录运行前端：
+Open **https://signoff.dev.hexly.ai** through Caddy. `dev:all` runs the Vite frontend, local Worker API and Connector together. To run them separately, use `bun run dev`, `bun run dev:worker` and `bun run dev:collector`. The API applies local migrations before starting; the Connector requires an existing Azure CLI login for collection.
+
+For the local production build:
 
 ```bash
-bun run dev
+bun run start:all
 ```
 
-打开 `http://localhost:7042`。Vite 将 `/api` 代理到本地 Worker `37042`。开发脚本已包含 `--local-upstream localhost` 和本地 Demo 开关。已有受信 HTTPS 反向代理时，可使用 `https://signoff.dev.hexly.ai`。
+This builds the frontend, then serves it with Vite preview alongside the same local Worker and Connector. Preview inherits the Vite `/api` proxy. Both modes use port 7042 for the frontend, port 37042 for the API and the same local D1 cache. This command does not deploy to Cloudflare or use production D1. Stop existing frontend/API/Connector processes before switching modes. Ctrl+C stops all grouped processes; a failed child stops its siblings. Caddy runs separately as a machine service.
 
 数据位于 `.wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite`。`db:seed:local` 只重置 5 个预置 Demo 项目及其 PR / 扫描记录，保留其他项目与既有分析数据；它没有远端写入选项。表结构见 `packages/db/migrations/`；`0019_observed_pull_requests.sql` 引入共享关注清单、仓库目录、任务租约和快照版本，并取消旧页面采集任务。后续 `0020_resolved_project_scope.sql` 保留已存清单和缓存，让项目编辑按稳定仓库 ID 与 Unicode 名称别名校验范围。本地与线上 D1 使用相同的 schema，真实 PR 采集本轮只接入本地数据库。
 

@@ -24,6 +24,7 @@ export default defineConfig(() => ({
 	server: {
 		host: "::",
 		port: 7042,
+		strictPort: true,
 		allowedHosts: ["signoff.dev.hexly.ai"],
 		hmr: {
 			overlay: false,
@@ -36,6 +37,12 @@ export default defineConfig(() => ({
 				changeOrigin: true,
 			},
 		},
+	},
+	preview: {
+		host: "::",
+		port: 7042,
+		strictPort: true,
+		allowedHosts: ["signoff.dev.hexly.ai"],
 	},
 	plugins: [tailwindcss(), react()],
 	resolve: {
