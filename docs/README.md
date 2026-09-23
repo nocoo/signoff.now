@@ -29,6 +29,8 @@ Start with [Evidence-driven readiness](21-readiness-architecture.md), then [Coll
 | 19 | [Jev developer readiness](19-pr-state-machines.md) | Classification, editable policy context, credentials and state machine workspace |
 | 20 | [PR collections](20-pr-collections.md) | Workspace grouping, all-state progress, membership CRUD, cached API and verification |
 | 21 | [Evidence-driven readiness](21-readiness-architecture.md) | Shared evidence, per-PR inference, project SQLite cache and consistency boundaries |
+| 22 | [Contribution reports](22-contribution-reports.md) | Cached 90-day reports, repository discovery depth and contributor hiding |
+| 23 | [Remote access, tenants and connectors](23-remote-connector-and-tenants.md) | Proposed plan: admins, tenants, personal watches, data owners and remote connectors on Cloudflare |
 
 ## 辅助工具与归档
 
