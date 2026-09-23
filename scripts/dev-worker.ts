@@ -1,8 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createServer } from "node:net";
+import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { WorkerHealth } from "./dev-worker-health";
+import { formatWorkerLog } from "./dev-worker-log";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const shutdown = new AbortController();
@@ -27,7 +29,7 @@ async function stopChild() {
 function startChild() {
 	const node = Bun.which("node");
 	if (!node) throw new Error("Local Worker requires Node.js");
-	child = spawn(
+	const worker = spawn(
 		node,
 		[
 			"node_modules/wrangler/bin/wrangler.js",
@@ -40,8 +42,17 @@ function startChild() {
 			"--var",
 			"SIGNOFF_DEMO_MODE:1",
 		],
-		{ cwd: root, detached: true, stdio: "inherit" },
+		{ cwd: root, detached: true, stdio: ["ignore", "pipe", "pipe"] },
 	);
+	child = worker;
+	for (const [input, output] of [
+		[worker.stdout, process.stdout],
+		[worker.stderr, process.stderr],
+	] as const) {
+		createInterface({ input }).on("line", (line) => {
+			output.write(`${formatWorkerLog(line)}\n`);
+		});
+	}
 	child.once("error", (error) => {
 		console.error("Local Worker failed to start:", error.message);
 		process.exitCode = 1;

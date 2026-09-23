@@ -149,6 +149,17 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 	const { api, log } = opts;
 	const claim = await api.claim(undefined, opts.jobId, opts.lane);
 	if (!claim) return { processed: false, state: "idle" };
+	const started = Date.now();
+	const ref = claim.observation?.ref;
+	const task = `[${opts.lane ?? (claim.job.kind === "list" ? "discover" : "checks")}] ${claim.project.organization}/${claim.project.projectKey}${ref ? `/${ref.repository.name} #${ref.number}` : ""} job=${claim.job.id.slice(0, 8)}`;
+	log.info(`${task} started`);
+	const finish = (state: "complete" | "partial" | "failed") => {
+		const message = `${task} ${state} ${Date.now() - started}ms`;
+		if (state === "failed") log.error(message);
+		else if (state === "partial") log.warn(message);
+		else log.info(message);
+		return { processed: true, state };
+	};
 	let ado: AdoPagedClient | undefined;
 	let done = 0;
 	let total: number | null = null;
@@ -192,7 +203,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 			await reporting;
 			check();
 			const result = await sampleTask(api, claim, timestamp);
-			return { processed: true, state: result.state as "complete" | "partial" };
+			return finish(result.state as "complete" | "partial");
 		}
 		const provider = opts.makeAdo();
 		const guarded =
@@ -215,9 +226,6 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		await setPhase("authenticating", "Checking provider credentials");
 		await ado.checkAuth(claim.project.organization);
 		check();
-		log.info(
-			`${claim.job.kind === "list" ? "Discovering" : "Refreshing watched PR in"} ${claim.project.organization}/${claim.project.projectKey}`,
-		);
 		if (claim.job.kind === "list") {
 			await setPhase("repositories", "Resolving project repositories");
 			const repos =
@@ -293,12 +301,8 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 			check();
 			publishing = true;
 			const result = await api.complete(claim);
-			return {
-				processed: true,
-				state: result.state as "complete" | "partial" | "failed",
-			};
+			return finish(result.state as "complete" | "partial" | "failed");
 		}
-		const ref = claim.observation?.ref;
 		if (!ref) throw new Error("Refresh task has no observation identity");
 		await api.repositories(claim, [ref.repository]);
 		const result = await (opts.collect ?? collectProjectPulls)({
@@ -337,10 +341,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 			result.message,
 			result.mergeRequirements,
 		);
-		return {
-			processed: true,
-			state: published.state as "complete" | "partial",
-		};
+		return finish(published.state as "complete" | "partial");
 	} catch (error) {
 		clearInterval(timer);
 		await reporting;
@@ -349,9 +350,9 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		try {
 			await api.fail(claim, failure.kind, failure.message);
 		} catch {
-			log.warn("Task lease changed; retained snapshots remain available.");
+			log.warn(`${task} lease changed; retained snapshots remain available.`);
 		}
-		log.error(`${claim.project.name}: ${failure.message}`);
+		log.error(`${task} ${failure.kind}: ${failure.message}`);
 		return {
 			processed: true,
 			state: failure.kind === "auth_required" ? "auth_required" : "failed",
@@ -377,7 +378,9 @@ export async function runAvatarCollection(
 				await opts.api.publishAvatar(task, image);
 			} catch {
 				await opts.api.failAvatar(task).catch(() => undefined);
-				opts.log.warn("Avatar refresh failed; the cached image is preserved.");
+				opts.log.warn(
+					"[avatars] Refresh failed; the cached image is preserved.",
+				);
 			}
 		}),
 	);
@@ -459,7 +462,7 @@ export async function watchCollections(
 							idleDelay = Math.min(idleDelay * 2, 15_000);
 						}
 					} catch (error) {
-						opts.log.error(collectionError(error).message);
+						opts.log.error(`[${lane}] ${collectionError(error).message}`);
 						if (!opts.signal?.aborted) await sleep(10_000);
 					}
 				}

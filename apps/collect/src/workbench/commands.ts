@@ -490,7 +490,7 @@ export function registerWorkbenchCommands(program: Command) {
 		const { createAdoClient } = await import("../ado/client");
 		const { defaultExec } = await import("../doctor/exec-bun");
 		const { watchCollections } = await import("./run");
-		const { createLogger } = await import("../logger");
+		const { createRuntimeLogger } = await import("../runtime-log");
 		const stop = new AbortController();
 		const shutdown = () => stop.abort();
 		process.once("SIGINT", shutdown);
@@ -499,10 +499,7 @@ export function registerWorkbenchCommands(program: Command) {
 		const api = createCollectionClient({
 			apiBase: options(command).apiBase ?? process.env.SIGNOFF_QUERY_API_BASE,
 		});
-		const log = createLogger({
-			log: (s) => process.stderr.write(`${s}\n`),
-			error: (s) => process.stderr.write(`${s}\n`),
-		});
+		const log = createRuntimeLogger();
 		try {
 			await watchCollections({
 				api,

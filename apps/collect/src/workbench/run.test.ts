@@ -582,6 +582,16 @@ describe("explicit repository discovery", () => {
 });
 
 describe("sample and daemon orchestration", () => {
+	test("task logs correlate the lane, repository, PR and completion", async () => {
+		const deps = setup();
+		await runCollectionOnce({ ...deps, collect: collected });
+		const task = `[checks] ${project.organization}/${project.projectKey}/${pull.repository.name} #${pull.number} job=${claim.job.id.slice(0, 8)}`;
+		expect(deps.events).toContain(`${task} started`);
+		expect(
+			deps.events.some((event) => event.startsWith(`${task} complete `)),
+		).toBe(true);
+	});
+
 	test("daemon schedules project discovery and complete watched PR checks without a status lane", async () => {
 		const deps = setup();
 		const controller = new AbortController();
