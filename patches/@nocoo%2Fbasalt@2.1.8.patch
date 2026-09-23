@@ -1,0 +1,67 @@
+diff --git a/dist/components/multi-select.d.ts b/dist/components/multi-select.d.ts
+index b6f289b2a322d8306ad89696a7802002a40f06fc..32dba8df32727b52f4e00a3052f3d7ba9ce3d051 100644
+--- a/dist/components/multi-select.d.ts
++++ b/dist/components/multi-select.d.ts
+@@ -12,6 +12,8 @@ export interface MultiSelectOption {
+     disabled?: boolean;
+ }
+ export interface MultiSelectProps {
++    /** Keep a portaled picker inside the active modal scroll and focus boundary. @default false */
++    modal?: boolean;
+     /** Accessible field and popup name. */
+     label: string;
+     /** Available options; retain selected options to preserve their display labels. */
+@@ -61,4 +63,4 @@ export interface MultiSelectProps {
+     /** Additional root classes. */
+     className?: string;
+ }
+-export declare function MultiSelect({ label, options, value, defaultValue, onValueChange, query, defaultQuery, onQueryChange, open, defaultOpen, onOpenChange, filterOptions, loading, disabled, name, form, placeholder, searchPlaceholder, emptyLabel, loadingLabel, removeLabel, showChips, formatSelectionCount, className, }: MultiSelectProps): import("react").JSX.Element;
++export declare function MultiSelect({ modal, label, options, value, defaultValue, onValueChange, query, defaultQuery, onQueryChange, open, defaultOpen, onOpenChange, filterOptions, loading, disabled, name, form, placeholder, searchPlaceholder, emptyLabel, loadingLabel, removeLabel, showChips, formatSelectionCount, className, }: MultiSelectProps): import("react").JSX.Element;
+diff --git a/dist/components/multi-select.js b/dist/components/multi-select.js
+index f19873d3c9aa9b48e51d627e32fe87b75815fa7b..82c84fc37737f00e0bf38ef55d1cebbfcfbcba87 100644
+--- a/dist/components/multi-select.js
++++ b/dist/components/multi-select.js
+@@ -8,7 +8,7 @@ import { useEffect as i, useId as a, useRef as o, useState as s } from "react";
+ import { Check as c, ChevronDown as l, X as u } from "lucide-react";
+ import { jsx as d, jsxs as f } from "react/jsx-runtime";
+ //#region src/components/multi-select.tsx
+-function p({ label: p, options: m, value: h, defaultValue: g = [], onValueChange: _, query: v, defaultQuery: y = "", onQueryChange: re, open: b, defaultOpen: ie = !1, onOpenChange: ae, filterOptions: oe = !0, loading: x = !1, disabled: S = !1, name: C, form: w, placeholder: se = "Select options", searchPlaceholder: ce = "Search options…", emptyLabel: T = "No options found.", loadingLabel: E = "Loading options…", removeLabel: D = "Remove", showChips: O = !0, formatSelectionCount: k, className: A }) {
++function p({ modal = !1, label: p, options: m, value: h, defaultValue: g = [], onValueChange: _, query: v, defaultQuery: y = "", onQueryChange: re, open: b, defaultOpen: ie = !1, onOpenChange: ae, filterOptions: oe = !0, loading: x = !1, disabled: S = !1, name: C, form: w, placeholder: se = "Select options", searchPlaceholder: ce = "Search options…", emptyLabel: T = "No options found.", loadingLabel: E = "Loading options…", removeLabel: D = "Remove", showChips: O = !0, formatSelectionCount: k, className: A }) {
+ 	let [le, j] = s(g), [ue, M] = s(y), [de, N] = s(ie), [P, F] = s(null), I = o(null), L = o(null), R = o(null), z = o(null), B = o({
+ 		value: h,
+ 		defaultValue: g,
+@@ -92,6 +92,7 @@ function p({ label: p, options: m, value: h, defaultValue: g = [], onValueChange
+ 			}, e)),
+ 			/* @__PURE__ */ f(ee, {
+ 				open: W,
++				modal,
+ 				onOpenChange: X,
+ 				children: [/* @__PURE__ */ d(ne, {
+ 					asChild: !0,
+@@ -113,7 +114,8 @@ function p({ label: p, options: m, value: h, defaultValue: g = [], onValueChange
+ 					})
+ 				}), /* @__PURE__ */ f(te, {
+ 					align: "start",
+-					className: "w-72 max-w-[calc(100vw-2rem)] p-2",
++					className: "flex flex-col w-72 max-w-[calc(100vw-2rem)] p-2",
++					style: { maxHeight: "var(--radix-popover-content-available-height)" },
+ 					"aria-label": p,
+ 					onOpenAutoFocus: (e) => {
+ 						e.preventDefault(), I.current?.focus();
+@@ -121,6 +123,7 @@ function p({ label: p, options: m, value: h, defaultValue: g = [], onValueChange
+ 					children: [
+ 						/* @__PURE__ */ d(r, {
+ 							ref: I,
++							className: "shrink-0",
+ 							role: "combobox",
+ 							"aria-label": `${p}: search`,
+ 							"aria-expanded": W,
+@@ -154,7 +157,7 @@ function p({ label: p, options: m, value: h, defaultValue: g = [], onValueChange
+ 							"aria-label": p,
+ 							"aria-multiselectable": "true",
+ 							"aria-busy": x,
+-							className: "mt-2 max-h-60 overflow-y-auto",
++							className: "mt-2 min-h-0 max-h-60 overflow-y-auto overscroll-contain",
+ 							children: !x && G.map((t, n) => /* @__PURE__ */ f("button", {
+ 								type: "button",
+ 								role: "option",

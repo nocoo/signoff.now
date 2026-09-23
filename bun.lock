@@ -141,6 +141,9 @@
       "version": "0.0.1",
     },
   },
+  "patchedDependencies": {
+    "@nocoo/basalt@2.1.8": "patches/@nocoo%2Fbasalt@2.1.8.patch",
+  },
   "overrides": {
     "@babel/core": "^7.29.6",
     "brace-expansion": "^5.0.6",

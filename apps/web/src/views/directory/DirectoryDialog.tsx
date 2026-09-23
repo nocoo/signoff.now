@@ -143,6 +143,7 @@ export function DirectoryDialog({ vm }: { vm: DirectoryViewModel }) {
 						<>
 							<div className="space-y-1.5">
 								<MultiSelect
+									modal
 									label="Linked accounts"
 									value={editor.draft.identityKeys}
 									onValueChange={(identityKeys) =>
@@ -174,6 +175,7 @@ export function DirectoryDialog({ vm }: { vm: DirectoryViewModel }) {
 								</p>
 							</div>
 							<MultiSelect
+								modal
 								label="Teams"
 								value={editor.draft.teamIds}
 								onValueChange={(teamIds) => vm.updateDraft({ teamIds })}
@@ -198,6 +200,7 @@ export function DirectoryDialog({ vm }: { vm: DirectoryViewModel }) {
 					) : null}
 					{editor.kind === "teams" ? (
 						<MultiSelect
+							modal
 							label="Members"
 							value={editor.draft.memberIds}
 							onValueChange={(memberIds) => vm.updateDraft({ memberIds })}
@@ -221,6 +224,7 @@ export function DirectoryDialog({ vm }: { vm: DirectoryViewModel }) {
 					) : null}
 					{editor.kind !== "tags" ? (
 						<MultiSelect
+							modal
 							label="Tags"
 							value={editor.draft.tagIds}
 							onValueChange={(tagIds) => vm.updateDraft({ tagIds })}

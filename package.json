@@ -68,5 +68,8 @@
 		"tmp": "^0.2.6",
 		"undici": "^6.28.0",
 		"vite": "^8.3.0"
+	},
+	"patchedDependencies": {
+		"@nocoo/basalt@2.1.8": "patches/@nocoo%2Fbasalt@2.1.8.patch"
 	}
 }

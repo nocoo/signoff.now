@@ -13,3 +13,8 @@
 - See `docs/22-contribution-reports.md` for the report and collection contract.
 
 - Contributor hiding is source-scoped and preserves PR cache and follow membership. Use Hide, Unhide and Hidden in the UI. Avatar reads use local D1; collector refreshes images every seven days.
+
+# Modal Pickers
+
+- Set `modal` on Basalt `MultiSelect` inside a dialog so its portaled list participates in the active scroll/focus lock. The Bun patch for Basalt 2.1.8 exposes Radix Popover's existing option; retain this behavior when upgrading Basalt.
+- Verify overflowing pickers with real browser wheel and touch input. DOM-only selection tests do not exercise modal scroll locks; see `tests/e2e/directory-scroll.spec.ts`.

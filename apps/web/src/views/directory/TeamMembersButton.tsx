@@ -62,6 +62,7 @@ function TeamMembersDialog({
 						</DialogDescription>
 					</DialogHeader>
 					<MultiSelect
+						modal
 						label="Members to add"
 						value={vm.selected}
 						onValueChange={vm.select}
