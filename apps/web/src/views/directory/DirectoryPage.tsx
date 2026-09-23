@@ -44,6 +44,7 @@ import {
 } from "@/viewmodels/useDirectoryViewModel";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { DirectoryDialog } from "./DirectoryDialog";
+import { TeamMembersButton } from "./TeamMembersButton";
 
 const pages = {
 	members: {
@@ -464,7 +465,18 @@ function TeamsGrid({
 								</Link>
 							</Button>
 						) : null}
-						<RowActions vm={vm} row={team} />
+						<div className="flex flex-wrap items-center gap-1.5">
+							{team.archivedAt === null ? (
+								<TeamMembersButton
+									source={source}
+									team={team}
+									data={data}
+									disabled={vm.busy}
+									onAdded={() => void vm.reload()}
+								/>
+							) : null}
+							<RowActions vm={vm} row={team} />
+						</div>
 					</LayerCard.Footer>
 				</LayerCard>
 			))}

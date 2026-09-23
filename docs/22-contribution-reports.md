@@ -107,6 +107,12 @@ membership and PR snapshots but excludes the person from report counts and
 repository denominators. The Hidden directory tab supports recovery, including
 members without linked accounts. All actions use revision-checked writes.
 
+Active team cards offer Add members. The searchable multi-select includes visible,
+followed members and marks existing members as unavailable for selection. A fresh
+directory read and revision-checked team write merge the selection into current
+membership without changing other teams. Conflicts retain the selection for retry;
+successful additions refresh the existing team cards without remounting the page.
+
 ## Avatar cache
 
 Migration 0044 stores avatar image bytes in local D1. Existing PR author and
