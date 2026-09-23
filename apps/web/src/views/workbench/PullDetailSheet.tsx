@@ -42,6 +42,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { Skeleton } from "@/components/Skeleton";
 import { duration, type PullRow, relativeTime } from "@/models/workbench";
+import { FollowAuthorButton } from "./FollowAuthorButton";
 import { PullDescription } from "./PullDescription";
 import {
 	CHECK_LABELS,
@@ -336,12 +337,15 @@ function PullDetail({
 					{project.provider === "ado" ? "Azure DevOps" : "GitHub"}{" "}
 				</SheetDescription>
 				<div className="flex flex-wrap items-center justify-between gap-3">
-					<EntityLabel
-						name={pull.author.name}
-						size="sm"
-						className="text-xs"
-						secondary={`Opened ${relativeTime(pull.createdAt)}`}
-					/>
+					<div className="flex flex-wrap items-center gap-3">
+						<EntityLabel
+							name={pull.author.name}
+							size="sm"
+							className="text-xs"
+							secondary={`Opened ${relativeTime(pull.createdAt)}`}
+						/>
+						<FollowAuthorButton project={project} author={pull.author} />
+					</div>
 					<div className="flex items-center gap-2">
 						<WatchButton row={row} busy={busy} onToggleWatch={onToggleWatch} />
 						{project.source !== "demo" ? (

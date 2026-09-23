@@ -10,6 +10,8 @@ import {
 } from "@/test/monitoring-fixture";
 import { PullDetailSheet } from "./PullDetailSheet";
 
+vi.mock("./FollowAuthorButton", () => ({ FollowAuthorButton: () => null }));
+
 afterEach(cleanup);
 function show(row: PullRow | null, loading = false) {
 	const onToggleWatch = vi.fn();
