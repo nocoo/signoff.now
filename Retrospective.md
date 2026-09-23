@@ -182,9 +182,6 @@ Directory revision was included in the report query identity. Follow and hide co
 The bulk member picker passed selection tests with a few candidates, but those DOM tests never exercised a real overflowing list. In Edge, a 1,084px list inside a 240px viewport stayed at scroll position zero because the outer dialog's scroll lock canceled wheel events on the nonmodal popover portaled to the document body. A reproducible Bun patch exposes Basalt MultiSelect's underlying Radix Popover modal option. All directory dialog pickers enable it while page filters retain their existing behavior. Real browser regression coverage checks wheel scrolling, touch input, selection, Escape, focus return and background locking with 40 candidates. Check scroll behavior at the portal boundary rather than treating `overflow-y-auto` or passing selection tests as evidence that a list is usable.
 
 The narrow-screen check also caught a menu extending below the viewport. Its flex layout now caps height at Radix's available space while preserving the search field and shrinking the scrollable list. Patch files participate in Turbo cache keys so editing an installed dependency cannot reuse an older build. During verification, a test initially used `/members` instead of the registered `/developers` route, and an assertion incorrectly required background wheel cancellation even when the overlay itself prevented background scrolling. Verify registered routes and observable scroll positions before drawing conclusions from test failures.
-||||||| 02f31bf
-
-
 
 ## 2026-09-23: Handbook publication from an uninitialized worktree
 
