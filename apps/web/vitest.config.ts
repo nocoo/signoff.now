@@ -9,6 +9,7 @@ export default defineConfig({
 	},
 	test: {
 		environment: "happy-dom",
+		maxWorkers: 4,
 		globals: true,
 		include: ["src/**/*.{test,spec}.{ts,tsx}"],
 		coverage: {
