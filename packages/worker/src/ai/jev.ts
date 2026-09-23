@@ -4,6 +4,15 @@ import {
 	JEV_RUBRIC,
 	jevResultSchema,
 } from "@signoff/domain/ai-readiness";
+import {
+	APIConnectionError,
+	APIError,
+	APIUserAbortError,
+	type EntryType,
+	type Questions,
+	type SystemOneRequest,
+	TypeSafeClient,
+} from "@typesafe-ai/sdk";
 import { z } from "zod";
 
 const classification = CLASSIFICATION;
@@ -22,7 +31,7 @@ export const JEV_QUESTIONS = {
 		},
 		criteria: classification,
 	},
-};
+} satisfies Questions;
 export class JevError extends Error {
 	constructor(
 		public code: string,
@@ -54,14 +63,9 @@ function validateAnswer(value: unknown, options: readonly string[]) {
 		throw new Error("Invalid choice distribution");
 	return answer;
 }
-type Request = {
-	model: string;
-	state: unknown;
-	questions: Record<string, unknown>;
-};
 async function requestJev(
 	key: string,
-	request: Request,
+	request: SystemOneRequest,
 	fetcher: typeof fetch,
 ) {
 	const body = JSON.stringify(request);
@@ -70,39 +74,56 @@ async function requestJev(
 			"input_too_large",
 			"PR evidence exceeds the Jev request budget; no evidence was silently truncated.",
 		);
-	let response: Response;
+	let response: unknown;
 	try {
-		response = await fetcher("https://api.typesafe.ai/v1/systemone", {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${key}`,
-				"Content-Type": "application/json",
-			},
-			body,
-			redirect: "manual",
-			signal: AbortSignal.timeout(30000),
+		const client = new TypeSafeClient({
+			apiKey: key,
+			baseURL: "https://api.typesafe.ai",
+			timeout: 30000,
+			retry: { maxRetries: 0 },
+			logLevel: "off",
+			fetch: (input, init) => fetcher(input, { ...init, redirect: "manual" }),
 		});
-	} catch {
+		response = await client.systemOne(request);
+	} catch (error) {
+		if (error instanceof APIError) {
+			const status = error.status;
+			const delay = Number(error.headers.get("retry-after"));
+			const blocked =
+				status === 403 &&
+				z
+					.object({
+						cloudflare_error: z.literal(true),
+						error_code: z.literal(1010),
+					})
+					.safeParse(error.body).success;
+			throw new JevError(
+				blocked ? "gateway_blocked" : `http_${status}`,
+				blocked
+					? "The TypeSafe gateway blocked the SDK request (Cloudflare 1010)."
+					: status === 401 || status === 403
+						? "Jev rejected the API key. Replace it in AI Settings."
+						: status === 402
+							? "TypeSafe API credits are exhausted. Restore credits in TypeSafe billing."
+							: status === 429
+								? "Jev rate limit reached."
+								: `Jev request failed (HTTP ${status}).`,
+				status === 429 || status >= 500,
+				Number.isFinite(delay) && delay > 0 ? Math.min(300, delay) : 5,
+			);
+		}
+		if (
+			error instanceof APIConnectionError ||
+			error instanceof APIUserAbortError
+		)
+			throw new JevError(
+				"transport",
+				"Jev could not be reached within 30 seconds.",
+				true,
+			);
 		throw new JevError(
-			"transport",
-			"Jev could not be reached within 30 seconds.",
-			true,
-		);
-	}
-	if (!response.ok) {
-		const status = response.status;
-		const delay = Number(response.headers.get("retry-after"));
-		throw new JevError(
-			`http_${status}`,
-			status === 401 || status === 403
-				? "Jev rejected the API key. Replace it in AI Settings."
-				: status === 402
-					? "TypeSafe API credits are exhausted. Restore credits in TypeSafe billing."
-					: status === 429
-						? "Jev rate limit reached."
-						: `Jev request failed (HTTP ${status}).`,
-			status === 429 || status >= 500,
-			Number.isFinite(delay) && delay > 0 ? Math.min(300, delay) : 5,
+			"invalid_response",
+			"Jev returned an invalid typed judgment.",
 		);
 	}
 	try {
@@ -117,7 +138,7 @@ async function requestJev(
 					})
 					.optional(),
 			})
-			.parse(await response.json());
+			.parse(response);
 	} catch {
 		throw new JevError(
 			"invalid_response",
@@ -154,7 +175,7 @@ function judgment(
 }
 export async function evaluateJev(
 	key: string,
-	state: unknown,
+	state: EntryType,
 	fingerprint: string,
 	now: number,
 	fetcher: typeof fetch = fetch,

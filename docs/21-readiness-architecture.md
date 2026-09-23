@@ -78,3 +78,11 @@ Rubric `signoff-evidence-v8` uses `satisfied` / `unsatisfied` for completed poli
 The local scheduler subsequently produced 6 Review Needed, 2 Attention, 2 Running and 1 Skipped across the 11 watches. HTTP and CLI results matched, all were current, and two subsequent ticks made zero additional Jev requests. The actual HTTPS table displayed the corrected badge and review action after reload at desktop and compact widths without page errors.
 
 A later scheduled source audit isolated a successful, unexpired build with a rejected Comment requirements policy and unresolved discussion threads. Jev had classified it as Review Needed despite receiving the unsatisfied policy. The editable common rule now explicitly distinguishes outstanding discussions requiring human follow-up from missing reviewer approvals. Four bounded real requests using the revised rule returned Attention for that case and a partial-success build, Review Needed for review-only evidence, and Running for active CI. This clarification changes the rules fingerprint; ordinary scheduling, cooldown and cache invalidation apply. It adds no thread bodies, extra questions or deterministic override.
+
+## TypeSafe SDK transport
+
+The Worker calls `TypeSafeClient.systemOne()` from the pinned, dependency-free `@typesafe-ai/sdk@0.6.0` JavaScript package. It uses the official SDK request headers and the configured exact Jev model; no Python service or alternate HTTP path is involved. SDK logging is explicitly disabled so environment logging settings cannot expose PR evidence or response bodies.
+
+Each evaluation has a 96,000-byte UTF-8 request budget and a 30-second timeout, including response-body delivery. SDK retries are disabled (`maxRetries: 0`); the existing persistent scheduler remains the sole retry owner. The injected measured transport counts each dispatched request, including HTTP and connection failures, and refuses redirects. Existing exact-model and complete choice-distribution validation remains authoritative because SDK response types alone do not validate runtime judgments.
+
+SDK errors are converted to sanitized application errors without retaining upstream response text. Numeric `Retry-After` delays retain the existing 300-second cap. A structured Cloudflare 1010 response is reported as a gateway rejection separately from an invalid API key.

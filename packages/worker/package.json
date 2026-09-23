@@ -11,6 +11,7 @@
 	},
 	"dependencies": {
 		"@signoff/domain": "workspace:*",
+		"@typesafe-ai/sdk": "0.6.0",
 		"hono": "4.13.7",
 		"jose": "^6.2.12",
 		"zod": "^4.6.4"
