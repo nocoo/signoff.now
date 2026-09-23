@@ -586,6 +586,12 @@ describe("sample and daemon orchestration", () => {
 		const deps = setup();
 		const controller = new AbortController();
 		const lanes: string[] = [];
+		const scheduled: string[] = [];
+		const originalSchedule = deps.api.schedule;
+		deps.api.schedule = async (kind, lane) => {
+			scheduled.push(lane!);
+			return originalSchedule(kind, lane);
+		};
 		deps.api.claim = async (_kind, _job, lane) => {
 			lanes.push(lane ?? "checks");
 			if (lanes.length === 3) controller.abort();
@@ -601,6 +607,94 @@ describe("sample and daemon orchestration", () => {
 			"checks",
 			"discover",
 		]);
+		expect(scheduled.sort((a, b) => a.localeCompare(b))).toEqual([
+			"checks",
+			"discover",
+		]);
+		expect(deps.events.filter((event) => event === "heartbeat")).toHaveLength(
+			1,
+		);
+	});
+
+	test("idle claims back off to fifteen seconds and reset after processing work", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		const release = deferred<void>();
+		const sleeps: number[] = [];
+		let discoveries = 0;
+		let now = 0;
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const heartbeats: number[] = [];
+		deps.api.heartbeat = async () => {
+			heartbeats.push(now);
+		};
+		deps.api.tickAi = () => release.promise;
+		deps.api.claimAvatars = async () => {
+			await release.promise;
+			return [];
+		};
+		deps.api.claim = async (_kind, _job, lane) => {
+			if (lane === "checks") await release.promise;
+			else if (++discoveries === 7)
+				return {
+					...claim,
+					project: { ...project, source: "demo" },
+				};
+			return null;
+		};
+		try {
+			await watchCollections({
+				...deps,
+				signal: controller.signal,
+				sleep: async (ms) => {
+					sleeps.push(ms);
+					now += ms;
+					if (sleeps.length === 7) {
+						controller.abort();
+						release.resolve();
+					}
+				},
+			});
+		} finally {
+			clock.mockRestore();
+		}
+		expect(sleeps).toEqual([3000, 6000, 12000, 15000, 15000, 15000, 3000]);
+		expect(heartbeats).toEqual([0, 21000, 36000, 51000, 66000]);
+		expect(discoveries).toBe(8);
+		expect(deps.events).toContain("publish");
+	});
+
+	test("failed shared heartbeats retry without caching the failure", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		const release = deferred<void>();
+		let heartbeats = 0;
+		let claims = 0;
+		deps.api.tickAi = () => release.promise;
+		deps.api.claimAvatars = async () => {
+			await release.promise;
+			return [];
+		};
+		deps.api.heartbeat = async () => {
+			if (++heartbeats === 1) throw Error("Worker unavailable");
+		};
+		deps.api.claim = async () => {
+			if (++claims === 3) {
+				controller.abort();
+				release.resolve();
+			}
+			return null;
+		};
+		const sleeps: number[] = [];
+		await watchCollections({
+			...deps,
+			signal: controller.signal,
+			sleep: async (ms) => {
+				sleeps.push(ms);
+			},
+		});
+		expect(heartbeats).toBe(2);
+		expect(sleeps).toEqual([10000, 10000, 10000]);
 	});
 
 	test("daemon inference stays independent of collection and waits for its in-flight tick on shutdown", async () => {
@@ -760,7 +854,7 @@ describe("sample and daemon orchestration", () => {
 			...deps,
 			signal: controller.signal,
 			sleep: async (ms) => {
-				expect(ms).toBe(3000);
+				expect([3000, 10000, 60000]).toContain(ms);
 				controller.abort();
 			},
 		});

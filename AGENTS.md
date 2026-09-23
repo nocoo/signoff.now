@@ -103,6 +103,7 @@ Move accident narratives to [Retrospective.md](Retrospective.md); keep at most a
 - Start the frontend with `bun run dev` and the local API with `bun run dev:worker` when needed; reuse healthy running instances.
 - `bun run dev:collector` is the canonical standalone Connector command and invokes `daemon` directly.
 - `bun run dev:all` starts the frontend, local API and Connector together. `bun run start:all` first builds the frontend, then starts Vite preview with the same local API and Connector. Both use the Caddy URL and local D1; neither deploys or connects to production D1. Stop the existing stack before switching modes; both reserve ports 7042 and 37042. Ctrl+C stops the grouped processes.
+- Connector polling coalesces heartbeats globally and scheduling per lane with a 15-second cooldown after success. Empty claims back off from 3 to 6 to 12 to at most 15 seconds; processed work resets the delay and drains queued tasks immediately. AI ticks run every 10 seconds. Keep task lease renewal independent of these cooldowns. Idle manual commands may wait up to 15 seconds plus request time to be claimed.
 - Internal upstreams remain unchanged: Caddy forwards to Vite on port `7042`, and Vite proxies `/api` to the local Worker on port `37042`.
 
 ## Cached Reports and Discovery

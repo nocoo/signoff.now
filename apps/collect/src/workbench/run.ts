@@ -384,12 +384,46 @@ export async function runAvatarCollection(
 	return tasks.length;
 }
 
+function withCooldown<Args extends unknown[], Result>(
+	request: (...args: Args) => Promise<Result>,
+	intervalMs: number,
+) {
+	let pending: Promise<Result> | undefined;
+	let nextRun = 0;
+	return (...args: Args): Promise<Result> => {
+		if (!pending || Date.now() >= nextRun) {
+			nextRun = Number.POSITIVE_INFINITY;
+			pending = Promise.resolve()
+				.then(() => request(...args))
+				.then(
+					(result) => {
+						nextRun = Date.now() + intervalMs;
+						return result;
+					},
+					(error: unknown) => {
+						pending = undefined;
+						throw error;
+					},
+				);
+		}
+		return pending;
+	};
+}
+
 export async function watchCollections(
 	opts: RunOptions & {
 		makeAdo: () => AdoAvatarClient;
 		sleep?: (ms: number) => Promise<unknown>;
 	},
 ): Promise<void> {
+	const api = {
+		...opts.api,
+		heartbeat: withCooldown(opts.api.heartbeat, 15_000),
+	};
+	const schedule = {
+		checks: withCooldown(() => api.schedule("details", "checks"), 15_000),
+		discover: withCooldown(() => api.schedule("list", "discover"), 15_000),
+	};
 	const sleep =
 		opts.sleep ??
 		((ms: number) =>
@@ -399,6 +433,7 @@ export async function watchCollections(
 	await Promise.all(
 		(["checks", "checks", "discover", "ai", "avatars"] as const).map(
 			async (lane) => {
+				let idleDelay = 3000;
 				while (!opts.signal?.aborted) {
 					try {
 						if (lane === "avatars") {
@@ -408,21 +443,21 @@ export async function watchCollections(
 						}
 						if (lane === "ai") {
 							await opts.api.tickAi();
-							if (!opts.signal?.aborted) await sleep(3000);
+							if (!opts.signal?.aborted) await sleep(10_000);
 							continue;
 						}
-						await opts.api.heartbeat("ready", "Watching the shared PR list");
-						await opts.api.schedule(
-							lane === "discover" ? "list" : "details",
-							lane,
-						);
+						await api.heartbeat("ready", "Watching the shared PR list");
+						await schedule[lane]();
 						if (opts.signal?.aborted) break;
-						const result = await runCollectionOnce({ ...opts, lane });
+						const result = await runCollectionOnce({ ...opts, api, lane });
+						if (result.processed) idleDelay = 3000;
 						if (
 							!opts.signal?.aborted &&
 							(!result.processed || result.state === "auth_required")
-						)
-							await sleep(3000);
+						) {
+							await sleep(idleDelay);
+							idleDelay = Math.min(idleDelay * 2, 15_000);
+						}
 					} catch (error) {
 						opts.log.error(collectionError(error).message);
 						if (!opts.signal?.aborted) await sleep(10_000);
