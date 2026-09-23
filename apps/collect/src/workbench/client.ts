@@ -1,4 +1,9 @@
 import {
+	type AvatarTask,
+	avatarTaskSchema,
+	type CachedAvatar,
+} from "@signoff/domain/avatars";
+import {
 	type CollectedRepository,
 	type CollectorClaim,
 	collectorClaimSchema,
@@ -114,6 +119,18 @@ export function createCollectionClient(
 			["progress", "batch", "repositories"].includes(action),
 		);
 	return {
+		claimAvatars: async () =>
+			avatarTaskSchema
+				.array()
+				.parse(await request("POST", "/api/collector/avatars/claim")),
+		publishAvatar: (task: AvatarTask, avatar: CachedAvatar) =>
+			request("POST", "/api/collector/avatars/publish", {
+				...task,
+				contentType: avatar.contentType,
+				base64: Buffer.from(avatar.bytes).toString("base64"),
+			}),
+		failAvatar: (task: AvatarTask) =>
+			request("POST", "/api/collector/avatars/fail", task),
 		tickAi: () => request("POST", "/api/ai/tick", { source: "cli" }),
 		recordNetwork: (event: NetworkEvent) =>
 			request("POST", "/api/collector/network", event, true),

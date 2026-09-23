@@ -129,7 +129,7 @@ function GroupSummary({
 					<span className="truncate text-sm font-medium">
 						{group.target
 							? `${group.target.repository.name} #${group.target.number}`
-							: group.projectName}
+							: (group.repository?.name ?? group.projectName)}
 					</span>
 					<Badge
 						variant="outline"
@@ -149,7 +149,7 @@ function GroupSummary({
 				<div className="flex flex-wrap justify-between gap-2 text-xs font-normal text-basalt-muted-foreground">
 					<span>
 						{group.kind === "discover"
-							? "Project PR list"
+							? `${group.projectName} · ${group.depth === "deep" ? "Deep discovery · 90 days" : "Smart discovery"}`
 							: `${group.projectName} · Full PR refresh`}
 					</span>
 					<span className="tabular-nums">{collectorSchedule(group, now)}</span>

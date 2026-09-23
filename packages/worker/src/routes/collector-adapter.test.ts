@@ -37,7 +37,9 @@ test("idle heartbeat and watch scheduler do not discover or revive authenticatio
 		(await request("schedule", { kind: "details", lane: "unknown" })).status,
 	).toBe(400);
 	expect((await request("claim?lane=unknown")).status).toBe(400);
-	const receipt = await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW);
+	const receipt = (
+		await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW)
+	)[0]!;
 	sqlite.raw
 		.query(
 			"UPDATE collection_jobs SET state='auth_required',not_before=? WHERE id=?",
@@ -121,12 +123,11 @@ test("executor endpoints publish one watched PR and its scan receipt, without ex
 	).toBe(409);
 });
 
-test("discovery completes empty repositories, reports failed repositories, and exposes job receipts", async () => {
+test("catalogue discovery fans out into separate empty and failed repository receipts", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
-	await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW);
-	const claim = collectorClaimSchema.parse(
-		await (await request("claim")).json(),
-	);
+	await enqueueDiscovery(sqlite.db, project, [], PR_TEST_NOW, "deep");
+	let claim = collectorClaimSchema.parse(await (await request("claim")).json());
+	const parentId = claim.job.id;
 	const action = (name: string, data: object = {}) =>
 		request(`jobs/${claim.job.id}/${name}`, {
 			...data,
@@ -142,54 +143,67 @@ test("discovery completes empty repositories, reports failed repositories, and e
 			})
 		).status,
 	).toBe(200);
-	expect(
-		(
-			await action("progress", {
-				completedPulls: 0,
-				totalPulls: null,
-				message: "Discovering",
-			})
-		).status,
-	).toBe(200);
-	expect(
-		(
-			await action("publish", {
-				repositoryId: "empty",
-				state: "complete",
-				pullRequestCount: 0,
-				message: "Empty repository",
-			})
-		).status,
-	).toBe(200);
-	expect(
-		(
-			await action("repository-fail", {
-				repositoryId: "denied",
-				message: "403 forbidden",
-			})
-		).status,
-	).toBe(200);
 	expect(await (await action("complete")).json()).toMatchObject({
-		state: "partial",
+		state: "complete",
 	});
-	const get = await app.request(
-		`http://localhost/api/collector/jobs/${claim.job.id}`,
-		{ headers: { host: "localhost" } },
-		{ DB: sqlite.db },
-	);
-	expect(get.status).toBe(200);
-	expect(await get.json()).toMatchObject({ state: "partial" });
-	const publicReceipt = await app.request(
-		`http://localhost/api/query/v1/jobs/${claim.job.id}`,
-		{ headers: { host: "localhost" } },
-		{ DB: sqlite.db },
-	);
-	expect(await publicReceipt.json()).toMatchObject({
-		repositories: [
-			expect.objectContaining({ state: "failed", error: "403 forbidden" }),
-			expect.objectContaining({ state: "succeeded", pullCount: 0 }),
-		],
-	});
+	const query = async (id: string) =>
+		(
+			await app.request(
+				`http://localhost/api/query/v1/jobs/${id}`,
+				{ headers: { host: "localhost" } },
+				{ DB: sqlite.db },
+			)
+		).json() as Promise<{
+			children: string[];
+			state: string;
+			repositories: {
+				state: string;
+				pullCount: number | null;
+				error: string | null;
+			}[];
+		}>;
+	const parent = await query(parentId);
+	expect(parent.children).toHaveLength(2);
+	for (let i = 0; i < 2; i++) {
+		claim = collectorClaimSchema.parse(await (await request("claim")).json());
+		expect(parent.children).toContain(claim.job.id);
+		expect(claim.job.depth).toBe("deep");
+		const id = claim.scope![0]!;
+		expect(
+			(await action("repositories", { repositories: [{ id, name: id }] }))
+				.status,
+		).toBe(200);
+		if (id === "empty")
+			expect(
+				(
+					await action("publish", {
+						repositoryId: id,
+						state: "complete",
+						pullRequestCount: 0,
+						message: "Empty repository",
+					})
+				).status,
+			).toBe(200);
+		else
+			expect(
+				(
+					await action("repository-fail", {
+						repositoryId: id,
+						message: "403 forbidden",
+					})
+				).status,
+			).toBe(200);
+		expect(await (await action("complete")).json()).toMatchObject({
+			state: id === "empty" ? "complete" : "failed",
+		});
+		expect((await query(claim.job.id)).repositories).toEqual([
+			expect.objectContaining(
+				id === "empty"
+					? { state: "succeeded", pullCount: 0 }
+					: { state: "failed", error: "403 forbidden" },
+			),
+		]);
+	}
 });
 
 test("executor failures retain watched cache and API validation is bounded", async () => {
@@ -294,4 +308,34 @@ test("adding a repo preserves watched candidates and cancels stale jobs with a r
 			.query("SELECT state,cancel_reason FROM collection_jobs WHERE id=?")
 			.get(watching.job!.id),
 	).toEqual({ state: "canceled", cancel_reason: "scope_changed" });
+});
+
+test("deep discovery commands scope jobs by canonical repository IDs", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite);
+	seedPull(sqlite, { id: "second", repository: { id: "repo-2", name: "api" } });
+	const response = await app.request(
+		"http://localhost/api/commands/v1/discover",
+		{
+			method: "POST",
+			headers: { host: "localhost", "content-type": "application/json" },
+			body: JSON.stringify({
+				source: "live",
+				projectId: project.id,
+				repositoryIds: ["repo-2"],
+				depth: "deep",
+			}),
+		},
+		{ DB: sqlite.db },
+	);
+	expect(response.status).toBe(202);
+	const receipt = (await response.json()) as { jobs: { id: string }[] };
+	expect(receipt.jobs).toHaveLength(1);
+	expect(
+		sqlite.raw
+			.query(
+				"SELECT scope_json,discovery_depth FROM collection_jobs WHERE id=?",
+			)
+			.get(receipt.jobs[0]!.id),
+	).toEqual({ scope_json: '["repo-2"]', discovery_depth: "deep" });
 });

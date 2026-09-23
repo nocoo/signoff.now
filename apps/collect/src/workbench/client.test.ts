@@ -448,3 +448,43 @@ test("daemon ticks live inference without browser metadata and does not retry am
 	expect(calls[0]?.init?.method).toBe("POST");
 	expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ source: "cli" });
 });
+
+test("avatar collector uses only local endpoints and transports bounded binary data", async () => {
+	const task = {
+		source: "cli",
+		url: "https://dev.azure.com/acme/_api/_common/identityImage?id=alice",
+		organization: "acme",
+		leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
+	};
+	const calls: { url: string; body: unknown }[] = [];
+	const api = createCollectionClient({
+		fetchImpl: async (url, init) => {
+			calls.push({
+				url,
+				body: init?.body ? JSON.parse(String(init.body)) : undefined,
+			});
+			return Response.json(
+				url.endsWith("/claim") ? [task] : { published: true },
+			);
+		},
+	});
+	const claimed = (await api.claimAvatars())[0]!;
+	await api.publishAvatar(claimed, {
+		contentType: "image/png",
+		bytes: new Uint8Array([1, 2, 3]),
+	});
+	await api.failAvatar(claimed);
+	expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+		"/api/collector/avatars/claim",
+		"/api/collector/avatars/publish",
+		"/api/collector/avatars/fail",
+	]);
+	expect(calls[1]?.body).toEqual({
+		...task,
+		contentType: "image/png",
+		base64: "AQID",
+	});
+	expect(
+		calls.every((call) => new URL(call.url).hostname === "127.0.0.1"),
+	).toBe(true);
+});

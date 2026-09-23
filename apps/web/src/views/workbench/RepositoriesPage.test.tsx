@@ -72,6 +72,7 @@ const repository = {
 	lastCollectedAt: NOW - 180,
 };
 const directory: DirectoryData = {
+	blockedContributorKeys: [],
 	source: "cli",
 	revision: 0,
 	members: [],

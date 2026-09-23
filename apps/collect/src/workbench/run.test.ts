@@ -2,9 +2,14 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { demoWorkspace } from "@signoff/domain/demo";
 import { makeWatchRef } from "@signoff/domain/monitoring";
-import { AdoError, type AdoPagedClient } from "../ado/client.ts";
+import { type AdoAvatarClient, AdoError } from "../ado/client.ts";
 import type { CollectionClient } from "./client.ts";
-import { collectionError, runCollectionOnce, watchCollections } from "./run.ts";
+import {
+	collectionError,
+	runAvatarCollection,
+	runCollectionOnce,
+	watchCollections,
+} from "./run.ts";
 
 const time = Math.floor(Date.now() / 1000);
 const demo = demoWorkspace(time);
@@ -54,6 +59,9 @@ const claim: CollectorClaim = {
 function setup() {
 	const events: string[] = [];
 	const api: CollectionClient = {
+		claimAvatars: async () => [],
+		publishAvatar: async () => ({}),
+		failAvatar: async () => ({}),
 		recordNetwork: async () => ({}),
 		tickAi: async () => {
 			events.push("ai");
@@ -113,7 +121,11 @@ function setup() {
 			events.push(`fail:${kind}`);
 		},
 	};
-	const ado: AdoPagedClient = {
+	const ado: AdoAvatarClient = {
+		getAvatar: async () => ({
+			contentType: "image/png",
+			bytes: new Uint8Array([1]),
+		}),
 		get: async () => ({}),
 		getPage: async () => ({ data: {}, continuationToken: null }),
 		post: async () => ({}),
@@ -457,8 +469,14 @@ describe("explicit repository discovery", () => {
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
 		expect(calls).toBe(1);
 	});
-	test("refreshes all PR states even when a saved discovery boundary exists", async () => {
+	test("passes the worker cache boundary to provider discovery", async () => {
 		const deps = discovery();
+		const claimTask = deps.api.claim;
+		deps.api.claim = async (...args) => ({
+			...(await claimTask(...args))!,
+			discoverySince: time - 30 * 86400,
+			discoveryCachedBefore: time - 86400,
+		});
 		deps.api.repositories = async () => [
 			{ repository_id: "empty", state: "queued" },
 			{ repository_id: "broken", state: "queued" },
@@ -468,11 +486,34 @@ describe("explicit repository discovery", () => {
 		deps.ado.getPage = async (value) => {
 			if (!value.includes("/pullrequests")) return original(value);
 			calls.push(new URL(value));
-			return { data: { value: [] }, continuationToken: null };
+			const repositoryId = new URL(value).pathname
+				.split("/repositories/")[1]!
+				.split("/")[0]!;
+			return {
+				data: {
+					value: [
+						{
+							pullRequestId: 1,
+							title: "Cached PR",
+							status: "completed",
+							creationDate: new Date((time - 2 * 86400) * 1000).toISOString(),
+							repository: {
+								id: repositoryId,
+								name: repositoryId,
+								project: { id: "project-guid", name: "Project" },
+							},
+						},
+					],
+				},
+				continuationToken: "older-cached-page",
+			};
 		};
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
-		expect(calls[0]?.searchParams.get("searchCriteria.minTime")).toBeNull();
-		expect(calls[1]?.searchParams.has("searchCriteria.minTime")).toBe(false);
+		expect(calls).toHaveLength(2);
+		expect(calls[0]?.searchParams.get("searchCriteria.minTime")).toBe(
+			new Date((time - 30 * 86400) * 1000).toISOString(),
+		);
+		expect(calls[1]?.searchParams.has("searchCriteria.minTime")).toBe(true);
 	});
 	function discovery() {
 		const deps = setup();
@@ -768,6 +809,10 @@ describe("sample and daemon orchestration", () => {
 			const sleeps: number[] = [];
 			const aiWait = deferred<void>();
 			deps.api.tickAi = () => aiWait.promise;
+			deps.api.claimAvatars = async () => {
+				await aiWait.promise;
+				return [];
+			};
 			if (auth)
 				deps.ado.checkAuth = async () => {
 					throw new AdoError("unauthenticated", "Run az login");
@@ -821,5 +866,50 @@ test("normalizes provider, HTTP and unknown failures without exposing stacks", (
 	expect(collectionError("broken")).toEqual({
 		kind: "invalid_data",
 		message: "Collection failed",
+	});
+});
+
+describe("background avatar collection", () => {
+	const task = {
+		source: "cli" as const,
+		url: "https://dev.azure.com/acme/_api/_common/identityImage?id=alice",
+		organization: "acme",
+		leaseToken: "6135303f-09e3-4d29-b7aa-9f09a958c8a8",
+	};
+	test("an idle cache never initializes provider authentication", async () => {
+		const deps = setup();
+		expect(
+			await runAvatarCollection({
+				...deps,
+				makeAdo: () => {
+					throw Error("Unexpected provider work");
+				},
+			}),
+		).toBe(0);
+	});
+	test("publishes successful images and schedules failure without losing other tasks", async () => {
+		const deps = setup();
+		const failed: string[] = [];
+		const published: string[] = [];
+		deps.api.claimAvatars = async () => [
+			task,
+			{ ...task, url: task.url.replace("alice", "bob") },
+		];
+		deps.ado.getAvatar = async (url) => {
+			if (url.endsWith("alice")) throw new AdoError("server", "Unavailable");
+			return { contentType: "image/png", bytes: new Uint8Array([1, 2, 3]) };
+		};
+		deps.api.publishAvatar = async (image) => {
+			published.push(image.url);
+			return {};
+		};
+		deps.api.failAvatar = async (image) => {
+			failed.push(image.url);
+			return {};
+		};
+		expect(await runAvatarCollection(deps)).toBe(2);
+		expect(failed).toEqual([task.url]);
+		expect(published).toEqual([task.url.replace("alice", "bob")]);
+		expect(deps.events).not.toContain("claim");
 	});
 });

@@ -416,6 +416,7 @@ function PullTableRow({
 				<EntityLabel
 					name={pull.author.name}
 					avatarUrl={pull.author.avatarUrl}
+					source={project.source}
 					size="xs"
 				/>
 			</TableCell>

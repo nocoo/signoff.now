@@ -4,6 +4,7 @@ import {
 	avatarColor,
 	avatarColorHex,
 	avatarInitial,
+	cachedAvatarUrl,
 	contrastTextColor,
 	hashName,
 	usableAvatarUrl,
@@ -238,6 +239,34 @@ describe("usableAvatarUrl", () => {
 		expect(usableAvatarUrl(null)).toBeNull();
 		expect(usableAvatarUrl(undefined)).toBeNull();
 		expect(usableAvatarUrl("")).toBeNull();
+	});
+});
+
+describe("cachedAvatarUrl", () => {
+	it("uses the local image cache with an explicit source and escaped original URL", () => {
+		const original =
+			"https://dev.azure.com/org/_apis/GraphProfile/MemberAvatars/user?size=small&x=1";
+		for (const source of ["cli", "demo"] as const) {
+			const cached = new URL(
+				cachedAvatarUrl(original, source) as string,
+				"https://signoff.dev.hexly.ai",
+			);
+			expect(cached.origin).toBe("https://signoff.dev.hexly.ai");
+			expect(cached.pathname).toBe("/api/avatars");
+			expect(cached.searchParams.get("source")).toBe(
+				source === "demo" ? "sample" : "live",
+			);
+			expect(cached.searchParams.get("url")).toBe(original);
+		}
+	});
+	it.each([
+		undefined,
+		null,
+		"",
+		"javascript:alert(1)",
+		"https://user:secret@example.com/image",
+	])("does not request an invalid avatar (%s)", (original) => {
+		expect(cachedAvatarUrl(original, "cli")).toBeNull();
 	});
 });
 

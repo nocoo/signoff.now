@@ -435,8 +435,10 @@ describe("explicit discovery and refresh commands", () => {
 		expect(
 			(await refreshObserved(sqlite.db, "cli", { all: true }, 100)).jobs,
 		).toEqual([]);
-		const a = await enqueueDiscovery(sqlite.db, project, ["web-app"], 100);
-		const b = await enqueueDiscovery(sqlite.db, project, ["repo-1"], 101);
+		const a = (
+			await enqueueDiscovery(sqlite.db, project, ["web-app"], 100)
+		)[0]!;
+		const b = (await enqueueDiscovery(sqlite.db, project, ["repo-1"], 101))[0]!;
 		expect(a).toMatchObject({
 			kind: "discover",
 			state: "queued",

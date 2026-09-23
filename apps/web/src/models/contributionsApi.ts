@@ -1,6 +1,7 @@
 import type {
 	ContributionFilters,
 	ContributionModule,
+	ContributionReport,
 	ContributionSnapshot,
 } from "@signoff/domain/insights";
 import { apiFetch } from "@/lib/api";
@@ -44,4 +45,17 @@ export async function calculateContribution(
 	if (!snapshot) throw new Error("Statistics scope mismatch");
 	assertScope(snapshot, module, filters);
 	return snapshot;
+}
+
+export async function fetchContributionReport(
+	filters: ContributionFilters,
+	signal: AbortSignal,
+): Promise<ContributionReport> {
+	const { report } = await apiFetch<{ report: ContributionReport }>(
+		`/api/insights/report?filters=${encodeURIComponent(JSON.stringify(filters))}`,
+		{ signal },
+	);
+	if (!report || JSON.stringify(report.filters) !== JSON.stringify(filters))
+		throw new Error("Statistics scope mismatch");
+	return report;
 }

@@ -8,7 +8,11 @@ import {
 	parseRepositoryReference,
 	type WatchRef,
 } from "@signoff/domain/monitoring";
-import { type Project, pullRequestSchema } from "@signoff/domain/workbench";
+import {
+	type DiscoveryDepth,
+	type Project,
+	pullRequestSchema,
+} from "@signoff/domain/workbench";
 import {
 	ACTIVE_JOBS,
 	inProjectScope,
@@ -363,7 +367,9 @@ export async function enqueueDiscovery(
 	project: Project,
 	scope: string[],
 	timestamp: number,
-): Promise<JobReceipt> {
+	depth: DiscoveryDepth = "smart",
+	automatic = false,
+): Promise<JobReceipt[]> {
 	supported(project);
 	const repositories = (
 		await db
@@ -371,29 +377,55 @@ export async function enqueueDiscovery(
 			.bind(project.id)
 			.all<RepositoryRow>()
 	).results;
+	const requested = scope.length
+		? scope
+		: project.repositories?.length
+			? project.repositories
+			: repositories.map((r) => r.repository_id);
 	const normalized = [
 		...new Set(
-			scope.map(
-				(name) =>
-					resolveRepositoryAlias(
-						repositories,
-						name,
-						project.provider,
-					)?.repository_id.toLowerCase() ?? name.toLowerCase(),
-			),
+			requested.map((name) => {
+				const repository = resolveRepositoryAlias(
+					repositories,
+					name,
+					project.provider,
+				);
+				if (
+					!inProjectScope(
+						project,
+						{
+							id: repository?.repository_id ?? name,
+							name: repository?.name ?? name,
+						},
+						repositories.map((r) => r.repository_id),
+						JSON.parse(repository?.aliases_json ?? "[]") as string[],
+					)
+				)
+					throw new MonitoringError(
+						"INVALID_SCOPE",
+						"Repository is outside the registered project scope",
+					);
+				return repository?.repository_id.toLowerCase() ?? name.toLowerCase();
+			}),
 		),
 	].sort();
-	const scopeJson = JSON.stringify(normalized);
-	const scopeKey = scopeJson;
-	const id = crypto.randomUUID();
+	const scopes = normalized.map((id) => [id]);
+	if (!scope.length && !project.repositories?.length) scopes.push([]);
+	const tasks = scopes.map((repositoryScope) => ({
+		id: crypto.randomUUID(),
+		scope: repositoryScope,
+		key: JSON.stringify(repositoryScope),
+		catalogue: Number(repositoryScope.length === 0),
+	}));
+	const taskJson = JSON.stringify(tasks);
 	const results = await db.batch([
 		db
-			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,message)
-      SELECT ?,?,?,?,?,'queued',?,?,?,'list','[]',?,?,'Waiting to discover PRs'
-      WHERE EXISTS (SELECT 1 FROM projects WHERE id=? AND revision=? AND source=?)
-      AND NOT EXISTS (SELECT 1 FROM collection_jobs WHERE project_id=? AND revision=? AND kind='list' AND scope_key=? AND state IN (${ACTIVE_JOBS}))`)
+			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,discovery_depth,catalogue_only,message)
+		SELECT json_extract(t.value,'$.id'),?,?,?,?,'queued',?,?,?,'list','[]',json_extract(t.value,'$.scope'),json_extract(t.value,'$.key'),?,json_extract(t.value,'$.catalogue'),'Waiting to discover repository PRs'
+		FROM json_each(?) t WHERE EXISTS (SELECT 1 FROM projects WHERE id=? AND revision=? AND source=?)
+		AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.project_id=? AND j.revision=? AND j.kind='list' AND j.scope_key=json_extract(t.value,'$.key') AND j.discovery_depth=?
+		 AND (j.state IN (${ACTIVE_JOBS}) OR (?=1 AND j.completed_at>?-(SELECT cooldown_seconds FROM collection_refresh WHERE kind='list'))))`)
 			.bind(
-				id,
 				project.id,
 				project.revision,
 				project.source,
@@ -401,29 +433,31 @@ export async function enqueueDiscovery(
 				timestamp,
 				timestamp,
 				timestamp,
-				scopeJson,
-				scopeKey,
+				depth,
+				taskJson,
 				project.id,
 				project.revision,
 				project.source,
 				project.id,
 				project.revision,
-				scopeKey,
+				depth,
+				Number(automatic),
+				timestamp,
 			),
 		db
-			.prepare(
-				`SELECT * FROM collection_jobs WHERE project_id=? AND revision=? AND kind='list' AND scope_key=? AND state IN (${ACTIVE_JOBS})`,
-			)
-			.bind(project.id, project.revision, scopeKey),
+			.prepare(`SELECT j.* FROM collection_jobs j WHERE j.project_id=? AND j.revision=? AND j.kind='list' AND j.discovery_depth=? AND j.state IN (${ACTIVE_JOBS})
+		 AND j.scope_key IN (SELECT json_extract(value,'$.key') FROM json_each(?)) ORDER BY j.scope_key`)
+			.bind(project.id, project.revision, depth, taskJson),
 	]);
-	const row = results[1]?.results[0] as JobRow | undefined;
-	if (!row)
+	const rows = results[1]?.results as JobRow[];
+	if (!automatic && rows.length !== tasks.length)
 		throw new MonitoringError(
 			"CONFLICT",
 			"Project changed while queuing discovery",
 			409,
 		);
-	return jobReceipt(row, row.id !== id);
+	const inserted = new Set<string>(tasks.map((t) => t.id));
+	return rows.map((row) => jobReceipt(row, !inserted.has(row.id)));
 }
 
 export async function refreshObserved(

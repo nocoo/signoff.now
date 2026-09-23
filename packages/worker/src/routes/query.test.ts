@@ -1799,7 +1799,7 @@ test("collector group queries are read-only, source-scoped and validate cursors"
 	};
 	expect(data.data.map((g) => g.id)).toEqual([
 		`pr:${added.observation.id}`,
-		`project:${project.id}`,
+		`repo:${JSON.stringify([project.id, JSON.stringify([pull.repository.id]), "smart"])}`,
 	]);
 	expect(data.data[1]?.nextRunAt).toBe(
 		new Date(project.createdAt * 1000).toISOString(),
@@ -1815,7 +1815,13 @@ test("collector group queries are read-only, source-scoped and validate cursors"
 				`/api/query/v1/collector/groups?source=live&cursor=${encodeURIComponent(data.data[0]!.id)}`,
 			)
 		).json(),
-	).toMatchObject({ data: [{ id: `project:${project.id}` }] });
+	).toMatchObject({
+		data: [
+			{
+				id: `repo:${JSON.stringify([project.id, JSON.stringify([pull.repository.id]), "smart"])}`,
+			},
+		],
+	});
 	expect(
 		(await request(`/api/query/v1/collector/groups?cursor=${"x".repeat(301)}`))
 			.status,

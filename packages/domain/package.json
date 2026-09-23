@@ -17,7 +17,8 @@
 			"default": "./src/index.ts"
 		},
 		"./ai-readiness": "./src/ai-readiness.ts",
-		"./network": "./src/network.ts"
+		"./network": "./src/network.ts",
+		"./avatars": "./src/avatars.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",

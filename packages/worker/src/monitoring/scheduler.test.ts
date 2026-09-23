@@ -186,12 +186,9 @@ describe("observation scheduler", () => {
 	test("discovery has an independent slot while checks remain bounded", async () => {
 		const project = seedProject(sqlite, { repositories: ["web-app"] });
 		const a = await watch(1);
-		const discovery = await enqueueDiscovery(
-			sqlite.db,
-			project,
-			["web-app"],
-			101,
-		);
+		const discovery = (
+			await enqueueDiscovery(sqlite.db, project, ["web-app"], 101)
+		)[0]!;
 		const first = await claimJob(sqlite.db, 102);
 		expect(first?.job.id).toBe(a.job?.id);
 		expect((await claimJob(sqlite.db, 102, { lane: "discover" }))?.job.id).toBe(

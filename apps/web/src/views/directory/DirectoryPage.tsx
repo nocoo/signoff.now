@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
+import { ContributorProfile } from "@/components/ContributorProfile";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar, EntityLabel } from "@/components/EntityAvatar";
 import { EntityTag } from "@/components/EntityTag";
@@ -200,24 +201,12 @@ function MembersTable({
 					{vm.members.map((member) => (
 						<TableRow key={member.id}>
 							<TableCell className="min-w-44">
-								{member.archivedAt === null ? (
-									<Link
-										to={insightLink(source, {
-											contributor: `member:${member.id}`,
-										})}
-										className="block hover:underline"
-									>
-										<EntityLabel
-											name={member.name}
-											avatarUrl={member.avatarUrl}
-										/>
-									</Link>
-								) : (
-									<EntityLabel
-										name={member.name}
-										avatarUrl={member.avatarUrl}
-									/>
-								)}
+								<ContributorProfile
+									source={source}
+									contributorKey={`member:${member.id}`}
+									name={member.name}
+									avatarUrl={member.avatarUrl}
+								/>
 								{member.archivedAt !== null ? (
 									<Badge variant="secondary" className="mt-1.5">
 										Archived
@@ -284,16 +273,20 @@ function MembersTable({
 }
 
 function AuthorsTable({ vm }: { vm: DirectoryViewModel }) {
+	const blocked = vm.filter.view === "blocked";
 	return (
 		<LayerCard padding="none">
 			<LayerCard.Header>
 				<p className="text-sm text-basalt-muted-foreground">
-					Authors from collected PRs who have not been linked to a followed
-					member.
+					{blocked
+						? "Hidden contributors are excluded from reports. Open a profile to unhide them."
+						: "Authors from collected PRs who have not been linked to a followed member. Open a profile to hide an author."}
 				</p>
 			</LayerCard.Header>
 			<div className="overflow-x-auto">
-				<Table aria-label="Discover PR authors">
+				<Table
+					aria-label={blocked ? "Hidden contributors" : "Discover PR authors"}
+				>
 					<TableHeader>
 						<TableRow>
 							<TableHead>Author</TableHead>
@@ -308,7 +301,9 @@ function AuthorsTable({ vm }: { vm: DirectoryViewModel }) {
 						{vm.authors.map((identity) => (
 							<TableRow key={identity.key}>
 								<TableCell className="min-w-48">
-									<EntityLabel
+									<ContributorProfile
+										source={vm.data?.source ?? "cli"}
+										contributorKey={`identity:${identity.key}`}
 										name={identity.name}
 										avatarUrl={identity.avatarUrl}
 									/>
@@ -331,7 +326,7 @@ function AuthorsTable({ vm }: { vm: DirectoryViewModel }) {
 									<Button
 										size="sm"
 										variant="outline"
-										disabled={vm.busy}
+										disabled={vm.busy || blocked}
 										aria-label={`Follow ${identity.name}`}
 										onClick={() => vm.follow(identity.key)}
 									>
@@ -344,6 +339,57 @@ function AuthorsTable({ vm }: { vm: DirectoryViewModel }) {
 					</TableBody>
 				</Table>
 			</div>
+		</LayerCard>
+	);
+}
+
+function BlockedContributors({ vm }: { vm: DirectoryViewModel }) {
+	const data = vm.data;
+	if (!data) return null;
+	const blocked = new Set(data.blockedContributorKeys);
+	const members = data.members.filter((member) =>
+		blocked.has(`member:${member.id}`),
+	);
+	const rows = [
+		...members.map((member) => ({ ...member, key: `member:${member.id}` })),
+		...data.identities
+			.filter(
+				(identity) =>
+					blocked.has(`identity:${identity.key}`) &&
+					!members.some((member) => member.id === identity.memberId),
+			)
+			.map((identity) => ({ ...identity, key: `identity:${identity.key}` })),
+	].filter((row) =>
+		row.name
+			.toLocaleLowerCase()
+			.includes(vm.filter.keyword.trim().toLocaleLowerCase()),
+	);
+	return (
+		<LayerCard className="space-y-3">
+			<p className="text-sm text-basalt-muted-foreground">
+				Hidden contributors are excluded from reports. Open a profile to unhide
+				them.
+			</p>
+			{rows.length ? (
+				<ul
+					className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+					aria-label="Hidden contributors"
+				>
+					{rows.map((row) => (
+						<li key={row.key}>
+							<ContributorProfile
+								source={data.source}
+								contributorKey={row.key}
+								name={row.name}
+								avatarUrl={row.avatarUrl}
+								secondary="Hidden"
+							/>
+						</li>
+					))}
+				</ul>
+			) : (
+				<p className="text-sm">No hidden contributors</p>
+			)}
 		</LayerCard>
 	);
 }
@@ -394,27 +440,15 @@ function TeamsGrid({
 										.filter((member) => team.memberIds.includes(member.id))
 										.map((member) => (
 											<li key={member.id}>
-												{member.archivedAt === null ? (
-													<Link
-														to={insightLink(source, {
-															contributor: `member:${member.id}`,
-														})}
-														className="block hover:underline"
-													>
-														<EntityLabel
-															name={member.name}
-															avatarUrl={member.avatarUrl}
-															size="sm"
-														/>
-													</Link>
-												) : (
-													<EntityLabel
-														name={member.name}
-														avatarUrl={member.avatarUrl}
-														size="sm"
-														secondary="Archived"
-													/>
-												)}
+												<ContributorProfile
+													source={source}
+													contributorKey={`member:${member.id}`}
+													name={member.name}
+													avatarUrl={member.avatarUrl}
+													secondary={
+														member.archivedAt !== null ? "Archived" : undefined
+													}
+												/>
 											</li>
 										))}
 								</ul>
@@ -513,6 +547,7 @@ function DirectoryFilters({
 					options={[
 						{ value: "followed", label: "Followed members" },
 						{ value: "discover", label: "Discover authors" },
+						{ value: "blocked", label: "Hidden" },
 					]}
 				/>
 			) : null}
@@ -582,12 +617,64 @@ function DirectoryFilters({
 	);
 }
 
+function DirectoryContent({
+	vm,
+	kind,
+	source,
+}: {
+	vm: DirectoryViewModel;
+	kind: DirectoryKind;
+	source: DataSource;
+}) {
+	const page = pages[kind];
+	const discovering = kind === "members" && vm.filter.view === "discover";
+	const empty = (discovering ? vm.authors : vm[kind]).length === 0;
+	if (vm.filter.view === "blocked" && kind === "members")
+		return <BlockedContributors vm={vm} />;
+	if (vm.loading)
+		return (
+			<LayerCard>
+				<LayerCard.Loading label="Loading directory" />
+			</LayerCard>
+		);
+	if (empty)
+		return (
+			<LayerCard padding="none">
+				<EmptyState
+					icon={discovering ? UserPlus : page.icon}
+					title={
+						discovering ? "No unfollowed authors found" : `No ${kind} found`
+					}
+					description={
+						discovering
+							? "Authors appear here after their PRs are collected. Search by name, email, or organization."
+							: kind === "members"
+								? "Discover PR authors to follow, add a member, or adjust the filters."
+								: `Add a ${page.noun} or adjust the filters to get started.`
+					}
+					action={
+						kind === "members" && !discovering ? (
+							<Button
+								variant="outline"
+								onClick={() => vm.setFilter({ view: "discover", keyword: "" })}
+							>
+								Discover authors
+							</Button>
+						) : undefined
+					}
+				/>
+			</LayerCard>
+		);
+	if (discovering) return <AuthorsTable vm={vm} />;
+	if (kind === "members") return <MembersTable vm={vm} source={source} />;
+	if (kind === "teams") return <TeamsGrid vm={vm} source={source} />;
+	return <TagsTable vm={vm} source={source} />;
+}
+
 function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 	const source = useWorkbench().filter.source;
 	const vm = useDirectoryViewModel(source, kind);
 	const page = pages[kind];
-	const discovering = kind === "members" && vm.filter.view === "discover";
-	const empty = (discovering ? vm.authors : vm[kind]).length === 0;
 	return (
 		<div className="space-y-5">
 			<PageHeader
@@ -627,47 +714,7 @@ function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 				</AlertBanner>
 			) : null}
 			<DirectoryFilters vm={vm} kind={kind} />
-			{vm.loading ? (
-				<LayerCard>
-					<LayerCard.Loading label="Loading directory" />
-				</LayerCard>
-			) : empty ? (
-				<LayerCard padding="none">
-					<EmptyState
-						icon={discovering ? UserPlus : page.icon}
-						title={
-							discovering ? "No unfollowed authors found" : `No ${kind} found`
-						}
-						description={
-							discovering
-								? "Authors appear here after their PRs are collected. Search by name, email, or organization."
-								: kind === "members"
-									? "Discover PR authors to follow, add a member, or adjust the filters."
-									: `Add a ${page.noun} or adjust the filters to get started.`
-						}
-						action={
-							kind === "members" && !discovering ? (
-								<Button
-									variant="outline"
-									onClick={() =>
-										vm.setFilter({ view: "discover", keyword: "" })
-									}
-								>
-									Discover authors
-								</Button>
-							) : undefined
-						}
-					/>
-				</LayerCard>
-			) : discovering ? (
-				<AuthorsTable vm={vm} />
-			) : kind === "members" ? (
-				<MembersTable vm={vm} source={source} />
-			) : kind === "teams" ? (
-				<TeamsGrid vm={vm} source={source} />
-			) : (
-				<TagsTable vm={vm} source={source} />
-			)}
+			<DirectoryContent vm={vm} kind={kind} source={source} />
 			<DirectoryDialog vm={vm} />
 		</div>
 	);

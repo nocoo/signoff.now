@@ -1,7 +1,8 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useContext } from "react";
 import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
+import { AvatarSourceContext } from "@/components/EntityAvatar";
 import { loadPulls } from "@/models/monitoringApi";
 import { queryFixture } from "@/test/monitoring-fixture";
 import { useWorkbench, WorkbenchProvider } from "./WorkbenchProvider";
@@ -24,6 +25,7 @@ it("shares one workbench and source selection between the global header and rout
 			header: useWorkbench(),
 			page: useWorkbench(),
 			navigate: useNavigate(),
+			avatarSource: useContext(AvatarSourceContext),
 		}),
 		{
 			wrapper: ({ children }: { children: ReactNode }) => (
@@ -38,6 +40,7 @@ it("shares one workbench and source selection between the global header and rout
 	expect(loadPulls).toHaveBeenCalledOnce();
 	act(() => result.current.header.setFilter({ source: "cli" }));
 	expect(result.current.page.filter.source).toBe("cli");
+	expect(result.current.avatarSource).toBe("cli");
 	act(() => result.current.navigate("/projects"));
 	expect(result.current.page.filter.source).toBe("cli");
 	act(() =>
@@ -48,6 +51,7 @@ it("shares one workbench and source selection between the global header and rout
 	);
 	act(() => result.current.navigate("/"));
 	expect(result.current.header.filter.source).toBe("demo");
+	expect(result.current.avatarSource).toBe("demo");
 	expect(result.current.header.filter.source).toBe("demo");
 });
 

@@ -308,33 +308,53 @@ async function executeSampleDiscovery(project: Project) {
 	expect(response.status).toBe(202);
 	const job = collectionJobSchema.parse(await response.json());
 	const now = Math.floor(Date.now() / 1000);
-	const claim = (await claimJob(sqlite.db, now, { jobId: job.id }))!;
-	const pulls = makeDemoPulls(project, now);
-	const repos = [
-		...new Map(pulls.map((pr) => [pr.repository.id, pr.repository])).values(),
-	];
-	await registerJobRepositories(
-		sqlite.db,
-		job.id,
-		claim.leaseToken,
-		repos,
-		now,
-	);
-	for (const repo of repos) {
-		const items = pulls.filter((pr) => pr.repository.id === repo.id);
-		await stagePulls(sqlite.db, job.id, claim.leaseToken, items, now);
-		await publishRepository(
+	expect(job.kind).toBe("list");
+	for (;;) {
+		const claim = await claimJob(sqlite.db, now, {
+			kind: "list",
+			source: "demo",
+		});
+		if (!claim) break;
+		const pulls = makeDemoPulls(project, now).filter(
+			(pull) =>
+				!claim.scope?.length ||
+				claim.scope.some((value) =>
+					[pull.repository.id, pull.repository.name].includes(value),
+				),
+		);
+		const repos = [
+			...new Map(pulls.map((pr) => [pr.repository.id, pr.repository])).values(),
+		];
+		const plan = await registerJobRepositories(
 			sqlite.db,
-			job.id,
+			claim.job.id,
 			claim.leaseToken,
-			repo.id,
-			items.length,
-			"complete",
-			"Discovered sample",
+			repos,
 			now,
 		);
+		for (const repo of repos) {
+			if (
+				plan.some(
+					(entry) =>
+						entry.repository_id === repo.id && entry.state === "succeeded",
+				)
+			)
+				continue;
+			const items = pulls.filter((pr) => pr.repository.id === repo.id);
+			await stagePulls(sqlite.db, claim.job.id, claim.leaseToken, items, now);
+			await publishRepository(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				repo.id,
+				items.length,
+				"complete",
+				"Discovered sample",
+				now,
+			);
+		}
+		await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now);
 	}
-	await completeJob(sqlite.db, job.id, claim.leaseToken, now);
 }
 async function scannedProject() {
 	const project = await insertDemoProject();
@@ -596,7 +616,7 @@ describe("explicit discovery compatibility route", () => {
 		await executeSampleDiscovery(project);
 		const after = await snapshot();
 		expect(after.pullRequests).toHaveLength(6);
-		expect(after.scans).toHaveLength(1);
+		expect(after.scans).toHaveLength(3);
 		expect(after.projects[0]?.revision).toBe(project.revision);
 	});
 	test("requires local sample mode, valid bodies and explicit discovery", async () => {

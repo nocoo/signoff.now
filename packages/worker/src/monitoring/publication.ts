@@ -87,6 +87,7 @@ export async function registerJobRepositories(
 					knownIds,
 				);
 	if (
+		(job.kind === "list" && !job.catalogue_only && repositories.length > 1) ||
 		new Set(repositories.map((r) => r.id.toLowerCase())).size !==
 			repositories.length ||
 		repositories.some(
@@ -113,9 +114,10 @@ export async function registerJobRepositories(
 	const results = await db.batch([
 		db
 			.prepare(
-				`UPDATE collection_jobs SET repositories_resolved=1,scope_json=?,updated_at=?,lease_expires_at=? WHERE id=? AND (repositories_resolved=0 OR scope_json=?) AND ${RUNNING_JOB}`,
+				`UPDATE collection_jobs SET repositories_resolved=1,scope_key=CASE WHEN catalogue_only=1 THEN scope_key ELSE json_array(lower(json_extract(?, '$[0].id'))) END,scope_json=?,updated_at=?,lease_expires_at=? WHERE id=? AND (repositories_resolved=0 OR scope_json=?) AND ${RUNNING_JOB}`,
 			)
 			.bind(
+				JSON.stringify(repositories),
 				JSON.stringify(
 					repositories.map((r) => r.id).sort((a, b) => a.localeCompare(b)),
 				),
@@ -131,9 +133,10 @@ export async function registerJobRepositories(
 			),
 		db
 			.prepare(`INSERT INTO collection_job_repositories(job_id,repository_id,name,project_external_id,state)
-      SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),'queued'
+      SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),CASE WHEN (SELECT catalogue_only FROM collection_jobs WHERE id=?)=1 THEN 'succeeded' ELSE 'queued' END
       FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=? ON CONFLICT(job_id,repository_id) DO NOTHING`)
 			.bind(
+				id,
 				id,
 				JSON.stringify(repositories),
 				id,
@@ -164,6 +167,24 @@ export async function registerJobRepositories(
 				),
 				job.kind,
 			),
+		db
+			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,discovery_depth,message)
+		 SELECT lower(hex(randomblob(16))),parent.project_id,parent.revision,parent.source,parent.project_json,'queued',?,?,?,'list','[]',
+		 json_array(lower(r.repository_id)),json_array(lower(r.repository_id)),parent.discovery_depth,'Waiting to discover repository PRs'
+		 FROM collection_jobs parent JOIN collection_job_repositories r ON r.job_id=parent.id
+		 WHERE parent.id=? AND parent.catalogue_only=1 AND ${RUNNING_JOB}
+		 AND NOT EXISTS (SELECT 1 FROM collection_jobs child WHERE child.project_id=parent.project_id AND child.revision=parent.revision
+		 AND child.kind='list' AND child.scope_key=json_array(lower(r.repository_id)) AND child.discovery_depth=parent.discovery_depth
+		 AND (child.state IN ('queued','running','auth_required') OR child.requested_at>=parent.requested_at))`)
+			.bind(timestamp, timestamp, timestamp, id, id, token, timestamp),
+		db
+			.prepare(`INSERT INTO collection_job_children(job_id,child_id)
+		 SELECT parent.id,child.id FROM collection_jobs parent JOIN collection_job_repositories r ON r.job_id=parent.id
+		 JOIN collection_jobs child ON child.project_id=parent.project_id AND child.revision=parent.revision AND child.kind='list'
+		 AND child.scope_key=json_array(lower(r.repository_id)) AND child.discovery_depth=parent.discovery_depth
+		 AND (child.state IN ('queued','running','auth_required') OR child.requested_at>=parent.requested_at)
+		 WHERE parent.id=? AND parent.catalogue_only=1 AND ${RUNNING_JOB} ON CONFLICT DO NOTHING`)
+			.bind(id, id, token, timestamp),
 	]);
 	if ((results[0]?.meta.changes ?? 0) < 1)
 		throw new MonitoringError(
@@ -441,10 +462,17 @@ export async function publishRepository(
 			.bind(timestamp, id, repositoryId, ...receiptBinds),
 		db
 			.prepare(
-				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_state='complete',discovery_message=NULL
+				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_cursor_json=json_object('createdBefore',?),discovery_state='complete',discovery_message=NULL
         WHERE project_id=? AND repository_id=? AND ?='list' AND ${receipt}`,
 			)
-			.bind(timestamp, project.id, repositoryId, job.kind, ...receiptBinds),
+			.bind(
+				timestamp,
+				job.started_at,
+				project.id,
+				repositoryId,
+				job.kind,
+				...receiptBinds,
+			),
 		// A saved watch ref is a target, not a new provider observation. Publish
 		// refreshed metadata only alongside the validated PR snapshot and receipt.
 		db
@@ -609,7 +637,7 @@ export async function completeJob(
       WHEN EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=collection_jobs.id AND r.state='succeeded') THEN 'partial' ELSE 'failed' END,
       updated_at=?,completed_at=?,completed_pulls=COALESCE((SELECT SUM(pull_count) FROM collection_job_repositories WHERE job_id=collection_jobs.id),0),
       total_pulls=(SELECT SUM(pull_count) FROM collection_job_repositories WHERE job_id=collection_jobs.id),
-      message='Project PR list refreshed',phase='finished',lease_token=NULL,lease_expires_at=NULL
+      message=CASE WHEN catalogue_only=1 THEN 'Repository discovery tasks queued' ELSE 'Repository PR list refreshed' END,phase='finished',lease_token=NULL,lease_expires_at=NULL
       WHERE id=? AND repositories_resolved=1 AND ${RUNNING_JOB}
       AND NOT EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=collection_jobs.id AND r.state IN ('queued','running','canceled'))`)
 		.bind(timestamp, timestamp, id, id, token, timestamp)

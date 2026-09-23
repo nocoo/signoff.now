@@ -53,7 +53,13 @@ function makeStatement(db: Database, sql: string, args: unknown[] = []) {
 		sql,
 		args,
 		bind(...a: unknown[]) {
-			return makeStatement(db, sql, a);
+			return makeStatement(
+				db,
+				sql,
+				a.map((value) =>
+					value instanceof ArrayBuffer ? new Uint8Array(value) : value,
+				),
+			);
 		},
 		async all() {
 			const results = db.query(sql).all(...(args as never[]));

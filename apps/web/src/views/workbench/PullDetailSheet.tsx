@@ -18,6 +18,7 @@ import {
 	AccordionItem,
 	AccordionTrigger,
 } from "@nocoo/basalt/components/accordion";
+import type { DataSource } from "@signoff/domain/insights";
 import {
 	approvalCount,
 	type Build,
@@ -340,6 +341,8 @@ function PullDetail({
 					<div className="flex flex-wrap items-center gap-3">
 						<EntityLabel
 							name={pull.author.name}
+							avatarUrl={pull.author.avatarUrl}
+							source={project.source}
 							size="sm"
 							className="text-xs"
 							secondary={`Opened ${relativeTime(pull.createdAt)}`}
@@ -475,7 +478,7 @@ function PullDetail({
 								<StageLegend />
 							</div>
 						</section>
-						<Reviewers pull={pull} />
+						<Reviewers pull={pull} source={project.source} />
 						<section>
 							<h3 className="mb-3 text-sm font-semibold">About this change</h3>
 							{loading ? (
@@ -683,7 +686,13 @@ function PullDetail({
 	);
 }
 
-function Reviewers({ pull }: { pull: PullRequest }) {
+function Reviewers({
+	pull,
+	source,
+}: {
+	pull: PullRequest;
+	source: DataSource;
+}) {
 	const votes = {
 		approved: { label: "Approved", variant: "success" },
 		changes_requested: { label: "Changes requested", variant: "error" },
@@ -707,6 +716,8 @@ function Reviewers({ pull }: { pull: PullRequest }) {
 						>
 							<EntityLabel
 								name={reviewer.name}
+								avatarUrl={reviewer.avatarUrl}
+								source={source}
 								size="sm"
 								className="text-xs"
 								secondary={

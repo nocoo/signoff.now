@@ -3,7 +3,11 @@ import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
 import { advanceDemoPull, makeDemoPulls } from "@signoff/domain/demo";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import type { CollectionLane, PullRequest } from "@signoff/domain/workbench";
-import { AdoError, type AdoPagedClient } from "../ado/client.ts";
+import {
+	type AdoAvatarClient,
+	AdoError,
+	type AdoPagedClient,
+} from "../ado/client.ts";
 import type { Logger } from "../logger.ts";
 import { isPipelineClientError } from "../pipeline/client.ts";
 import {
@@ -101,9 +105,20 @@ async function sampleTask(
 	const repos = [
 		...new Map(pulls.map((p) => [p.repository.id, p.repository])).values(),
 	];
-	await api.repositories(claim, repos);
+	const planned = await api.repositories(claim, repos);
 	for (const repo of repos) {
-		const selected = pulls.filter((p) => p.repository.id === repo.id);
+		if (
+			planned.some(
+				(r) => r.repository_id === repo.id && r.state === "succeeded",
+			)
+		)
+			continue;
+		const selected = pulls.filter(
+			(p) =>
+				p.repository.id === repo.id &&
+				(claim.discoverySince === undefined ||
+					p.createdAt >= claim.discoverySince),
+		);
 		await api.upload(claim, selected);
 		const result = await api.publish(
 			claim,
@@ -238,6 +253,8 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 						claim.project,
 						repo,
 						Date.now() / 1000,
+						claim.discoverySince,
+						claim.discoveryCachedBefore,
 					)) {
 						check();
 						await api.upload(claim, pulls);
@@ -344,8 +361,34 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 	}
 }
 
+export async function runAvatarCollection(
+	opts: Pick<RunOptions, "api" | "log" | "signal"> & {
+		makeAdo: () => AdoAvatarClient;
+	},
+): Promise<number> {
+	const tasks = await opts.api.claimAvatars();
+	await Promise.all(
+		tasks.map(async (task) => {
+			try {
+				opts.signal?.throwIfAborted();
+				const image = await opts
+					.makeAdo()
+					.getAvatar(task.url, task.organization);
+				await opts.api.publishAvatar(task, image);
+			} catch {
+				await opts.api.failAvatar(task).catch(() => undefined);
+				opts.log.warn("Avatar refresh failed; the cached image is preserved.");
+			}
+		}),
+	);
+	return tasks.length;
+}
+
 export async function watchCollections(
-	opts: RunOptions & { sleep?: (ms: number) => Promise<unknown> },
+	opts: RunOptions & {
+		makeAdo: () => AdoAvatarClient;
+		sleep?: (ms: number) => Promise<unknown>;
+	},
 ): Promise<void> {
 	const sleep =
 		opts.sleep ??
@@ -354,31 +397,38 @@ export async function watchCollections(
 				if (!opts.signal?.aborted) throw error;
 			}));
 	await Promise.all(
-		(["checks", "checks", "discover", "ai"] as const).map(async (lane) => {
-			while (!opts.signal?.aborted) {
-				try {
-					if (lane === "ai") {
-						await opts.api.tickAi();
-						if (!opts.signal?.aborted) await sleep(3000);
-						continue;
+		(["checks", "checks", "discover", "ai", "avatars"] as const).map(
+			async (lane) => {
+				while (!opts.signal?.aborted) {
+					try {
+						if (lane === "avatars") {
+							const count = await runAvatarCollection(opts);
+							if (!opts.signal?.aborted) await sleep(count ? 1000 : 60_000);
+							continue;
+						}
+						if (lane === "ai") {
+							await opts.api.tickAi();
+							if (!opts.signal?.aborted) await sleep(3000);
+							continue;
+						}
+						await opts.api.heartbeat("ready", "Watching the shared PR list");
+						await opts.api.schedule(
+							lane === "discover" ? "list" : "details",
+							lane,
+						);
+						if (opts.signal?.aborted) break;
+						const result = await runCollectionOnce({ ...opts, lane });
+						if (
+							!opts.signal?.aborted &&
+							(!result.processed || result.state === "auth_required")
+						)
+							await sleep(3000);
+					} catch (error) {
+						opts.log.error(collectionError(error).message);
+						if (!opts.signal?.aborted) await sleep(10_000);
 					}
-					await opts.api.heartbeat("ready", "Watching the shared PR list");
-					await opts.api.schedule(
-						lane === "discover" ? "list" : "details",
-						lane,
-					);
-					if (opts.signal?.aborted) break;
-					const result = await runCollectionOnce({ ...opts, lane });
-					if (
-						!opts.signal?.aborted &&
-						(!result.processed || result.state === "auth_required")
-					)
-						await sleep(3000);
-				} catch (error) {
-					opts.log.error(collectionError(error).message);
-					if (!opts.signal?.aborted) await sleep(10_000);
 				}
-			}
-		}),
+			},
+		),
 	);
 }

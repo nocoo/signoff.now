@@ -1,12 +1,12 @@
 # 17 — Query 周期、采集周期与数据新鲜度
 
-> Current implementation, 2026-09-21. Web and CLI share one watch list. Project discovery and watched PR refresh use independent completion-based cooldowns.
+> Current implementation, 2026-09-21. Web and CLI share one watch list. Repository discovery and watched PR refresh use independent completion-based cooldowns.
 
 ## 1. Independent clocks
 
 | Clock | Default | Effect |
 | --- | --- | --- |
-| Project discovery | 10 minutes after each project's completed attempt | Paginate repository PR lists and update all returned PR states. |
+| Project discovery | 10 minutes after each repository/depth completed attempt | Smart discovery reads the first page and continues only to its successful cached boundary; deep discovery covers 90 days. |
 | Watched PR refresh | 5 minutes after each PR's completed attempt | Fetch the full PR state, checks, builds and stages. |
 | Jev readiness | 5 minutes after each PR request completes | The daemon evaluates only changed live watched PRs, even with the dashboard closed. Configure in Connector details. |
 | Jev scheduler polling | 3 seconds after each awaited local tick; 10 seconds after transport errors | Independent of ADO lanes. Unchanged decision fingerprints make no Jev request. |
@@ -30,7 +30,7 @@ Closing the webpage does not stop the daemon. Hidden query blocks suspend automa
 10:06:20  PR A becomes eligible, subject to available worker capacity.
 ```
 
-Cooldown is a minimum wait after completion, not a freshness SLA. Task duration, queues and provider availability can make data older. Every discovery fully rereads accessible lists, including old and terminal PRs; only watched PRs receive periodic detailed checks. The separate 30-second status lane has been removed.
+Cooldown is a minimum wait after completion, not a freshness SLA. Task duration, queues and provider availability can make data older. Initial and deep discovery cover 90 days. Smart discovery always reads the first page, then stops after the page crossing its last successful creation-time boundary. It drains timestamp ties and continues full paging if observed order is not newest-first. Its provider window overlaps 30 days before the last successful discovery, capped at 90 days, to cover downtime. Older cached PRs remain readable. Only watched PRs receive periodic detailed checks. The separate 30-second status lane has been removed.
 
 ## 3. 时间字段的唯一含义
 
@@ -100,7 +100,7 @@ ADO `targetSha` 仍来自源 PR 的 `lastMergeTargetCommit`，不是另外读取
 ## 6. 需要锁定的时间测试
 
 - 固定假时钟：相同快照连续查询 100 次，只有 `generatedAt` 和派生年龄变化，观测时间、队列和 provider 调用数不变。
-- Slow tasks: each PR refresh and each project discovery starts its cooldown after completion. Scheduler ticks and browser polling never bypass it.
+- Slow tasks: each PR refresh and each repository/depth discovery starts its cooldown after completion. Scheduler ticks and browser polling never bypass it.
 - 慢速认证、多个仓库发现及摘要读取期间 PR 新建 / 合并：摘要记录实际请求开始，内部完成时间覆盖响应期间的源变化；较旧摘要不能因补全检查耗时而冒充更新，终态通过真实 Worker 发布并淘汰观察。
 - 持续发布与慢网页 Query：同来源版本变化合并重读，有效在途结果仍能落地；命令前旧读取不能覆盖成功回执，来源切换的旧结果不串入新页。
 - 页面隐藏：停止 Query，观察项与后台刷新保持不变；重新进入前台立即读缓存，不发送观察增删或页面采集心跳。
@@ -112,3 +112,5 @@ ADO `targetSha` 仍来自源 PR 的 `lastMergeTargetCommit`，不是另外读取
 浏览器的读取状态机、调度时钟和显示用时钟分别测试；不需要让测试真实等待两分钟或五分钟。
 
 Readiness architecture: [Evidence-driven readiness](21-readiness-architecture.md). The shared state machine exposes `readiness.phase` (collecting, queued, evaluating, decided, error, stopped) and judgment provenance (`model`, `rubric`, `fingerprint`, `reusedAt`). `evaluatedAt` is the original Jev judgment time; cache reuse does not claim a new inference. Stage details and observation clocks alone do not trigger inference.
+
+Contribution report and discovery contracts: [Contribution reports](22-contribution-reports.md).

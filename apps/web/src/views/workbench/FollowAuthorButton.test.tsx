@@ -31,6 +31,7 @@ const key = identityKey(
 );
 const directory: DirectoryData = {
 	source: "cli",
+	blockedContributorKeys: [],
 	revision: 42,
 	projects: [],
 	repositories: [],

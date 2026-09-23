@@ -1348,6 +1348,8 @@ export function publicJob(
 		projectId: row.project_id,
 		projectRevision: row.revision,
 		scope: JSON.parse(row.scope_json) as string[],
+		depth: row.kind === "list" ? row.discovery_depth : undefined,
+		catalogueOnly: row.catalogue_only === 1,
 		reason: row.cancel_reason,
 		error: row.error_kind,
 		message: row.message,
@@ -1391,11 +1393,19 @@ export async function queryJob(
 				"SELECT * FROM collection_job_repositories WHERE job_id=? ORDER BY repository_id",
 			)
 			.bind(id),
+		db
+			.prepare(
+				"SELECT child_id FROM collection_job_children WHERE job_id=? ORDER BY child_id",
+			)
+			.bind(id),
 	]);
 	const job = results[0]?.results[0] as JobRow | undefined;
 	if (!job) throw new MonitoringError("NOT_FOUND", "Job not found", 404);
 	return {
 		...publicJob(job, (results[1]?.results ?? []) as JobRepositoryRow[]),
+		children: (results[2]?.results as { child_id: string }[]).map(
+			(row) => row.child_id,
+		),
 		events: JSON.parse(job.events_json),
 		result: job.result_json ? JSON.parse(job.result_json) : null,
 	};
@@ -1421,9 +1431,22 @@ export async function queryJobHistory(
 		if (filters.group.startsWith("pr:")) {
 			where.push("j.observation_id=?");
 			values.push(filters.group.slice(3));
-		} else if (filters.group.startsWith("project:")) {
-			where.push("j.project_id=? AND j.kind='list'");
-			values.push(filters.group.slice(8));
+		} else if (filters.group.startsWith("repo:")) {
+			let group: [string, string, "smart" | "deep"];
+			try {
+				group = z
+					.tuple([z.string(), z.string(), z.enum(["smart", "deep"])])
+					.parse(JSON.parse(filters.group.slice(5)));
+			} catch {
+				throw new MonitoringError(
+					"INVALID_ARGUMENT",
+					"Invalid collection group",
+				);
+			}
+			where.push(
+				"j.project_id=? AND j.scope_key=? AND j.discovery_depth=? AND j.kind='list'",
+			);
+			values.push(...group);
 		} else
 			throw new MonitoringError("INVALID_ARGUMENT", "Invalid collection group");
 	}
@@ -1487,7 +1510,7 @@ export async function queryCollector(
 			.prepare(
 				`WITH latest AS (
         SELECT *, (SELECT ref_json FROM pr_observations o WHERE o.id=collection_jobs.observation_id) ref_json,ROW_NUMBER() OVER (
-          PARTITION BY project_id,kind,summary_only,observation_id,scope_key ORDER BY requested_at DESC,rowid DESC
+          PARTITION BY project_id,kind,summary_only,observation_id,scope_key,discovery_depth ORDER BY requested_at DESC,rowid DESC
         ) AS newest FROM collection_jobs WHERE source=? AND summary_only=0 AND (kind='list' OR EXISTS (
           SELECT 1 FROM pr_observations o WHERE o.id=collection_jobs.observation_id
           AND o.active=1 AND o.generation=collection_jobs.observation_generation))

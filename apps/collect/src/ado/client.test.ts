@@ -797,3 +797,103 @@ describe("timeouts and the retry budget", () => {
 		expect(f.calls).toHaveLength(2);
 	});
 });
+
+describe("authenticated avatar download", () => {
+	const url = "https://dev.azure.com/acme/_api/_common/identityImage?id=alice";
+	test("uses the existing token and buffers a bounded raster image", async () => {
+		let tokenReads = 0;
+		const calls: { url: string; init: unknown }[] = [];
+		const ado = createAdoClient({
+			exec: async (...args) => {
+				tokenReads++;
+				return okExec(...args);
+			},
+			fetchFn: async (target, init) => {
+				calls.push({ url: target, init });
+				return target === url
+					? new Response(new Uint8Array([1, 2, 3]), {
+							headers: { "content-type": "image/png" },
+						})
+					: Response.json({ ok: true });
+			},
+		});
+		await ado.get("https://dev.azure.com/acme/_apis/projects");
+		expect(await ado.getAvatar(url, "acme")).toEqual({
+			contentType: "image/png",
+			bytes: new Uint8Array([1, 2, 3]),
+		});
+		expect(tokenReads).toBe(1);
+		expect(calls[1]?.init).toMatchObject({
+			redirect: "manual",
+			headers: { authorization: "Bearer tok-1" },
+		});
+	});
+	test.each([
+		"http://127.0.0.1/private",
+		"https://dev.azure.com/other/_api/_common/identityImage?id=alice",
+		"https://dev.azure.com/acme/_api/_common/identityImage?id=alice&redirect=evil",
+		"https://dev.azure.com.evil.example/acme/_api/_common/identityImage?id=alice",
+	])("rejects an untrusted URL before acquiring credentials: %s", async (target) => {
+		const ado = createAdoClient({
+			exec: async () => {
+				throw new Error("Credentials must not be requested");
+			},
+			fetchFn: async () => {
+				throw new Error("Network must not be requested");
+			},
+		});
+		await expect(ado.getAvatar(target, "acme")).rejects.toMatchObject({
+			kind: "bad_request",
+		});
+	});
+	test.each([
+		"text/html",
+		"image/svg+xml",
+	])("rejects unsafe content type %s", async (contentType) => {
+		const ado = createAdoClient({
+			exec: okExec,
+			fetchFn: async () =>
+				new Response("body", { headers: { "content-type": contentType } }),
+		});
+		await expect(ado.getAvatar(url, "acme")).rejects.toMatchObject({
+			kind: "bad_response",
+		});
+	});
+	test("bounds streamed bodies even without content-length", async () => {
+		let canceled = false;
+		const stream = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				controller.enqueue(new Uint8Array(130 * 1024));
+			},
+			cancel() {
+				canceled = true;
+			},
+		});
+		const ado = createAdoClient({
+			exec: okExec,
+			fetchFn: async () =>
+				new Response(stream, { headers: { "content-type": "image/png" } }),
+		});
+		await expect(ado.getAvatar(url, "acme")).rejects.toMatchObject({
+			kind: "bad_response",
+		});
+		expect(canceled).toBe(true);
+	});
+	test("does not follow avatar redirects or leak the bearer to another host", async () => {
+		const calls: string[] = [];
+		const ado = createAdoClient({
+			exec: okExec,
+			fetchFn: async (target) => {
+				calls.push(target);
+				return new Response(null, {
+					status: 302,
+					headers: { location: "https://evil.example" },
+				});
+			},
+		});
+		await expect(ado.getAvatar(url, "acme")).rejects.toMatchObject({
+			kind: "unauthenticated",
+		});
+		expect(calls).toEqual([url, url]);
+	});
+});

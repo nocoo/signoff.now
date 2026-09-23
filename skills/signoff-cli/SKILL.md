@@ -78,7 +78,7 @@ bun "$SIGNOFF_CLI" refresh --pr '<PR URL>'
 
 Registration itself does not collect or watch; the daemon automatically discovers enabled projects when due. Unresolved repository identity requires successful explicit discovery before adding a PR URL; known repositories can watch a PR whose snapshot is not cached yet. Draft can be watched. Already-cached terminal PRs cannot be added again. Bare PR numbers require `--repo`; never guess the repo or project.
 
-Every discovery paginates all accessible PR history and states, including changes to old PRs. There is no incremental creation-time cursor or discovery `--full` option. A queued receipt is not completion. Use `job get` for phases, progress and returned details; authentication expiry belongs to the daemon, not the query consumer.
+Routine discovery is smart and returns one task per repository. Initial discovery covers 90 days; later discovery overlaps 30 days before the last successful discovery, capped at 90 days, retaining older cached history. Insights Calculate explicitly requests deep discovery of all PR states within 90 days. Deep discovery collects summary/lifecycle facts; checks remain watch-only. Catalogue receipts can expose child job IDs that must also finish. There is no discovery `--full` option. A queued receipt is not completion. Use `job get` for phases, progress and returned details; authentication expiry belongs to the daemon, not the query consumer.
 
 `status` includes `listCooldownSeconds` and `detailCooldownSeconds`. Zero disables periodic work for that task type; explicit commands remain available. The job preview is bounded; the grouped history endpoint provides paginated attempt records. Refresh receipts always refer to full PR collection.
 

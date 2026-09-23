@@ -26,6 +26,7 @@ import {
 	saveDirectoryEntity,
 	setDirectoryArchived,
 } from "@/models/directoryApi";
+import { CONTRIBUTOR_CHANGED } from "./useContributorProfile";
 
 const schemas = {
 	members: memberDraftSchema,
@@ -110,11 +111,16 @@ export function useDirectoryViewModel(source: DataSource, kind: DirectoryKind) {
 	useEffect(() => {
 		session.active = true;
 		void reload();
+		const changed = (event: Event) => {
+			if ((event as CustomEvent).detail === source) void reload();
+		};
+		window.addEventListener(CONTRIBUTOR_CHANGED, changed);
 		return () => {
+			window.removeEventListener(CONTRIBUTOR_CHANGED, changed);
 			session.active = false;
 			session.ticket++;
 		};
-	}, [reload, session]);
+	}, [reload, session, source]);
 
 	const setFilter = useCallback(
 		(patch: Partial<DirectoryFilter>) => {
@@ -303,8 +309,15 @@ export function useDirectoryViewModel(source: DataSource, kind: DirectoryKind) {
 		[state.data, state.filter],
 	);
 	const authors = useMemo(
-		() => (state.data ? discoverAuthors(state.data, state.filter.keyword) : []),
-		[state.data, state.filter.keyword],
+		() =>
+			state.data
+				? discoverAuthors(
+						state.data,
+						state.filter.keyword,
+						state.filter.view === "blocked",
+					)
+				: [],
+		[state.data, state.filter.keyword, state.filter.view],
 	);
 	return {
 		data: state.data,

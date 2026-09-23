@@ -7,6 +7,7 @@ import {
 	activityTimelineRoute,
 } from "./routes/activity.js";
 import { aiRoutes } from "./routes/ai.js";
+import { avatarRoutes, collectorAvatarRoutes } from "./routes/avatars.js";
 import {
 	collectorBatchRoute,
 	collectorClaimRoute,
@@ -30,10 +31,15 @@ import {
 } from "./routes/developers.js";
 import {
 	directoryArchiveRoute,
+	directoryBlockRoute,
 	directoryRoute,
 	directorySaveRoute,
 } from "./routes/directory.js";
-import { insightsRoute } from "./routes/insights.js";
+import {
+	contributorStatisticsRoute,
+	insightsReportRoute,
+	insightsRoute,
+} from "./routes/insights.js";
 import { liveRoute } from "./routes/live.js";
 import { meRoute } from "./routes/me.js";
 import {
@@ -94,14 +100,19 @@ app.get("/api/me", meRoute);
 app.route("/api/query/v1", queryRoutes);
 app.route("/api/pr-collections", prCollectionRoutes);
 app.route("/api/ai", aiRoutes);
+app.route("/api/avatars", avatarRoutes);
+app.route("/api/collector/avatars", collectorAvatarRoutes);
 app.route("/api/commands/v1", commandRoutes);
 app.route("/api/state-machines", stateMachineRoutes);
 
 app.get("/api/workbench", workbenchRoute);
 app.get("/api/directory", directoryRoute);
+app.post("/api/directory/blocks", directoryBlockRoute);
 app.post("/api/directory/:kind", directorySaveRoute);
 app.put("/api/directory/:kind/:id", directorySaveRoute);
 app.post("/api/directory/:kind/:id/:action", directoryArchiveRoute);
+app.get("/api/insights/contributor", contributorStatisticsRoute);
+app.get("/api/insights/report", insightsReportRoute);
 app.get("/api/insights/:module", insightsRoute);
 app.post("/api/insights/:module", insightsRoute);
 app.get("/api/collection/refresh", refreshQueuesRoute);

@@ -61,6 +61,8 @@ export const collectorClaimSchema = z
 		/** Present once a discovery's repository plan has been resolved, including an empty plan. */
 		repositories: z.array(repositoryIdentitySchema).max(1000).optional(),
 		knownOpenPulls: z.array(knownOpenPullSchema).optional(),
+		discoverySince: z.number().nonnegative().optional(),
+		discoveryCachedBefore: z.number().nonnegative().optional(),
 	})
 	.refine(({ job, project, targets, observation }) => {
 		const ids = job.pullIds;

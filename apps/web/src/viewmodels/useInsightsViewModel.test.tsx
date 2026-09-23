@@ -12,6 +12,7 @@ vi.mock("@/models/directoryApi", () => ({ fetchDirectory: vi.fn() }));
 const fetch = vi.mocked(fetchDirectory);
 const directory = (source: DataSource): DirectoryData => ({
 	source,
+	blockedContributorKeys: [],
 	revision: 0,
 	members: [],
 	teams: [],
@@ -152,4 +153,29 @@ describe("insights filters and directory scope", () => {
 		expect(result.current.directory?.source).toBe("demo");
 		expect(result.current.error).toBeNull();
 	});
+});
+
+it("keeps directory controls available while a background refresh fails", async () => {
+	const vm = renderHook(() => useInsightsViewModel("cli"));
+	await waitFor(() => expect(vm.result.current.directory).not.toBeNull());
+	const cached = vm.result.current.directory;
+	let reject!: (error: Error) => void;
+	fetch.mockImplementationOnce(
+		() =>
+			new Promise((_resolve, fail) => {
+				reject = fail;
+			}),
+	);
+	let pending!: Promise<void>;
+	act(() => {
+		pending = vm.result.current.reloadDirectory();
+	});
+	expect(vm.result.current.loading).toBe(false);
+	expect(vm.result.current.directory).toBe(cached);
+	await act(async () => {
+		reject(new Error("Offline"));
+		await pending;
+	});
+	expect(vm.result.current.directory).toBe(cached);
+	expect(vm.result.current.error).toBe("Offline");
 });

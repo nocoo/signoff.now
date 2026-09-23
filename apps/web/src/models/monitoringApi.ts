@@ -265,7 +265,10 @@ export async function removeWatches(
 }
 export async function discover(
 	source: PullFilter["source"],
-	target: { projectId: string } | { repositoryUrl: string },
+	target: (
+		| { projectId: string; repositoryIds?: string[] }
+		| { repositoryUrl: string }
+	) & { depth?: "smart" | "deep" },
 ) {
 	return commandReceiptSchema.parse(
 		await command("discover", { source: publicSource(source), ...target }),

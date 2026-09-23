@@ -532,6 +532,8 @@ test("table output escapes control characters and includes readable PR data", as
 test("daemon and its compatibility alias shut down cleanly while an empty watch list stays idle", async () => {
 	const listeners = process.listenerCount("SIGTERM");
 	reply = (url) => {
+		if (url.pathname === "/api/collector/avatars/claim")
+			return Response.json([]);
 		if (url.pathname.endsWith("schedule"))
 			return Response.json({
 				kind: "details",
@@ -565,7 +567,8 @@ test("daemon and its compatibility alias shut down cleanly while an empty watch 
 	// A shutdown arriving with a claim constructs no Azure process and exits after recording failure.
 	const idleReply = reply;
 	reply = (url, body, method) => {
-		if (!url.pathname.endsWith("claim")) return idleReply(url, body, method);
+		if (url.pathname !== "/api/collector/claim")
+			return idleReply(url, body, method);
 		process.emit("SIGTERM");
 		return Response.json({
 			project,

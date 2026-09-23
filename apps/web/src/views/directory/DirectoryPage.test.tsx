@@ -40,6 +40,7 @@ const adaKey = identityKey("ado", "org", "ada");
 const guestKey = identityKey("ado", "org", "guest");
 const data: DirectoryData = {
 	source: "cli",
+	blockedContributorKeys: [],
 	revision: 42,
 	projects: [],
 	repositories: [],
@@ -368,7 +369,11 @@ it.each([
 	expect(screen.queryByRole("link", { name: "Contributions" })).toBeNull();
 	expect(screen.getByText(name).closest("a")).toBeNull();
 	if (kind === "members") expect(screen.getByText("AL")).toBeTruthy();
-	if (relatedName) {
+	if (relatedName === "Ada Lovelace") {
+		expect(
+			screen.getByRole("button", { name: `View ${relatedName}'s profile` }),
+		).toBeTruthy();
+	} else if (relatedName) {
 		expect(
 			screen.getByRole("link", { name: relatedName }).getAttribute("href"),
 		).toBe(relatedHref);
@@ -381,7 +386,9 @@ it.each([
 	).toBe(href);
 	expect(setDirectoryArchived).toHaveBeenCalledWith("cli", kind, id, false, 43);
 	if (kind === "members") {
-		expect(screen.getByRole("link", { name }).getAttribute("href")).toBe(href);
+		expect(
+			screen.getByRole("button", { name: `View ${name}'s profile` }),
+		).toBeTruthy();
 	}
 });
 
@@ -442,9 +449,43 @@ it("keeps archived team members visible without linking to excluded contribution
 	expect(within(membership).getByText("GH")).toBeTruthy();
 	expect(within(membership).getByText("Archived")).toBeTruthy();
 	expect(
-		within(membership)
-			.getByRole("link", { name: "Ada Lovelace" })
-			.getAttribute("href"),
-	).toBe("/insights?source=cli&contributor=member%3Aada");
+		within(membership).getByRole("button", {
+			name: "View Ada Lovelace's profile",
+		}),
+	).toBeTruthy();
 	expect(screen.getByRole("link", { name: "Contributions" })).toBeTruthy();
+});
+
+it("hides blocked members and authors and offers a recovery tab including members without accounts", async () => {
+	const current = structuredClone(data);
+	current.blockedContributorKeys = [
+		"member:ada",
+		`identity:${adaKey}`,
+		`identity:${guestKey}`,
+		"member:no-account",
+	];
+	current.members.push({
+		id: "no-account",
+		name: "Build Bot",
+		avatarUrl: null,
+		identityKeys: [],
+		teamIds: [],
+		tagIds: [],
+		archivedAt: null,
+	});
+	vi.mocked(fetchDirectory).mockResolvedValue(current);
+	render(
+		<MemoryRouter>
+			<MembersPage />
+		</MemoryRouter>,
+	);
+	await screen.findByText("No members found");
+	fireEvent.click(screen.getByRole("radio", { name: "Discover authors" }));
+	expect(screen.getByText("No unfollowed authors found")).toBeTruthy();
+	fireEvent.click(screen.getByRole("radio", { name: "Hidden" }));
+	const blocked = screen.getByRole("list", { name: "Hidden contributors" });
+	expect(within(blocked).getAllByRole("button")).toHaveLength(3);
+	expect(
+		within(blocked).getByRole("button", { name: "View Build Bot's profile" }),
+	).toBeTruthy();
 });

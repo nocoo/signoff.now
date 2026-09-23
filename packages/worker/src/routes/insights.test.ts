@@ -46,7 +46,7 @@ async function snapshot(
 ) {
 	const response = await request(module, refresh, overrides);
 	expect(response.status).toBe(200);
-	return ((await response.json()) as { snapshot: ContributionSnapshot | null })
+	return ((await response.json()) as { snapshot: ContributionSnapshot })
 		.snapshot;
 }
 async function create(kind: string, body: unknown, source = "cli") {
@@ -119,7 +119,9 @@ describe("independent, manually calculated PR statistics", () => {
 				{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "0" },
 			);
 			expect(response.status).toBe(200);
-			expect(await response.json()).toEqual({ snapshot: saved });
+			expect(await response.json()).toEqual({
+				snapshot: { ...saved, calculatedAt: expect.any(Number) },
+			});
 		} finally {
 			setAccessJwtVerifierForTests(null);
 		}
@@ -249,6 +251,7 @@ describe("independent, manually calculated PR statistics", () => {
 		sqlite.db.batch = async <T>(statements: D1PreparedStatement[]) => {
 			const result = await batch<T>(statements);
 			if (
+				releases.length < 2 &&
 				(statements[0] as unknown as { sql: string }).sql.includes("WITH facts")
 			) {
 				const index = releases.length;
@@ -266,7 +269,6 @@ describe("independent, manually calculated PR statistics", () => {
 			await waiting[1];
 			releases[0]?.();
 			expect((await older).status).toBe(409);
-			expect(await snapshot("overview", false)).toBeNull();
 			releases[1]?.();
 			expect((await newer).status).toBe(200);
 			expect((await snapshot("overview", false))?.totals.total).toBe(2);
@@ -314,9 +316,12 @@ describe("independent, manually calculated PR statistics", () => {
 			sqlite.db.batch = batch;
 		}
 	});
-	test("GET never calculates, and refreshing one module leaves every other cached module intact", async () => {
+	test("GET calculates immediately from cached facts and does not save snapshots", async () => {
 		seedPull(sqlite);
-		expect(await snapshot("overview", false)).toBeNull();
+		expect((await snapshot("overview", false))?.totals.total).toBe(1);
+		expect(
+			sqlite.raw.query("SELECT COUNT(*) AS count FROM pr_stat_snapshots").get(),
+		).toEqual({ count: 0 });
 		const first = await snapshot("overview");
 		expect(first?.totals).toMatchObject({
 			total: 1,
@@ -335,9 +340,9 @@ describe("independent, manually calculated PR statistics", () => {
 			state: "merged",
 			observedAt: PR_TEST_NOW + 60,
 		});
-		expect(await snapshot("overview", false)).toEqual(first);
+		expect((await snapshot("overview", false))?.totals.total).toBe(2);
 		expect((await snapshot("members"))?.totals.total).toBe(2);
-		expect(await snapshot("overview", false)).toEqual(first);
+		expect((await snapshot("overview", false))?.totals.total).toBe(2);
 		expect((await snapshot("overview"))?.totals).toMatchObject({
 			total: 2,
 			open: 1,
@@ -345,8 +350,8 @@ describe("independent, manually calculated PR statistics", () => {
 			lastCollectedAt: PR_TEST_NOW + 60,
 		});
 		expect(
-			await snapshot("overview", false, { includeDraft: true }),
-		).toBeNull();
+			(await snapshot("overview", false, { includeDraft: true }))?.totals.total,
+		).toBe(2);
 	});
 
 	test("inclusive UTC merge dates ignore creation and update time, exclude unmerged and missing dates", async () => {
@@ -397,7 +402,7 @@ describe("independent, manually calculated PR statistics", () => {
 		expect(trend?.trend[1]?.total).toBe(0);
 		expect(trend?.trend.at(-1)).toMatchObject({ day: "2026-09-17", merged: 1 });
 	});
-	test("the old creation-date calculation is not reused for merge-date queries", async () => {
+	test("saved calculations never hide the current cached facts", async () => {
 		sqlite.raw
 			.query(
 				"INSERT INTO pr_stat_snapshots(source,module,filter_key,requested_at,snapshot) VALUES('cli','overview',?,1,?)",
@@ -406,7 +411,7 @@ describe("independent, manually calculated PR statistics", () => {
 				JSON.stringify(filters()),
 				JSON.stringify({ totals: { total: 99 } }),
 			);
-		expect(await snapshot("overview", false)).toBeNull();
+		expect((await snapshot("overview", false))?.totals.total).toBe(0);
 	});
 
 	test("exact accounts combine across orgs, same names stay separate, and team/repo/tag filters intersect without multiplying PRs", async () => {
@@ -510,7 +515,7 @@ describe("independent, manually calculated PR statistics", () => {
 		).toBe(0);
 		expect(
 			await snapshot("members", false, { teamIds: [team1.id, team2.id] }),
-		).toEqual(result);
+		).toEqual({ ...result, calculatedAt: expect.any(Number) });
 	});
 
 	test("aggregates every stored PR rather than the 1,000-row workbench display cap", async () => {
@@ -544,7 +549,10 @@ describe("independent, manually calculated PR statistics", () => {
 			throw new Error("temporary write failure");
 		});
 		expect((await request("overview", true)).status).toBe(500);
-		expect(await snapshot("overview", false)).toEqual(good);
+		expect(await snapshot("overview", false)).toEqual({
+			...good,
+			calculatedAt: expect.any(Number),
+		});
 		expect((await request("unknown", true)).status).toBe(400);
 		const invalid = await app.request(
 			"http://localhost/api/insights/overview?filters=not-json",

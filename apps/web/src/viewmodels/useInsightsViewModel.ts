@@ -7,11 +7,12 @@ import {
 } from "@signoff/domain/insights";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchDirectory } from "@/models/directoryApi";
+import { CONTRIBUTOR_CHANGED } from "./useContributorProfile";
 
 type Page = "insights" | "repositories";
 function defaults(source: DataSource, page: Page) {
 	return page === "insights"
-		? defaultContributionFilters(source)
+		? { ...defaultContributionFilters(source), audience: "followed" as const }
 		: contributionFiltersSchema.parse({ source });
 }
 function readFilters(
@@ -26,6 +27,9 @@ function readFilters(
 		return contributionFiltersSchema.parse({
 			...defaults(source, page),
 			...saved,
+			...(page === "insights"
+				? { from: defaults(source, page).from, to: defaults(source, page).to }
+				: {}),
 			source,
 		});
 	} catch {
@@ -90,21 +94,26 @@ export function useInsightsViewModel(
 				setState({ source, data, error: null, loading: false });
 		} catch (error) {
 			if (sequence.current === ticket)
-				setState({
+				setState((previous) => ({
 					source,
-					data: null,
+					data: previous.source === source ? previous.data : null,
 					error:
 						error instanceof Error ? error.message : "Could not load directory",
 					loading: false,
-				});
+				}));
 		}
 	}, [source]);
 	useEffect(() => {
 		void reloadDirectory();
+		const changed = (event: Event) => {
+			if ((event as CustomEvent).detail === source) void reloadDirectory();
+		};
+		window.addEventListener(CONTRIBUTOR_CHANGED, changed);
 		return () => {
+			window.removeEventListener(CONTRIBUTOR_CHANGED, changed);
 			++sequence.current;
 		};
-	}, [reloadDirectory]);
+	}, [reloadDirectory, source]);
 	return {
 		filters,
 		setFilters,
@@ -115,7 +124,7 @@ export function useInsightsViewModel(
 			: (parsed.error.issues[0]?.message ?? "Invalid filters"),
 		directory: state.source === source ? state.data : null,
 		error: state.source === source ? state.error : null,
-		loading: state.source !== source || state.loading,
+		loading: state.source !== source || (state.loading && state.data === null),
 		reloadDirectory,
 	};
 }

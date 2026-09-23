@@ -156,7 +156,9 @@ describe("guarded snapshot publication and retirement", () => {
 				)
 				.get(project.id, pull.repository.id);
 		expect(catalog()).toEqual({ name: "New name", name_observed_at: now + 2 });
-		const discovery = await enqueueDiscovery(sqlite.db, project, [], now + 41);
+		const discovery = (
+			await enqueueDiscovery(sqlite.db, project, [], now + 41)
+		)[0]!;
 		const discoveryClaim = (await claimJob(sqlite.db, now + 41, {
 			jobId: discovery.id,
 		}))!;
@@ -626,16 +628,15 @@ describe("guarded snapshot publication and retirement", () => {
 				"INSERT INTO workbench_repositories(project_id,repository_id,name,discovery_state) VALUES(?,?,?,'complete')",
 			)
 			.run(project.id, "outside", "Outside");
-		const job = await enqueueDiscovery(sqlite.db, project, [], now);
+		const job = (
+			await enqueueDiscovery(sqlite.db, project, ["repo-a"], now)
+		)[0]!;
 		const claim = (await claimJob(sqlite.db, now, { jobId: job.id }))!;
 		await registerJobRepositories(
 			sqlite.db,
 			job.id,
 			claim.leaseToken,
-			[
-				{ id: "repo-a", name: "A" },
-				{ id: "repo-b", name: "B" },
-			],
+			[{ id: "repo-a", name: "A" }],
 			now,
 		);
 		if (state === "succeeded")
@@ -690,7 +691,7 @@ describe("guarded snapshot publication and retirement", () => {
 	test("cold ID scope rejects a differently identified repository whose name is that ID", async () => {
 		const id = "11111111-1111-1111-1111-111111111111";
 		const project = seedProject(sqlite, { repositories: [id] });
-		const queued = await enqueueDiscovery(sqlite.db, project, [id], now);
+		const queued = (await enqueueDiscovery(sqlite.db, project, [id], now))[0]!;
 		const claim = (await claimJob(sqlite.db, now, { jobId: queued.id }))!;
 		await expect(
 			registerJobRepositories(
@@ -772,12 +773,9 @@ describe("guarded snapshot publication and retirement", () => {
 			"Initial watch",
 			now,
 		);
-		const discovery = await enqueueDiscovery(
-			sqlite.db,
-			project,
-			[pull.repository.id],
-			now + 1,
-		);
+		const discovery = (
+			await enqueueDiscovery(sqlite.db, project, [pull.repository.id], now + 1)
+		)[0]!;
 		const rename = (await claimJob(sqlite.db, now + 1, {
 			jobId: discovery.id,
 		}))!;
@@ -922,12 +920,9 @@ describe("guarded snapshot publication and retirement", () => {
 	});
 	test("a repository name cannot impersonate the frozen provider repository ID", async () => {
 		const { project, pull } = setup();
-		const receipt = await enqueueDiscovery(
-			sqlite.db,
-			project,
-			[pull.repository.id],
-			now,
-		);
+		const receipt = (
+			await enqueueDiscovery(sqlite.db, project, [pull.repository.id], now)
+		)[0]!;
 		const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
 		await expect(
 			registerJobRepositories(
@@ -963,12 +958,14 @@ describe("guarded snapshot publication and retirement", () => {
 			"cli",
 			"https://dev.azure.com/test-org/Platform/_git/old-name",
 		);
-		const receipt = await enqueueDiscovery(
-			sqlite.db,
-			project,
-			[resolved.repository!.repository_id],
-			now,
-		);
+		const receipt = (
+			await enqueueDiscovery(
+				sqlite.db,
+				project,
+				[resolved.repository!.repository_id],
+				now,
+			)
+		)[0]!;
 		const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
 		const repository = { id: "repo-1", name: "new-name" };
 		await expect(
@@ -1228,7 +1225,7 @@ describe("guarded snapshot publication and retirement", () => {
 	});
 	test("discovery binds observations at claim and cannot retire later additions", async () => {
 		const { project, pull } = setup();
-		const discovery = await enqueueDiscovery(sqlite.db, project, [], now);
+		const discovery = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
 		const claim = (await claimJob(sqlite.db, now))!;
 		await registerJobRepositories(
 			sqlite.db,
@@ -1243,9 +1240,9 @@ describe("guarded snapshot publication and retirement", () => {
 			{ pullId: pull.id },
 			now + 1,
 		);
-		expect((await enqueueDiscovery(sqlite.db, project, [], now + 2)).id).toBe(
-			discovery.id,
-		);
+		expect(
+			(await enqueueDiscovery(sqlite.db, project, [], now + 2))[0]!.id,
+		).toBe(discovery.id);
 		await stagePulls(
 			sqlite.db,
 			claim.job.id,
@@ -1374,7 +1371,7 @@ describe("repository discovery boundaries", () => {
 		true,
 	])("publishes discovery history with bounded work and no repeated snapshot hydration; versioned=%s", async (versioned) => {
 		const { project, pull } = setup();
-		const job = await enqueueDiscovery(sqlite.db, project, [], now);
+		const job = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
 		const claim = (await claimJob(sqlite.db, now))!;
 		await registerJobRepositories(
 			sqlite.db,
@@ -1485,91 +1482,81 @@ describe("repository discovery boundaries", () => {
 		);
 		expect(added.observation.pullId).toBeNull();
 	});
-	test("partial repository failure keeps successes and prior snapshots; cancellation wins for unfinished work", async () => {
+	test("repository failures and cancellation preserve completed siblings and cached checks", async () => {
 		const { project, pull } = setup();
-		await enqueueDiscovery(sqlite.db, project, [], now);
-		const claim = (await claimJob(sqlite.db, now))!;
-		await registerJobRepositories(
+		const jobs = await enqueueDiscovery(
 			sqlite.db,
-			claim.job.id,
-			claim.leaseToken,
-			[pull.repository, { id: "other", name: "other" }],
+			project,
+			[pull.repository.id, "other"],
 			now,
 		);
-		await stagePulls(
-			sqlite.db,
-			claim.job.id,
-			claim.leaseToken,
-			[{ ...pull, title: "Discovered title", checksObservedAt: null }],
-			now,
-		);
-		await publishRepository(
-			sqlite.db,
-			claim.job.id,
-			claim.leaseToken,
-			pull.repository.id,
-			1,
-			"complete",
-			"Done",
-			now,
-		);
-		await rejectRepository(
-			sqlite.db,
-			claim.job.id,
-			claim.leaseToken,
-			"other",
-			"403 forbidden",
-			now,
-		);
-		expect(
-			(await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now)).state,
-		).toBe("partial");
+		for (const receipt of jobs) {
+			const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
+			const repository =
+				claim.scope![0] === "other"
+					? { id: "other", name: "other" }
+					: pull.repository;
+			await registerJobRepositories(
+				sqlite.db,
+				claim.job.id,
+				claim.leaseToken,
+				[repository],
+				now,
+			);
+			if (repository.id === "other") {
+				await rejectRepository(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					repository.id,
+					"403 forbidden",
+					now,
+				);
+				expect(
+					(await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now))
+						.state,
+				).toBe("failed");
+			} else {
+				await stagePulls(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					[{ ...pull, title: "Discovered title", checksObservedAt: null }],
+					now,
+				);
+				await publishRepository(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					repository.id,
+					1,
+					"complete",
+					"Done",
+					now,
+				);
+				expect(
+					(await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now))
+						.state,
+				).toBe("complete");
+			}
+		}
 		expect(cached(pull.id).title).toBe("Discovered title");
 		expect(cached(pull.id).checksObservedAt).toBe(now - 100);
-		sqlite.raw.exec(
-			"UPDATE collection_refresh SET cooldown_seconds=0 WHERE kind='list'",
-		);
-		await enqueueDiscovery(sqlite.db, project, [], now + 1);
-		const next = (await claimJob(sqlite.db, now + 1))!;
-		await registerJobRepositories(
-			sqlite.db,
-			next.job.id,
-			next.leaseToken,
-			[pull.repository, { id: "other", name: "other" }],
-			now + 1,
-		);
-		await publishRepository(
-			sqlite.db,
-			next.job.id,
-			next.leaseToken,
-			"other",
-			0,
-			"complete",
-			"Empty",
-			now + 1,
-		);
+		const queued = await enqueueDiscovery(sqlite.db, project, [], now + 1);
 		sqlite.raw
 			.query("UPDATE projects SET revision=revision+1,updated_at=? WHERE id=?")
 			.run(now + 2, project.id);
-		expect(await readJob(sqlite.db, next.job.id)).toMatchObject({
-			state: "canceled",
-			cancel_reason: "project_changed",
-		});
-		expect(
-			sqlite.raw
-				.query(
-					"SELECT repository_id,state FROM collection_job_repositories WHERE job_id=? ORDER BY repository_id",
-				)
-				.all(next.job.id),
-		).toEqual([
-			{ repository_id: "other", state: "succeeded" },
-			{ repository_id: "repo-1", state: "canceled" },
-		]);
+		for (const job of queued)
+			expect(await readJob(sqlite.db, job.id)).toMatchObject({
+				state: "canceled",
+				cancel_reason: "project_changed",
+			});
+		expect(cached(pull.id).title).toBe("Discovered title");
 	});
 	test("absence from a successful discovery never retires an observed PR", async () => {
 		const { project, pull } = setup();
 		await addObservation(sqlite.db, "cli", { pullId: pull.id }, now);
-		const discovery = await enqueueDiscovery(sqlite.db, project, [], now);
+		const discovery = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
 		const claim = (await claimJob(sqlite.db, now, { jobId: discovery.id }))!;
 		await registerJobRepositories(
 			sqlite.db,

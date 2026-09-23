@@ -2,8 +2,11 @@ import type { CollectorClaim } from "@signoff/domain/collection";
 import type { DataSource, Observation } from "@signoff/domain/monitoring";
 import {
 	type CollectionLane,
+	DISCOVERY_HISTORY_DAYS,
+	DISCOVERY_RECENT_DAYS,
 	pullRequestSchema,
 } from "@signoff/domain/workbench";
+import { enqueueDiscovery } from "./observations.js";
 import {
 	ACTIVE_JOBS,
 	type JobRow,
@@ -45,23 +48,29 @@ export async function scheduleDiscovery(
 	timestamp: number,
 	source?: DataSource,
 ) {
-	await db
-		.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,message)
-    SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,json_object('id',p.id,'provider',p.provider,'organization',p.organization,'projectKey',p.project_key,'name',p.name),
-      'queued',?,?,?,'list','[]',p.repositories_json,p.repositories_json,'Waiting to refresh project PR list'
-    FROM projects p JOIN collection_refresh settings ON settings.kind='list' AND settings.cooldown_seconds>0
-    WHERE p.provider='ado' AND p.enabled=1 AND (? IS NULL OR p.source=?)
-    AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.project_id=p.id AND j.kind='list'
-      AND (j.state IN (${ACTIVE_JOBS}) OR (j.revision=p.revision AND j.completed_at>?-settings.cooldown_seconds)))`)
-		.bind(
-			timestamp,
-			timestamp,
-			timestamp,
-			source ?? null,
-			source ?? null,
-			timestamp,
+	const settings = await db
+		.prepare(
+			"SELECT cooldown_seconds FROM collection_refresh WHERE kind='list'",
 		)
-		.run();
+		.first<{ cooldown_seconds: number }>();
+	if (!settings?.cooldown_seconds) return;
+	const projects = await db
+		.prepare(
+			"SELECT * FROM projects WHERE provider='ado' AND enabled=1 AND (? IS NULL OR source=?)",
+		)
+		.bind(source ?? null, source ?? null)
+		.all<ProjectRow>();
+	for (const row of projects.results) {
+		const project = mapProject(row);
+		await enqueueDiscovery(
+			db,
+			project,
+			project.repositories ?? [],
+			timestamp,
+			"smart",
+			true,
+		);
+	}
 }
 
 export async function scheduleObservations(
@@ -122,7 +131,7 @@ export async function claimJob(
         AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?) AND j.summary_only=0 AND (? IS NULL OR (j.kind='list')=?)
         AND NOT EXISTS (SELECT 1 FROM collection_jobs previous JOIN collection_refresh settings ON settings.kind=j.kind
           WHERE previous.id<>j.id AND previous.project_id=j.project_id AND previous.revision=j.revision AND previous.kind=j.kind AND previous.summary_only=0
-          AND (j.kind='list' OR (previous.observation_id=j.observation_id AND previous.observation_generation=j.observation_generation))
+          AND ((j.kind='list' AND previous.scope_key=j.scope_key AND previous.discovery_depth=j.discovery_depth) OR (j.kind<>'list' AND previous.observation_id=j.observation_id AND previous.observation_generation=j.observation_generation))
           AND previous.completed_at>?-settings.cooldown_seconds)
         AND (j.kind='list' OR EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=j.observation_id AND o.generation=j.observation_generation AND o.active=1))
         AND (SELECT COUNT(*) FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.kind=j.kind AND busy.state='running')<CASE WHEN j.kind='list' THEN 1 ELSE ${LANE_CONCURRENCY} END
@@ -160,13 +169,14 @@ export async function claimJob(
       SELECT j.id,pr.id,pr.version,o.id,o.generation FROM collection_jobs j JOIN pull_requests pr ON pr.project_id=j.project_id
       LEFT JOIN pr_observations o ON o.project_id=j.project_id AND o.active=1 AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id) AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER)
       WHERE j.lease_token=? AND (j.kind='list' OR pr.id IN (SELECT value FROM json_each(j.pull_ids_json)))
+      AND (j.kind<>'list' OR (j.catalogue_only=0 AND json_extract(pr.snapshot,'$.createdAt')>=?-${DISCOVERY_HISTORY_DAYS * 86400}))
       AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(pr.repository_id),lower(json_extract(pr.snapshot,'$.repository.name')))))`)
-			.bind(token),
+			.bind(token, timestamp),
 		db
 			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation)
       SELECT j.id,COALESCE(o.pull_id,json_extract(o.ref_json,'$.provider')||':'||o.project_id||':'||json_extract(o.ref_json,'$.repository.id')||':'||json_extract(o.ref_json,'$.number')),0,o.id,o.generation
       FROM collection_jobs j JOIN pr_observations o ON o.project_id=j.project_id AND o.active=1
-      WHERE j.lease_token=? AND (j.kind='list' OR (o.id=j.observation_id AND o.generation=j.observation_generation))
+      WHERE j.lease_token=? AND j.catalogue_only=0 AND (j.kind='list' OR (o.id=j.observation_id AND o.generation=j.observation_generation))
       AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(json_extract(o.ref_json,'$.repository.id')),lower(json_extract(o.ref_json,'$.repository.name')))))
       ON CONFLICT(job_id,pull_id) DO NOTHING`)
 			.bind(token),
@@ -188,9 +198,12 @@ export async function claimJob(
 			.bind(token),
 		db
 			.prepare(
-				"SELECT r.* FROM collection_job_repositories r JOIN collection_jobs j ON j.id=r.job_id WHERE j.lease_token=? ORDER BY r.repository_id",
+				`SELECT r.repository_id,r.name,r.project_external_id FROM collection_job_repositories r JOIN collection_jobs j ON j.id=r.job_id WHERE j.lease_token=?
+			 UNION ALL SELECT r.repository_id,r.name,r.project_external_id FROM workbench_repositories r JOIN collection_jobs j ON j.project_id=r.project_id
+			 WHERE j.lease_token=? AND j.kind='list' AND j.catalogue_only=0 AND j.repositories_resolved=0 AND r.project_external_id IS NOT NULL
+			 AND lower(r.repository_id)=lower(json_extract(j.scope_json,'$[0]')) ORDER BY repository_id`,
 			)
-			.bind(token),
+			.bind(token, token),
 	]);
 	const job = results[6]?.results[0] as JobRow | undefined;
 	const project = results[7]?.results[0] as ProjectRow | undefined;
@@ -199,27 +212,49 @@ export async function claimJob(
 	const observation: Observation | undefined = observationRow
 		? mapObservation(observationRow)
 		: undefined;
+	let discoverySince: number | undefined;
+	let discoveryCachedBefore: number | undefined;
+	if (job.kind === "list") {
+		const cached =
+			job.discovery_depth === "smart" && !job.catalogue_only
+				? await db
+						.prepare(`SELECT r.last_discovered_at,json_extract(r.discovery_cursor_json, '$.createdBefore') AS created_before FROM workbench_repositories r WHERE r.project_id=?
+			 AND lower(r.repository_id)=lower(json_extract(?, '$[0]')) AND r.last_discovered_at IS NOT NULL
+		 AND json_type(r.discovery_cursor_json, '$.createdBefore') IN ('integer','real')`)
+						.bind(project.id, job.scope_json)
+						.first<{ last_discovered_at: number; created_before: number }>()
+				: null;
+		discoveryCachedBefore = cached?.created_before;
+		discoverySince = Math.max(
+			0,
+			timestamp - DISCOVERY_HISTORY_DAYS * 86400,
+			cached ? cached.last_discovered_at - DISCOVERY_RECENT_DAYS * 86400 : 0,
+		);
+	}
 	return {
 		job: mapJob(job),
+		discoverySince,
+		discoveryCachedBefore,
 		project: mapProject(project),
 		leaseToken: token,
 		observation,
 		scope: JSON.parse(job.scope_json) as string[],
-		repositories: job.repositories_resolved
-			? (
-					(results[10]?.results ?? []) as {
-						repository_id: string;
-						name: string;
-						project_external_id: string | null;
-					}[]
-				).map((r) => ({
-					id: r.repository_id,
-					name: r.name,
-					...(r.project_external_id
-						? { projectExternalId: r.project_external_id }
-						: {}),
-				}))
-			: undefined,
+		repositories:
+			job.repositories_resolved || results[10]?.results.length
+				? (
+						(results[10]?.results ?? []) as {
+							repository_id: string;
+							name: string;
+							project_external_id: string | null;
+						}[]
+					).map((r) => ({
+						id: r.repository_id,
+						name: r.name,
+						...(r.project_external_id
+							? { projectExternalId: r.project_external_id }
+							: {}),
+					}))
+				: undefined,
 		targets: (results[9]?.results as { snapshot: string }[]).map((r) =>
 			pullRequestSchema.parse(JSON.parse(r.snapshot)),
 		),

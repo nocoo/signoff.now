@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	contributionFiltersSchema,
+	contributorBlockSchema,
 	defaultContributionFilters,
 	identityKey,
 	memberDraftSchema,
@@ -11,12 +12,12 @@ import {
 } from "./insights";
 
 describe("PR contribution scope", () => {
-	test("uses an inclusive 30-day UTC created-date cohort and excludes drafts", () => {
+	test("uses an inclusive 90-day UTC created-date cohort and excludes drafts", () => {
 		const filters = defaultContributionFilters(
 			"cli",
 			Date.parse("2026-03-01T00:05:00Z"),
 		);
-		expect(filters.from).toBe("2026-01-31");
+		expect(filters.from).toBe("2025-12-02");
 		expect(filters.to).toBe("2026-03-01");
 		expect(filters.includeDraft).toBe(false);
 		expect(filters.states).toEqual(["closed", "merged", "open"]);
@@ -129,5 +130,26 @@ describe("explicit provider identities", () => {
 		]) {
 			expect(parseIdentityKey(key)).toBeNull();
 		}
+	});
+});
+
+describe("contributor blocking", () => {
+	test("accepts exact member or canonical account keys and requires an explicit state", () => {
+		for (const key of [
+			"member:person",
+			`identity:${identityKey("ado", "org", "actor")}`,
+		])
+			expect(contributorBlockSchema.parse({ key, blocked: true })).toEqual({
+				key,
+				blocked: true,
+			});
+		for (const value of [
+			{ key: "member:", blocked: true },
+			{ key: "Alice", blocked: true },
+			{ key: 'identity:["ado","ORG","actor"]', blocked: true },
+			{ key: "member:person", blocked: "true" },
+			{ key: "member:person" },
+		])
+			expect(contributorBlockSchema.safeParse(value).success).toBe(false);
 	});
 });

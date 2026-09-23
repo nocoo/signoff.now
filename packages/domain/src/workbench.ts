@@ -314,6 +314,10 @@ export const scanRunSchema = z.object({
 export type ScanRun = z.infer<typeof scanRunSchema>;
 export const collectionLaneSchema = z.enum(["checks", "discover"]);
 export type CollectionLane = z.infer<typeof collectionLaneSchema>;
+export const discoveryDepthSchema = z.enum(["smart", "deep"]);
+export type DiscoveryDepth = z.infer<typeof discoveryDepthSchema>;
+export const DISCOVERY_HISTORY_DAYS = 90;
+export const DISCOVERY_RECENT_DAYS = 30;
 export const collectionJobSchema = z.object({
 	id: name,
 	projectId: name,
@@ -338,6 +342,9 @@ export const collectionJobSchema = z.object({
 	pullIds: scopedPullIdsSchema.optional(),
 	kind: z.enum(["list", "details", "full"]).optional(),
 	lane: collectionLaneSchema.optional(),
+	depth: discoveryDepthSchema.optional(),
+	scope: z.array(repositoryNameSchema).optional(),
+	catalogueOnly: z.boolean().optional(),
 	roundId: name.nullable().optional(),
 });
 export type CollectionJob = z.infer<typeof collectionJobSchema>;

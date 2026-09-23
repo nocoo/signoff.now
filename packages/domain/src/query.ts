@@ -8,6 +8,7 @@ import {
 } from "./monitoring.js";
 import {
 	checkStateSchema,
+	discoveryDepthSchema,
 	mergeRequirementSchema,
 	projectSchema,
 	pullRequestSchema,
@@ -265,6 +266,9 @@ export const jobQuerySchema = z.object({
 	projectId: z.string(),
 	projectRevision: z.number(),
 	scope: z.array(z.string()),
+	depth: discoveryDepthSchema.optional(),
+	catalogueOnly: z.boolean().optional(),
+	children: z.array(z.string()).optional(),
 	reason: z.string().nullable(),
 	error: z.string().nullable(),
 	message: z.string(),
@@ -287,7 +291,7 @@ export const jobQuerySchema = z.object({
 export type JobQueryItem = z.infer<typeof jobQuerySchema>;
 export const jobHistoryFiltersSchema = z.object({
 	lane: z.enum(["all", "checks", "discover"]).default("all"),
-	group: z.string().max(300).optional(),
+	group: z.string().max(1000).optional(),
 	outcome: z.enum(["all", "issues"]).default("all"),
 	cursor: z.string().max(4096).optional(),
 });
@@ -302,6 +306,11 @@ export const jobHistorySchema = z.object({
 	nextCursor: z.string().nullable(),
 });
 export const collectorGroupSchema = z.object({
+	depth: discoveryDepthSchema.optional(),
+	repository: z
+		.object({ id: z.string(), name: z.string() })
+		.nullable()
+		.optional(),
 	id: z.string(),
 	kind: z.enum(["discover", "refresh"]),
 	projectId: z.string(),

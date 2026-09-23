@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext } from "react";
+import { AvatarSourceContext } from "@/components/EntityAvatar";
 import {
 	useWorkbenchViewModel,
 	type WorkbenchViewModel,
@@ -10,7 +11,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 	const workbench = useWorkbenchViewModel();
 	return (
 		<WorkbenchContext.Provider value={workbench}>
-			{children}
+			<AvatarSourceContext.Provider value={workbench.filter.source}>
+				{children}
+			</AvatarSourceContext.Provider>
 		</WorkbenchContext.Provider>
 	);
 }

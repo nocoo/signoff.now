@@ -1,3 +1,5 @@
+import type { DataSource } from "@signoff/domain/insights";
+
 /**
  * Generated avatars: an initial on a colour derived from the name.
  *
@@ -161,4 +163,14 @@ export function usableAvatarUrl(url: string | null | undefined): string | null {
 	} catch {
 		return null;
 	}
+}
+
+export function cachedAvatarUrl(
+	url: string | null | undefined,
+	source: DataSource,
+): string | null {
+	const original = usableAvatarUrl(url);
+	return original
+		? `/api/avatars?${new URLSearchParams({ source: source === "demo" ? "sample" : "live", url: original })}`
+		: null;
 }

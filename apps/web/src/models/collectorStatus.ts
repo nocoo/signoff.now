@@ -12,8 +12,14 @@ export const JOB_STATES = {
 	failed: "Failed",
 	canceled: "Canceled",
 };
-export function jobOperation(job: Pick<JobQueryItem, "kind" | "lane">) {
-	return job.kind === "discover" ? "Project PR list" : "Full PR refresh";
+export function jobOperation(
+	job: Pick<JobQueryItem, "kind" | "lane" | "depth">,
+) {
+	return job.kind === "discover"
+		? job.depth === "deep"
+			? "Deep discovery · 90 days"
+			: "Smart discovery"
+		: "Full PR refresh";
 }
 export function jobDuration(job: JobQueryItem, now: number) {
 	if (!job.startedAt) return "Not started";
@@ -54,6 +60,7 @@ export function collectorStatus(
 					other.id !== job.id &&
 					other.projectId === job.projectId &&
 					other.kind === job.kind &&
+					other.depth === job.depth &&
 					(other.lane ?? "checks") === (job.lane ?? "checks") &&
 					other.observation?.id === job.observation?.id &&
 					other.scope.join("\0") === job.scope.join("\0") &&

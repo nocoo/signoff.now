@@ -8,6 +8,12 @@
  * not in older SDK surfaces, so version drift would silently change behaviour.
  */
 
+import {
+	AVATAR_MAX_BYTES,
+	avatarContentTypeSchema,
+	type CachedAvatar,
+	isAdoAvatarUrl,
+} from "@signoff/domain/avatars";
 import type { ExecFn } from "../doctor/az.ts";
 
 /** Azure DevOps' fixed resource id for token acquisition. */
@@ -85,7 +91,47 @@ export type AdoResponse = {
 	status: number;
 	headers: { get(name: string): string | null };
 	text(): Promise<string>;
+	body?: ReadableStream<Uint8Array> | null;
+	image?: CachedAvatar;
 };
+
+async function readAvatar(response: AdoResponse): Promise<CachedAvatar> {
+	const contentType = avatarContentTypeSchema.safeParse(
+		response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase(),
+	);
+	if (
+		!contentType.success ||
+		Number(response.headers.get("content-length")) > AVATAR_MAX_BYTES ||
+		!response.body
+	) {
+		await response.body?.cancel();
+		throw new AdoError("bad_response", "Invalid avatar response");
+	}
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	try {
+		while (true) {
+			const part = await reader.read();
+			if (part.done) break;
+			length += part.value.byteLength;
+			if (length > AVATAR_MAX_BYTES)
+				throw new AdoError("bad_response", "Avatar exceeds size limit");
+			chunks.push(part.value);
+		}
+	} finally {
+		await reader.cancel();
+		reader.releaseLock();
+	}
+	if (!length) throw new AdoError("bad_response", "Avatar response is empty");
+	const bytes = new Uint8Array(length);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return { contentType: contentType.data, bytes };
+}
 
 export type SleepFn = (ms: number) => Promise<void>;
 
@@ -182,7 +228,11 @@ export type AdoPagedClient = AdoClient & {
 	checkAuth(organization?: string): Promise<void>;
 };
 
-export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
+export type AdoAvatarClient = AdoPagedClient & {
+	getAvatar(url: string, organization: string): Promise<CachedAvatar>;
+};
+
+export function createAdoClient(opts: AdoClientOptions): AdoAvatarClient {
 	const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
 	const maxRetries = opts.maxRetries ?? 3;
 	const jitter = opts.jitterMs ?? (() => Math.floor(Math.random() * 250));
@@ -242,6 +292,7 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 		url: string,
 		bearer: string | undefined,
 		body?: unknown,
+		image = false,
 	): Promise<{ res: AdoResponse } | { failure: string }> {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -251,12 +302,25 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 				redirect: "manual",
 				headers: {
 					...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
-					accept: "application/json",
+					accept: image
+						? "image/png,image/jpeg,image/gif,image/webp"
+						: "application/json",
 					...(body === undefined ? {} : { "content-type": "application/json" }),
 				},
 				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 				signal: controller.signal,
 			});
+			if (image && response.status === 200) {
+				const avatar = await readAvatar(response);
+				return {
+					res: {
+						status: response.status,
+						headers: response.headers,
+						text: async () => "",
+						image: avatar,
+					},
+				};
+			}
 			const payload = await response.text();
 			return {
 				res: {
@@ -266,6 +330,7 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 				},
 			};
 		} catch (e) {
+			if (e instanceof AdoError) throw e;
 			// Name the timeout: "aborted" alone reads like someone hit Ctrl-C.
 			if (controller.signal.aborted) {
 				return { failure: `timed out after ${timeoutMs}ms` };
@@ -365,7 +430,8 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 		method: "GET" | "POST",
 		url: string,
 		body?: unknown,
-	): Promise<AdoPage> {
+		image = false,
+	): Promise<AdoResponse> {
 		let refreshedOn401 = false;
 		let correctedTenant = false;
 		const target = new URL(url);
@@ -378,7 +444,7 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 			const tenantId =
 				(organization && organizationTenants.get(organization)) || "";
 			const bearer = await acquireToken(Date.now(), tenantId);
-			const attempted = await attemptFetch(method, url, bearer, body);
+			const attempted = await attemptFetch(method, url, bearer, body, image);
 			if ("failure" in attempted) {
 				// Letting a transport error escape as a bare Error would exit
 				// RUNTIME and tell automation a flaky network is a code defect.
@@ -401,7 +467,7 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 				continue;
 			}
 
-			if (res.status === 200) return parsePage(res, url);
+			if (res.status === 200) return res;
 
 			const rejectedToken = isLoginResponse(res.status);
 			if (rejectedToken && !refreshedOn401) {
@@ -426,9 +492,18 @@ export function createAdoClient(opts: AdoClientOptions): AdoPagedClient {
 	}
 
 	return {
-		get: async (url) => (await request("GET", url)).data,
-		post: async (url, body) => (await request("POST", url, body)).data,
-		getPage: (url) => request("GET", url),
+		get: async (url) => (await parsePage(await request("GET", url), url)).data,
+		post: async (url, body) =>
+			(await parsePage(await request("POST", url, body), url)).data,
+		getPage: async (url) => parsePage(await request("GET", url), url),
+		getAvatar: async (url, organization) => {
+			if (!isAdoAvatarUrl(url, organization))
+				throw new AdoError("bad_request", "Invalid avatar source");
+			const response = await request("GET", url, undefined, true);
+			if (!response.image)
+				throw new AdoError("bad_response", "Missing avatar body");
+			return response.image;
+		},
 		checkAuth: async (organization) => {
 			const key = organization?.toLowerCase();
 			if (key && !organizationTenants.has(key)) {

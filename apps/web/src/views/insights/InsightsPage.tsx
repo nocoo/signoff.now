@@ -1,8 +1,4 @@
-import { Badge, Button } from "@nocoo/basalt";
-import { ChartFrame } from "@nocoo/basalt/charts/frame";
-import { ChartLegend } from "@nocoo/basalt/charts/legend";
-import { chart, chartAxis } from "@nocoo/basalt/charts/palette";
-import { ChartTooltipContent } from "@nocoo/basalt/charts/tooltip";
+import { Badge, Button, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import {
 	Table,
@@ -13,42 +9,36 @@ import {
 	TableRow,
 } from "@nocoo/basalt/components/table";
 import type {
-	ContributionSnapshot,
-	DirectoryData,
+	ContributionReport,
+	ContributorRepositoryContribution,
+	PullCounts,
 } from "@signoff/domain/insights";
-import { ChevronLeft, ChevronRight, GitPullRequest, Users } from "lucide-react";
+import {
+	ChevronLeft,
+	ChevronRight,
+	GitPullRequest,
+	RefreshCw,
+	Users,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import {
-	Bar,
-	BarChart,
-	CartesianGrid,
-	Cell,
-	Pie,
-	PieChart,
-	Tooltip,
-	XAxis,
-	YAxis,
-} from "recharts";
+import { AlertBanner } from "@/components/AlertBanner";
 import { ContributionFilterBar } from "@/components/ContributionFilterBar";
+import { ContributorProfile } from "@/components/ContributorProfile";
 import { EmptyState } from "@/components/EmptyState";
-import { EntityAvatar } from "@/components/EntityAvatar";
+import { EntityLabel } from "@/components/EntityAvatar";
+import { SelectControl } from "@/components/SelectControl";
+import { Skeleton } from "@/components/Skeleton";
 import { StatCard, StatGrid } from "@/components/StatCard";
-import { StatisticsModule } from "@/components/StatisticsModule";
 import { relativeAge } from "@/models/freshness";
-import { useContributionModule } from "@/viewmodels/useContributionModule";
+import { useContributionReport } from "@/viewmodels/useContributionReport";
 import { useInsightsViewModel } from "@/viewmodels/useInsightsViewModel";
 import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import { RepositoryOverview } from "@/views/workbench/RepositoriesPage";
 
-const SERIES = [
-	{ key: "open", label: "Open", color: chart.sky },
-	{ key: "merged", label: "Merged", color: chart.green },
-	{ key: "closed", label: "Closed", color: chart.gray },
-	{ key: "draft", label: "Draft", color: chart.amber },
-] as const;
-const chartText = "hsl(var(--basalt-muted-foreground))";
+const STATES = ["open", "merged", "closed", "draft"] as const;
+const percent = (count: number, total: number) =>
+	total ? `${((100 * count) / total).toFixed(1)}%` : "—";
 
 export function InsightsPage() {
 	const source = useWorkbench().filter.source;
@@ -81,471 +71,427 @@ export function InsightsPage() {
 			{ replace: true },
 		);
 	}, [hasLink, search, setSearch, setFilters, source]);
-	const filters = hasLink ? null : vm.validFilters;
-	const overview = useContributionModule("overview", filters);
-	const trend = useContributionModule(
-		"trend",
-		filters?.from && filters.to ? filters : null,
+	const state = useContributionReport(
+		source,
+		hasLink ? null : vm.validFilters,
+		vm.directory,
 	);
-	const members = useContributionModule("members", filters);
-	const repositories = useContributionModule("repositories", filters);
 	const now = useMinuteNow();
+	const report = state.report;
 	return (
 		<div className="space-y-4">
 			<PageHeader
 				title="Contributions"
-				description="PR contributions by merge date in the selected UTC period. Each module refreshes only when you request it."
+				description="Explore contributions across repositories and compare followed people with every author."
 				actions={
-					<Button asChild variant="outline" size="sm">
-						<Link to="/developers">
-							<Users className="h-4 w-4" aria-hidden />
-							Manage members
-						</Link>
-					</Button>
+					<>
+						<Button asChild variant="outline" size="sm">
+							<Link to="/developers">
+								<Users className="h-4 w-4" aria-hidden />
+								Manage members
+							</Link>
+						</Button>
+						<Button
+							size="sm"
+							disabled={
+								!vm.validFilters ||
+								!vm.directory ||
+								state.calculating ||
+								hasLink
+							}
+							onClick={() => void state.calculate()}
+						>
+							<RefreshCw
+								className={`h-4 w-4 ${state.calculating ? "animate-spin motion-reduce:animate-none" : ""}`}
+								aria-hidden
+							/>
+							{state.calculating ? "Calculating…" : "Calculate"}
+						</Button>
+					</>
 				}
 			/>
-			<ContributionFilterBar vm={vm} />
-			<p className="text-xs leading-relaxed text-basalt-muted-foreground">
-				<Badge variant="secondary" className="mr-2">
-					{source === "demo" ? "Sample history" : "Collected history"}
-				</Badge>
-				{source === "cli"
-					? "Uses cached PRs from explicitly discovered repositories; history not yet discovered may be missing. "
-					: "Sample members and PRs are separate from Live data. "}
-				Refresh recalculates stored records. Date filters use the source merge
-				time; PRs without a confirmed merge date are excluded.
-			</p>
-			<div className="grid min-w-0 gap-4 xl:grid-cols-2">
-				<StatisticsModule
-					title="PR overview"
-					description="Distinct PRs and authors in this scope."
-					state={overview}
-					now={now}
-					disabled={!filters}
-				>
-					{(snapshot) => <Overview snapshot={snapshot} now={now} />}
-				</StatisticsModule>
-				<StatisticsModule
-					title="Merge trend"
-					description="PRs merged each day. UTC calendar days."
-					state={trend}
-					now={now}
-					disabled={!filters?.from || !filters.to}
-				>
-					{(snapshot) => <Trend snapshot={snapshot} />}
-				</StatisticsModule>
+			<ContributionFilterBar vm={vm} withDates={false} />
+			<div className="flex flex-wrap items-center gap-2 text-xs text-basalt-muted-foreground">
+				<Badge variant="secondary">Last 90 days</Badge>
+				<span>
+					{vm.filters.from} – {vm.filters.to} · UTC · Created PRs
+				</span>
+				<span className="ml-auto">
+					Newest collected record:{" "}
+					{report?.totals.lastCollectedAt
+						? relativeAge(report.totals.lastCollectedAt, now)
+						: "none"}
+				</span>
 			</div>
-			<StatisticsModule
-				title="Member contributions"
-				description="Authored PRs by member or unlinked account. Followed members with no matching PRs remain visible."
-				state={members}
-				now={now}
-				disabled={!filters}
-			>
-				{(snapshot) => (
-					<MemberBreakdown snapshot={snapshot} directory={vm.directory} />
-				)}
-			</StatisticsModule>
-			<StatisticsModule
-				title="Repository contributions"
-				description="Repositories represented in the selected merge dates and contributor scope."
-				state={repositories}
-				now={now}
-				disabled={!filters}
-			>
-				{(snapshot) => (
-					<RepositoryOverview
-						snapshot={snapshot}
-						projects={vm.directory?.projects ?? []}
-						now={now}
+			<p className="text-xs text-basalt-muted-foreground">
+				{source === "demo"
+					? "Sample history is separate from Live data. "
+					: "Counts use discovered PRs in the local cache. "}
+				Calculate discovers the complete 90-day window per repository and
+				refreshes PR states. Counts may be incomplete until discovery finishes.
+			</p>
+			{state.progress ? (
+				<AlertBanner>
+					{state.progress} Check Connector in the sidebar for task details.
+				</AlertBanner>
+			) : null}
+			{state.error ? (
+				<AlertBanner variant="error">
+					{state.error}{" "}
+					<Button variant="link" size="sm" onClick={() => void state.reload()}>
+						Reload cached report
+					</Button>
+				</AlertBanner>
+			) : null}
+			{report ? (
+				<>
+					<StatGrid columns={4}>
+						<StatCard title="Selected PRs" value={report.totals.total} />
+						<StatCard title="Merged" value={report.totals.merged} />
+						<StatCard title="Contributors" value={report.totals.contributors} />
+						<StatCard title="Repositories" value={report.totals.repositories} />
+					</StatGrid>
+					<ContributorReport
+						key={`contributors:${JSON.stringify(report.filters)}`}
+						report={report}
 					/>
-				)}
-			</StatisticsModule>
+					<RepositoryReport
+						key={`repositories:${JSON.stringify(report.filters)}`}
+						report={report}
+					/>
+				</>
+			) : state.loading ? (
+				<div
+					role="status"
+					className="space-y-4"
+					aria-label="Loading contribution reports"
+				>
+					<Skeleton className="h-24 w-full" />
+					<Skeleton className="h-64 w-full" />
+					<Skeleton className="h-64 w-full" />
+				</div>
+			) : null}
 		</div>
 	);
 }
 
-function Overview({
-	snapshot,
-	now,
-}: {
-	snapshot: ContributionSnapshot;
-	now: number;
-}) {
-	const { totals } = snapshot;
-	const states = SERIES.map((series) => ({
-		...series,
-		value: totals[series.key],
-	}));
+function CountHeaders() {
 	return (
-		<div className="space-y-4">
-			<StatGrid columns={3}>
-				<StatCard title="Authored PRs" value={totals.total.toLocaleString()} />
-				<StatCard
-					title="Contributors"
-					value={totals.contributors.toLocaleString()}
-				/>
-				<StatCard
-					title="Repositories"
-					value={totals.repositories.toLocaleString()}
-				/>
-			</StatGrid>
-			{totals.total ? (
-				<div className="grid min-w-0 items-center gap-4 sm:grid-cols-2">
-					<ChartFrame
-						ariaLabel="PRs by current state"
-						size="h-48 w-full"
-						summary={`${totals.total} PRs: ${totals.open} open, ${totals.merged} merged, ${totals.closed} closed, ${totals.draft} draft.`}
-					>
-						<PieChart>
-							<Pie
-								data={states}
-								dataKey="value"
-								nameKey="label"
-								innerRadius="60%"
-								outerRadius="90%"
-								paddingAngle={2}
-								stroke="none"
-								isAnimationActive={false}
-							>
-								{states.map((series) => (
-									<Cell key={series.key} fill={series.color} />
-								))}
-							</Pie>
-							<Tooltip content={<ChartTooltipContent />} />
-						</PieChart>
-					</ChartFrame>
-					<dl className="space-y-3">
-						{states.map((series) => (
-							<div
-								key={series.key}
-								className="flex items-center justify-between gap-3 text-xs"
-							>
-								<dt className="flex items-center gap-2">
-									<span
-										className="h-2 w-2 rounded-full"
-										style={{ backgroundColor: series.color }}
-										aria-hidden
-									/>
-									{series.label}
-								</dt>
-								<dd className="flex items-center gap-3 tabular-nums">
-									<span className="font-semibold">
-										{series.value.toLocaleString()}
-									</span>
-									<span className="w-10 text-right text-basalt-muted-foreground">
-										{Math.round((series.value / totals.total) * 100)}%
-									</span>
-								</dd>
-							</div>
-						))}
-					</dl>
-				</div>
+		<>
+			<TableHead className="text-right">Total</TableHead>
+			{STATES.map((state) => (
+				<TableHead key={state} className="text-right capitalize">
+					{state}
+				</TableHead>
+			))}
+		</>
+	);
+}
+function CountCells({ counts }: { counts: PullCounts }) {
+	return (
+		<>
+			<TableCell className="text-right font-semibold tabular-nums">
+				{counts.total}
+			</TableCell>
+			{STATES.map((state) => (
+				<TableCell key={state} className="text-right tabular-nums">
+					{counts[state]}
+				</TableCell>
+			))}
+		</>
+	);
+}
+function Author({
+	row,
+}: {
+	row:
+		| ContributorRepositoryContribution
+		| ContributionReport["members"][number];
+}) {
+	const source = useWorkbench().filter.source;
+	return (
+		<div className="flex items-center gap-2">
+			{row.key.startsWith("unknown:") ? (
+				<EntityLabel name={row.name} size="sm" />
 			) : (
-				<EmptyState
-					compact
-					icon={GitPullRequest}
-					title="No matching PRs"
-					description="Try another date range or contributor scope."
+				<ContributorProfile
+					source={source}
+					contributorKey={row.key}
+					name={row.name}
+					avatarUrl={row.avatarUrl}
 				/>
 			)}
-			<p className="text-xs text-basalt-muted-foreground">
-				{snapshot.filters.includeDraft
-					? "Drafts count separately from open PRs."
-					: "Drafts excluded."}{" "}
-				Newest collected record:{" "}
-				{totals.lastCollectedAt === null ? (
-					"none"
-				) : (
-					<time
-						dateTime={new Date(totals.lastCollectedAt * 1000).toISOString()}
-						title={new Date(totals.lastCollectedAt * 1000).toLocaleString()}
-					>
-						{relativeAge(totals.lastCollectedAt, now)}
-					</time>
-				)}
-				.
-			</p>
+			{row.memberId ? <Badge variant="secondary">Followed</Badge> : null}
 		</div>
 	);
 }
 
-function Trend({ snapshot }: { snapshot: ContributionSnapshot }) {
+function ContributorReport({ report }: { report: ContributionReport }) {
+	const [requested, select] = useState("");
+	const member =
+		report.members.find((row) => row.key === requested) ??
+		report.members.find((row) => row.memberId !== null) ??
+		report.members[0];
+	const contributions = report.contributions.filter(
+		(row) => row.key === member?.key && row.selected,
+	);
 	return (
-		<div className="space-y-3">
-			<ChartFrame
-				ariaLabel="Daily merged PR contributions"
-				size="h-72 w-full"
-				summary={`${snapshot.totals.total} PRs merged between ${snapshot.filters.from} and ${snapshot.filters.to}. Days without matching PRs are shown as zero.`}
-				dataAlternative={
-					<details className="text-xs">
-						<summary className="cursor-pointer text-basalt-muted-foreground">
-							View daily counts
-						</summary>
-						<div className="mt-2 max-h-56 overflow-auto">
-							<Table aria-label="Daily contribution counts">
+		<LayerCard padding="none" aria-label="Contributor perspective">
+			<LayerCard.Header className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h2 className="text-sm font-semibold">Contributor perspective</h2>
+					<p className="mt-1 text-xs text-basalt-muted-foreground">
+						One person's contributions across repositories, with their share and
+						rank in each.
+					</p>
+				</div>
+				{member ? (
+					<SelectControl
+						aria-label="Contributor"
+						value={member.key}
+						onChange={select}
+						className="w-64 max-w-full"
+					>
+						{report.members.map((person) => (
+							<option key={person.key} value={person.key}>
+								{person.name}
+								{person.memberId ? " · Followed" : ""} · {person.total} PRs
+							</option>
+						))}
+					</SelectControl>
+				) : null}
+			</LayerCard.Header>
+			<LayerCard.Well className="space-y-3">
+				{member ? (
+					<>
+						<div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+							<Author row={member} />
+							<span className="text-basalt-muted-foreground">
+								{member.total} PRs · {contributions.length} repositories ·{" "}
+								{percent(member.merged, member.total)} merged
+							</span>
+						</div>
+						{contributions.length ? (
+							<div className="overflow-x-auto">
+								<Table
+									aria-label="Contributor repository counts"
+									className="min-w-[680px] text-xs"
+								>
+									<TableHeader>
+										<TableRow>
+											<TableHead>Repository</TableHead>
+											<CountHeaders />
+											<TableHead className="text-right">Repo share</TableHead>
+											<TableHead className="text-right">Rank</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{contributions.map((row) => {
+											const repo = report.repositories.find(
+												(item) => item.key === row.repositoryKey,
+											);
+											const peers = report.contributions.filter(
+												(item) => item.repositoryKey === row.repositoryKey,
+											);
+											const rank =
+												1 +
+												peers.filter((item) => item.total > row.total).length;
+											return (
+												<TableRow key={row.repositoryKey}>
+													<TableCell className="font-medium">
+														{repo?.name ?? row.repositoryKey}
+													</TableCell>
+													<CountCells counts={row} />
+													<TableCell className="text-right tabular-nums">
+														{percent(row.total, repo?.total ?? 0)}
+													</TableCell>
+													<TableCell className="text-right tabular-nums">
+														{rank} / {peers.length}
+													</TableCell>
+												</TableRow>
+											);
+										})}
+									</TableBody>
+								</Table>
+							</div>
+						) : (
+							<EmptyState
+								compact
+								icon={GitPullRequest}
+								title="No PRs in this period"
+								description="This followed person remains visible even without matching PRs. Calculate to discover missing history."
+							/>
+						)}
+					</>
+				) : (
+					<EmptyState
+						compact
+						icon={Users}
+						title="No matching contributors"
+						description="Follow a PR author or broaden the contributor filters."
+					/>
+				)}
+			</LayerCard.Well>
+		</LayerCard>
+	);
+}
+
+function RepositoryReport({ report }: { report: ContributionReport }) {
+	const [requested, select] = useState("");
+	const [requestedPage, setPage] = useState(1);
+	const repository =
+		report.repositories.find((row) => row.key === requested) ??
+		report.repositories[0];
+	const authors = report.contributions
+		.filter((row) => row.repositoryKey === repository?.key)
+		.sort(
+			(a, b) =>
+				b.total - a.total ||
+				a.name.localeCompare(b.name) ||
+				a.key.localeCompare(b.key),
+		);
+	const selected = authors.filter((row) => row.selected);
+	const selectedTotal = selected.reduce((sum, row) => sum + row.total, 0);
+	const pages = Math.max(1, Math.ceil(authors.length / 20));
+	const page = Math.min(requestedPage, pages);
+	const visible = authors.slice((page - 1) * 20, page * 20);
+	return (
+		<LayerCard padding="none" aria-label="Repository perspective">
+			<LayerCard.Header className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h2 className="text-sm font-semibold">Repository perspective</h2>
+					<p className="mt-1 text-xs text-basalt-muted-foreground">
+						Repository totals include every visible author. Contributor filters
+						highlight people without changing the comparison.
+					</p>
+				</div>
+				{repository ? (
+					<SelectControl
+						aria-label="Repository"
+						value={repository.key}
+						onChange={(key) => {
+							select(key);
+							setPage(1);
+						}}
+						className="w-64 max-w-full"
+					>
+						{report.repositories.map((repo) => (
+							<option key={repo.key} value={repo.key}>
+								{repo.name} · {repo.total} PRs
+							</option>
+						))}
+					</SelectControl>
+				) : null}
+			</LayerCard.Header>
+			<LayerCard.Well className="space-y-3">
+				{repository ? (
+					<>
+						<div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+							<span>
+								<strong>{repository.total}</strong> repository PRs
+							</span>
+							<span>
+								<strong>{authors.length}</strong> authors
+							</span>
+							<span>
+								<strong>{selectedTotal}</strong> selected PRs ·{" "}
+								{percent(selectedTotal, repository.total)} of repository
+							</span>
+						</div>
+						{selected.length ? (
+							<div className="flex flex-wrap items-center gap-2 text-xs">
+								{selected.slice(0, 10).map((row) => (
+									<Badge key={row.key} variant="secondary">
+										{row.name} · {row.total} PRs ·{" "}
+										{percent(row.total, repository.total)} · #
+										{1 +
+											authors.filter((peer) => peer.total > row.total).length}
+									</Badge>
+								))}
+							</div>
+						) : null}
+						<div className="overflow-x-auto">
+							<Table
+								aria-label="Repository contributor counts"
+								className="min-w-[720px] text-xs"
+							>
 								<TableHeader>
 									<TableRow>
-										<TableHead>Merged (UTC)</TableHead>
-										{SERIES.map((series) => (
-											<TableHead key={series.key} className="text-right">
-												{series.label}
-											</TableHead>
-										))}
+										<TableHead className="w-12 text-right">Rank</TableHead>
+										<TableHead>Contributor</TableHead>
+										<CountHeaders />
+										<TableHead className="text-right">Repo share</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{snapshot.trend.map((day) => (
-										<TableRow key={day.day}>
-											<TableCell>{day.day}</TableCell>
-											{SERIES.map((series) => (
-												<TableCell
-													key={series.key}
-													className="text-right tabular-nums"
-												>
-													{day[series.key]}
-												</TableCell>
-											))}
+									{visible.map((row) => (
+										<TableRow
+											key={row.key}
+											data-state={row.selected ? "selected" : undefined}
+										>
+											<TableCell className="text-right tabular-nums">
+												{1 +
+													authors.filter((peer) => peer.total > row.total)
+														.length}
+											</TableCell>
+											<TableCell>
+												<Author row={row} />
+												{row.selected ? (
+													<span className="text-[11px] text-basalt-muted-foreground">
+														Selected contributor
+													</span>
+												) : null}
+											</TableCell>
+											<CountCells counts={row} />
+											<TableCell className="text-right tabular-nums">
+												{percent(row.total, repository.total)}
+											</TableCell>
 										</TableRow>
 									))}
 								</TableBody>
 							</Table>
 						</div>
-					</details>
-				}
-			>
-				<BarChart
-					data={snapshot.trend}
-					margin={{ top: 12, right: 8, bottom: 0, left: -24 }}
-				>
-					<CartesianGrid
-						vertical={false}
-						stroke={chartAxis}
-						strokeDasharray="3 3"
+						<div className="flex items-center justify-between gap-3 text-xs text-basalt-muted-foreground">
+							<span>
+								{(page - 1) * 20 + 1}–{Math.min(page * 20, authors.length)} of{" "}
+								{authors.length} contributors
+							</span>
+							<div className="flex items-center gap-2">
+								<Button
+									variant="outline"
+									size="icon"
+									className="h-7 w-7"
+									aria-label="Previous contributor page"
+									disabled={page <= 1}
+									onClick={() => setPage(page - 1)}
+								>
+									<ChevronLeft className="h-4 w-4" aria-hidden />
+								</Button>
+								<span>
+									{page} / {pages}
+								</span>
+								<Button
+									variant="outline"
+									size="icon"
+									className="h-7 w-7"
+									aria-label="Next contributor page"
+									disabled={page >= pages}
+									onClick={() => setPage(page + 1)}
+								>
+									<ChevronRight className="h-4 w-4" aria-hidden />
+								</Button>
+							</div>
+						</div>
+					</>
+				) : (
+					<EmptyState
+						compact
+						icon={GitPullRequest}
+						title="No discovered repository PRs"
+						description="Calculate to discover PRs for this period, or broaden the repository filters."
 					/>
-					<XAxis
-						dataKey="day"
-						tickFormatter={(day: string) => day.slice(5)}
-						minTickGap={24}
-						tick={{ fontSize: 11, fill: chartText }}
-						tickLine={false}
-						axisLine={false}
-					/>
-					<YAxis
-						allowDecimals={false}
-						tick={{ fontSize: 11, fill: chartText }}
-						tickLine={false}
-						axisLine={false}
-					/>
-					<Tooltip
-						content={<ChartTooltipContent />}
-						cursor={{ fill: "hsl(var(--basalt-muted) / 0.4)" }}
-					/>
-					{SERIES.map((series) => (
-						<Bar
-							key={series.key}
-							dataKey={series.key}
-							name={series.label}
-							fill={series.color}
-							stackId="states"
-							maxBarSize={28}
-							isAnimationActive={false}
-						/>
-					))}
-				</BarChart>
-			</ChartFrame>
-			<ChartLegend items={[...SERIES]} shape="bar" />
-		</div>
-	);
-}
-
-function MemberBreakdown({
-	snapshot,
-	directory,
-}: {
-	snapshot: ContributionSnapshot;
-	directory: DirectoryData | null;
-}) {
-	const [requestedPage, setPage] = useState(1);
-	const pages = Math.max(1, Math.ceil(snapshot.members.length / 20));
-	const page = Math.min(requestedPage, pages);
-	const visible = snapshot.members.slice((page - 1) * 20, page * 20);
-	if (!snapshot.members.length)
-		return (
-			<EmptyState
-				compact
-				icon={Users}
-				title="No matching contributors"
-				description="Follow authors in Members, or change your filters to include other contributors."
-			/>
-		);
-	return (
-		<div className="space-y-4">
-			<ChartFrame
-				ariaLabel="Top contributors by authored PRs"
-				size="h-64 w-full"
-				summary="Up to eight contributors with the most authored PRs. Full counts and membership are in the table below."
-			>
-				<BarChart
-					data={snapshot.members.slice(0, 8)}
-					layout="vertical"
-					margin={{ top: 4, right: 16, bottom: 0, left: 0 }}
-				>
-					<CartesianGrid
-						horizontal={false}
-						stroke={chartAxis}
-						strokeDasharray="3 3"
-					/>
-					<XAxis
-						type="number"
-						allowDecimals={false}
-						tick={{ fontSize: 11, fill: chartText }}
-						tickLine={false}
-						axisLine={false}
-					/>
-					<YAxis
-						type="category"
-						dataKey="name"
-						width={116}
-						tick={{ fontSize: 11, fill: chartText }}
-						tickLine={false}
-						axisLine={false}
-						tickFormatter={(name: string) =>
-							name.length > 17 ? `${name.slice(0, 16)}…` : name
-						}
-					/>
-					<Tooltip
-						content={<ChartTooltipContent />}
-						cursor={{ fill: "hsl(var(--basalt-muted) / 0.4)" }}
-					/>
-					{SERIES.map((series) => (
-						<Bar
-							key={series.key}
-							dataKey={series.key}
-							name={series.label}
-							fill={series.color}
-							stackId="states"
-							maxBarSize={22}
-							isAnimationActive={false}
-						/>
-					))}
-				</BarChart>
-			</ChartFrame>
-			<ChartLegend items={[...SERIES]} shape="bar" />
-			<div className="overflow-x-auto">
-				<Table
-					aria-label="Member contribution counts"
-					className="min-w-[640px]"
-				>
-					<TableHeader>
-						<TableRow>
-							<TableHead>Member / author</TableHead>
-							<TableHead>Teams</TableHead>
-							<TableHead className="text-right">Total</TableHead>
-							{SERIES.map((series) => (
-								<TableHead key={series.key} className="text-right">
-									{series.label}
-								</TableHead>
-							))}
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{visible.map((member) => {
-							const identity =
-								member.memberId === null
-									? directory?.identities.find(
-											(entry) => `identity:${entry.key}` === member.key,
-										)
-									: null;
-							return (
-								<TableRow key={member.key}>
-									<TableCell>
-										<div className="flex items-center gap-2">
-											<EntityAvatar
-												name={member.name}
-												avatarUrl={member.avatarUrl}
-												size="sm"
-											/>
-											<div className="min-w-0">
-												<div className="text-xs font-medium">{member.name}</div>
-												<div className="mt-0.5 text-[11px] text-basalt-muted-foreground">
-													{member.memberId
-														? "Followed member"
-														: identity
-															? `${identity.organization} · ${identity.handle ?? identity.actorId}`
-															: "Unlinked author"}
-												</div>
-											</div>
-										</div>
-									</TableCell>
-									<TableCell>
-										<div className="flex max-w-72 flex-wrap gap-1">
-											{member.teamIds.length ? (
-												member.teamIds.map((id) => (
-													<Badge
-														key={id}
-														variant="secondary"
-														className="text-[10px] font-normal"
-													>
-														{directory?.teams.find((team) => team.id === id)
-															?.name ?? "Unavailable team"}
-													</Badge>
-												))
-											) : (
-												<span className="text-xs text-basalt-muted-foreground">
-													—
-												</span>
-											)}
-										</div>
-									</TableCell>
-									<TableCell className="text-right text-xs font-semibold tabular-nums">
-										{member.total.toLocaleString()}
-									</TableCell>
-									{SERIES.map((series) => (
-										<TableCell
-											key={series.key}
-											className="text-right text-xs tabular-nums"
-										>
-											{member[series.key].toLocaleString()}
-										</TableCell>
-									))}
-								</TableRow>
-							);
-						})}
-					</TableBody>
-				</Table>
-			</div>
-			<div className="flex flex-wrap items-center justify-between gap-3 text-xs text-basalt-muted-foreground">
-				<span>
-					{(page - 1) * 20 + 1}–{Math.min(page * 20, snapshot.members.length)}{" "}
-					of {snapshot.members.length} contributors
-				</span>
-				<div className="flex items-center gap-2">
-					<Button
-						variant="outline"
-						size="icon"
-						className="h-7 w-7"
-						aria-label="Previous member page"
-						disabled={page <= 1}
-						onClick={() => setPage(page - 1)}
-					>
-						<ChevronLeft className="h-4 w-4" aria-hidden />
-					</Button>
-					<span className="tabular-nums">
-						{page} / {pages}
-					</span>
-					<Button
-						variant="outline"
-						size="icon"
-						className="h-7 w-7"
-						aria-label="Next member page"
-						disabled={page >= pages}
-						onClick={() => setPage(page + 1)}
-					>
-						<ChevronRight className="h-4 w-4" aria-hidden />
-					</Button>
-				</div>
-			</div>
-		</div>
+				)}
+			</LayerCard.Well>
+		</LayerCard>
 	);
 }

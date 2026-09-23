@@ -1,5 +1,9 @@
 import { querySourceSchema, storageSource } from "@signoff/domain/monitoring";
-import type { Project } from "@signoff/domain/workbench";
+import {
+	discoveryDepthSchema,
+	type Project,
+	repositoryNameSchema,
+} from "@signoff/domain/workbench";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
@@ -41,12 +45,15 @@ const discoverSchema = z.union([
 		.object({
 			source: sourceSchema,
 			repositoryUrl: z.url().max(4096),
+			depth: discoveryDepthSchema.default("smart"),
 		})
 		.strict(),
 	z
 		.object({
 			source: sourceSchema,
 			projectId: z.string().min(1).max(240),
+			repositoryIds: z.array(repositoryNameSchema).min(1).max(1000).optional(),
+			depth: discoveryDepthSchema.default("smart"),
 		})
 		.strict(),
 ]);
@@ -200,11 +207,17 @@ commandRoutes.post("/discover", async (c) => {
 				"Project is not registered in this source",
 				404,
 			);
-		scope = project.repositories ?? [];
+		scope = input.repositoryIds ?? project.repositories ?? [];
 	}
 	return c.json(
 		{
-			jobs: [await enqueueDiscovery(c.env.DB, project, scope, now())],
+			jobs: await enqueueDiscovery(
+				c.env.DB,
+				project,
+				scope,
+				now(),
+				input.depth,
+			),
 		},
 		202,
 	);

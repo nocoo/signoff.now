@@ -41,8 +41,15 @@ test("only discovery scheduling enqueues project list jobs", async () => {
 		).toBe(200);
 	expect((await request("collection/refresh", "GET")).status).toBe(200);
 	expect(
-		sqlite.raw.query("SELECT COUNT(*) AS n FROM collection_jobs").get(),
-	).toEqual({ n: 1 });
+		sqlite.raw
+			.query(
+				"SELECT kind,catalogue_only,scope_json FROM collection_jobs ORDER BY catalogue_only",
+			)
+			.all(),
+	).toEqual([
+		{ kind: "list", catalogue_only: 0, scope_json: JSON.stringify(["repo-1"]) },
+		{ kind: "list", catalogue_only: 1, scope_json: "[]" },
+	]);
 });
 
 test("both task cooldowns are configurable and zero disables periodic work", async () => {

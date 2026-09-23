@@ -1,4 +1,5 @@
 import {
+	contributorBlockSchema,
 	type DataSource,
 	type DirectoryData,
 	type DirectoryIdentity,
@@ -55,14 +56,23 @@ export async function readDirectory(
 		"SELECT * FROM tags WHERE source = ? ORDER BY name COLLATE NOCASE, id",
 		"SELECT * FROM projects WHERE source = ? ORDER BY organization, project_key",
 		"SELECT * FROM developer_identities WHERE source = ? ORDER BY identity_key",
-		`WITH ranked AS (
-			SELECT p.provider, p.organization, json_extract(pr.snapshot, '$.author.id') AS actor_id,
-			json_extract(pr.snapshot, '$.author.name') AS name, json_extract(pr.snapshot, '$.author.handle') AS handle,
-			json_extract(pr.snapshot, '$.author.avatarUrl') AS avatar_url, json_extract(pr.snapshot, '$.observedAt') AS last_seen_at,
-			ROW_NUMBER() OVER (PARTITION BY p.provider, lower(p.organization), json_extract(pr.snapshot, '$.author.id')
-				ORDER BY json_extract(pr.snapshot, '$.observedAt') DESC, pr.id) AS rank
+		`WITH accounts AS (
+			SELECT pr.project_id, json_extract(pr.snapshot, '$.author.id') AS actor_id
 			FROM pull_requests pr JOIN projects p ON p.id = pr.project_id
 			WHERE p.source = ? AND json_extract(pr.snapshot, '$.author.id') != 'unknown'
+			GROUP BY pr.project_id, json_extract(pr.snapshot, '$.author.id')
+		), ranked AS (
+			SELECT p.provider, p.organization, a.actor_id,
+			json_extract(pr.snapshot, '$.author.name') AS name, json_extract(pr.snapshot, '$.author.handle') AS handle,
+			json_extract(pr.snapshot, '$.author.avatarUrl') AS avatar_url, json_extract(pr.snapshot, '$.observedAt') AS last_seen_at,
+			ROW_NUMBER() OVER (PARTITION BY p.provider, lower(p.organization), a.actor_id
+				ORDER BY json_extract(pr.snapshot, '$.observedAt') DESC, pr.id) AS rank
+			FROM accounts a JOIN projects p ON p.id = a.project_id
+			JOIN pull_requests pr ON pr.id = (
+				SELECT latest.id FROM pull_requests latest
+				WHERE latest.project_id = a.project_id AND json_extract(latest.snapshot, '$.author.id') = a.actor_id
+				ORDER BY json_extract(latest.snapshot, '$.observedAt') DESC, latest.id LIMIT 1
+			)
 		) SELECT * FROM ranked WHERE rank = 1`,
 		`SELECT l.developer_id AS owner_id, l.team_id AS target_id FROM developer_teams l
 			JOIN developers d ON d.id = l.developer_id JOIN teams t ON t.id = l.team_id
@@ -73,12 +83,17 @@ export async function readDirectory(
 		`SELECT l.team_id AS owner_id, l.tag_id AS target_id FROM team_tags l
 			JOIN teams d ON d.id = l.team_id JOIN tags t ON t.id = l.tag_id
 			WHERE d.source = ? AND t.archived_at IS NULL`,
-		`WITH ranked AS (
-			SELECT pr.project_id, pr.repository_id, json_extract(pr.snapshot, '$.repository.name') AS name,
-			ROW_NUMBER() OVER (PARTITION BY pr.project_id, pr.repository_id ORDER BY json_extract(pr.snapshot, '$.observedAt') DESC, pr.id) AS rank
-			FROM pull_requests pr JOIN projects p ON p.id = pr.project_id WHERE p.source = ?
-		) SELECT * FROM ranked WHERE rank = 1 ORDER BY name COLLATE NOCASE`,
+		`WITH repositories AS (
+			SELECT pr.project_id, pr.repository_id FROM pull_requests pr JOIN projects p ON p.id = pr.project_id
+			WHERE p.source = ? GROUP BY pr.project_id, pr.repository_id
+		) SELECT r.project_id, r.repository_id, json_extract(pr.snapshot, '$.repository.name') AS name
+		FROM repositories r JOIN pull_requests pr ON pr.id = (
+			SELECT latest.id FROM pull_requests latest
+			WHERE latest.project_id = r.project_id AND latest.repository_id = r.repository_id
+			ORDER BY json_extract(latest.snapshot, '$.observedAt') DESC, latest.id LIMIT 1
+		) ORDER BY name COLLATE NOCASE, r.project_id, r.repository_id`,
 		"SELECT revision FROM directory_revisions WHERE source = ?",
+		"SELECT contributor_key FROM contributor_blocks WHERE source = ? ORDER BY contributor_key",
 	];
 	const results = await db.batch(
 		queries.map((sql) => db.prepare(sql).bind(source)),
@@ -89,6 +104,9 @@ export async function readDirectory(
 	const identities = new Map<string, DirectoryIdentity>();
 	for (const row of [...linked, ...rows<IdentityRow>(5)]) {
 		const key = identityKey(row.provider, row.organization, row.actor_id);
+		const existing = identities.get(key);
+		if (existing && (existing.lastSeenAt ?? -1) > (row.last_seen_at ?? -1))
+			continue;
 		identities.set(key, {
 			key,
 			provider: row.provider,
@@ -109,22 +127,36 @@ export async function readDirectory(
 			.filter((link) => link.owner_id === owner)
 			.map((link) => link.target_id)
 			.sort((a, b) => a.localeCompare(b));
-	const members = rows<DeveloperRow>(0).map((row) => ({
-		id: row.id,
-		name: row.name,
-		avatarUrl: row.avatar_url,
-		archivedAt: row.archived_at,
-		teamIds: targets(teamLinks, row.id),
-		tagIds: targets(tagLinks, row.id),
-		identityKeys: [...identities.values()]
+	const members = rows<DeveloperRow>(0).map((row) => {
+		const accounts = [...identities.values()]
 			.filter((identity) => identity.memberId === row.id)
-			.map((identity) => identity.key)
-			.sort((a, b) => a.localeCompare(b)),
-	}));
+			.sort(
+				(a, b) =>
+					(b.lastSeenAt ?? -1) - (a.lastSeenAt ?? -1) ||
+					a.key.localeCompare(b.key),
+			);
+		return {
+			id: row.id,
+			name: row.name,
+			avatarUrl:
+				safeAvatar(row.avatar_url) ??
+				accounts.find((identity) => identity.avatarUrl !== null)?.avatarUrl ??
+				null,
+			archivedAt: row.archived_at,
+			teamIds: targets(teamLinks, row.id),
+			tagIds: targets(tagLinks, row.id),
+			identityKeys: accounts
+				.map((identity) => identity.key)
+				.sort((a, b) => a.localeCompare(b)),
+		};
+	});
 	return {
 		source,
 		revision: (rows<{ revision: number }>(10)[0] as { revision: number })
 			.revision,
+		blockedContributorKeys: rows<{ contributor_key: string }>(11).map(
+			(row) => row.contributor_key,
+		),
 		members,
 		teams: rows<TeamRow>(1).map((row) => ({
 			id: row.id,
@@ -516,4 +548,100 @@ export async function directoryArchiveRoute(c: Context<AppEnv>) {
 		throw error;
 	}
 	return c.json({ ok: true });
+}
+
+export async function directoryBlockRoute(c: Context<AppEnv>) {
+	const source = dataSourceSchema.safeParse(c.req.query("source") ?? "cli");
+	if (!source.success) return c.json({ error: "Invalid data source" }, 400);
+	if (
+		source.data === "demo" &&
+		!(
+			c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
+		)
+	)
+		return c.json(
+			{ error: "Sample editing is available in the local demo environment" },
+			403,
+		);
+	const revision = expectedRevision(c);
+	if (revision === null)
+		return c.json(
+			{ error: "Reload the directory before editing; If-Match is required" },
+			428,
+		);
+	const raw = await readJsonBodyWithSize(c, 4096);
+	if (!raw.ok)
+		return c.json(
+			{ error: raw.error },
+			raw.error === "payload_too_large" ? 413 : 400,
+		);
+	const parsed = contributorBlockSchema.safeParse(raw.value);
+	if (!parsed.success)
+		return c.json(
+			{
+				error:
+					parsed.error.issues[0]?.message ?? "Invalid contributor visibility",
+			},
+			400,
+		);
+	const { key, blocked } = parsed.data;
+	const data = await readDirectory(c.env.DB, source.data);
+	if (data.revision !== revision)
+		return c.json({ error: DIRECTORY_CHANGED }, 409);
+	const identity = key.startsWith("identity:")
+		? data.identities.find((account) => account.key === key.slice(9))
+		: null;
+	const member = data.members.find(
+		(person) =>
+			person.id ===
+			(key.startsWith("member:") ? key.slice(7) : identity?.memberId),
+	);
+	if (
+		!identity &&
+		!member &&
+		!(data.blockedContributorKeys.includes(key) && !blocked)
+	)
+		return c.json({ error: "Contributor not found in this data source" }, 404);
+	const keys = [
+		...new Set([
+			key,
+			...(member
+				? [
+						`member:${member.id}`,
+						...member.identityKeys.map(
+							(accountKey) => `identity:${accountKey}`,
+						),
+					]
+				: []),
+		]),
+	];
+	try {
+		const result = await c.env.DB.batch([
+			assertRevision(c.env.DB, source.data, revision),
+			blocked
+				? c.env.DB.prepare(
+						"INSERT OR IGNORE INTO contributor_blocks(source, contributor_key) SELECT ?, value FROM json_each(?)",
+					).bind(source.data, JSON.stringify(keys))
+				: c.env.DB.prepare(
+						"DELETE FROM contributor_blocks WHERE source = ? AND contributor_key IN (SELECT value FROM json_each(?))",
+					).bind(source.data, JSON.stringify(keys)),
+			c.env.DB.prepare(
+				"SELECT contributor_key FROM contributor_blocks WHERE source = ? ORDER BY contributor_key",
+			).bind(source.data),
+			c.env.DB.prepare(
+				"SELECT revision FROM directory_revisions WHERE source = ?",
+			).bind(source.data),
+		]);
+		return c.json({
+			ok: true,
+			blockedContributorKeys: (
+				result[2]?.results as { contributor_key: string }[]
+			).map((row) => row.contributor_key),
+			revision: (result[3]?.results[0] as { revision: number }).revision,
+		});
+	} catch (error) {
+		const conflict = writeConflict(error);
+		if (conflict) return c.json({ error: conflict }, 409);
+		throw error;
+	}
 }

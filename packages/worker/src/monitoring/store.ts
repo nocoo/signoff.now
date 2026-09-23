@@ -159,6 +159,8 @@ export type JobRow = {
 	round_id: string | null;
 	scope_json: string;
 	scope_key: string;
+	discovery_depth: "smart" | "deep";
+	catalogue_only: number;
 	observation_id: string | null;
 	observation_generation: number | null;
 	not_before: number;
@@ -216,6 +218,9 @@ export function mapJob(row: JobRow): CollectionJob {
 		pullIds: row.pull_ids_json ? JSON.parse(row.pull_ids_json) : undefined,
 		kind: row.kind,
 		lane: row.kind === "list" ? "discover" : "checks",
+		depth: row.kind === "list" ? row.discovery_depth : undefined,
+		scope: JSON.parse(row.scope_json),
+		catalogueOnly: row.catalogue_only === 1,
 		roundId: row.round_id,
 	});
 }

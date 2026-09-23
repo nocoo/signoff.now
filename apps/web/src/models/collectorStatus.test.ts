@@ -131,7 +131,7 @@ test("formats task type, duration and freshness from the response clock", () => 
 	expect(jobOperation(fixtureJob())).toBe("Full PR refresh");
 	expect(jobOperation(fixtureJob({ lane: "checks" }))).toBe("Full PR refresh");
 	expect(jobOperation(fixtureJob({ kind: "discover" }))).toBe(
-		"Project PR list",
+		"Smart discovery",
 	);
 	expect(jobDuration(fixtureJob(), fixtureNow)).toBe("20s");
 	expect(jobDuration(fixtureJob({ startedAt: null }), fixtureNow)).toBe(

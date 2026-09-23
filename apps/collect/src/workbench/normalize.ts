@@ -427,6 +427,7 @@ export function normalizePullRequest(opts: {
 	const reviewers = (rawPr.reviewers || []).map((r) => ({
 		id: r.id,
 		name: r.displayName || "Unknown",
+		avatarUrl: r.imageUrl,
 		vote: mapReviewerVote(r.vote),
 		providerVote: r.vote,
 		hasDeclined: r.hasDeclined,

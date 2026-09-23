@@ -56,6 +56,7 @@ export const adoReviewerSchema = z
 		id: z.string(),
 		displayName: z.string().default("Unknown"),
 		uniqueName: z.string().optional(),
+		imageUrl: z.string().url().max(2048).optional().catch(undefined),
 		vote: z.number().default(0),
 		isRequired: z.boolean().optional(),
 		isContainer: z.boolean().optional(),

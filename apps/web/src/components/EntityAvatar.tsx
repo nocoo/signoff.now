@@ -1,6 +1,10 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@nocoo/basalt";
-import { avatarColor, avatarInitial, usableAvatarUrl } from "@/lib/avatar";
+import type { DataSource } from "@signoff/domain/insights";
+import { createContext, useContext, useEffect, useState } from "react";
+import { avatarColor, avatarInitial, cachedAvatarUrl } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
+
+export const AvatarSourceContext = createContext<DataSource>("cli");
 
 const SIZES = {
 	xs: "h-5 w-5 text-[9px]",
@@ -12,34 +16,51 @@ const SIZES = {
 export type EntityAvatarProps = {
 	name: string;
 	avatarUrl?: string | null;
+	source?: DataSource;
 	size?: keyof typeof SIZES;
 	className?: string;
 };
 
-/**
- * A team or developer avatar: the custom image when there is a usable one,
- * otherwise two initials on a colour derived from the name.
- *
- * Radix falls back on its own when the image 404s, so a dead URL degrades to
- * the generated swatch rather than a broken-image icon.
- *
- * `referrerPolicy="no-referrer"` because the URL is attacker-choosable: anyone
- * who can edit a roster row picks a host that every manager's browser then
- * fetches. That cannot be prevented from here (see the note in the README on
- * proxying), but it should not additionally hand over which page they were on.
- */
+function CachedAvatarImage({ src }: { src: string }) {
+	const [attempt, setAttempt] = useState(0);
+	const [failed, setFailed] = useState(false);
+	useEffect(() => {
+		if (!failed) return;
+		const retry = () => {
+			if (document.visibilityState === "hidden") return;
+			setFailed(false);
+			setAttempt((previous) => previous + 1);
+		};
+		const timer = setTimeout(retry, 60_000);
+		document.addEventListener("visibilitychange", retry);
+		return () => {
+			clearTimeout(timer);
+			document.removeEventListener("visibilitychange", retry);
+		};
+	}, [failed]);
+	return (
+		<AvatarImage
+			key={attempt}
+			src={src}
+			alt=""
+			referrerPolicy="no-referrer"
+			onLoadingStatusChange={(status) => setFailed(status === "error")}
+		/>
+	);
+}
+
 export function EntityAvatar({
 	name,
 	avatarUrl,
+	source,
 	size = "md",
 	className,
 }: EntityAvatarProps) {
-	const src = usableAvatarUrl(avatarUrl);
+	const inheritedSource = useContext(AvatarSourceContext);
+	const src = cachedAvatarUrl(avatarUrl, source ?? inheritedSource);
 	return (
 		<Avatar aria-hidden className={cn(SIZES[size], className)}>
-			{src ? (
-				<AvatarImage src={src} alt="" referrerPolicy="no-referrer" />
-			) : null}
+			{src ? <CachedAvatarImage key={src} src={src} /> : null}
 			<AvatarFallback
 				className="font-medium text-white [font-size:inherit]"
 				style={{ backgroundColor: avatarColor(name) }}
@@ -54,15 +75,23 @@ export function EntityAvatar({
 export function EntityLabel({
 	name,
 	avatarUrl,
+	source,
 	size = "md",
 	className,
 	secondary,
 }: EntityAvatarProps & { secondary?: string }) {
 	return (
 		<span className={cn("flex items-center gap-2", className)}>
-			<EntityAvatar name={name} avatarUrl={avatarUrl} size={size} />
+			<EntityAvatar
+				name={name}
+				avatarUrl={avatarUrl}
+				source={source}
+				size={size}
+			/>
 			<span className="min-w-0">
-				<span className="block truncate font-medium">{name}</span>
+				<span className="block truncate font-medium" title={name}>
+					{name}
+				</span>
 				{secondary ? (
 					<span className="block truncate font-mono text-xs text-basalt-muted-foreground">
 						{secondary}

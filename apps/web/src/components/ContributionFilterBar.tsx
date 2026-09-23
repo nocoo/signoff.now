@@ -37,7 +37,11 @@ export function ContributionFilterBar({
 }) {
 	const { filters, directory, setFilters } = vm;
 	const activeMembers =
-		directory?.members.filter((member) => member.archivedAt === null) ?? [];
+		directory?.members.filter(
+			(member) =>
+				member.archivedAt === null &&
+				!directory.blockedContributorKeys.includes(`member:${member.id}`),
+		) ?? [];
 	const memberIds = new Set(activeMembers.map((member) => member.id));
 	const contributors: MultiSelectOption[] = [
 		...activeMembers.map((member) => ({
@@ -55,7 +59,10 @@ export function ContributionFilterBar({
 		...(directory?.identities ?? [])
 			.filter(
 				(identity) =>
-					identity.memberId === null || !memberIds.has(identity.memberId),
+					!directory?.blockedContributorKeys.includes(
+						`identity:${identity.key}`,
+					) &&
+					(identity.memberId === null || !memberIds.has(identity.memberId)),
 			)
 			.map((identity) => ({
 				value: `identity:${identity.key}`,
@@ -146,6 +153,8 @@ export function ContributionFilterBar({
 				{pickers.map(({ label, field, options }) => (
 					<Field key={field} label={label} className="min-w-0">
 						<MultiSelect
+							showChips={false}
+							className="space-y-0 [&>button]:px-3 [&>button]:font-normal [&>button>svg]:opacity-50"
 							label={label}
 							placeholder={`All ${label.toLowerCase()}`}
 							options={retainSelected(options, filters[field])}
@@ -194,6 +203,8 @@ export function ContributionFilterBar({
 				</Field>
 				<Field label="PR states" className="w-48">
 					<MultiSelect
+						showChips={false}
+						className="space-y-0 [&>button]:px-3 [&>button]:font-normal [&>button>svg]:opacity-50"
 						label="PR states"
 						placeholder="All states"
 						options={[

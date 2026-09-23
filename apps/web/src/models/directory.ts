@@ -31,7 +31,7 @@ export interface DirectoryFilter {
 	status: "active" | "archived" | "all";
 	teamId: string;
 	tagId: string;
-	view: "followed" | "discover";
+	view: "followed" | "discover" | "blocked";
 }
 export const DEFAULT_DIRECTORY_FILTER: DirectoryFilter = {
 	keyword: "",
@@ -61,7 +61,10 @@ export function readDirectoryFilters(
 					: "active",
 			teamId: typeof saved.teamId === "string" ? saved.teamId : "",
 			tagId: typeof saved.tagId === "string" ? saved.tagId : "",
-			view: saved.view === "discover" ? "discover" : "followed",
+			view:
+				saved.view === "discover" || saved.view === "blocked"
+					? saved.view
+					: "followed",
 		};
 	} catch {
 		return { ...DEFAULT_DIRECTORY_FILTER };
@@ -113,6 +116,7 @@ export function filterMembers(
 					: [];
 			});
 			return (
+				!data.blockedContributorKeys.includes(`member:${member.id}`) &&
 				statusMatches(member.archivedAt, filter.status) &&
 				(!filter.teamId || member.teamIds.includes(filter.teamId)) &&
 				(!filter.tagId || member.tagIds.includes(filter.tagId)) &&
@@ -152,11 +156,14 @@ export function filterTags(
 export function discoverAuthors(
 	data: DirectoryData,
 	keyword: string,
+	blocked = false,
 ): DirectoryIdentity[] {
 	return data.identities
 		.filter(
 			(identity) =>
-				identity.memberId === null &&
+				(blocked || identity.memberId === null) &&
+				data.blockedContributorKeys.includes(`identity:${identity.key}`) ===
+					blocked &&
 				matches(
 					keyword,
 					identity.name,

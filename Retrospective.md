@@ -149,3 +149,30 @@ The user confirmed that several successful, unexpired PRs should be Review Neede
 ### 2026-09-22 — Missing reviews hid an unresolved discussion
 
 The first scheduled source audit found a successful, unexpired PR classified Review Needed even though its blocking Comment requirements policy was rejected. Direct ADO reads confirmed two nondeleted pending threads requiring additional evidence. The saved Jev input already contained the unsatisfied C9 policy, so neither stale collection nor omitted evidence caused this judgment. The earlier comment-related sample also had a failed build; it did not isolate the comment condition once that build passed. The common rule now names unresolved discussions as human follow-up that missing reviewer approvals must not hide. Four bounded real requests verified this distinction alongside review-only, active-CI and partial-success controls. Future boundary checks must isolate competing blockers rather than count a case with several blockers as independent validation of each one.
+
+### 2026-09-23 — Scope test updates to the scenario that changed
+
+Repository discovery now produces separate repository receipts and a catalogue receipt. A broad replacement of the expected scan count also changed an unrelated scope-edit test that intentionally seeded one historical receipt. The focused route suite caught the incorrect assertion before commit, and it was restored. Update expectations inside the affected test block; identical assertion text does not imply identical setup or behavior.
+
+### 2026-09-23 — Narrow process inspection before reading arguments
+
+A broad process-text search for the word `collect` also matched an unrelated application's long telemetry arguments. The output was irrelevant to locating the SignOff daemon. Process inspection now first selects Bun/Node executables, checks their working directories, and reads arguments only for this repository. Use executable and workspace identity rather than generic feature words when inspecting a development service.
+
+## 2026-09-23 — Directory fixture and long profile content
+
+A scripted fixture update inserted `blockedContributorKeys` before the first
+`revision` field in a test file, which belonged to a Project instead of Directory.
+Typecheck caught it; the field was moved into the explicit Directory fixture.
+Scope future replacements to the declared object, not a shared field name.
+The first profile layout also allowed intrinsic name width and wrapping actions
+to escape the intended compact layout. Constrain flex children with min-width zero,
+wrap names, and verify action geometry at narrow viewport sizes before handoff.
+
+
+## 2026-09-23: avatar registration interrupted PR publication
+
+An avatar trigger used `INSERT OR IGNORE`, but an outer PR UPSERT overrode its conflict policy. Repeated avatar identities raised a unique constraint error and stopped both discovery and watched-PR publication. A read-only backup of the local database reproduced the failure. Replaced trigger inserts with explicit `ON CONFLICT(source,url) DO NOTHING`, repaired the four local triggers, and added repeated PR UPSERT coverage that preserves cached image bytes and refresh deadlines. Test trigger behavior through the actual outer UPSERT, not only a standalone UPDATE.
+
+## 2026-09-23: contributor actions remounted the report
+
+Directory revision was included in the report query identity. Follow and hide commands therefore cleared the cached report and unmounted its tables, discarding selection, pagination and hover state. Keep source and filters as query identity; directory revisions revalidate that same query while retaining the visible data. Background directory failures also retain the last successful data.

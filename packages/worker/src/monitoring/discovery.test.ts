@@ -3,6 +3,7 @@ import { adoPullId } from "@signoff/domain/collection";
 import type { Project, PullRequest } from "@signoff/domain/workbench";
 import { PR_TEST_NOW as now, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
+import { queryCollectorGroups } from "./collector-groups";
 import { enqueueDiscovery } from "./observations";
 import {
 	completeJob,
@@ -11,6 +12,7 @@ import {
 	rejectRepository,
 	stagePulls,
 } from "./publication";
+import { queryJob } from "./query";
 import { claimJob, failJob } from "./scheduler";
 
 let sqlite: SqliteD1;
@@ -50,7 +52,7 @@ const discovered = (
 	checksObservedAt: null,
 });
 async function start(project: Project, at = now) {
-	const receipt = await enqueueDiscovery(sqlite.db, project, [], at);
+	const receipt = (await enqueueDiscovery(sqlite.db, project, [], at))[0]!;
 	const claim = (await claimJob(sqlite.db, at, { jobId: receipt.id }))!;
 	const plan = await registerJobRepositories(
 		sqlite.db,
@@ -238,8 +240,8 @@ test("manual discovery coalesces and waits for completion-based cooldown", async
 	sqlite.raw.exec(
 		"UPDATE collection_refresh SET cooldown_seconds=600 WHERE kind='list'",
 	);
-	const first = await enqueueDiscovery(sqlite.db, project, [], now + 1);
-	expect((await enqueueDiscovery(sqlite.db, project, [], now + 2)).id).toBe(
+	const first = (await enqueueDiscovery(sqlite.db, project, [], now + 1))[0]!;
+	expect((await enqueueDiscovery(sqlite.db, project, [], now + 2))[0]!.id).toBe(
 		first.id,
 	);
 	expect(first.notBefore).toBe(new Date((now + 600) * 1000).toISOString());
@@ -267,4 +269,248 @@ test("manual discovery coalesces and waits for completion-based cooldown", async
 			.query("SELECT state FROM pull_requests WHERE external_id='10'")
 			.get(),
 	).toEqual({ state: "merged" });
+});
+
+test("repository and depth scopes have independent cooldowns and bounded cache windows", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite);
+	sqlite.raw
+		.query(
+			"INSERT INTO workbench_repositories(project_id,repository_id,name) VALUES(?,?,?)",
+		)
+		.run(project.id, "repo-2", "api");
+	sqlite.raw.exec(
+		"UPDATE collection_refresh SET cooldown_seconds=600 WHERE kind='list'",
+	);
+	const queued = await enqueueDiscovery(
+		sqlite.db,
+		project,
+		["repo-1", "repo-2"],
+		now,
+	);
+	expect(queued).toHaveLength(2);
+	for (const receipt of queued) {
+		const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
+		expect(claim.discoverySince).toBe(now - 90 * 86400);
+		const id = claim.scope![0]!;
+		await registerJobRepositories(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			[{ id, name: id }],
+			now,
+		);
+		await publishRepository(
+			sqlite.db,
+			claim.job.id,
+			claim.leaseToken,
+			id,
+			0,
+			"complete",
+			"Empty",
+			now,
+		);
+		await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now);
+	}
+	const smart = await enqueueDiscovery(sqlite.db, project, ["repo-1"], now + 1);
+	expect(smart[0]?.notBefore).toBe(new Date((now + 600) * 1000).toISOString());
+	const deep = await enqueueDiscovery(
+		sqlite.db,
+		project,
+		["repo-1"],
+		now + 1,
+		"deep",
+	);
+	expect(deep[0]?.id).not.toBe(smart[0]?.id);
+	const claim = (await claimJob(sqlite.db, now + 1, { jobId: deep[0]!.id }))!;
+	expect(claim.discoverySince).toBe(now + 1 - 90 * 86400);
+	expect(claim.job.depth).toBe("deep");
+	await registerJobRepositories(
+		sqlite.db,
+		claim.job.id,
+		claim.leaseToken,
+		[{ id: "repo-1", name: "repo-1" }],
+		now + 1,
+	);
+	await publishRepository(
+		sqlite.db,
+		claim.job.id,
+		claim.leaseToken,
+		"repo-1",
+		0,
+		"complete",
+		"Deep",
+		now + 1,
+	);
+	await completeJob(sqlite.db, claim.job.id, claim.leaseToken, now + 1);
+	expect(
+		(await claimJob(sqlite.db, now + 600, { jobId: smart[0]!.id }))
+			?.discoverySince,
+	).toBe(now + 1 - 30 * 86400);
+	const groups = await queryCollectorGroups(
+		sqlite.db,
+		"cli",
+		undefined,
+		now + 600,
+	);
+	expect(
+		groups.data
+			.filter((group) => group.repository?.id === "repo-1")
+			.map((group) => group.depth)
+			.sort(),
+	).toEqual(["deep", "smart"]);
+});
+
+test("catalogue retries retain one child per repository without advancing discovery freshness", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const receipt = (
+		await enqueueDiscovery(sqlite.db, project, [], now, "deep")
+	)[0]!;
+	const claim = (await claimJob(sqlite.db, now, { jobId: receipt.id }))!;
+	expect(claim.job.catalogueOnly).toBe(true);
+	for (let attempt = 0; attempt < 2; attempt++)
+		await registerJobRepositories(
+			sqlite.db,
+			receipt.id,
+			claim.leaseToken,
+			[repo, { id: "repo-2", name: "api" }],
+			now,
+		);
+	const queried = await queryJob(sqlite.db, "cli", receipt.id);
+	expect(queried.children).toHaveLength(2);
+	expect(readDiscovery(project.id)).toBeNull();
+	await completeJob(sqlite.db, receipt.id, claim.leaseToken, now);
+	for (const child of queried.children)
+		expect(await queryJob(sqlite.db, "cli", child)).toMatchObject({
+			depth: "deep",
+			state: "queued",
+			scope: expect.arrayContaining([expect.any(String)]),
+		});
+});
+
+test("unrestricted discovery refreshes the catalogue after repositories are cached", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite);
+	const receipts = await enqueueDiscovery(sqlite.db, project, [], now, "deep");
+	expect(receipts).toHaveLength(2);
+	const catalogueRow = sqlite.raw
+		.query("SELECT id FROM collection_jobs WHERE catalogue_only=1")
+		.get() as { id: string };
+	const known = receipts.find((receipt) => receipt.id !== catalogueRow.id)!;
+	const knownClaim = (await claimJob(sqlite.db, now, { jobId: known.id }))!;
+	await registerJobRepositories(
+		sqlite.db,
+		known.id,
+		knownClaim.leaseToken,
+		[repo],
+		now,
+	);
+	await publishRepository(
+		sqlite.db,
+		known.id,
+		knownClaim.leaseToken,
+		repo.id,
+		0,
+		"complete",
+		"Complete",
+		now,
+	);
+	await completeJob(sqlite.db, known.id, knownClaim.leaseToken, now);
+	const claim = (await claimJob(sqlite.db, now, { jobId: catalogueRow.id }))!;
+	expect(claim.job.catalogueOnly).toBe(true);
+	await registerJobRepositories(
+		sqlite.db,
+		claim.job.id,
+		claim.leaseToken,
+		[repo, { id: "new-repo", name: "new" }],
+		now,
+	);
+	const children = (await queryJob(sqlite.db, "cli", claim.job.id)).children;
+	expect(children).toHaveLength(2);
+	expect(
+		sqlite.raw
+			.query(
+				"SELECT scope_key FROM collection_jobs WHERE catalogue_only=0 ORDER BY scope_key",
+			)
+			.all(),
+	).toEqual([{ scope_key: '["new-repo"]' }, { scope_key: '["repo-1"]' }]);
+});
+
+test("discovery binds cached versions only inside its ninety-day cohort", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const current = seedPull(sqlite);
+	seedPull(sqlite, {
+		id: "old",
+		number: 2,
+		externalId: "2",
+		createdAt: now - 120 * 86400,
+	});
+	const queued = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
+	const claim = (await claimJob(sqlite.db, now, { jobId: queued.id }))!;
+	expect(
+		sqlite.raw
+			.query("SELECT pull_id FROM collection_claim_bindings WHERE job_id=?")
+			.all(claim.job.id),
+	).toEqual([{ pull_id: current.id }]);
+});
+
+test.each([
+	45, 120,
+])("smart discovery fills an offline gap of %s days within the ninety-day cap", async (days) => {
+	const project = seedProject(sqlite, { repositories: [] });
+	seedPull(sqlite);
+	sqlite.raw
+		.query(
+			"UPDATE workbench_repositories SET last_discovered_at=?,discovery_cursor_json=json_object('createdBefore',?) WHERE project_id=?",
+		)
+		.run(now - days * 86400, now - days * 86400, project.id);
+	const queued = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
+	const claim = (await claimJob(sqlite.db, now, { jobId: queued.id }))!;
+	expect(claim.discoverySince).toBe(now - Math.min(90, days + 30) * 86400);
+});
+
+test("smart stopping boundaries advance only after successful discovery and survive failure", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const pull = seedPull(sqlite);
+	const initial = await start(project, now);
+	expect(initial.claim.discoveryCachedBefore).toBeUndefined();
+	await publish(initial.claim, discovered(pull, 10), now + 60);
+	const next = await start(project, now + 100);
+	expect(next.claim.discoveryCachedBefore).toBe(now);
+	await rejectRepository(
+		sqlite.db,
+		next.claim.job.id,
+		next.claim.leaseToken,
+		repo.id,
+		"Failed",
+		now + 110,
+	);
+	await completeJob(
+		sqlite.db,
+		next.claim.job.id,
+		next.claim.leaseToken,
+		now + 110,
+	);
+	const retry = await start(project, now + 120);
+	expect(retry.claim.discoveryCachedBefore).toBe(now);
+});
+
+test("deep discovery ignores smart cursors and uncursored caches backfill ninety days", async () => {
+	const project = seedProject(sqlite, { repositories: [] });
+	const pull = seedPull(sqlite);
+	sqlite.raw
+		.query(
+			"UPDATE workbench_repositories SET last_discovered_at=? WHERE project_id=?",
+		)
+		.run(now - 86400, project.id);
+	const initial = await start(project, now);
+	expect(initial.claim.discoverySince).toBe(now - 90 * 86400);
+	expect(initial.claim.discoveryCachedBefore).toBeUndefined();
+	await publish(initial.claim, discovered(pull, 10), now);
+	const deep = (
+		await enqueueDiscovery(sqlite.db, project, [repo.id], now + 1, "deep")
+	)[0]!;
+	const claim = (await claimJob(sqlite.db, now + 1, { jobId: deep.id }))!;
+	expect(claim.discoverySince).toBe(now + 1 - 90 * 86400);
+	expect(claim.discoveryCachedBefore).toBeUndefined();
 });

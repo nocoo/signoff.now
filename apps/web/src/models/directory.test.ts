@@ -15,6 +15,7 @@ import {
 const key = identityKey("ado", "Org", "ada-account");
 const data: DirectoryData = {
 	source: "cli",
+	blockedContributorKeys: [],
 	revision: 42,
 	projects: [],
 	repositories: [],

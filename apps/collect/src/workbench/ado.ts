@@ -1,6 +1,7 @@
 import type { KnownOpenPull } from "@signoff/domain/collection";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import {
+	DISCOVERY_HISTORY_DAYS,
 	type MergeRequirement,
 	type Project,
 	type PullRequest,
@@ -43,12 +44,16 @@ export async function* discoverRepositoryPulls(
 	project: Project,
 	repo: RepoMeta,
 	now: number,
+	since = Math.max(0, now - DISCOVERY_HISTORY_DAYS * 86400),
+	cachedBefore?: number,
 ): AsyncGenerator<PullRequest[]> {
 	let skip = 0;
 	let token: string | null = null;
 	const tokens = new Set<string>();
 	const ids = new Set<number>();
 	const started = Date.now();
+	let previousCreatedAt = Number.POSITIVE_INFINITY;
+	let newestFirst = true;
 	for (;;) {
 		const summaryObservedAt = now + Math.max(0, (Date.now() - started) / 1000);
 		const page = await client.getPage(
@@ -58,7 +63,8 @@ export async function* discoverRepositoryPulls(
 				{
 					"searchCriteria.status": "all",
 					"searchCriteria.queryTimeRangeType": "created",
-					"searchCriteria.maxTime": new Date(started).toISOString(),
+					"searchCriteria.maxTime": new Date(now * 1000).toISOString(),
+					"searchCriteria.minTime": new Date(since * 1000).toISOString(),
 
 					$top: 100,
 					$skip: token ? undefined : skip,
@@ -69,14 +75,17 @@ export async function* discoverRepositoryPulls(
 		const raws = parseRaw(
 			adoPullRequestsSchema,
 			page.data,
-			"all PR history",
+			"bounded PR history",
 		).value;
 		for (const raw of raws) {
-			if (parseSeconds(raw.creationDate) === null)
+			const createdAt = parseSeconds(raw.creationDate);
+			if (createdAt === null)
 				throw new AdoError(
 					"bad_response",
 					"PR creation date is missing or invalid; retry discovery",
 				);
+			if (createdAt > previousCreatedAt) newestFirst = false;
+			previousCreatedAt = createdAt;
 			if (
 				raw.repository.id.toLowerCase() !== repo.id.toLowerCase() ||
 				(raw.repository.project?.id &&
@@ -94,8 +103,12 @@ export async function* discoverRepositoryPulls(
 				);
 			ids.add(raw.pullRequestId);
 		}
-		if (raws.length)
-			yield raws.map((rawPr) =>
+		const included = raws.filter((raw) => {
+			const createdAt = parseSeconds(raw.creationDate);
+			return createdAt !== null && createdAt >= since && createdAt <= now;
+		});
+		if (included.length)
+			yield included.map((rawPr) =>
 				normalizePullRequest({
 					projectId: project.id,
 					rawPr,
@@ -107,6 +120,12 @@ export async function* discoverRepositoryPulls(
 					],
 				}),
 			);
+		if (
+			cachedBefore !== undefined &&
+			newestFirst &&
+			previousCreatedAt < cachedBefore
+		)
+			break;
 		if (page.continuationToken) {
 			if (tokens.has(page.continuationToken))
 				throw new AdoError(

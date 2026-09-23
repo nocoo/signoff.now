@@ -24,7 +24,7 @@ const raw = (n: number) => ({
 		project: { id: repository.projectGuid, name: project.projectKey },
 	},
 });
-test("explicit discovery pages every state, includes old completed PRs, and never loads checks", async () => {
+test("deep discovery pages every state within ninety days and never loads checks", async () => {
 	const calls: URL[] = [];
 	const client = {
 		getPage: async (value: string) => {
@@ -128,8 +128,126 @@ test("each list refresh includes old PR state changes without per-PR requests", 
 	expect((await read())[0]?.state).toBe("merged");
 	expect(urls).toHaveLength(2);
 	expect(
-		urls.every(
-			(url) => !new URL(url).searchParams.has("searchCriteria.minTime"),
+		urls.every((url) =>
+			new URL(url).searchParams.has("searchCriteria.minTime"),
 		),
 	).toBe(true);
+});
+
+test("provider date filtering is enforced locally and smart refresh uses its recent boundary", async () => {
+	const now = 1789646400;
+	const urls: URL[] = [];
+	const client = {
+		getPage: async (value: string) => {
+			urls.push(new URL(value));
+			return {
+				data: {
+					value: [1, 20, 45, 89, 91, -1].map((days, index) => ({
+						...raw(index + 1),
+						creationDate: new Date((now - days * 86400) * 1000).toISOString(),
+					})),
+				},
+				continuationToken: null,
+			};
+		},
+	};
+	const counts: number[] = [];
+	for (const days of [90, 30]) {
+		const pulls = [];
+		for await (const page of discoverRepositoryPulls(
+			client,
+			project,
+			repository,
+			now,
+			now - days * 86400,
+		))
+			pulls.push(...page);
+		counts.push(pulls.length);
+	}
+	expect(counts).toEqual([4, 2]);
+	expect(
+		urls.map((url) => url.searchParams.get("searchCriteria.minTime")),
+	).toEqual(
+		[90, 30].map((days) => new Date((now - days * 86400) * 1000).toISOString()),
+	);
+	expect(
+		urls.every(
+			(url) => url.searchParams.get("searchCriteria.status") === "all",
+		),
+	).toBe(true);
+});
+
+const smartNow = 1789646400;
+const cachedBefore = smartNow - 86400;
+const datedRaw = (id: number, createdAt: number) => ({
+	...raw(id),
+	creationDate: new Date(createdAt * 1000).toISOString(),
+});
+async function readSmart(pages: ReturnType<typeof datedRaw>[][]) {
+	let calls = 0;
+	const pulls = [];
+	for await (const page of discoverRepositoryPulls(
+		{
+			getPage: async () => {
+				const value = pages[calls++] ?? [];
+				return {
+					data: { value },
+					continuationToken: calls < pages.length ? String(calls) : null,
+				};
+			},
+		},
+		project,
+		repository,
+		smartNow,
+		smartNow - 30 * 86400,
+		cachedBefore,
+	))
+		pulls.push(...page);
+	return { calls, pulls };
+}
+
+test("smart discovery refreshes the first page and reuses the successfully cached history", async () => {
+	const first = Array.from({ length: 100 }, (_, n) =>
+		datedRaw(n + 1, cachedBefore - n - 1),
+	);
+	const result = await readSmart([first, [datedRaw(101, cachedBefore - 200)]]);
+	expect(result.calls).toBe(1);
+	expect(result.pulls).toHaveLength(100);
+	expect(result.pulls[1]?.state).toBe("closed");
+});
+
+test("smart discovery drains more than one page of new PRs before the cached boundary", async () => {
+	const first = Array.from({ length: 100 }, (_, n) =>
+		datedRaw(n + 1, smartNow - n),
+	);
+	const second = Array.from({ length: 100 }, (_, n) =>
+		datedRaw(n + 101, n < 25 ? smartNow - 100 - n : cachedBefore - n),
+	);
+	const result = await readSmart([
+		first,
+		second,
+		[datedRaw(201, cachedBefore - 300)],
+	]);
+	expect(result.calls).toBe(2);
+	expect(result.pulls).toHaveLength(200);
+	expect(
+		result.pulls.filter((pull) => pull.createdAt > cachedBefore),
+	).toHaveLength(125);
+});
+
+test("smart discovery drains timestamp ties and disables early stopping for unordered pages", async () => {
+	const tied = await readSmart([
+		[datedRaw(1, cachedBefore), datedRaw(2, cachedBefore)],
+		[datedRaw(3, cachedBefore), datedRaw(4, cachedBefore - 1)],
+		[datedRaw(5, cachedBefore - 2)],
+	]);
+	expect(tied.calls).toBe(2);
+	expect(tied.pulls.map((pull) => pull.number)).toEqual([1, 2, 3, 4]);
+	const unordered = await readSmart([
+		[datedRaw(1, cachedBefore - 10), datedRaw(2, smartNow - 1)],
+		[datedRaw(3, cachedBefore - 20)],
+		[datedRaw(4, smartNow - 2)],
+	]);
+	expect(unordered.calls).toBe(3);
+	expect(unordered.pulls.map((pull) => pull.number)).toEqual([1, 2, 3, 4]);
 });

@@ -84,6 +84,7 @@ export interface RepositoryRef {
 export interface DirectoryData {
 	source: DataSource;
 	revision: number;
+	blockedContributorKeys: string[];
 	members: DirectoryMember[];
 	teams: DirectoryTeam[];
 	tags: DirectoryTag[];
@@ -172,7 +173,7 @@ export function defaultContributionFilters(
 	nowMs = Date.now(),
 ): ContributionFilters {
 	const to = new Date(nowMs).toISOString().slice(0, 10);
-	const from = new Date(Date.parse(to) - 29 * 86_400_000)
+	const from = new Date(Date.parse(to) - 89 * 86_400_000)
 		.toISOString()
 		.slice(0, 10);
 	return contributionFiltersSchema.parse({ source, from, to });
@@ -222,5 +223,49 @@ export interface ContributionSnapshot {
 	totals: ContributionTotals;
 	trend: DailyContribution[];
 	members: MemberContribution[];
+	repositories: RepositoryContribution[];
+}
+
+export interface ContributorRepositoryContribution extends MemberContribution {
+	repositoryKey: string;
+	selected: boolean;
+}
+
+export interface ContributionReport {
+	filters: ContributionFilters;
+	calculatedAt: number;
+	coverage: "observed" | "sample";
+	totals: ContributionTotals;
+	members: MemberContribution[];
+	repositories: RepositoryContribution[];
+	contributions: ContributorRepositoryContribution[];
+}
+
+export const contributorKeySchema = z
+	.string()
+	.min(1)
+	.max(1000)
+	.refine(
+		(key) =>
+			(key.startsWith("member:") && key.length > 7) ||
+			(key.startsWith("identity:") && parseIdentityKey(key.slice(9)) !== null),
+		"Choose an exact contributor identity",
+	);
+
+export const contributorBlockSchema = z
+	.object({
+		key: contributorKeySchema,
+		blocked: z.boolean(),
+	})
+	.strict();
+
+export interface ContributorStatistics {
+	source: DataSource;
+	key: string;
+	blocked: boolean;
+	followed: boolean;
+	from: string;
+	to: string;
+	totals: ContributionTotals;
 	repositories: RepositoryContribution[];
 }

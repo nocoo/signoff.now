@@ -1,6 +1,6 @@
 # 18 — CLI 查询、观察与命令契约
 
-> Current implementation, 2026-09-21. Web and CLI share one watch list. Project discovery and watched PR refresh use independent completion-based cooldowns.
+> Current implementation, 2026-09-21. Web and CLI share one watch list. Repository discovery and watched PR refresh use independent completion-based cooldowns.
 > 当前可用采集命令见 [11](11-真实PR采集与本地工作台.md)，辅助工具见 [cli/](cli/README.md)。架构见 [14](14-collector-architecture.md)，观察生命周期见 [16](16-scheduler-state-machine.md)。
 
 ## 1. 给其他项目的保证
@@ -161,7 +161,7 @@ All new evidence is extracted during existing discovery/full-refresh requests an
 | `POST /api/commands/v1/observations` | `{ source, refs: [{ pullId } 或 { url }] }`，每批最多 100 项，逐项返回 added / already_observed / rejected、observation ID / generation、job 回执或 error |
 | `DELETE /api/commands/v1/observations/:id?source=…` | `If-Match: "<generation>"`，仅移除该代次；同代次已停止为幂等成功，代次不匹配为 409 |
 | `POST /api/commands/v1/observations/remove` | `{ source, items: [{ id, generation }] }`，最多 100 项，逐项 removed / already_stopped / conflict / not_found |
-| `POST /api/commands/v1/discover` | `{ source, repositoryUrl }` or `{ source, projectId }`; enqueue a complete list refresh for the registered scope and revision; returns HTTP 202 and respects discovery cooldown. |
+| `POST /api/commands/v1/discover` | `{ source, repositoryUrl, depth? }` or `{ source, projectId, repositoryIds?, depth? }`; depth is smart (default) or deep; enqueue separate repository tasks for the registered scope and revision; returns HTTP 202 and respects discovery cooldown. |
 | `POST /api/commands/v1/refresh` | `{ source, target }`，target 为 `{ pullId }`、`{ url }`、`{ repositoryUrl }` 或 `{ all: true }` 之一；只覆盖 active 观察项，返回 HTTP 202 |
 
 `repo add` 复用现有 `/api/projects` 的注册 / 扩展逻辑及 revision 校验，在客户端显式完成，不增加第二套项目存储。先读取完整分页目录，再判断已注册范围，避免目录较大时重复修改项目 revision。同 org / project 的第二个仓库扩展已有项目，项目范围为 all 时保持 all。项目删除 / 范围缩小与对应观察停用、任务取消必须在同一 CAS 事务中完成；旧 enabled 字段不控制关注清单或显式发现，详见 16。
@@ -324,11 +324,11 @@ signoff watch remove '<PR URL>'
 
 ## Collector details and history
 
-The wide, two-column dialog keeps connection metadata and both cooldown settings on the left. The right column groups jobs by stable PR or project identity. Queued, running, successful and failed attempts remain together; expanding a group preserves its place while status updates arrive.
+The wide, two-column dialog keeps connection metadata and both cooldown settings on the left. The right column groups jobs by stable PR identity or repository and discovery depth. Queued, running, successful and failed attempts remain together; expanding a group preserves its place while status updates arrive.
 
 `GET /api/query/v1/collector/groups?source=live` returns up to 50 groups as `{ data, nextCursor, generatedAt }`. Each group includes `cooldownSeconds`, `lastCompletedAt`, `nextRunAt`, the latest attempt and its retained PR identity. Running tasks have no fixed next start; the UI shows elapsed time and the cooldown after completion. Queued/cooling tasks show the planned timestamp and countdown; overdue tasks count upward.
 
-`GET /api/query/v1/jobs?source=live&lane=all&outcome=all&group=pr:<observationId>` reads up to 50 attempts, newest first. Use `project:<projectId>` for list tasks. `lane` accepts `all`, `checks`, `discover`; `outcome` accepts `all` or `issues`. Pagination cursors are scoped to the source and filters. `GET /api/query/v1/jobs/:id` includes phase events, repository results, errors and the immutable returned PR snapshot with builds, stages and checks. Attempts recorded before this feature explicitly have no returned snapshot.
+`GET /api/query/v1/jobs?source=live&lane=all&outcome=all&group=pr:<observationId>` reads up to 50 attempts, newest first. For discovery, use the group ID returned by the groups endpoint: `repo:${JSON.stringify([projectId, scopeKey, depth])}`. `lane` accepts `all`, `checks`, `discover`; `outcome` accepts `all` or `issues`. Pagination cursors are scoped to the source and filters. `GET /api/query/v1/jobs/:id` includes phase events, repository results, errors and the immutable returned PR snapshot with builds, stages and checks. Attempts recorded before this feature explicitly have no returned snapshot.
 
 These reads never enqueue provider work. Old status-lane jobs are excluded from current groups and history. A newer successful attempt clears current warnings without erasing prior failures. An unassigned ADO policy build ID (`0`) remains queued and never triggers a build-0 request.
 
@@ -347,3 +347,5 @@ Validation covers retry counting, reporting failure isolation, deduplication, cu
 `review_needed` means successful unexpired builds with only review requirements remaining, including insufficient non-author approvals or outstanding required reviewers. Its advice is `request_review` (request or follow up), including reviews already requested. `waiting` now covers queued non-review work and uses `wait_ci`; active execution remains `running`. These classifications are persisted Jev judgments, not permission to perform provider writes.
 
 Readiness architecture: [Evidence-driven readiness](21-readiness-architecture.md). The shared state machine exposes `readiness.phase` (collecting, queued, evaluating, decided, error, stopped) and judgment provenance (`model`, `rubric`, `fingerprint`, `reusedAt`). `evaluatedAt` is the original Jev judgment time; cache reuse does not claim a new inference. Stage details and observation clocks alone do not trigger inference.
+
+Contribution report and discovery contracts: [Contribution reports](22-contribution-reports.md).

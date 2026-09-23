@@ -439,12 +439,13 @@ export async function projectsScanRoute(c: Context<AppEnv>) {
 			403,
 		);
 	try {
-		const receipt = await enqueueDiscovery(
+		const [receipt] = await enqueueDiscovery(
 			c.env.DB,
 			project,
 			project.repositories ?? [],
 			now(),
 		);
+		if (!receipt) throw new Error("Discovery did not return a job");
 		return c.json(mapJob(await readJob(c.env.DB, receipt.id)), 202);
 	} catch (error) {
 		return apiError(error, c);

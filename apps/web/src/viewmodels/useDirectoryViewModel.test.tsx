@@ -28,6 +28,7 @@ const linkedKey = identityKey("ado", "org", "ada");
 const freeKey = identityKey("ado", "org", "guest");
 const initial: DirectoryData = {
 	source: "cli",
+	blockedContributorKeys: [],
 	revision: 42,
 	projects: [],
 	repositories: [],

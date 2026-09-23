@@ -1,10 +1,7 @@
 import type { DataSource, DirectoryData } from "@signoff/domain/insights";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-	fetchDirectory,
-	saveDirectoryEntity,
-	setDirectoryArchived,
-} from "@/models/directoryApi";
+import { setContributorFollowed } from "@/models/contributorActions";
+import { fetchDirectory } from "@/models/directoryApi";
 
 export function useFollowAuthor(
 	source: DataSource,
@@ -76,40 +73,12 @@ export function useFollowAuthor(
 		try {
 			const data = await fetchDirectory(source);
 			if (!isCurrent()) return;
-			const account = data.identities.find((item) => item.key === identityKey);
-			if (!account)
-				throw new Error("Author account is unavailable. Reload and try again.");
-			const existing = data.members.find(
-				(item) => item.id === account.memberId,
+			await setContributorFollowed(
+				source,
+				`identity:${identityKey}`,
+				data,
+				true,
 			);
-			if (account.memberId !== null) {
-				if (!existing)
-					throw new Error(
-						"Linked member is unavailable. Reload and try again.",
-					);
-				if (existing.archivedAt !== null)
-					await setDirectoryArchived(
-						source,
-						"members",
-						existing.id,
-						false,
-						data.revision,
-					);
-			} else {
-				await saveDirectoryEntity(
-					source,
-					"members",
-					null,
-					{
-						name: account.name,
-						avatarUrl: account.avatarUrl,
-						identityKeys: [account.key],
-						teamIds: [],
-						tagIds: [],
-					},
-					data.revision,
-				);
-			}
 			publish({ followed: true });
 		} catch (error) {
 			publish({
