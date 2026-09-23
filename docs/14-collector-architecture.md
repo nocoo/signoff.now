@@ -79,4 +79,4 @@ Live / Sample 在清单、查询、目录、统计中隔离。CLI 默认 Live，
 
 测试包括领域 UT、真实 SQLite 事务与独立连接竞争、Worker HTTP、真实 Bun CLI 子进程、浏览器与 Wrangler D1 E2E。测试通过注入 provider 验证采集行为，不访问实际 ADO 项目。`bun run test:e2e` 为每次运行创建独立数据库、端口、构建目录及所有权标记，只删除本次拥有的状态。
 
-质量命令为 `bun run test:coverage`、`bun run lint`、`bun run typecheck`、`bun run build:web`、`bun run test:e2e`、`bun run security`。现有 6DQ 门禁差距以 [CLAUDE.md](../CLAUDE.md) 为准；新增系统测试不代表所有历史门禁缺口已解决。
+质量命令为 `bun run test:coverage`、`bun run lint`、`bun run typecheck`、`bun run build:web`、`bun run test:e2e`、`bun run security`。现有 6DQ 门禁差距以 [AGENTS.md](../AGENTS.md) 为准；新增系统测试不代表所有历史门禁缺口已解决。

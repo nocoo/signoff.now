@@ -320,7 +320,7 @@ signoff watch remove '<PR URL>'
 - 源项目与仓库同名、跨组织 PR number 相同、GitHub Sample 身份和未知字段的前向兼容有合成 fixture。
 - daemon 与短命客户端共同做一次隔离系统验收：注册 → 发现 → 添加观察 → 首次结果 → 查询 → completed / abandoned 淘汰 → 最终快照查询，以及主动移除路径。
 
-测试与文档、CLI help 同步交付；分层测试入口见 [14](14-collector-architecture.md)，既有完整 6DQ 门禁差距见 [CLAUDE.md](../CLAUDE.md)。
+测试与文档、CLI help 同步交付；分层测试入口见 [14](14-collector-architecture.md)，既有完整 6DQ 门禁差距见 [AGENTS.md](../AGENTS.md)。
 
 ## Collector details and history
 

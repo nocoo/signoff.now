@@ -4,7 +4,7 @@
 
 Start with [Evidence-driven readiness](21-readiness-architecture.md), then [Collector architecture](14-collector-architecture.md) and documents 15–19. Web and CLI share persistent watches and judgments. The daemon runs discovery, full watched-PR collection and independent Jev evaluation; queries read cached data only.
 
-当前系统从 01、11、13 阅读；10 是 Mock 场景与早期 UI 记录。02、04–08 保留仍在使用的 Activity / Score 契约及阶段背景，不能用其中的旧 Dashboard 或命令状态推断当前 PR 工作台。工程质量要求及实际门禁差距以 [CLAUDE.md](../CLAUDE.md) 为准。
+当前系统从 01、11、13 阅读；10 是 Mock 场景与早期 UI 记录。02、04–08 保留仍在使用的 Activity / Score 契约及阶段背景，不能用其中的旧 Dashboard 或命令状态推断当前 PR 工作台。工程质量要求及实际门禁差距以 [AGENTS.md](../AGENTS.md) 为准。
 
 | 编号 | 文档 | 定位 / 状态 |
 | --- | --- | --- |
