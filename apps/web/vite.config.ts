@@ -6,7 +6,10 @@ import { defineConfig } from "vite";
 
 function getVersion(): string {
 	const pkg = JSON.parse(
-		readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8"),
+		readFileSync(
+			path.resolve(import.meta.dirname, "../../package.json"),
+			"utf-8",
+		),
 	);
 	return pkg.version as string;
 }

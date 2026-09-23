@@ -64,7 +64,7 @@
     },
     "apps/web": {
       "name": "@signoff/web",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@nocoo/basalt": "2.1.8",
         "@signoff/domain": "workspace:*",
@@ -120,7 +120,7 @@
     },
     "packages/worker": {
       "name": "@signoff/worker",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@signoff/domain": "workspace:*",
         "@typesafe-ai/sdk": "0.6.0",

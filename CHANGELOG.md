@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.3.0 — 2026-09-23
+
+### Features
+
+- Add a local Azure DevOps PR workbench with shared web/CLI watches, explicit repository discovery, independent lifecycle/check refreshes, and cached queries.
+- Add configurable repository state machines, versioned rules, interactive graphs, and replay from retained provider evidence.
+- Evaluate watched PR readiness through Jev in the background daemon, with editable policy instructions, per-PR evidence caching, and distinct review-needed status.
+- Add PR collections with persistent filters, sorting, pagination, and bulk membership actions.
+- Rebuild Insights around 90-day contributor and repository reports, with a global Calculate action and separate smart/deep discovery tasks per repository.
+- Add author following from PR details, contributor profile cards with Follow/Hide actions, seven-day avatar caching, and bulk team member selection.
+
+### Fixes and performance
+
+- Index collector leases, watched PR identities, and report queries; expire completed collection history in bounded batches without deleting cached PRs.
+- Preserve watches across repository renames and scope edits, reject stale publication, and retain visible rows during follow/hide/watch updates and connection recovery.
+- Distinguish missing reviews, unmet policies, unresolved discussions, expired builds, and deferred final gates in readiness decisions; send Jev requests through the TypeScript SDK.
+- Fix avatar registration conflicts that interrupted PR publication, modal picker scrolling and narrow-screen menus, long contributor names, and responsive PR tables.
+- Derive frontend, API, and SignOff CLI runtime versions from the root manifest.
+
+### Deployment
+
+- Apply pending D1 migrations before deploying the matching Worker and frontend. This release includes migrations through `0044_avatar_cache.sql`.
+- Migration `0041_repository_discovery_depth.sql` cancels existing discovery jobs so subsequent requests use the new repository/depth scope. Existing watches and cached PRs are retained.
+- Real ADO collection remains local; GitHub workbench collection is not included in this release.
+
 ## v0.2.0 — 2026-09-13
 
 ### Maintenance

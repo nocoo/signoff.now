@@ -5,6 +5,7 @@
  */
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
+import { version } from "../../../package.json";
 import { createBunFs } from "./cache/fs-bun.ts";
 import { collectDryRun } from "./commands/collect-dry-run.ts";
 import { ingestFixture } from "./commands/ingest-fixture.ts";
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
 	program
 		.name("signoff")
 		.description("SignOff PR workbench and Azure DevOps activity collection")
-		.version("0.0.1");
+		.version(version);
 
 	program.exitOverride().configureOutput({
 		writeErr: () => {
