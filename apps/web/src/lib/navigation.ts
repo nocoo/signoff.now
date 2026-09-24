@@ -9,6 +9,8 @@ export interface NavItemDef {
 	/** Lucide icon name resolved in sidebar.tsx */
 	icon: string;
 	end?: boolean;
+	/** Shown only to administrators (and trusted local sessions). */
+	admin?: boolean;
 }
 
 export interface NavGroupDef {
@@ -54,11 +56,29 @@ export const NAV_GROUPS: NavGroupDef[] = [
 				label: "Policy instructions",
 				icon: "ListOrdered",
 			},
-			{ href: "/ai-settings", label: "AI Settings", icon: "Sparkles" },
-			{ href: "/settings", label: "Settings", icon: "Settings" },
+			{
+				href: "/ai-settings",
+				label: "AI Settings",
+				icon: "Sparkles",
+				admin: true,
+			},
+			{ href: "/settings", label: "Settings", icon: "Settings", admin: true },
+			{
+				href: "/admin",
+				label: "Administration",
+				icon: "ShieldCheck",
+				admin: true,
+			},
 		],
 	},
 ];
+
+export function visibleNavGroups(admin: boolean): NavGroupDef[] {
+	return NAV_GROUPS.map((group) => ({
+		...group,
+		items: group.items.filter((item) => admin || !item.admin),
+	})).filter((group) => group.items.length > 0);
+}
 
 export interface BreadcrumbItem {
 	label: string;

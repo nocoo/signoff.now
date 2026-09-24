@@ -11,6 +11,26 @@ export class ApiError extends Error {
 	}
 }
 
+const TENANT_KEY = "signoff-tenant";
+
+/** Stored tenant preference; the server validates membership on every call. */
+export function selectedTenant(): string | null {
+	try {
+		return localStorage.getItem(TENANT_KEY);
+	} catch {
+		return null;
+	}
+}
+
+export function storeTenant(id: string | null): void {
+	try {
+		if (id) localStorage.setItem(TENANT_KEY, id);
+		else localStorage.removeItem(TENANT_KEY);
+	} catch {
+		// The server default applies when storage is unavailable.
+	}
+}
+
 export async function apiFetch<T>(
 	path: string,
 	init?: RequestInit,
@@ -21,6 +41,7 @@ export async function apiFetch<T>(
 	const signal = init?.signal
 		? AbortSignal.any([init.signal, timeout])
 		: timeout;
+	const tenant = selectedTenant();
 	let res: Response;
 	let text: string;
 	try {
@@ -29,6 +50,7 @@ export async function apiFetch<T>(
 			signal,
 			headers: {
 				"content-type": "application/json",
+				...(tenant ? { "x-signoff-tenant": tenant } : {}),
 				...(init?.headers ?? {}),
 			},
 		});

@@ -26,15 +26,16 @@ import {
 	Network,
 	PanelLeft,
 	Settings,
+	ShieldCheck,
 	Sparkles,
 	Tag,
 	Users,
 	UsersRound,
 } from "lucide-react";
-import type { ElementType } from "react";
+import type { ElementType, ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { avatarInitial } from "@/lib/avatar";
-import { NAV_GROUPS, type NavGroupDef } from "@/lib/navigation";
+import { type NavGroupDef, visibleNavGroups } from "@/lib/navigation";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 import { NetworkActivity } from "@/views/workbench/NetworkActivity";
@@ -52,6 +53,7 @@ const ICON_MAP: Record<string, ElementType> = {
 	GitBranch,
 	Activity,
 	Settings,
+	ShieldCheck,
 	Sparkles,
 };
 
@@ -72,9 +74,6 @@ function resolveGroup(def: NavGroupDef) {
 	};
 }
 
-const GROUPS = NAV_GROUPS.map(resolveGroup);
-const ALL_ITEMS = GROUPS.flatMap((group) => group.items);
-
 function isActivePath(pathname: string, item: NavItem): boolean {
 	if (item.end || item.href === "/") return pathname === item.href;
 	return pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -84,15 +83,21 @@ export function Sidebar({
 	collapsed,
 	userLabel,
 	userEmail,
+	admin = false,
+	tenantSwitcher,
 	onToggle,
 	onNavigate,
 }: {
 	collapsed: boolean;
 	userLabel: string;
 	userEmail?: string;
+	admin?: boolean;
+	tenantSwitcher?: ReactNode;
 	onToggle: () => void;
 	onNavigate?: () => void;
 }) {
+	const GROUPS = visibleNavGroups(admin).map(resolveGroup);
+	const ALL_ITEMS = GROUPS.flatMap((group) => group.items);
 	const { pathname } = useLocation();
 	const navigate = useNavigate();
 	const workbench = useWorkbench();
@@ -235,6 +240,7 @@ export function Sidebar({
 						))}
 					</SidebarNav>
 					<SidebarFooter>
+						{tenantSwitcher}
 						<NetworkActivity />
 						<CollectionStatus />
 						<SidebarUser

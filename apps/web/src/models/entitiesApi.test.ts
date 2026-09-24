@@ -18,7 +18,6 @@ import {
 	createRepo,
 	createTag,
 	createTeam,
-	fetchMe,
 	listDevelopers,
 	listRepos,
 	listTags,
@@ -287,15 +286,5 @@ describe("teams archive and me", () => {
 		await restoreTeam("t1");
 		expect(call()[0]).toBe("/api/teams/t1/restore");
 		expect(call()[1]?.method).toBe("POST");
-	});
-
-	it("fetches the caller identity", async () => {
-		vi.mocked(apiFetch).mockResolvedValue({
-			email: "a@b",
-			name: "Ada",
-			authenticated: true,
-		});
-		expect(await fetchMe()).toMatchObject({ authenticated: true });
-		expect(call()[0]).toBe("/api/me");
 	});
 });

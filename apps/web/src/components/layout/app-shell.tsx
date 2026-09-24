@@ -18,10 +18,12 @@ import { Menu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { Github } from "@/components/icons/github";
+import { SelectControl } from "@/components/SelectControl";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
-import { fetchMe } from "@/models/entitiesApi";
+import { displayName } from "@/models/sessionApi";
 import type { PullFilter } from "@/models/workbench";
+import { useSession } from "@/viewmodels/SessionProvider";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { HeaderTooltip, HexlyLink } from "./header-links";
 import { Sidebar } from "./sidebar";
@@ -52,25 +54,26 @@ export function AppShell() {
 	const [collapsed, setCollapsed] = useState(storedSidebarState);
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const menuRef = useRef<HTMLButtonElement>(null);
-	const [userLabel, setUserLabel] = useState("Loading…");
-	const [userEmail, setUserEmail] = useState<string | undefined>();
-
-	useEffect(() => {
-		void fetchMe()
-			.then((me) => {
-				if (me.authenticated && me.email) {
-					setUserLabel(me.email.split("@")[0] || me.email);
-					setUserEmail(me.email);
-				} else {
-					setUserLabel("Dev");
-					setUserEmail("anonymous@local");
-				}
-			})
-			.catch(() => {
-				setUserLabel("Offline");
-				setUserEmail(undefined);
-			});
-	}, []);
+	const { state, switchTenant } = useSession();
+	const session = state.status === "ready" ? state.session : null;
+	const userLabel = session ? displayName(session) : "Offline";
+	const userEmail = session?.email ?? session?.principal ?? undefined;
+	const admin = session?.admin ?? false;
+	const tenantSwitcher =
+		session && session.tenants.length > 1 ? (
+			<SelectControl
+				aria-label="Tenant"
+				value={session.tenantId ?? ""}
+				onChange={switchTenant}
+				className="w-full"
+			>
+				{session.tenants.map((tenant) => (
+					<option key={tenant.id} value={tenant.id}>
+						{tenant.name}
+					</option>
+				))}
+			</SelectControl>
+		) : undefined;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: navigation closes the mobile drawer
 	useEffect(() => setMobileOpen(false), [location.pathname]);
@@ -89,6 +92,8 @@ export function AppShell() {
 					collapsed={collapsed}
 					userLabel={userLabel}
 					userEmail={userEmail}
+					admin={admin}
+					tenantSwitcher={tenantSwitcher}
 					onToggle={() => setDesktopCollapsed(!collapsed)}
 				/>
 			) : (
@@ -109,6 +114,8 @@ export function AppShell() {
 							collapsed={false}
 							userLabel={userLabel}
 							userEmail={userEmail}
+							admin={admin}
+							tenantSwitcher={tenantSwitcher}
 							onToggle={() => setMobileOpen(false)}
 							onNavigate={() => setMobileOpen(false)}
 						/>

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiError, apiFetch, SERVICE_UNAVAILABLE } from "./api";
+import {
+	ApiError,
+	apiFetch,
+	SERVICE_UNAVAILABLE,
+	selectedTenant,
+	storeTenant,
+} from "./api";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -158,4 +164,44 @@ test("bounds cache reads including response bodies, while allowing longer comman
 	});
 	expect(timeout).toHaveBeenLastCalledWith(45000);
 	timeout.mockRestore();
+});
+
+describe("tenant preference", () => {
+	test("stores, sends and clears the selected tenant", async () => {
+		localStorage.clear();
+		const fetcher = vi.fn(
+			async (_url: string, _init?: RequestInit) =>
+				new Response("{}", { status: 200 }),
+		);
+		vi.stubGlobal("fetch", fetcher);
+		await apiFetch("/api/workbench");
+		expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+			"x-signoff-tenant",
+		);
+		storeTenant("team-b");
+		expect(selectedTenant()).toBe("team-b");
+		await apiFetch("/api/workbench");
+		expect(fetcher.mock.calls[1]?.[1]?.headers).toMatchObject({
+			"x-signoff-tenant": "team-b",
+		});
+		storeTenant(null);
+		expect(selectedTenant()).toBeNull();
+	});
+
+	test("unavailable storage falls back to the server default", () => {
+		const get = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementation(() => {
+				throw new Error("blocked");
+			});
+		const set = vi
+			.spyOn(Storage.prototype, "setItem")
+			.mockImplementation(() => {
+				throw new Error("blocked");
+			});
+		expect(selectedTenant()).toBeNull();
+		expect(() => storeTenant("x")).not.toThrow();
+		get.mockRestore();
+		set.mockRestore();
+	});
 });

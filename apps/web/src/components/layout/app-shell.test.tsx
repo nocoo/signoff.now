@@ -6,8 +6,25 @@ import { AppShell } from "@/components/layout/app-shell";
 import { NAV_GROUPS } from "@/lib/navigation";
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
-vi.mock("@/models/entitiesApi", () => ({
-	fetchMe: async () => ({ authenticated: false }),
+vi.mock("@/viewmodels/SessionProvider", () => ({
+	useSession: () => ({
+		state: {
+			status: "ready",
+			session: {
+				authenticated: false,
+				local: true,
+				principal: null,
+				email: null,
+				name: null,
+				service: false,
+				admin: true,
+				tenants: [],
+				tenantId: null,
+			},
+		},
+		reload: vi.fn(),
+		switchTenant: vi.fn(),
+	}),
 }));
 vi.mock("@/viewmodels/WorkbenchProvider", () => ({
 	useWorkbench: () => ({

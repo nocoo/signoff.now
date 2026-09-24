@@ -176,13 +176,3 @@ export async function archiveRepo(id: string): Promise<void> {
 export async function restoreRepo(id: string): Promise<void> {
 	await apiFetch(`/api/repos/${id}/restore`, { method: "POST" });
 }
-
-export interface MeResponse {
-	email: string | null;
-	name: string | null;
-	authenticated: boolean;
-}
-
-export async function fetchMe(): Promise<MeResponse> {
-	return apiFetch<MeResponse>("/api/me");
-}

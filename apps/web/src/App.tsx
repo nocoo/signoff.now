@@ -8,7 +8,9 @@ import { AccentProvider } from "@nocoo/basalt/providers/accent";
 import { type ComponentType, lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
+import { SessionProvider } from "@/viewmodels/SessionProvider";
 import { WorkbenchProvider } from "@/viewmodels/WorkbenchProvider";
+import { AdminPage } from "@/views/admin/AdminPage";
 import { CollectionsPage } from "@/views/collections/CollectionsPage";
 import {
 	DirectoryTagsPage,
@@ -16,6 +18,7 @@ import {
 	MembersPage,
 } from "@/views/directory/DirectoryPage";
 import { InsightsPage } from "@/views/insights/InsightsPage";
+import { SessionGate } from "@/views/session/SessionGate";
 import { AiSettingsPage } from "@/views/settings/AiSettingsPage";
 import { SettingsPage } from "@/views/settings/SettingsPage";
 import { ProjectsPage } from "@/views/workbench/ProjectsPage";
@@ -69,9 +72,13 @@ export default function App() {
 							<Routes>
 								<Route
 									element={
-										<WorkbenchProvider>
-											<AppShell />
-										</WorkbenchProvider>
+										<SessionProvider>
+											<SessionGate>
+												<WorkbenchProvider>
+													<AppShell />
+												</WorkbenchProvider>
+											</SessionGate>
+										</SessionProvider>
 									}
 								>
 									<Route path="/" element={<PullsPage />} />
@@ -84,6 +91,7 @@ export default function App() {
 									/>
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
+									<Route path="/admin" element={<AdminPage />} />
 									<Route path="/ai-settings" element={<AiSettingsPage />} />
 									<Route
 										path="/policy-instructions/*"
