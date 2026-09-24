@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { accessAuth } from "./middleware/access-auth.js";
 import { entryControl } from "./middleware/entry-control.js";
 import { pipelineAuth } from "./middleware/pipeline-auth.js";
+import { resolvePrincipal } from "./middleware/principal.js";
+import { authorize, sameOriginWrites } from "./route-policy.js";
 import {
 	activityHeatmapRoute,
 	activityTimelineRoute,
@@ -93,6 +95,9 @@ const app = new Hono<AppEnv>();
 app.use("*", entryControl);
 app.use("/api/*", accessAuth);
 app.use("/api/*", pipelineAuth);
+app.use("/api/*", resolvePrincipal);
+app.use("/api/*", authorize);
+app.use("/api/*", sameOriginWrites);
 
 app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);

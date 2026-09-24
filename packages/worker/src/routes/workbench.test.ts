@@ -6,7 +6,6 @@ import {
 	projectSchema,
 	workbenchSchema,
 } from "@signoff/domain/workbench";
-import { Hono } from "hono";
 import app from "../index.js";
 import { addObservation } from "../monitoring/observations";
 import {
@@ -18,8 +17,7 @@ import {
 import { claimJob } from "../monitoring/scheduler";
 import { PR_TEST_NOW, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1.js";
-import type { AppEnv, Bindings } from "../types.js";
-import { projectsScanRoute } from "./workbench.js";
+import type { Bindings } from "../types.js";
 
 const GATE_RULES = [
 	{ gateId: "policy-1", label: "Review", color: "orange" },
@@ -632,19 +630,19 @@ describe("explicit discovery compatibility route", () => {
 				)
 			).status,
 		).toBe(403);
-		const isolated = new Hono<AppEnv>().post(
-			"/api/projects/:id/scan",
-			projectsScanRoute,
-		);
 		expect(
 			(
-				await isolated.request(
+				await app.request(
 					`https://signoff.hexly.ai/api/projects/${project.id}/scan`,
 					{ method: "POST", headers: { host: "signoff.hexly.ai" } },
-					env,
+					{
+						...env,
+						CF_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+						CF_ACCESS_AUD: "aud",
+					},
 				)
 			).status,
-		).toBe(403);
+		).toBe(401);
 		for (const value of [{}, undefined])
 			expect(
 				(await request(`/api/projects/${project.id}/scan`, "POST", value))

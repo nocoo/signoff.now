@@ -8,7 +8,6 @@ import {
 import type { Context } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { hasLocalTrust } from "../middleware/entry-control.js";
 import {
 	pruneCollectionHistory,
 	scheduleDiscovery,
@@ -50,23 +49,11 @@ async function queues(c: Context<AppEnv>) {
 		await c.env.DB.prepare(REFRESH_QUEUES_SQL).all<QueueRow>()
 	).results.map(mapRefreshQueue);
 }
-function localOnly(c: Context<AppEnv>) {
-	return hasLocalTrust(c)
-		? null
-		: c.json(
-				{ error: "Collection scheduling is only available on this machine" },
-				403,
-			);
-}
 export async function refreshQueuesRoute(c: Context<AppEnv>) {
-	const denied = localOnly(c);
-	if (denied) return denied;
 	c.header("Cache-Control", "no-store");
 	return c.json(await queues(c));
 }
 export async function refreshSettingsRoute(c: Context<AppEnv>) {
-	const denied = localOnly(c);
-	if (denied) return denied;
 	const raw = await readJsonBodyWithSize(c, 8192);
 	const input = refreshSettingsSchema.safeParse(raw.ok ? raw.value : null);
 	if (!input.success)
@@ -108,8 +95,6 @@ export async function collectionViewRoute(c: Context<AppEnv>) {
 	);
 }
 export async function collectorScheduleRoute(c: Context<AppEnv>) {
-	const denied = localOnly(c);
-	if (denied) return denied;
 	const raw = await readJsonBodyWithSize(c, 8192);
 	const input = z
 		.object({

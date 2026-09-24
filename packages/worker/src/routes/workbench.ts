@@ -405,11 +405,6 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 
 /** Legacy explicit scan is discovery only. Watches are managed through commands/v1. */
 export async function projectsScanRoute(c: Context<AppEnv>) {
-	if (!hasLocalTrust(c))
-		return c.json(
-			{ error: "Discovery is only available on this machine" },
-			403,
-		);
 	const raw = await readJsonBodyWithSize(c, BODY_LIMIT);
 	if (!raw.ok)
 		return c.json(

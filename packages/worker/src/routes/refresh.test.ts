@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Hono } from "hono";
 import app from "../index";
 import { addObservation, refreshObserved } from "../monitoring/observations";
 import { claimJob, failJob } from "../monitoring/scheduler";
 import { seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
-import type { AppEnv } from "../types";
-import {
-	collectorScheduleRoute,
-	refreshQueuesRoute,
-	refreshSettingsRoute,
-} from "./refresh";
 
+const ACCESS = {
+	CF_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+	CF_ACCESS_AUD: "aud",
+};
 let sqlite: SqliteD1;
 beforeEach(() => {
 	sqlite = createSqliteD1();
@@ -108,24 +105,20 @@ test("scheduler follows active watches even when the browser is absent", async (
 });
 
 test("scheduler configuration and reads stay on loopback", async () => {
-	const direct = new Hono<AppEnv>()
-		.get("/refresh", refreshQueuesRoute)
-		.patch("/refresh", refreshSettingsRoute)
-		.post("/schedule", collectorScheduleRoute);
 	for (const [method, path] of [
-		["GET", "/refresh"],
-		["PATCH", "/refresh"],
-		["POST", "/schedule"],
+		["GET", "/api/collection/refresh"],
+		["PATCH", "/api/collection/settings"],
+		["POST", "/api/collector/schedule"],
 	])
 		expect(
 			(
-				await direct.request(
+				await app.request(
 					`https://signoff.hexly.ai${path}`,
 					{ method, headers: { host: "signoff.hexly.ai" } },
-					{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
+					{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", ...ACCESS },
 				)
 			).status,
-		).toBe(403);
+		).toBe(401);
 });
 
 test("changing cooldown replans queued manual refreshes without bypassing completion", async () => {

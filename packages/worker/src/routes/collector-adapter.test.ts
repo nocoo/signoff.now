@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { adoPullId, collectorClaimSchema } from "@signoff/domain/collection";
-import { Hono } from "hono";
 import app from "../index";
 import { addObservation, enqueueDiscovery } from "../monitoring/observations";
 import { PR_TEST_NOW, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
-import type { AppEnv } from "../types";
-import { collectorClaimRoute } from "./collection";
 
+const ACCESS = {
+	CF_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+	CF_ACCESS_AUD: "aud",
+};
 let sqlite: SqliteD1;
 beforeEach(() => {
 	sqlite = createSqliteD1();
@@ -247,16 +248,15 @@ test("executor failures retain watched cache and API validation is bounded", asy
 });
 
 test("collector rejects remote hosts, malformed leases, and unplanned publication", async () => {
-	const direct = new Hono<AppEnv>().post("/claim", collectorClaimRoute);
 	expect(
 		(
-			await direct.request(
-				"https://signoff.hexly.ai/claim",
+			await app.request(
+				"https://signoff.hexly.ai/api/collector/claim",
 				{ method: "POST", headers: { host: "signoff.hexly.ai" } },
-				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", ...ACCESS },
 			)
 		).status,
-	).toBe(403);
+	).toBe(401);
 	expect(
 		(await request("jobs/missing/batch", { leaseToken: "bad", pulls: [] }))
 			.status,

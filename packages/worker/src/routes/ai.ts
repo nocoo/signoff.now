@@ -14,7 +14,6 @@ import { readAiSchedule } from "../ai/schedule.js";
 import { readAiSettings, runAiOnce } from "../ai/scheduler.js";
 import { openKey, sealKey } from "../ai/secrets.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { hasLocalTrust } from "../middleware/entry-control.js";
 import { measuredJevFetch } from "../monitoring/network.js";
 import type { AppEnv } from "../types.js";
 import { apiError } from "./query.js";
@@ -26,14 +25,6 @@ aiRoutes.onError((error, c) =>
 );
 aiRoutes.use("*", async (c, next) => {
 	c.header("Cache-Control", "no-store");
-	if (!hasLocalTrust(c))
-		return c.json(
-			{
-				error:
-					"AI configuration and evaluation are available on this machine only.",
-			},
-			403,
-		);
 	const origin = c.req.header("origin");
 	if (
 		origin &&

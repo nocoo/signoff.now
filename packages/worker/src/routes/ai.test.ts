@@ -7,8 +7,11 @@ import {
 import app from "../index";
 import { seedProject } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
-import { aiRoutes } from "./ai";
 
+const ACCESS = {
+	CF_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+	CF_ACCESS_AUD: "aud",
+};
 let sqlite: SqliteD1;
 const master = btoa("x".repeat(32));
 beforeEach(() => {
@@ -128,13 +131,13 @@ test("rejects untrusted origins and nonlocal hosts", async () => {
 	).toBe(403);
 	expect(
 		(
-			await aiRoutes.request(
-				"http://signoff.hexly.ai/settings",
+			await app.request(
+				"http://signoff.hexly.ai/api/ai/settings",
 				{ headers: { host: "signoff.hexly.ai" } },
-				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", ...ACCESS },
 			)
 		).status,
-	).toBe(403);
+	).toBe(401);
 	expect(
 		(
 			await request("/settings", "GET", undefined, {

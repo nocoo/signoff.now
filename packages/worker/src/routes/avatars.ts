@@ -9,7 +9,6 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { hasLocalTrust } from "../middleware/entry-control.js";
 import type { AppEnv } from "../types.js";
 
 export const avatarRoutes = new Hono<AppEnv>();
@@ -78,11 +77,6 @@ export async function claimAvatars(
 export const collectorAvatarRoutes = new Hono<AppEnv>();
 collectorAvatarRoutes.use("*", async (c, next) => {
 	c.header("Cache-Control", "no-store");
-	if (!hasLocalTrust(c))
-		return c.json(
-			{ error: "Collector routes are only available on this machine" },
-			403,
-		);
 	return next();
 });
 collectorAvatarRoutes.post("/claim", async (c) =>

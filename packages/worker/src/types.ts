@@ -1,3 +1,5 @@
+import type { Caller } from "./middleware/principal.js";
+
 export type Bindings = {
 	DB: D1Database;
 	SIGNOFF_AI_ENCRYPTION_KEY?: string;
@@ -13,6 +15,8 @@ export type Bindings = {
 	SIGNOFF_PIPELINE_READ_TOKEN?: string;
 	CF_ACCESS_TEAM_DOMAIN?: string;
 	CF_ACCESS_AUD?: string;
+	/** Comma-separated permanent admins (Worker secret; the repo is public). */
+	SIGNOFF_ADMIN_EMAILS?: string;
 };
 
 export type Variables = {
@@ -22,6 +26,8 @@ export type Variables = {
 	accessName?: string | null;
 	/** True when a service token authenticated, not a person. */
 	accessService?: boolean;
+	/** Set by resolvePrincipal for every /api request. */
+	caller?: Caller;
 };
 
 export type AppEnv = { Bindings: Bindings; Variables: Variables };

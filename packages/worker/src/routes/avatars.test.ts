@@ -3,13 +3,15 @@ import {
 	AVATAR_REFRESH_SECONDS,
 	type AvatarTask,
 } from "@signoff/domain/avatars";
-import { Hono } from "hono";
 import app from "../index";
 import { seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
-import type { AppEnv } from "../types";
-import { claimAvatars, collectorAvatarRoutes } from "./avatars";
+import { claimAvatars } from "./avatars";
 
+const ACCESS = {
+	CF_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+	CF_ACCESS_AUD: "aud",
+};
 let sqlite: SqliteD1;
 const url = "https://dev.azure.com/acme/_api/_common/identityImage?id=alice";
 const now = () => Math.floor(Date.now() / 1000);
@@ -200,14 +202,13 @@ test("repeated PR upserts preserve cached author and reviewer avatars", () => {
 });
 
 test("collector avatar endpoints reject remote callers and malformed payloads", async () => {
-	const direct = new Hono<AppEnv>().route("/avatars", collectorAvatarRoutes);
 	for (const action of ["claim", "publish", "fail"]) {
-		const remote = await direct.request(
-			`https://public.example/avatars/${action}`,
+		const remote = await app.request(
+			`https://public.example/api/collector/avatars/${action}`,
 			{ method: "POST", headers: { host: "public.example" } },
-			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", ...ACCESS },
 		);
-		expect(remote.status).toBe(403);
+		expect(remote.status).toBe(401);
 	}
 	expect((await request("avatars?source=live")).status).toBe(400);
 	seed();

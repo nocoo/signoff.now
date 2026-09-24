@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { Hono } from "hono";
 import app from "../index";
-import { collectorNetworkRoute } from "../routes/collection";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
-import type { AppEnv } from "../types";
 import { measuredJevFetch, queryNetwork, recordNetwork } from "./network";
 
+const ACCESS = {
+	CF_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+	CF_ACCESS_AUD: "aud",
+};
 let sqlite: SqliteD1;
 beforeEach(() => {
 	sqlite = createSqliteD1();
@@ -82,17 +83,15 @@ test("collector write validates, dedupes and restricts access; chart query is re
 		{ ...event, url: "private" },
 	])
 		expect((await post(body)).status).toBe(400);
-	const remote = new Hono<AppEnv>();
-	remote.post("/", collectorNetworkRoute);
 	expect(
 		(
-			await remote.request(
-				"http://remote.example/",
+			await app.request(
+				"http://remote.example/api/collector/network",
 				{ method: "POST", headers: { host: "remote.example" } },
-				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", ...ACCESS },
 			)
 		).status,
-	).toBe(403);
+	).toBe(401);
 	const read = await app.request(
 		"http://localhost/api/query/v1/network",
 		{ headers: { host: "localhost" } },
