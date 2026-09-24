@@ -28,13 +28,19 @@ describe("isPipelinePath", () => {
 });
 
 describe("pipelineAuth middleware", () => {
-	function app(opts?: { access?: boolean; write?: string; read?: string }) {
+	function app(opts?: {
+		access?: boolean;
+		write?: string;
+		read?: string;
+		localTrust?: boolean;
+	}) {
 		const a = new Hono<AppEnv>();
 		a.use("*", async (c, next) => {
 			c.env = {
 				DB: {} as D1Database,
 				SIGNOFF_PIPELINE_WRITE_TOKEN: opts?.write ?? "write-secret",
 				SIGNOFF_PIPELINE_READ_TOKEN: opts?.read ?? "read-secret",
+				SIGNOFF_LOCAL_TRUST: opts?.localTrust === false ? undefined : "1",
 			};
 			if (opts?.access) {
 				c.set("accessAuthenticated", true);
@@ -58,6 +64,13 @@ describe("pipelineAuth middleware", () => {
 			headers: { host: "127.0.0.1:37042" },
 		});
 		expect(res.status).toBe(200);
+	});
+	test("localhost without local trust still needs a token", async () => {
+		const res = await app({ localTrust: false }).request(
+			"http://localhost/api/settings",
+			{ headers: { host: "127.0.0.1:37042" } },
+		);
+		expect(res.status).toBe(401);
 	});
 
 	test("browser access skips token on management", async () => {

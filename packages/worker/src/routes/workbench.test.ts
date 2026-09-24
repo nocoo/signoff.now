@@ -39,7 +39,7 @@ const body = {
 };
 beforeEach(() => {
 	sqlite = createSqliteD1();
-	env = { DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" };
+	env = { DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" };
 });
 afterEach(() => sqlite.close());
 

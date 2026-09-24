@@ -36,7 +36,7 @@ const request = (
 			headers: { host: "localhost", "content-type": "application/json" },
 			...(refresh ? { body: JSON.stringify(scope) } : {}),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 	);
 };
 async function snapshot(
@@ -64,7 +64,7 @@ async function create(kind: string, body: unknown, source = "cli") {
 			},
 			body: JSON.stringify(body),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 	);
 	expect(response.status).toBe(201);
 	return (await response.json()) as { id: string };
@@ -116,7 +116,7 @@ describe("independent, manually calculated PR statistics", () => {
 				{
 					headers: { host: "localhost" },
 				},
-				{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "0" },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "0" },
 			);
 			expect(response.status).toBe(200);
 			expect(await response.json()).toEqual({
@@ -223,7 +223,7 @@ describe("independent, manually calculated PR statistics", () => {
 					headers: { host: "localhost", "content-type": "application/json" },
 					body,
 				},
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			);
 			expect(response.status).toBe(body.length > 32768 ? 413 : 400);
 		}
@@ -232,7 +232,7 @@ describe("independent, manually calculated PR statistics", () => {
 			{
 				headers: { host: "localhost" },
 			},
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(response.status).toBe(400);
 		expect(
@@ -557,7 +557,7 @@ describe("independent, manually calculated PR statistics", () => {
 		const invalid = await app.request(
 			"http://localhost/api/insights/overview?filters=not-json",
 			{ headers: { host: "localhost" } },
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(invalid.status).toBe(400);
 		expect(

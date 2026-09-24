@@ -46,7 +46,11 @@ const request = (
 			},
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: demoMode ? "1" : "0" },
+		{
+			DB: sqlite.db,
+			SIGNOFF_LOCAL_TRUST: "1",
+			SIGNOFF_DEMO_MODE: demoMode ? "1" : "0",
+		},
 	);
 };
 const directory = async (source = "cli") =>
@@ -145,7 +149,7 @@ describe("followed PR contributors and memberships", () => {
 							},
 							body: JSON.stringify(drafts[index]),
 						},
-						{ DB: db },
+						{ DB: db, SIGNOFF_LOCAL_TRUST: "1" },
 					),
 				),
 			);
@@ -205,7 +209,7 @@ describe("followed PR contributors and memberships", () => {
 				headers: { host: "localhost", "content-type": "application/json" },
 				body: JSON.stringify({ name: "Legacy rename" }),
 			},
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(legacy.status).toBe(200);
 		expect(

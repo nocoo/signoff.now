@@ -101,7 +101,7 @@ function body(over: Partial<IngestBody> = {}): IngestBody {
 async function summaryFor(query: string): Promise<StatsSummary> {
 	const app = new Hono<AppEnv>();
 	app.use("*", async (c, next) => {
-		c.env = { DB: sqlite.db } as AppEnv["Bindings"];
+		c.env = { DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" } as AppEnv["Bindings"];
 		return next();
 	});
 	app.get("/api/stats/summary", statsSummaryRoute);
@@ -124,7 +124,7 @@ type HeatmapBody = {
 async function heatmap(): Promise<HeatmapBody> {
 	const app = new Hono<AppEnv>();
 	app.use("*", async (c, next) => {
-		c.env = { DB: sqlite.db } as AppEnv["Bindings"];
+		c.env = { DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" } as AppEnv["Bindings"];
 		return next();
 	});
 	app.get("/api/activity/heatmap", activityHeatmapRoute);

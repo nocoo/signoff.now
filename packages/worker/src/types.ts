@@ -1,8 +1,10 @@
 export type Bindings = {
 	DB: D1Database;
 	SIGNOFF_AI_ENCRYPTION_KEY?: string;
-	/** Set only by the local dev command; also requires a local request host. */
+	/** Set only by the local dev command; also requires local trust. */
 	SIGNOFF_DEMO_MODE?: string;
+	/** Set only by local dev / E2E launchers; enables loopback trust. */
+	SIGNOFF_LOCAL_TRUST?: string;
 	/** Static assets (SPA / placeholder). */
 	ASSETS?: Fetcher;
 	/** Pipeline write token (ingest / recompute). */

@@ -128,7 +128,7 @@ describe("shared observation commands", () => {
 									...changes,
 								}),
 							},
-							{ DB: writer, SIGNOFF_DEMO_MODE: "1" },
+							{ DB: writer, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 						);
 						expect(response.status).toBe(200);
 					}

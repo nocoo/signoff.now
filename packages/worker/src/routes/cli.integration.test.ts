@@ -18,7 +18,11 @@ beforeEach(() => {
 		port: 0,
 		fetch: (req) => {
 			requests++;
-			return app.fetch(req, { DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" });
+			return app.fetch(req, {
+				DB: sqlite.db,
+				SIGNOFF_LOCAL_TRUST: "1",
+				SIGNOFF_DEMO_MODE: "1",
+			});
 		},
 	});
 });

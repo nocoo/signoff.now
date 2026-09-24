@@ -22,7 +22,7 @@ let sqlite: SqliteD1;
 function mount(db: D1Database) {
 	const app = new Hono<AppEnv>();
 	app.use("*", async (c, next) => {
-		c.env = { DB: db } as AppEnv["Bindings"];
+		c.env = { DB: db, SIGNOFF_LOCAL_TRUST: "1" } as AppEnv["Bindings"];
 		return next();
 	});
 	app.get("/api/stats/summary", statsSummaryRoute);

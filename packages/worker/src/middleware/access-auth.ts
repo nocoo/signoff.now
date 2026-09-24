@@ -10,7 +10,7 @@ import {
 	type AccessPrincipal,
 	principalFromPayload,
 } from "./access-principal.js";
-import { isLocalhost, isMachineEndpoint } from "./entry-control.js";
+import { hasLocalTrust, isMachineEndpoint } from "./entry-control.js";
 
 export type { AccessPrincipal };
 export { principalFromPayload, resetJwksCacheForTests };
@@ -33,7 +33,7 @@ export function setAccessJwtVerifierForTests(
 export async function accessAuth(c: Context<AppEnv>, next: Next) {
 	const host = c.req.header("host") || "";
 
-	if (isLocalhost(host) || isMachineEndpoint(host)) {
+	if (hasLocalTrust(c) || isMachineEndpoint(host)) {
 		return next();
 	}
 

@@ -32,7 +32,7 @@ function request(path: string, method = "GET", body?: unknown) {
 			headers: { host: "localhost", "content-type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 }
 async function fixture(id: string) {

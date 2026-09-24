@@ -12,7 +12,7 @@ import {
 } from "@signoff/domain/workbench";
 import type { Context } from "hono";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { isLocalhost } from "../middleware/entry-control.js";
+import { hasLocalTrust } from "../middleware/entry-control.js";
 import { enqueueDiscovery } from "../monitoring/observations.js";
 import {
 	mapJob,
@@ -97,9 +97,7 @@ async function getProject(c: Context<AppEnv>): Promise<Project | null> {
 }
 
 function demoMode(c: Context<AppEnv>): boolean {
-	return (
-		c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
-	);
+	return c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c);
 }
 
 function isDuplicate(error: unknown): boolean {
@@ -407,7 +405,7 @@ export async function projectsDeleteRoute(c: Context<AppEnv>) {
 
 /** Legacy explicit scan is discovery only. Watches are managed through commands/v1. */
 export async function projectsScanRoute(c: Context<AppEnv>) {
-	if (!isLocalhost(c.req.header("host") ?? ""))
+	if (!hasLocalTrust(c))
 		return c.json(
 			{ error: "Discovery is only available on this machine" },
 			403,

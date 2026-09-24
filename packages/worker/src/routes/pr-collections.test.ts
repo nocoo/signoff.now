@@ -24,7 +24,7 @@ const request = (path = "", method = "GET", body?: unknown, source = "live") =>
 			headers: { host: "localhost", "content-type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 async function create(name = draft.name) {
 	const response = await request("", "POST", { ...draft, name });
@@ -112,7 +112,7 @@ test("multiple collections keep all lifecycle states and exact merge progress wi
 	const list = await app.request(
 		`http://localhost/api/query/v1/prs?source=live&collectionId=${first.id}&state=all&draft=include&limit=2`,
 		{ headers: { host: "localhost" } },
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 	const page = (await list.json()) as {
 		data: { id: string }[];
@@ -220,7 +220,11 @@ test("membership changes invalidate cursors and reads honor collection scope", a
 	});
 	const query = `http://localhost/api/query/v1/prs?source=live&collectionId=${collection.id}&state=all&draft=include&limit=1`;
 	const readQuery = (url: string) =>
-		app.request(url, { headers: { host: "localhost" } }, { DB: sqlite.db });
+		app.request(
+			url,
+			{ headers: { host: "localhost" } },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
+		);
 	const initial = await readQuery(query);
 	const page = (await initial.json()) as { page: { nextCursor: string } };
 	expect(page.page.nextCursor).toBeTruthy();

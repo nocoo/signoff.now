@@ -3,7 +3,7 @@
 
 import type { Context, Next } from "hono";
 import type { AppEnv } from "../types.js";
-import { isLocalhost, isMachineEndpoint } from "./entry-control.js";
+import { hasLocalTrust, isMachineEndpoint } from "./entry-control.js";
 
 const PUBLIC_ROUTES = new Set(["/api/live", "/api/me"]);
 
@@ -42,8 +42,8 @@ export async function pipelineAuth(c: Context<AppEnv>, next: Next) {
 		return next();
 	}
 
-	// loopback / *.dev.hexly.ai — always skip token (§5.6)
-	if (isLocalhost(host)) {
+	// Trusted loopback / *.dev.hexly.ai — skip token (§5.6)
+	if (hasLocalTrust(c)) {
 		return next();
 	}
 

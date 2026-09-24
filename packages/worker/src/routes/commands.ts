@@ -7,7 +7,7 @@ import {
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { isLocalhost } from "../middleware/entry-control.js";
+import { hasLocalTrust } from "../middleware/entry-control.js";
 import {
 	addObservation,
 	enqueueDiscovery,
@@ -83,9 +83,7 @@ async function body(c: Context<AppEnv>) {
 function writableSource(c: Context<AppEnv>, value: "live" | "sample") {
 	if (
 		value === "sample" &&
-		!(
-			c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
-		)
+		!(c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c))
 	)
 		throw new MonitoringError(
 			"SAMPLE_READ_ONLY",

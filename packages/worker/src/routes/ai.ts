@@ -14,7 +14,7 @@ import { readAiSchedule } from "../ai/schedule.js";
 import { readAiSettings, runAiOnce } from "../ai/scheduler.js";
 import { openKey, sealKey } from "../ai/secrets.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { isLocalhost } from "../middleware/entry-control.js";
+import { hasLocalTrust } from "../middleware/entry-control.js";
 import { measuredJevFetch } from "../monitoring/network.js";
 import type { AppEnv } from "../types.js";
 import { apiError } from "./query.js";
@@ -26,7 +26,7 @@ aiRoutes.onError((error, c) =>
 );
 aiRoutes.use("*", async (c, next) => {
 	c.header("Cache-Control", "no-store");
-	if (!isLocalhost(c.req.header("host") ?? ""))
+	if (!hasLocalTrust(c))
 		return c.json(
 			{
 				error:

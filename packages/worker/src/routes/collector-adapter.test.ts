@@ -21,7 +21,7 @@ const request = (path: string, body: unknown = {}, host = "localhost") =>
 			headers: { host, "content-type": "application/json" },
 			body: JSON.stringify(body),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 	);
 
 test("idle heartbeat and watch scheduler do not discover or revive authentication backoff", async () => {
@@ -151,7 +151,7 @@ test("catalogue discovery fans out into separate empty and failed repository rec
 			await app.request(
 				`http://localhost/api/query/v1/jobs/${id}`,
 				{ headers: { host: "localhost" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			)
 		).json() as Promise<{
 			children: string[];
@@ -239,7 +239,7 @@ test("executor failures retain watched cache and API validation is bounded", asy
 				headers: { host: "localhost", "content-type": "application/json" },
 				body,
 			},
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(response.status).toBe(status);
 	}
@@ -253,7 +253,7 @@ test("collector rejects remote hosts, malformed leases, and unplanned publicatio
 			await direct.request(
 				"https://signoff.hexly.ai/claim",
 				{ method: "POST", headers: { host: "signoff.hexly.ai" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			)
 		).status,
 	).toBe(403);
@@ -294,7 +294,7 @@ test("adding a repo preserves watched candidates and cancels stale jobs with a r
 				repositories: ["web-app", "another"],
 			}),
 		},
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 	expect(response.status).toBe(200);
 	expect(sqlite.raw.query("SELECT id FROM pull_requests").get()).toEqual({
@@ -326,7 +326,7 @@ test("deep discovery commands scope jobs by canonical repository IDs", async () 
 				depth: "deep",
 			}),
 		},
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 	expect(response.status).toBe(202);
 	const receipt = (await response.json()) as { jobs: { id: string }[] };

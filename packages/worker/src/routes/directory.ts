@@ -24,7 +24,7 @@ import {
 	type TeamRow,
 } from "../lib/entities";
 import { readJsonBodyWithSize } from "../lib/http-body";
-import { isLocalhost } from "../middleware/entry-control";
+import { hasLocalTrust } from "../middleware/entry-control";
 import type { AppEnv } from "../types";
 import { mapProject, type ProjectRow } from "./workbench";
 
@@ -348,9 +348,7 @@ export async function directorySaveRoute(c: Context<AppEnv>) {
 	if (!source.success) return c.json({ error: "Invalid data source" }, 400);
 	if (
 		source.data === "demo" &&
-		!(
-			c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
-		)
+		!(c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c))
 	) {
 		return c.json(
 			{ error: "Sample editing is available in the local demo environment" },
@@ -507,9 +505,7 @@ export async function directoryArchiveRoute(c: Context<AppEnv>) {
 	if (!source.success) return c.json({ error: "Invalid data source" }, 400);
 	if (
 		source.data === "demo" &&
-		!(
-			c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
-		)
+		!(c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c))
 	) {
 		return c.json(
 			{ error: "Sample editing is available in the local demo environment" },
@@ -555,9 +551,7 @@ export async function directoryBlockRoute(c: Context<AppEnv>) {
 	if (!source.success) return c.json({ error: "Invalid data source" }, 400);
 	if (
 		source.data === "demo" &&
-		!(
-			c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
-		)
+		!(c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c))
 	)
 		return c.json(
 			{ error: "Sample editing is available in the local demo environment" },

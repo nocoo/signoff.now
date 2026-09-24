@@ -50,7 +50,7 @@ function request(
 			headers: { host, "content-type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 	);
 }
 function seed() {
@@ -827,7 +827,7 @@ describe("v1 cache queries", () => {
 			const response = await routes.request(
 				`http://${host}/query/collector`,
 				{ headers: { host } },
-				{ DB: sqlite.db, SIGNOFF_DEMO_MODE: mode },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: mode },
 			);
 			expect(await response.json()).toMatchObject({
 				sampleCommandsEnabled: enabled,
@@ -1556,7 +1556,7 @@ describe("v1 commands", () => {
 						...(generation ? { "if-match": generation } : {}),
 					},
 				},
-				{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 			);
 		expect((await remove(added.observation.id)).status).toBe(400);
 		expect(
@@ -1585,7 +1585,7 @@ describe("v1 commands", () => {
 					headers: { host: "localhost", "content-type": "application/json" },
 					body,
 				},
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			);
 			expect(response.status).toBe(status);
 		}
@@ -1596,7 +1596,7 @@ describe("v1 commands", () => {
 				headers: { host: "localhost", "content-type": "application/json" },
 				body: JSON.stringify({ source: "sample", target: { all: true } }),
 			},
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(sample.status).toBe(403);
 		expect(

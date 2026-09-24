@@ -12,7 +12,7 @@ import {
 function mount(db: D1Database) {
 	const app = new Hono<AppEnv>();
 	app.use("*", async (c, next) => {
-		c.env = { DB: db };
+		c.env = { DB: db, SIGNOFF_LOCAL_TRUST: "1" };
 		return next();
 	});
 	app.get("/api/pipeline/bootstrap", pipelineBootstrapRoute);

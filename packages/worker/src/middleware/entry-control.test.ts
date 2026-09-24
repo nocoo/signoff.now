@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../types.js";
 import {
 	entryControl,
+	hasLocalTrust,
 	isLocalhost,
 	isMachineEndpoint,
 } from "./entry-control.js";
@@ -24,6 +25,32 @@ describe("isLocalhost", () => {
 	test("rejects production hosts", () => {
 		expect(isLocalhost("signoff.example.com")).toBe(false);
 		expect(isLocalhost("signoff-ingest.example.com")).toBe(false);
+	});
+});
+
+describe("hasLocalTrust", () => {
+	function app(trust?: string) {
+		const a = new Hono<AppEnv>();
+		a.use("*", async (c, next) => {
+			c.env = { DB: {} as D1Database, SIGNOFF_LOCAL_TRUST: trust };
+			return next();
+		});
+		a.get("*", (c) => c.json({ trusted: hasLocalTrust(c) }));
+		return a;
+	}
+	const trusted = async (host: string, trust?: string) =>
+		(
+			(await (
+				await app(trust).request("http://x/", { headers: { host } })
+			).json()) as { trusted: boolean }
+		).trusted;
+
+	test("requires both a local host and the launcher flag", async () => {
+		expect(await trusted("127.0.0.1:37042", "1")).toBe(true);
+		expect(await trusted("signoff.dev.hexly.ai", "1")).toBe(true);
+		expect(await trusted("127.0.0.1:37042")).toBe(false);
+		expect(await trusted("127.0.0.1:37042", "true")).toBe(false);
+		expect(await trusted("signoff.hexly.ai", "1")).toBe(false);
 	});
 });
 

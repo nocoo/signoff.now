@@ -8,7 +8,7 @@ import {
 import type { Context } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { isLocalhost } from "../middleware/entry-control.js";
+import { hasLocalTrust } from "../middleware/entry-control.js";
 import {
 	pruneCollectionHistory,
 	scheduleDiscovery,
@@ -51,7 +51,7 @@ async function queues(c: Context<AppEnv>) {
 	).results.map(mapRefreshQueue);
 }
 function localOnly(c: Context<AppEnv>) {
-	return isLocalhost(c.req.header("host") ?? "")
+	return hasLocalTrust(c)
 		? null
 		: c.json(
 				{ error: "Collection scheduling is only available on this machine" },

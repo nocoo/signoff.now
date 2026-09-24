@@ -27,7 +27,7 @@ function request(overrides: Record<string, unknown> = {}) {
 	return app.request(
 		`http://localhost/api/insights/report?filters=${encodeURIComponent(JSON.stringify(filters))}`,
 		{ headers: { host: "localhost" } },
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 }
 
@@ -310,7 +310,7 @@ describe("cached contributor and repository reports", () => {
 				},
 				body: JSON.stringify({ key: "member:person", blocked: true }),
 			},
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(response.status).toBe(200);
 		const result = await report();
@@ -327,7 +327,7 @@ describe("cached contributor and repository reports", () => {
 			const hover = await app.request(
 				"http://localhost/api/insights/contributor?source=cli&key=member%3Aperson",
 				{ headers: { host: "localhost" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			);
 			expect(hover.status).toBe(200);
 			const { statistics } = (await hover.json()) as {
@@ -347,7 +347,7 @@ describe("cached contributor and repository reports", () => {
 			const foreign = await app.request(
 				"http://localhost/api/insights/contributor?source=demo&key=member%3Aperson",
 				{ headers: { host: "localhost" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			);
 			expect(foreign.status).toBe(404);
 			sqlite.raw.exec(
@@ -356,7 +356,7 @@ describe("cached contributor and repository reports", () => {
 			const archived = await app.request(
 				"http://localhost/api/insights/contributor?source=cli&key=member%3Aperson",
 				{ headers: { host: "localhost" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			);
 			expect(
 				((await archived.json()) as { statistics: ContributorStatistics })
@@ -377,7 +377,7 @@ describe("cached contributor and repository reports", () => {
 			const response = await app.request(
 				`http://localhost/api/insights/report?filters=${encodeURIComponent(filters)}`,
 				{ headers: { host: "localhost" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			);
 			expect(response.status).toBe(400);
 		}

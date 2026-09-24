@@ -25,7 +25,7 @@ const request = (path: string, method = "POST", body?: unknown) =>
 			headers: { host: "localhost", "content-type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 
 test("only discovery scheduling enqueues project list jobs", async () => {
@@ -122,7 +122,7 @@ test("scheduler configuration and reads stay on loopback", async () => {
 				await direct.request(
 					`https://signoff.hexly.ai${path}`,
 					{ method, headers: { host: "signoff.hexly.ai" } },
-					{ DB: sqlite.db },
+					{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 				)
 			).status,
 		).toBe(403);

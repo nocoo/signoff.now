@@ -79,7 +79,7 @@ test("cleanup is bounded and daemon scheduling drains expired history without a 
 			headers: { host: "localhost", "content-type": "application/json" },
 			body: "{}",
 		},
-		{ DB: sqlite.db },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 	);
 	expect(response.status).toBe(200);
 	expect(

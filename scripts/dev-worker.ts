@@ -41,6 +41,8 @@ function startChild() {
 			"localhost",
 			"--var",
 			"SIGNOFF_DEMO_MODE:1",
+			"--var",
+			"SIGNOFF_LOCAL_TRUST:1",
 		],
 		{ cwd: root, detached: true, stdio: ["ignore", "pipe", "pipe"] },
 	);

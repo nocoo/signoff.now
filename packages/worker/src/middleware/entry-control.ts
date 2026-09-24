@@ -1,7 +1,6 @@
 // Host-based entry control (aligned with bat entry-control.ts).
-// - localhost / 127.0.0.1 / *.dev.hexly.ai: bypass path whitelist
 // - signoff-ingest.*: machine whitelist only
-// - else: browser endpoint (Access)
+// - else: browser endpoint (Access), or local trust when explicitly enabled
 
 import type { Context, Next } from "hono";
 import type { AppEnv } from "../types.js";
@@ -29,6 +28,17 @@ export function isLocalhost(host: string): boolean {
 		h === "[::1]" ||
 		h === "::1" ||
 		h.endsWith(".dev.hexly.ai")
+	);
+}
+
+/**
+ * Loopback trust needs both a local host and the flag set only by the local
+ * dev and E2E launchers. A deployed Worker never sets it, so a misrouted or
+ * spoofed Host header cannot skip Access.
+ */
+export function hasLocalTrust(c: Context<AppEnv>): boolean {
+	return (
+		c.env.SIGNOFF_LOCAL_TRUST === "1" && isLocalhost(c.req.header("host") ?? "")
 	);
 }
 
@@ -64,10 +74,6 @@ export async function entryControl(c: Context<AppEnv>, next: Next) {
 	const host = c.req.header("host") || "";
 	const path = c.req.path;
 	const method = c.req.method;
-
-	if (isLocalhost(host)) {
-		return next();
-	}
 
 	if (isMachineEndpoint(host)) {
 		if (!isAllowedMachineRoute(method, path)) {

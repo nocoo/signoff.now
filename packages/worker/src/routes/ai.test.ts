@@ -33,7 +33,11 @@ function request(
 			},
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db, SIGNOFF_AI_ENCRYPTION_KEY: secret },
+		{
+			DB: sqlite.db,
+			SIGNOFF_LOCAL_TRUST: "1",
+			SIGNOFF_AI_ENCRYPTION_KEY: secret,
+		},
 	);
 }
 const settings = async () =>
@@ -127,7 +131,7 @@ test("rejects untrusted origins and nonlocal hosts", async () => {
 			await aiRoutes.request(
 				"http://signoff.hexly.ai/settings",
 				{ headers: { host: "signoff.hexly.ai" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			)
 		).status,
 	).toBe(403);

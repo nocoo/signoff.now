@@ -18,7 +18,7 @@ import {
 import type { Context } from "hono";
 import { normalizeAvatarUrl } from "../lib/entities";
 import { readJsonBodyWithSize } from "../lib/http-body";
-import { isLocalhost } from "../middleware/entry-control";
+import { hasLocalTrust } from "../middleware/entry-control";
 import type { AppEnv } from "../types";
 
 const COUNTS_SQL = `COUNT(*) AS total,
@@ -265,9 +265,7 @@ export async function insightsRoute(c: Context<AppEnv>) {
 	if (
 		refresh &&
 		filters.source === "demo" &&
-		!(
-			c.env.SIGNOFF_DEMO_MODE === "1" && isLocalhost(c.req.header("host") ?? "")
-		)
+		!(c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c))
 	)
 		return c.json(
 			{

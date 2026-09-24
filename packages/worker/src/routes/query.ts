@@ -2,7 +2,7 @@ import { storageSource } from "@signoff/domain/monitoring";
 import { jobHistoryFiltersSchema } from "@signoff/domain/query";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { isLocalhost } from "../middleware/entry-control.js";
+import { hasLocalTrust } from "../middleware/entry-control.js";
 import { queryCollectorGroups } from "../monitoring/collector-groups.js";
 import { queryNetwork } from "../monitoring/network.js";
 import {
@@ -100,9 +100,7 @@ queryRoutes.get("/observations/lookup", async (c) => {
 queryRoutes.get("/collector", async (c) =>
 	c.json({
 		...(await queryCollector(c.env.DB, scope(c), now())),
-		sampleCommandsEnabled:
-			c.env.SIGNOFF_DEMO_MODE === "1" &&
-			isLocalhost(c.req.header("host") ?? ""),
+		sampleCommandsEnabled: c.env.SIGNOFF_DEMO_MODE === "1" && hasLocalTrust(c),
 	}),
 );
 queryRoutes.get("/jobs", async (c) =>

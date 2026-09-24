@@ -34,7 +34,7 @@ const request = (
 			},
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "0" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "0" },
 	);
 const image = (source = "live") =>
 	`avatars?${new URLSearchParams({ source, url })}`;
@@ -205,7 +205,7 @@ test("collector avatar endpoints reject remote callers and malformed payloads", 
 		const remote = await direct.request(
 			`https://public.example/avatars/${action}`,
 			{ method: "POST", headers: { host: "public.example" } },
-			{ DB: sqlite.db },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 		);
 		expect(remote.status).toBe(403);
 	}

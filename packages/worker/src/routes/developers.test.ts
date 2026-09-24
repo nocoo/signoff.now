@@ -22,7 +22,7 @@ const sampleDev = {
 function mount(db: D1Database) {
 	const app = new Hono<AppEnv>();
 	app.use("*", async (c, next) => {
-		c.env = { DB: db };
+		c.env = { DB: db, SIGNOFF_LOCAL_TRUST: "1" };
 		return next();
 	});
 	app.get("/api/developers", developersListRoute);
@@ -307,7 +307,7 @@ describe("developers routes", () => {
 			new Response(JSON.stringify(body), { status });
 		const c = {
 			req: { param: () => undefined },
-			env: { DB: createMockD1() },
+			env: { DB: createMockD1(), SIGNOFF_LOCAL_TRUST: "1" },
 			json,
 		};
 		// @ts-expect-error minimal context

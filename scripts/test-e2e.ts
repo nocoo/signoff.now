@@ -126,6 +126,7 @@ try {
 			compatibility_date: "2026-07-07",
 			vars: {
 				SIGNOFF_DEMO_MODE: "1",
+				SIGNOFF_LOCAL_TRUST: "1",
 				SIGNOFF_AI_ENCRYPTION_KEY: btoa("e".repeat(32)),
 			},
 			assets: {

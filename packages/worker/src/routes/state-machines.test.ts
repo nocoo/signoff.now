@@ -24,7 +24,7 @@ function request(
 			headers: { host: "localhost", "content-type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		},
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 	);
 }
 async function page(path?: string) {

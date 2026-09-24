@@ -11,7 +11,11 @@ import { openKey, sealKey } from "./secrets";
 
 let sqlite: SqliteD1;
 const master = btoa("x".repeat(32));
-const env = () => ({ DB: sqlite.db, SIGNOFF_AI_ENCRYPTION_KEY: master });
+const env = () => ({
+	DB: sqlite.db,
+	SIGNOFF_LOCAL_TRUST: "1",
+	SIGNOFF_AI_ENCRYPTION_KEY: master,
+});
 beforeEach(() => {
 	sqlite = createSqliteD1();
 	seedProject(sqlite, { repositories: [] });

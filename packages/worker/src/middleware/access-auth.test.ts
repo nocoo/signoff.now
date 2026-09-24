@@ -13,6 +13,7 @@ describe("accessAuth middleware", () => {
 		a.use("*", async (c, next) => {
 			c.env = {
 				DB: {} as D1Database,
+				SIGNOFF_LOCAL_TRUST: "1",
 				...env,
 			};
 			return next();
@@ -47,6 +48,16 @@ describe("accessAuth middleware", () => {
 			name: null,
 			service: false,
 		});
+	});
+
+	test("a local host without local trust still requires Access", async () => {
+		const res = await app({
+			...accessEnv,
+			SIGNOFF_LOCAL_TRUST: undefined,
+		}).request("http://localhost/api/settings", {
+			headers: { host: "127.0.0.1:37042" },
+		});
+		expect(res.status).toBe(401);
 	});
 
 	test("skips on *.dev.hexly.ai", async () => {

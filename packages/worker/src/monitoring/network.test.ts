@@ -71,7 +71,7 @@ test("collector write validates, dedupes and restricts access; chart query is re
 				headers: { host, "content-type": "application/json" },
 				body: JSON.stringify(body),
 			},
-			{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+			{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 		);
 	expect((await post(event)).status).toBe(200);
 	expect((await post(event)).status).toBe(200);
@@ -89,14 +89,14 @@ test("collector write validates, dedupes and restricts access; chart query is re
 			await remote.request(
 				"http://remote.example/",
 				{ method: "POST", headers: { host: "remote.example" } },
-				{ DB: sqlite.db },
+				{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1" },
 			)
 		).status,
 	).toBe(403);
 	const read = await app.request(
 		"http://localhost/api/query/v1/network",
 		{ headers: { host: "localhost" } },
-		{ DB: sqlite.db, SIGNOFF_DEMO_MODE: "1" },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
 	);
 	expect(read.status).toBe(200);
 	const data = (await read.json()) as { buckets: { adoChecks: number }[] };

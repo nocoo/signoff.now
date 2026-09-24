@@ -13,7 +13,7 @@ import { collectionLaneSchema } from "@signoff/domain/workbench";
 import type { Context } from "hono";
 import { z } from "zod";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
-import { isLocalhost } from "../middleware/entry-control.js";
+import { hasLocalTrust } from "../middleware/entry-control.js";
 import { recordNetwork } from "../monitoring/network.js";
 import {
 	completeJob,
@@ -31,7 +31,7 @@ const now = () => Math.floor(Date.now() / 1000);
 const id = (c: Context<AppEnv>) => c.req.param("id") ?? "";
 function local(handler: (c: Context<AppEnv>) => Promise<Response>) {
 	return async (c: Context<AppEnv>) => {
-		if (!isLocalhost(c.req.header("host") ?? ""))
+		if (!hasLocalTrust(c))
 			return c.json(
 				{ error: "Collector routes are only available on this machine" },
 				403,
