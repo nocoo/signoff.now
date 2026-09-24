@@ -67,6 +67,8 @@ export const sessionSchema = z.object({
 	principal: z.string().nullable(),
 	email: z.string().nullable(),
 	name: z.string().nullable(),
+	/** Gravatar for people (initials when it has none); null otherwise. */
+	avatarUrl: z.string().nullable().optional(),
 	service: z.boolean(),
 	admin: z.boolean(),
 	tenants: z.array(tenantSummarySchema),

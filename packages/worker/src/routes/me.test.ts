@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { Caller } from "../middleware/principal.js";
 import type { AppEnv } from "../types.js";
-import { meRoute } from "./me.js";
+import { gravatarUrl, meRoute } from "./me.js";
 
 function me(caller?: Caller, access: Record<string, unknown> = {}) {
 	const app = new Hono<AppEnv>();
@@ -24,6 +24,7 @@ describe("meRoute", () => {
 			principal: null,
 			email: null,
 			name: null,
+			avatarUrl: null,
 			service: false,
 			admin: false,
 			tenants: [],
@@ -58,6 +59,7 @@ describe("meRoute", () => {
 			principal: "email:a@b.com",
 			email: "a@b.com",
 			name: "A",
+			avatarUrl: await gravatarUrl("a@b.com"),
 			service: false,
 			admin: false,
 			tenants: [{ id: "default", name: "Default" }],
@@ -88,4 +90,10 @@ describe("meRoute", () => {
 			admin: true,
 		});
 	});
+});
+
+test("gravatar uses the SHA-256 of the normalized email", async () => {
+	expect(await gravatarUrl(" Test@Example.com ")).toBe(
+		"https://gravatar.com/avatar/973dfe463ec85785f5f95af5ba3906eedb2d931c24e69824a89ea65dba4e813b?s=128&d=404",
+	);
 });

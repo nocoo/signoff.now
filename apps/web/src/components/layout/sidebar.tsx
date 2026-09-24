@@ -1,6 +1,7 @@
 import {
 	Avatar,
 	AvatarFallback,
+	AvatarImage,
 	Badge,
 	Sidebar as BasaltSidebar,
 	Button,
@@ -85,6 +86,7 @@ export function Sidebar({
 	collapsed,
 	userLabel,
 	userEmail,
+	userAvatarUrl,
 	admin = false,
 	tenantSwitcher,
 	onToggle,
@@ -93,6 +95,7 @@ export function Sidebar({
 	collapsed: boolean;
 	userLabel: string;
 	userEmail?: string;
+	userAvatarUrl?: string | null;
 	admin?: boolean;
 	tenantSwitcher?: ReactNode;
 	onToggle: () => void;
@@ -115,6 +118,7 @@ export function Sidebar({
 
 	const avatar = (
 		<Avatar className="h-9 w-9 shrink-0">
+			{userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt="" /> : null}
 			<AvatarFallback className="bg-basalt-primary/15 text-xs text-basalt-primary">
 				{initial}
 			</AvatarFallback>

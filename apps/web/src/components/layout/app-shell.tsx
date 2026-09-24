@@ -92,6 +92,7 @@ export function AppShell() {
 					collapsed={collapsed}
 					userLabel={userLabel}
 					userEmail={userEmail}
+					userAvatarUrl={session?.avatarUrl}
 					admin={admin}
 					tenantSwitcher={tenantSwitcher}
 					onToggle={() => setDesktopCollapsed(!collapsed)}
@@ -114,6 +115,7 @@ export function AppShell() {
 							collapsed={false}
 							userLabel={userLabel}
 							userEmail={userEmail}
+							userAvatarUrl={session?.avatarUrl}
 							admin={admin}
 							tenantSwitcher={tenantSwitcher}
 							onToggle={() => setMobileOpen(false)}
