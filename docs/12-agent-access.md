@@ -18,6 +18,37 @@ Worker, and web package versions aligned when releasing this service. The human
 hostname also needs an Access application scoped to `signoff.hexly.ai/api/live`
 with a Bypass / Everyone policy; business paths retain Access and JWT checks.
 
+## Principals, tenants and route policy
+
+Every `/api` request resolves one caller (`middleware/principal.ts`): trusted
+local, an Access person (`email:<lowercased email>`), an Access service token
+(`service:<client id>`), the machine host, or anonymous. `route-policy.ts` then
+applies one policy per registered route and denies anything unlisted:
+
+| Policy | Who passes |
+|:-------|:-----------|
+| `public` | everyone (`/api/live`, `/api/me`) |
+| `member` | Access callers with a selected tenant; trusted local |
+| `admin` | admins; trusted local |
+| `collector` | trusted local (remote connectors arrive in doc 23 M2) |
+| `pipeline` | machine host; `pipelineAuth` checks the token |
+
+Admins are the `SIGNOFF_ADMIN_EMAILS` Worker secret (comma-separated emails or
+`service:<client id>`; permanent and the recovery path) plus rows in `admins`.
+Admins manage tenant members at **System → Administration**
+(`/api/admin/*`). An Access user without membership sees only the waiting page.
+Service tokens need membership too. The web sends `x-signoff-tenant`; the
+server accepts only a tenant the caller can use. Browser writes must be
+same-origin.
+
+Loopback trust needs both a local host (`localhost`, `127.0.0.1`, `[::1]`,
+`*.dev.hexly.ai`) and `SIGNOFF_LOCAL_TRUST=1`. Only `scripts/dev-worker.ts` and
+`scripts/test-e2e.ts` set it, so a deployed Worker never trusts a Host header.
+
+**Before deploying, set `SIGNOFF_ADMIN_EMAILS`** with
+`wrangler secret put SIGNOFF_ADMIN_EMAILS`; otherwise nobody can administer the
+deployed site.
+
 **The pipeline token cannot create entities.** `MACHINE_ROUTES`
 (`middleware/entry-control.ts`) whitelists only bootstrap / ingest /
 recompute / live / me; every CRUD route answers 403. That is deliberate — a

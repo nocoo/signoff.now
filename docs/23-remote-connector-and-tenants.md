@@ -1,8 +1,13 @@
 # 23 — Remote access, tenants and connectors
 
-> Status: **proposed plan**, 2026-09-24. Nothing here is implemented yet. It
-> changes several AGENTS.md invariants; each change lands with the code that
-> needs it, never ahead of it.
+> Status: **M1 implemented** (identity, admins, tenant membership, default-deny
+> route policy, admin and waiting pages), 2026-09-24. M2–M5 remain planned.
+> Each invariant change lands with the code that needs it, never ahead of it.
+>
+> M1 deviations from the plan below: only the default tenant exists; the
+> `POST /api/insights/:module` recalculation stays a member action (it reads
+> cached facts only); migration 0045 guards `projects.tenant_id` with triggers
+> because SQLite cannot add a foreign-key column with a non-NULL default.
 
 ## Goal
 

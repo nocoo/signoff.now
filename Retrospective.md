@@ -188,3 +188,10 @@ The narrow-screen check also caught a menu extending below the viewport. Its fle
 The handbook migration was committed and pushed from an isolated worktree before its Husky launchers were installed. Git inherited `.husky/_` as the hook path, but the directory was absent in that worktree, so required local checks did not execute. The published commit remains in history; CI cannot substitute for those missing local checks.
 
 The coordinator took over, installed frozen dependencies and the normal launchers without changing the original checkout. Recovery requires the normal pre-commit and pre-push gates on the corrected worktree; actual results are retained in the rollout evidence. Verify the effective hook path and executable launcher before committing from any new worktree, and preserve existing unpublished developer work.
+
+## 2026-09-24: Stale E2E expectations hid a Sample discovery bug
+
+Four browser E2E tests had been failing on `main` before the tenant work began; a baseline run of the pre-change commit confirmed them. Two were stale expectations: AI rules copy had changed, and discovery had moved to a 90-day window with per-repository child tasks, so the tests' single-task runs and "no minTime" assertions no longer described the product. One was a real bug: Sample catalogue discovery published PRs itself and then its child tasks failed the frozen-scope check, because a child only saw cached PRs from sibling repositories. Catalogue tasks now only register repositories, and Sample children generate data for uncached repositories. Run the full E2E lane after changing discovery or collector fan-out, and establish a baseline before attributing failures to a new change.
+
+The tenant migration also first used `ADD COLUMN ... REFERENCES` with a non-NULL default, which SQLite rejects when foreign keys are enforced. In-memory tests did not apply migrations the same way as Wrangler, so the failure surfaced only on the local D1 database; it was not partially applied. Dry-run new migrations against a copy of the local database before starting the Worker.
+

@@ -71,7 +71,7 @@ Live / Sample 在清单、查询、目录、统计中隔离。CLI 默认 Live，
 - 任一通道成功确认 completed / abandoned 后跳过检查补全，同事务发布最终快照、淘汰监控并取消该代次其他在途 / 排队任务；缺席、403、404、认证或网络失败都不会淘汰。
 - 网页每 3 秒读取 Collector 的同来源 `dataRevision`；版本变化时合并安排已挂载数据块重读，保留有效在途读取，避免持续发布使慢查询一直无法落地。独立周期读取仍作兜底，Directory / 统计不因此重算。
 
-本机接口信任能访问回环端口的进程，无需 Access 或 pipeline token。CLI 拒绝远端目标、凭据 URL 和重定向。生产 Access / pipeline 路由边界维持原有契约。
+本机接口信任能访问回环端口的进程，无需 Access 或 pipeline token；前提是 Worker 由本机 dev / E2E 启动器带 `SIGNOFF_LOCAL_TRUST=1` 运行（见 [12](12-agent-access.md)）。CLI 拒绝远端目标、凭据 URL 和重定向。生产 Access / pipeline 路由边界维持原有契约。
 
 ## 文档与验证
 
