@@ -82,31 +82,33 @@ describe("decision matrix", () => {
 		admin: person(true, "default"),
 		member: person(false, "default"),
 		unassigned: person(false, null),
+		service: {
+			kind: "service",
+			principal: "service:ci",
+			admin: true,
+			tenants: [],
+			tenantId: "default",
+		},
+		connector: {
+			kind: "connector",
+			connectorId: "c1",
+			owner: "email:a@x.io",
+		},
 		machine: { kind: "machine" },
 		anonymous: { kind: "anonymous" },
 	};
+	const all = (outcome: number | "allow") =>
+		Object.fromEntries(Object.keys(callers).map((name) => [name, outcome]));
 	const expected: Record<RoutePolicy, Record<string, number | "allow">> = {
-		public: {
-			local: "allow",
-			admin: "allow",
-			member: "allow",
-			unassigned: "allow",
-			machine: "allow",
-			anonymous: "allow",
-		},
-		pipeline: {
-			local: "allow",
-			admin: "allow",
-			member: "allow",
-			unassigned: "allow",
-			machine: "allow",
-			anonymous: "allow",
-		},
+		public: all("allow"),
+		pipeline: all("allow"),
 		member: {
 			local: "allow",
 			admin: "allow",
 			member: "allow",
 			unassigned: 403,
+			service: "allow",
+			connector: 403,
 			machine: 403,
 			anonymous: 401,
 		},
@@ -115,6 +117,8 @@ describe("decision matrix", () => {
 			admin: "allow",
 			member: 403,
 			unassigned: 403,
+			service: "allow",
+			connector: 403,
 			machine: 403,
 			anonymous: 401,
 		},
@@ -123,10 +127,33 @@ describe("decision matrix", () => {
 			admin: 403,
 			member: 403,
 			unassigned: 403,
+			service: 403,
+			connector: "allow",
+			machine: 403,
+			anonymous: 401,
+		},
+		connector: {
+			local: 403,
+			admin: 403,
+			member: 403,
+			unassigned: 403,
+			service: 403,
+			connector: "allow",
+			machine: 401,
+			anonymous: 401,
+		},
+		login: {
+			local: 403,
+			admin: "allow",
+			member: "allow",
+			unassigned: "allow",
+			service: 403,
+			connector: 403,
 			machine: 403,
 			anonymous: 401,
 		},
 	};
+
 	for (const [policy, row] of Object.entries(expected))
 		for (const [name, outcome] of Object.entries(row))
 			test(`${policy} × ${name}`, () => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { connectorCapabilitiesSchema } from "./connector.js";
 import { observationSchema, repositoryIdentitySchema } from "./monitoring.js";
 import {
 	collectionJobSchema,
@@ -48,6 +49,9 @@ export const collectorHeartbeatSchema = z
 	.object({
 		state: z.enum(["ready", "auth_required", "error"]),
 		message,
+		/** Remote connectors report their local tooling and version. */
+		capabilities: connectorCapabilitiesSchema.optional(),
+		version: z.string().trim().max(40).optional(),
 	})
 	.strict();
 export const collectorClaimSchema = z

@@ -12,6 +12,8 @@ import { networkEventSchema } from "@signoff/domain/network";
 import { collectionLaneSchema } from "@signoff/domain/workbench";
 import type { Context } from "hono";
 import { z } from "zod";
+import { assertConnectorLease, connectorOwner } from "../connectors/lease.js";
+import { recordHeartbeat } from "../connectors/store.js";
 import { readJsonBodyWithSize } from "../lib/http-body.js";
 import { recordNetwork } from "../monitoring/network.js";
 import {
@@ -28,10 +30,12 @@ import { apiError } from "./query.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 const id = (c: Context<AppEnv>) => c.req.param("id") ?? "";
+/** Collector handler; job routes also verify a connector holds the lease. */
 function local(handler: (c: Context<AppEnv>) => Promise<Response>) {
 	return async (c: Context<AppEnv>) => {
 		c.header("Cache-Control", "no-store");
 		try {
+			if (c.req.param("id")) await assertConnectorLease(c, id(c));
 			return await handler(c);
 		} catch (error) {
 			return apiError(
@@ -61,11 +65,24 @@ async function body<T>(
 export const collectorHeartbeatRoute = local(async (c) => {
 	const input = await body(c, collectorHeartbeatSchema);
 	const timestamp = now();
+	const connector = connectorOwner(c);
+	if (connector) {
+		await recordHeartbeat(c.env.DB, connector.id, input, timestamp);
+		return c.json({
+			lastSeenAt: timestamp,
+			state: input.state,
+			message: input.message,
+		});
+	}
 	await c.env.DB.prepare(`INSERT INTO collector_heartbeat(id,last_seen_at,state,message) VALUES(1,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at,state=excluded.state,message=excluded.message`)
 		.bind(timestamp, input.state, input.message)
 		.run();
-	return c.json({ lastSeenAt: timestamp, ...input });
+	return c.json({
+		lastSeenAt: timestamp,
+		state: input.state,
+		message: input.message,
+	});
 });
 export const collectorClaimRoute = local(async (c) => {
 	const options = z
@@ -79,7 +96,11 @@ export const collectorClaimRoute = local(async (c) => {
 	return c.json(
 		await claimJob(c.env.DB, now(), {
 			...options,
-			source: c.env.SIGNOFF_DEMO_MODE === "1" ? undefined : "cli",
+			source:
+				c.env.SIGNOFF_DEMO_MODE === "1" && !connectorOwner(c)
+					? undefined
+					: "cli",
+			connector: connectorOwner(c),
 		}),
 	);
 });

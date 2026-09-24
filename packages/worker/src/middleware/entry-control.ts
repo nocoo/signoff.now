@@ -15,6 +15,11 @@ const MACHINE_ROUTES: Array<{
 	{ method: "POST", path: "/api/pipeline/recompute/complete" },
 	{ method: "GET", path: "/api/live" },
 	{ method: "GET", path: "/api/me" },
+	// Connectors authenticate with their own token; route policy checks it.
+	{ method: "GET", path: "/api/collector", prefix: true },
+	{ method: "POST", path: "/api/collector", prefix: true },
+	{ method: "POST", path: "/api/ai/tick" },
+	{ method: "GET", path: "/api/connector/v1/me" },
 ];
 
 export function isLocalhost(host: string): boolean {

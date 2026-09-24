@@ -272,6 +272,7 @@ export type ProjectRow = {
 	last_scanned_at: number | null;
 	scan_state: string;
 	scan_message: string | null;
+	data_owner?: string | null;
 };
 
 export function mapProject(row: ProjectRow): Project {
@@ -301,5 +302,6 @@ export function mapProject(row: ProjectRow): Project {
 		lastScannedAt: row.last_scanned_at,
 		scanState: row.scan_state,
 		scanMessage: row.scan_message,
+		dataOwner: row.data_owner ?? null,
 	});
 }

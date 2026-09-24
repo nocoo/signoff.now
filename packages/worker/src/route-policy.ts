@@ -10,7 +10,9 @@ import type { AppEnv } from "./types.js";
  * - public: anyone (liveness and the caller's own session)
  * - member: a person/service with a selected tenant, or local trust
  * - admin: an admin person/service, or local trust
- * - collector: local trust only until remote connectors exist
+ * - collector: trusted local, or a registered connector (routed to its owner)
+ * - connector: a registered connector only (its own identity and heartbeat)
+ * - login: an Access person issuing a connector token in the browser
  * - pipeline: machine host; pipelineAuth checks the token
  */
 export type RoutePolicy =
@@ -18,6 +20,8 @@ export type RoutePolicy =
 	| "member"
 	| "admin"
 	| "collector"
+	| "connector"
+	| "login"
 	| "pipeline";
 
 const POLICIES: Record<string, RoutePolicy> = {
@@ -29,6 +33,12 @@ const POLICIES: Record<string, RoutePolicy> = {
 	"DELETE /api/admin/tenants/:id/members/:principal": "admin",
 	"POST /api/admin/admins": "admin",
 	"DELETE /api/admin/admins/:principal": "admin",
+
+	"GET /api/auth/cli": "login",
+	"GET /api/connector/v1/me": "connector",
+	"GET /api/connectors": "member",
+	"DELETE /api/connectors/:id": "member",
+	"PUT /api/projects/:id/data-owner": "admin",
 
 	"GET /api/pipeline/bootstrap": "pipeline",
 	"POST /api/pipeline/ingest": "pipeline",
@@ -159,7 +169,18 @@ type Decision = "allow" | { status: 401 | 403 | 404; error: string };
 export function decide(policy: RoutePolicy | null, caller: Caller): Decision {
 	if (policy === null) return { status: 404, error: "Not found" };
 	if (policy === "public" || policy === "pipeline") return "allow";
-	if (caller.kind === "local") return "allow";
+	if (caller.kind === "local")
+		return policy === "connector" || policy === "login"
+			? { status: 403, error: "Connector sign-in needs the deployed site" }
+			: "allow";
+	if (caller.kind === "connector")
+		return policy === "collector" || policy === "connector"
+			? "allow"
+			: { status: 403, error: "Connector tokens only reach collector routes" };
+	if (policy === "connector")
+		return caller.kind === "anonymous" || caller.kind === "machine"
+			? { status: 401, error: "Connector token missing, expired or revoked" }
+			: { status: 403, error: "Connector token required" };
 	if (caller.kind === "anonymous")
 		return { status: 401, error: "Sign in to continue" };
 	if (caller.kind === "machine")
@@ -169,6 +190,10 @@ export function decide(policy: RoutePolicy | null, caller: Caller): Decision {
 			status: 403,
 			error: "Collector routes require a registered connector",
 		};
+	if (policy === "login")
+		return caller.kind === "person"
+			? "allow"
+			: { status: 403, error: "Sign in as a person to connect a connector" };
 	if (policy === "admin")
 		return caller.admin
 			? "allow"

@@ -103,6 +103,8 @@ export const projectSchema = z.object({
 	lastScannedAt: instant.nullable(),
 	scanState: z.enum(["never", "complete", "partial", "failed"]),
 	scanMessage: z.string().nullable(),
+	/** Principal whose connector refreshes this project; null until assigned. */
+	dataOwner: z.string().nullable().optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 

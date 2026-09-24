@@ -26,6 +26,12 @@ import {
 } from "./routes/collection.js";
 import { commandRoutes } from "./routes/commands.js";
 import {
+	connectorLoginRoute,
+	connectorMeRoute,
+	connectorRoutes,
+	projectDataOwnerRoute,
+} from "./routes/connectors.js";
+import {
 	developersArchiveRoute,
 	developersCreateRoute,
 	developersListRoute,
@@ -104,6 +110,10 @@ app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
 app.route("/api/admin", adminRoutes);
+app.get("/api/auth/cli", connectorLoginRoute);
+app.get("/api/connector/v1/me", connectorMeRoute);
+app.route("/api/connectors", connectorRoutes);
+app.put("/api/projects/:id/data-owner", projectDataOwnerRoute);
 app.route("/api/query/v1", queryRoutes);
 app.route("/api/pr-collections", prCollectionRoutes);
 app.route("/api/ai", aiRoutes);

@@ -42,6 +42,12 @@ export async function pipelineAuth(c: Context<AppEnv>, next: Next) {
 		return next();
 	}
 
+	// Connector requests carry an sfc_ token that resolvePrincipal verifies;
+	// the pipeline token is never valid on these routes.
+	if (!isPipelinePath(path) && isMachineEndpoint(host)) {
+		return next();
+	}
+
 	// Trusted loopback / *.dev.hexly.ai — skip token (§5.6)
 	if (hasLocalTrust(c)) {
 		return next();

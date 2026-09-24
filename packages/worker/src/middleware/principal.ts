@@ -1,6 +1,7 @@
 // Resolves the caller once per request. Route policy (route-policy.ts) and
 // handlers read the result instead of inspecting hosts or headers themselves.
 
+import { isConnectorToken } from "@signoff/domain/connector";
 import {
 	emailPrincipal,
 	type Principal,
@@ -10,6 +11,7 @@ import {
 	type TenantSummary,
 } from "@signoff/domain/principal";
 import type { Context, Next } from "hono";
+import { findConnector } from "../connectors/store.js";
 import type { AppEnv } from "../types.js";
 import { hasLocalTrust, isMachineEndpoint } from "./entry-control.js";
 
@@ -22,6 +24,7 @@ export type Caller =
 			tenants: TenantSummary[];
 			tenantId: string | null;
 	  }
+	| { kind: "connector"; connectorId: string; owner: Principal }
 	| { kind: "machine" }
 	| { kind: "anonymous" };
 
@@ -65,7 +68,25 @@ export async function resolvePrincipal(c: Context<AppEnv>, next: Next) {
 		return next();
 	}
 	if (isMachineEndpoint(c.req.header("host") ?? "")) {
-		c.set("caller", { kind: "machine" });
+		// Connector and pipeline credentials are disjoint: an sfc_ token is
+		// never accepted by pipelineAuth, and a pipeline token never matches here.
+		const bearer = /^Bearer (\S+)$/.exec(
+			c.req.header("authorization") ?? "",
+		)?.[1];
+		const connector =
+			bearer && isConnectorToken(bearer)
+				? await findConnector(c.env.DB, bearer, Math.floor(Date.now() / 1000))
+				: null;
+		c.set(
+			"caller",
+			connector
+				? {
+						kind: "connector",
+						connectorId: connector.id,
+						owner: connector.owner as Principal,
+					}
+				: { kind: "machine" },
+		);
 		return next();
 	}
 	if (c.get("accessAuthenticated") !== true) {

@@ -106,12 +106,15 @@ export async function collectorScheduleRoute(c: Context<AppEnv>) {
 	if (!input.success) return c.json({ error: "Invalid schedule request" }, 400);
 	const timestamp = Math.floor(Date.now() / 1000);
 	await pruneCollectionHistory(c.env.DB, timestamp);
+	const caller = c.get("caller");
+	const owner = caller?.kind === "connector" ? caller.owner : undefined;
 	await (input.data.kind === "list" || input.data.lane === "discover"
 		? scheduleDiscovery
 		: scheduleObservations)(
 		c.env.DB,
 		timestamp,
-		c.env.SIGNOFF_DEMO_MODE === "1" ? undefined : "cli",
+		c.env.SIGNOFF_DEMO_MODE === "1" && !owner ? undefined : "cli",
+		owner,
 	);
 	const result = await queues(c);
 	return c.json(

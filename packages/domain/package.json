@@ -19,7 +19,8 @@
 		"./ai-readiness": "./src/ai-readiness.ts",
 		"./network": "./src/network.ts",
 		"./avatars": "./src/avatars.ts",
-		"./principal": "./src/principal.ts"
+		"./principal": "./src/principal.ts",
+		"./connector": "./src/connector.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",

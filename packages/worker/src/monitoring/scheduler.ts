@@ -47,6 +47,7 @@ export async function scheduleDiscovery(
 	db: D1Database,
 	timestamp: number,
 	source?: DataSource,
+	owner?: string,
 ) {
 	const settings = await db
 		.prepare(
@@ -56,9 +57,9 @@ export async function scheduleDiscovery(
 	if (!settings?.cooldown_seconds) return;
 	const projects = await db
 		.prepare(
-			"SELECT * FROM projects WHERE provider='ado' AND enabled=1 AND (? IS NULL OR source=?)",
+			"SELECT * FROM projects WHERE provider='ado' AND enabled=1 AND (? IS NULL OR source=?) AND (? IS NULL OR data_owner=?)",
 		)
-		.bind(source ?? null, source ?? null)
+		.bind(source ?? null, source ?? null, owner ?? null, owner ?? null)
 		.all<ProjectRow>();
 	for (const row of projects.results) {
 		const project = mapProject(row);
@@ -77,6 +78,7 @@ export async function scheduleObservations(
 	db: D1Database,
 	timestamp: number,
 	source?: DataSource,
+	owner?: string,
 ) {
 	await db.batch([
 		db
@@ -91,7 +93,7 @@ export async function scheduleObservations(
       json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,'Waiting to refresh watched PR'
       FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source
       JOIN collection_refresh settings ON settings.kind='details' AND settings.cooldown_seconds>0
-      WHERE o.active=1 AND (? IS NULL OR o.source=?)
+      WHERE o.active=1 AND (? IS NULL OR o.source=?) AND (? IS NULL OR p.data_owner=?)
       AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0
         AND (j.state IN (${ACTIVE_JOBS}) OR j.completed_at> ?-settings.cooldown_seconds))
       ORDER BY o.added_at,o.id`)
@@ -101,6 +103,8 @@ export async function scheduleObservations(
 				timestamp,
 				source ?? null,
 				source ?? null,
+				owner ?? null,
+				owner ?? null,
 				timestamp,
 			),
 	]);
@@ -114,20 +118,23 @@ export async function claimJob(
 		kind?: "list" | "details";
 		lane?: CollectionLane;
 		source?: DataSource;
+		/** Remote connector: claim only projects its owner refreshes. */
+		connector?: { id: string; owner: string };
 	} = {},
 ): Promise<CollectorClaim | null> {
 	const token = crypto.randomUUID();
 	const results = await db.batch([
 		db
 			.prepare(
-				"UPDATE collection_jobs SET state='queued',lease_token=NULL,lease_expires_at=NULL WHERE state='running' AND lease_expires_at<=?",
+				"UPDATE collection_jobs SET state='queued',lease_token=NULL,lease_expires_at=NULL,lease_connector_id=NULL WHERE state='running' AND lease_expires_at<=?",
 			)
 			.bind(timestamp),
 		db
 			.prepare(`UPDATE collection_jobs SET state='running',lease_token=?,lease_expires_at=?,started_at=COALESCE(started_at,?),updated_at=?,attempts=attempts+1,
-      completed_pulls=0,total_pulls=NULL,message='Starting collection',phase='starting' WHERE id=(
+      completed_pulls=0,total_pulls=NULL,message='Starting collection',phase='starting',lease_connector_id=? WHERE id=(
       SELECT j.id FROM collection_jobs j JOIN projects p ON p.id=j.project_id AND p.revision=j.revision AND p.source=j.source
       WHERE j.state IN ('queued','auth_required') AND j.not_before<=? AND j.kind<>'full'
+        AND (? IS NULL OR (p.data_owner=? AND EXISTS (SELECT 1 FROM tenant_members m WHERE m.tenant_id=p.tenant_id AND m.principal=p.data_owner)))
         AND (? IS NULL OR j.id=?) AND (? IS NULL OR j.kind=?) AND (? IS NULL OR j.source=?) AND j.summary_only=0 AND (? IS NULL OR (j.kind='list')=?)
         AND NOT EXISTS (SELECT 1 FROM collection_jobs previous JOIN collection_refresh settings ON settings.kind=j.kind
           WHERE previous.id<>j.id AND previous.project_id=j.project_id AND previous.revision=j.revision AND previous.kind=j.kind AND previous.summary_only=0
@@ -142,7 +149,10 @@ export async function claimJob(
 				timestamp + LEASE_SECONDS,
 				timestamp,
 				timestamp,
+				options.connector?.id ?? null,
 				timestamp,
+				options.connector?.owner ?? null,
+				options.connector?.owner ?? null,
 				options.jobId ?? null,
 				options.jobId ?? null,
 				options.kind ?? null,
