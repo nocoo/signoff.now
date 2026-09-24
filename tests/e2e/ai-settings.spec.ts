@@ -36,7 +36,9 @@ test("AI Settings persist masked credentials, replace and clear without classify
 	await page.reload();
 	await expect(page.getByText("Test failed", { exact: true })).toBeVisible();
 	const rules = page.getByLabel("General rules", { exact: true });
-	await expect(rules).toHaveValue(/Build failure means Attention/);
+	await expect(rules).toHaveValue(
+		/Build failure or unsatisfied Comment requirements/,
+	);
 	await rules.fill(
 		"Build failure means Attention. Do not decide rerun versus repair.",
 	);

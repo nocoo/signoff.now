@@ -17,7 +17,10 @@ import {
 	pullListSchema,
 	repoListSchema,
 } from "../../packages/domain/src/query";
-import { projectSchema } from "../../packages/domain/src/workbench";
+import {
+	DISCOVERY_HISTORY_DAYS,
+	projectSchema,
+} from "../../packages/domain/src/workbench";
 
 const base = process.env.SIGNOFF_E2E_API_BASE!;
 const marker = JSON.parse(
@@ -134,7 +137,7 @@ async function cli(...args: string[]) {
 		child.once("error", reject);
 		child.once("exit", resolve);
 	});
-	expect(code, stderr).toBe(0);
+	expect(code, `${stderr}\n${stdout}`).toBe(0);
 	return JSON.parse(stdout);
 }
 async function watchList() {
@@ -507,8 +510,14 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 			}),
 		}),
 	);
-	await page.clock.fastForward(16000);
-	await expect(page.getByText(/Temporary PR cache failure/)).toBeVisible();
+	// Advance past the 15 s poll; the fake timer may not be armed until the
+	// previous read settles, so keep advancing until the failure shows.
+	await expect(async () => {
+		await page.clock.fastForward(16000);
+		await expect(page.getByText(/Temporary PR cache failure/)).toBeVisible({
+			timeout: 1000,
+		});
+	}).toPass({ timeout: 20000 });
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(3);
 	await page.unroute("**/api/query/v1/prs?**");
 	await page.clock.fastForward(30000);
@@ -825,7 +834,10 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	);
 	await page.goto("/?watching=watching");
 	const pending = page.getByRole("region", { name: "Pending watches" });
-	await expect(pending.getByText(/Pending watches unavailable/)).toBeVisible();
+	// The first failed read backs off before the retry that renders the error.
+	await expect(pending.getByText(/Pending watches unavailable/)).toBeVisible({
+		timeout: 20000,
+	});
 	await page.unroute("**/api/query/v1/observations?**");
 	await pending.getByRole("button", { name: "Retry pending watches" }).click();
 	await expect(pending.getByRole("link")).toHaveCount(20);
@@ -905,7 +917,9 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await discoverSample.click();
 	await expect(page.getByText(/Queued discovery for 1 project/)).toBeVisible();
 	const providerBeforeSample = providerRequests;
-	expect((await execute()).state).toBe("complete");
+	// Catalogue discovery fans out one child task per sample repository.
+	for (let run = await execute(); run.processed; run = await execute())
+		expect(run.state).toBe("complete");
 	expect(providerRequests).toBe(providerBeforeSample);
 	expect(
 		pullListSchema.parse(
@@ -1123,18 +1137,28 @@ test("repository IDs remain scoped across cold discovery, mixed watch batches, C
 			};
 		},
 	};
+	// Project discovery queues one task per repository plus a catalogue task
+	// that fans out children; run the receipt and everything it queued.
 	const executeDiscovery = async (receipt: unknown) => {
-		const { jobs } = commandReceiptSchema.parse(receipt);
-		expect(
-			(
-				await runCollectionOnce({
-					api,
-					makeAdo: () => provider,
-					log: silent,
-					jobId: jobs[0]!.id,
-				})
-			).state,
-		).toBe("complete");
+		commandReceiptSchema.parse(receipt);
+		let ran = 0;
+		for (
+			let run = await runCollectionOnce({
+				api,
+				makeAdo: () => provider,
+				log: silent,
+			});
+			run.processed;
+			run = await runCollectionOnce({
+				api,
+				makeAdo: () => provider,
+				log: silent,
+			})
+		) {
+			expect(run.state).toBe("complete");
+			ran++;
+		}
+		expect(ran).toBeGreaterThan(0);
 	};
 	await cli("repo", "add", repositoryUrl);
 	await page.goto(
@@ -1344,9 +1368,25 @@ test("discovery refreshes full history, retries partial pages and respects manua
 			};
 		},
 	};
-	const discover = async () => {
+	// Discovery always bounds history to the 90-day contribution window.
+	const withinHistoryWindow = (request: URL) => {
+		const min = request.searchParams.get("searchCriteria.minTime");
+		return (
+			min !== null &&
+			Date.parse(min) >= (now - DISCOVERY_HISTORY_DAYS * 86400 - 60) * 1000
+		);
+	};
+	// Smart discovery stops at the published cursor; deep discovery rereads
+	// the whole window, which is what retrying a missing page requires.
+	const discover = async (depth: "smart" | "deep" = "smart") => {
 		const receipt = commandReceiptSchema.parse(
-			await cli("discover", "--repo", url),
+			depth === "smart"
+				? await cli("discover", "--repo", url)
+				: await (
+						await page.request.post(`${base}/api/commands/v1/discover`, {
+							data: { repositoryUrl: url, depth },
+						})
+					).json(),
 		);
 		calls = [];
 		return runCollectionOnce({
@@ -1376,33 +1416,28 @@ test("discovery refreshes full history, retries partial pages and respects manua
 	await cli("repo", "add", url);
 	expect((await discover()).state).toBe("complete");
 	expect(calls).toHaveLength(3);
-	expect(
-		calls.every(
-			(request) => !request.searchParams.has("searchCriteria.minTime"),
-		),
-	).toBe(true);
+	expect(calls.every(withinHistoryWindow)).toBe(true);
 	expect((await list()).data).toHaveLength(250);
 	total = 380;
-	failSecondPage = true;
-	expect((await discover()).state).toBe("failed");
-	expect(calls).toHaveLength(2);
-	expect((await list()).data).toHaveLength(250);
-	expect(calls[0]!.searchParams.get("searchCriteria.minTime")).toBeNull();
-	failSecondPage = false;
 	expect((await discover()).state).toBe("complete");
+	expect(calls).toHaveLength(1);
+	expect((await list()).data).toHaveLength(350);
+	failSecondPage = true;
+	expect((await discover("deep")).state).toBe("failed");
+	expect(calls).toHaveLength(2);
+	expect((await list()).data).toHaveLength(350);
+	expect(withinHistoryWindow(calls[0]!)).toBe(true);
+	failSecondPage = false;
+	expect((await discover("deep")).state).toBe("complete");
 	expect(calls).toHaveLength(4);
 	const after = await list();
 	expect(after.data).toHaveLength(380);
 	expect(new Set(after.data.map((pull) => pull.id)).size).toBe(380);
 	expect(after.data.find((pull) => pull.number === 379)?.state).toBe("draft");
 	mergedFirst = true;
-	expect((await discover()).state).toBe("complete");
+	expect((await discover("deep")).state).toBe("complete");
 	expect(calls).toHaveLength(4);
-	expect(
-		calls.every(
-			(request) => !request.searchParams.has("searchCriteria.minTime"),
-		),
-	).toBe(true);
+	expect(calls.every(withinHistoryWindow)).toBe(true);
 	expect((await list()).data.find((pull) => pull.number === 1)?.state).toBe(
 		"merged",
 	);

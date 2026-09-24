@@ -231,7 +231,8 @@ try {
 		throw new Error(
 			`Disposable Worker failed to start: ${await readFile(workerLog, "utf8")}`,
 		);
-	await command(["x", "playwright", "test"], root, {
+	// Extra arguments select specs or tests, e.g. `bun run test:e2e -- -g watch`.
+	await command(["x", "playwright", "test", ...process.argv.slice(2)], root, {
 		SIGNOFF_E2E_API_BASE: base,
 		SIGNOFF_E2E_MARKER: marker,
 		SIGNOFF_E2E_RUN_ID: runId,
