@@ -24,6 +24,20 @@ CREATE TABLE tenant_members (
 );
 CREATE INDEX tenant_members_principal ON tenant_members (principal, tenant_id);
 
--- Every existing project stays in the default tenant.
-ALTER TABLE projects ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default' REFERENCES tenants(id);
+-- Every existing project stays in the default tenant. SQLite cannot add a
+-- REFERENCES column with a non-NULL default while foreign keys are enforced,
+-- so triggers keep project tenants valid and prevent deleting a used tenant.
+ALTER TABLE projects ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default';
 CREATE INDEX projects_tenant ON projects (tenant_id, source);
+CREATE TRIGGER project_tenant_insert BEFORE INSERT ON projects
+WHEN NOT EXISTS (SELECT 1 FROM tenants WHERE id = NEW.tenant_id) BEGIN
+  SELECT RAISE(ABORT, 'Project tenant does not exist');
+END;
+CREATE TRIGGER project_tenant_update BEFORE UPDATE OF tenant_id ON projects
+WHEN NOT EXISTS (SELECT 1 FROM tenants WHERE id = NEW.tenant_id) BEGIN
+  SELECT RAISE(ABORT, 'Project tenant does not exist');
+END;
+CREATE TRIGGER tenant_in_use BEFORE DELETE ON tenants
+WHEN EXISTS (SELECT 1 FROM projects WHERE tenant_id = OLD.id) BEGIN
+  SELECT RAISE(ABORT, 'Tenant still has projects');
+END;

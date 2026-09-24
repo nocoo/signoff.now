@@ -93,6 +93,39 @@ describe("D1 migrations", () => {
 		expect(JSON.parse(version?.value ?? "0")).toBe(1);
 	});
 
+	test("projects start in the default tenant and cannot reference a missing one", () => {
+		const db = openMemoryDb();
+		applyMigrations(db, migrationsDir);
+		db.query(
+			`INSERT INTO projects (id, provider, name, organization, project_key, owner, source, created_at, updated_at)
+			VALUES ('p1', 'ado', 'Web', 'org', 'Web', 'Maya', 'cli', 1, 1)`,
+		).run();
+		expect(
+			db.query("SELECT tenant_id FROM projects WHERE id = 'p1'").get(),
+		).toEqual({ tenant_id: "default" });
+		expect(() =>
+			db
+				.query("UPDATE projects SET tenant_id = 'missing' WHERE id = 'p1'")
+				.run(),
+		).toThrow("Project tenant does not exist");
+		expect(() =>
+			db
+				.query(
+					`INSERT INTO projects (id, provider, name, organization, project_key, owner, source, created_at, updated_at, tenant_id)
+				VALUES ('p2', 'ado', 'Api', 'org', 'Api', 'Maya', 'cli', 1, 1, 'missing')`,
+				)
+				.run(),
+		).toThrow("Project tenant does not exist");
+		expect(() =>
+			db.query("DELETE FROM tenants WHERE id = 'default'").run(),
+		).toThrow("Tenant still has projects");
+		db.query("DELETE FROM projects").run();
+		db.query("DELETE FROM tenants WHERE id = 'default'").run();
+		expect(db.query("SELECT COUNT(*) AS n FROM tenants").get()).toEqual({
+			n: 0,
+		});
+	});
+
 	test("rejects invalid JSON in settings.value", () => {
 		const db = openMemoryDb();
 		applyMigrations(db, migrationsDir);
