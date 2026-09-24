@@ -423,6 +423,26 @@ describe("connector management", () => {
 		);
 		expect(listed.connectors).toHaveLength(1);
 		expect(listed.ownedProjects).toEqual([]);
+		sqlite.raw
+			.query(
+				"INSERT INTO collector_heartbeat(id,last_seen_at,state,message) VALUES(1,unixepoch(),'ready','Watching')",
+			)
+			.run();
+		const withLocal = connectorListSchema.parse(
+			await (await local("/api/connectors")).json(),
+		);
+		expect(withLocal.connectors[0]).toMatchObject({
+			id: "local",
+			name: "This machine",
+			local: true,
+			online: true,
+			state: "ready",
+			message: "Watching",
+		});
+		const remote = connectorListSchema.parse(
+			await (await browser("/api/connectors", "root@x.io")).json(),
+		);
+		expect(remote.connectors.some((c) => c.local)).toBe(false);
 		expect(
 			(
 				await local(

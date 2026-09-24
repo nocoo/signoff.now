@@ -29,6 +29,9 @@ it("walks the guide from install to a running connector", () => {
 		"install",
 	);
 	expect(guideProgress([connector()], 0).current).toBe("owner");
+	expect(
+		guideProgress([connector({ local: true, online: true })], 0).current,
+	).toBe("install");
 	expect(guideProgress([connector()], 1).current).toBe("az");
 	const signedIn = connector({
 		capabilities: { az: { installed: true, loggedIn: true } },

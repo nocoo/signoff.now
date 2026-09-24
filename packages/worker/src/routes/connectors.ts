@@ -1,4 +1,6 @@
 import {
+	CONNECTOR_ONLINE_SECONDS,
+	type Connector,
 	type ConnectorList,
 	type ConnectorMe,
 	connectorLoginSchema,
@@ -27,6 +29,31 @@ function person(c: Context<AppEnv>): Person {
 }
 
 type OwnedRow = { id: string; name: string; organization: string };
+type HeartbeatRow = {
+	last_seen_at: number;
+	state: "ready" | "auth_required" | "error";
+	message: string;
+};
+
+/** The loopback daemon reports through collector_heartbeat, not a token. */
+function localCollector(row: HeartbeatRow, timestamp: number): Connector {
+	return {
+		id: "local",
+		owner: "local",
+		name: "This machine",
+		platform: "",
+		version: "",
+		createdAt: row.last_seen_at,
+		expiresAt: 0,
+		lastSeenAt: row.last_seen_at,
+		state: row.state,
+		message: row.message,
+		capabilities: {},
+		online: timestamp - row.last_seen_at <= CONNECTOR_ONLINE_SECONDS,
+		revoked: false,
+		local: true,
+	};
+}
 function ownedProjects(
 	db: D1Database,
 	owner: string,
@@ -119,10 +146,18 @@ connectorRoutes.get("/", async (c) => {
 			? ownedProjects(c.env.DB, self.principal, self.tenantId)
 			: c.env.DB.prepare("SELECT id,name,organization FROM projects WHERE 0"),
 	]);
+	const heartbeat = local
+		? await c.env.DB.prepare(
+				"SELECT last_seen_at,state,message FROM collector_heartbeat WHERE id=1",
+			).first<HeartbeatRow>()
+		: null;
 	const body: ConnectorList = {
-		connectors: ((rows?.results ?? []) as ConnectorRow[]).map((row) =>
-			mapConnector(row, timestamp),
-		),
+		connectors: [
+			...(heartbeat ? [localCollector(heartbeat, timestamp)] : []),
+			...((rows?.results ?? []) as ConnectorRow[]).map((row) =>
+				mapConnector(row, timestamp),
+			),
+		],
 		ownedProjects: (projects?.results ?? []) as OwnedRow[],
 	};
 	return c.json(body);

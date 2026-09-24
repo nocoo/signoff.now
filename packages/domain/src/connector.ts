@@ -66,6 +66,8 @@ export const connectorSchema = z.object({
 	capabilities: connectorCapabilitiesSchema,
 	online: z.boolean(),
 	revoked: z.boolean(),
+	/** The trusted loopback collector; it has no token and cannot be revoked. */
+	local: z.boolean().optional(),
 });
 export type Connector = z.infer<typeof connectorSchema>;
 

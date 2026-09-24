@@ -90,6 +90,7 @@ function ConnectorRow({
 			<div className="min-w-0 flex-1">
 				<p className="flex flex-wrap items-center gap-2 text-sm font-medium">
 					{connector.name}
+					{connector.local ? <Badge variant="secondary">Local</Badge> : null}
 					{connector.revoked ? (
 						<Badge variant="secondary">Revoked</Badge>
 					) : connector.online ? (
@@ -116,7 +117,7 @@ function ConnectorRow({
 						connector.lastSeenAt
 							? `seen ${relativeAge(connector.lastSeenAt, now)}`
 							: "never seen",
-						connector.owner,
+						connector.local ? "loopback Worker" : connector.owner,
 					]
 						.filter(Boolean)
 						.join(" · ")}
@@ -127,7 +128,7 @@ function ConnectorRow({
 					</p>
 				) : null}
 			</div>
-			{!connector.revoked ? (
+			{!connector.revoked && !connector.local ? (
 				<Button
 					variant="ghost"
 					size="sm"

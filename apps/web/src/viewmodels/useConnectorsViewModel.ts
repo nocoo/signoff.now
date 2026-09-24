@@ -14,7 +14,8 @@ export function guideProgress(
 	connectors: Connector[],
 	ownedProjects: number,
 ): { done: Record<GuideStep, boolean>; current: GuideStep | null } {
-	const active = connectors.filter((c) => !c.revoked);
+	// The loopback collector needs no sign-in, so it does not advance the guide.
+	const active = connectors.filter((c) => !c.revoked && !c.local);
 	const online = active.find((c) => c.online);
 	const az = active.some((c) => c.capabilities.az?.loggedIn);
 	const done: Record<GuideStep, boolean> = {
