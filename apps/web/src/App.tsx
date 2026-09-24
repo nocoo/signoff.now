@@ -12,6 +12,7 @@ import { SessionProvider } from "@/viewmodels/SessionProvider";
 import { WorkbenchProvider } from "@/viewmodels/WorkbenchProvider";
 import { AdminPage } from "@/views/admin/AdminPage";
 import { CollectionsPage } from "@/views/collections/CollectionsPage";
+import { ConnectorsPage } from "@/views/connectors/ConnectorsPage";
 import {
 	DirectoryTagsPage,
 	DirectoryTeamsPage,
@@ -92,6 +93,7 @@ export default function App() {
 									<Route path="/insights" element={<InsightsPage />} />
 									<Route path="/settings" element={<SettingsPage />} />
 									<Route path="/admin" element={<AdminPage />} />
+									<Route path="/connectors" element={<ConnectorsPage />} />
 									<Route path="/ai-settings" element={<AiSettingsPage />} />
 									<Route
 										path="/policy-instructions/*"

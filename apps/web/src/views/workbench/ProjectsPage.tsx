@@ -35,12 +35,21 @@ import { EntityAvatar } from "@/components/EntityAvatar";
 import { heatmapColor } from "@/lib/palette";
 import { relativeTime } from "@/models/workbench";
 import { machineHref } from "@/models/workspaceLocation";
+import { useSession } from "@/viewmodels/SessionProvider";
+import { useDataOwnerViewModel } from "@/viewmodels/useDataOwnerViewModel";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
+import { DataOwnerField } from "./DataOwnerField";
 import { ProjectDialog } from "./ProjectDialog";
 import { WorkbenchFeedback } from "./WorkbenchControls";
 
 export function ProjectsPage() {
 	const vm = useWorkbench();
+	const { state: sessionState } = useSession();
+	const admin = sessionState.status === "ready" && sessionState.session.admin;
+	const owners = useDataOwnerViewModel(
+		admin && vm.filter.source === "cli",
+		vm.reload,
+	);
 	const [editing, setEditing] = useState<Project | null | undefined>();
 	const [removing, setRemoving] = useState<Project | null>(null);
 	const opener = useRef<HTMLElement | null>(null);
@@ -74,6 +83,9 @@ export function ProjectsPage() {
 					</>
 				}
 			/>
+			{owners.error ? (
+				<AlertBanner variant="error">{owners.error}</AlertBanner>
+			) : null}
 			<WorkbenchFeedback vm={vm} />
 			{vm.loading ? (
 				<LayerCard>
@@ -304,6 +316,11 @@ export function ProjectsPage() {
 											{total} PRs · {metrics.merged} merged
 										</span>
 									</div>
+									<DataOwnerField
+										project={project}
+										admin={admin}
+										owners={owners}
+									/>
 								</LayerCard.Body>
 								<ProjectScanStatus project={project} job={job} />
 								<LayerCard.Footer className="flex-wrap justify-between gap-2">
