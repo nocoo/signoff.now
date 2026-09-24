@@ -87,7 +87,15 @@ async function sampleTask(
 		const cached = (await api.load()).pullRequests.filter(
 			(p) => p.projectId === claim.project.id,
 		);
-		pulls = cached.length ? cached : makeDemoPulls(claim.project, timestamp);
+		// Per-repository child tasks can run after a sibling published, so fill
+		// repositories that are not cached yet from the generated sample.
+		const cachedRepositories = new Set(cached.map((p) => p.repository.id));
+		pulls = [
+			...cached,
+			...makeDemoPulls(claim.project, timestamp).filter(
+				(p) => !cachedRepositories.has(p.repository.id),
+			),
+		];
 		const repositoryIds = pulls.map((pull) => pull.repository.id);
 		pulls = pulls.filter(
 			(p) =>
@@ -106,6 +114,9 @@ async function sampleTask(
 		...new Map(pulls.map((p) => [p.repository.id, p.repository])).values(),
 	];
 	const planned = await api.repositories(claim, repos);
+	// Catalogue discovery only registers repositories; the Worker fans out one
+	// child discovery per repository, and those children publish the PRs.
+	if (claim.job.catalogueOnly) return api.complete(claim);
 	for (const repo of repos) {
 		if (
 			planned.some(

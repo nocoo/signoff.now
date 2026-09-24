@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
-import { demoWorkspace } from "@signoff/domain/demo";
+import { demoWorkspace, makeDemoPulls } from "@signoff/domain/demo";
 import { makeWatchRef } from "@signoff/domain/monitoring";
 import { type AdoAvatarClient, AdoError } from "../ado/client.ts";
 import type { CollectionClient } from "./client.ts";
@@ -817,6 +817,50 @@ describe("sample and daemon orchestration", () => {
 		};
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
 		expect(published).toBe("complete");
+	});
+	test("sample catalogue discovery registers repositories and leaves PRs to child tasks", async () => {
+		const deps = setup();
+		deps.api.claim = async () => ({
+			...claim,
+			project: { ...project, source: "demo" },
+			scope: [],
+			job: { ...claim.job, kind: "list", catalogueOnly: true },
+		});
+		const registered: string[] = [];
+		deps.api.repositories = async (_lease, repos) => {
+			registered.push(...repos.map((repo) => repo.id));
+			return [];
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect(registered).toContain(pull.repository.id);
+		expect(deps.events).not.toContain("upload");
+		expect(deps.events).not.toContain("publish");
+		expect(deps.events).toContain("complete");
+	});
+	test("sample repository discovery fills an uncached repository after a sibling published", async () => {
+		const deps = setup();
+		const sampleProject = { ...project, source: "demo" as const };
+		const generated = makeDemoPulls(sampleProject, time);
+		const [first, second] = [...new Set(generated.map((p) => p.repository.id))];
+		deps.api.claim = async () => ({
+			...claim,
+			project: sampleProject,
+			scope: [second!],
+			job: { ...claim.job, kind: "list" },
+		});
+		deps.api.load = async () => ({
+			...demo,
+			demoMode: true,
+			fetchedAt: time,
+			truncated: false,
+			pullRequests: generated.filter((p) => p.repository.id === first),
+		});
+		const uploaded: string[] = [];
+		deps.api.upload = async (_lease, pulls) => {
+			uploaded.push(...pulls.map((p) => p.repository.id));
+		};
+		expect((await runCollectionOnce(deps)).state).toBe("complete");
+		expect([...new Set(uploaded)]).toEqual([second!]);
 	});
 	test("sample discovery and refresh never initialize Azure", async () => {
 		for (const details of [false, true]) {
