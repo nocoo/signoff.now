@@ -27,7 +27,6 @@ export const NAV_GROUPS: NavGroupDef[] = [
 			{ href: "/collections", label: "Collections", icon: "Layers3" },
 			{ href: "/repos", label: "Repos", icon: "GitBranch" },
 			{ href: "/projects", label: "Projects", icon: "FolderGit2" },
-			{ href: "/connectors", label: "Connectors", icon: "PlugZap" },
 		],
 	},
 	{
@@ -47,6 +46,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	{
 		label: "System",
 		items: [
+			{ href: "/connectors", label: "Connectors", icon: "PlugZap" },
 			{
 				href: "/policy-instructions",
 				label: "Policy instructions",
