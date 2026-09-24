@@ -1,13 +1,20 @@
-/** Real process spawn — excluded from unit coverage. */
+/** Real process spawn — excluded from unit coverage. Runs under Bun and Node. */
+import { spawn } from "node:child_process";
 import type { ExecFn, ExecResult } from "./az.ts";
 
-export const defaultExec: ExecFn = async (cmd, args): Promise<ExecResult> => {
-	const proc = Bun.spawn([cmd, ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
+export const defaultExec: ExecFn = (cmd, args): Promise<ExecResult> =>
+	new Promise((resolve, reject) => {
+		const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk;
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk;
+		});
+		child.once("error", reject);
+		child.once("close", (exitCode) =>
+			resolve({ exitCode: exitCode ?? 1, stdout, stderr }),
+		);
 	});
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	return { exitCode, stdout, stderr };
-};

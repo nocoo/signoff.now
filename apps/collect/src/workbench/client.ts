@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	type AvatarTask,
 	avatarTaskSchema,
@@ -123,7 +124,7 @@ export function createCollectionClient(
 					![500, 502, 503, 504].includes(error.status)
 				)
 					throw error;
-				await Bun.sleep(250 * 2 ** attempt);
+				await delay(250 * 2 ** attempt);
 			}
 		}
 	};
