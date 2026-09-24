@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
 	fixturePull,
+	localSession,
 	queryFixture,
 } from "../../apps/web/src/test/monitoring-fixture";
 
@@ -10,8 +11,9 @@ test("a service outage shows one alert, preserves cached PRs and recovers on ret
 	const fixture = queryFixture();
 	let unavailable = false;
 	await page.route("**/api/**", async (route) => {
-		if (unavailable) return route.fulfill({ status: 502, body: "Bad Gateway" });
 		const path = new URL(route.request().url()).pathname;
+		if (path === "/api/me") return route.fulfill({ json: localSession });
+		if (unavailable) return route.fulfill({ status: 502, body: "Bad Gateway" });
 		const responses: Record<string, unknown> = {
 			"/api/query/v1/repos": fixture.catalog,
 			"/api/query/v1/prs": fixture.pulls,

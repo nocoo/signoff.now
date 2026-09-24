@@ -309,3 +309,16 @@ export function pendingInspection(observation = fixtureObservation()) {
 		},
 	});
 }
+
+/** Trusted local session: every workspace page and admin action is available. */
+export const localSession = {
+	authenticated: false,
+	local: true,
+	principal: null,
+	email: null,
+	name: null,
+	service: false,
+	admin: true,
+	tenants: [],
+	tenantId: null,
+};

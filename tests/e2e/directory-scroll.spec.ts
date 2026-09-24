@@ -1,5 +1,8 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { queryFixture } from "../../apps/web/src/test/monitoring-fixture";
+import {
+	localSession,
+	queryFixture,
+} from "../../apps/web/src/test/monitoring-fixture";
 import type { DirectoryData } from "../../packages/domain/src/insights";
 
 const entries = Array.from({ length: 40 }, (_, index) => ({
@@ -50,6 +53,7 @@ test.beforeEach(async ({ page }) => {
 	await page.route("**/api/**", (route) => {
 		const path = new URL(route.request().url()).pathname;
 		const responses: Record<string, unknown> = {
+			"/api/me": localSession,
 			"/api/directory": directory,
 			"/api/query/v1/repos": fixture.catalog,
 			"/api/query/v1/prs": fixture.pulls,
