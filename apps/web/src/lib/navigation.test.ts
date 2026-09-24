@@ -56,4 +56,8 @@ describe("navigation", () => {
 		const items = breadcrumbsFromPathname("/unknown-page");
 		expect(items).toEqual([{ label: "unknown-page" }]);
 	});
+
+	test("every sidebar group starts expanded", () => {
+		expect(NAV_GROUPS.every((group) => !("defaultOpen" in group))).toBe(true);
+	});
 });

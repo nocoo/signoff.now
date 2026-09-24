@@ -212,11 +212,7 @@ export function Sidebar({
 				<>
 					<SidebarNav className="pt-1">
 						{GROUPS.map((group) => (
-							<SidebarGroup
-								key={group.label}
-								label={group.label}
-								defaultOpen={group.defaultOpen}
-							>
+							<SidebarGroup key={group.label} label={group.label} defaultOpen>
 								{group.items.map((item) => {
 									const Icon = item.icon;
 									return (

@@ -16,13 +16,11 @@ export interface NavItemDef {
 export interface NavGroupDef {
 	label: string;
 	items: NavItemDef[];
-	defaultOpen?: boolean;
 }
 
 export const NAV_GROUPS: NavGroupDef[] = [
 	{
 		label: "Workspace",
-		defaultOpen: true,
 		items: [
 			{ href: "/sm", label: "State machines", icon: "Network" },
 			{ href: "/prs", label: "Pull requests", icon: "GitPullRequest" },
@@ -33,7 +31,6 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	},
 	{
 		label: "Directory",
-		defaultOpen: false,
 		items: [
 			{ href: "/developers", label: "Members", icon: "Users" },
 			{ href: "/teams", label: "Teams", icon: "UsersRound" },
@@ -42,14 +39,12 @@ export const NAV_GROUPS: NavGroupDef[] = [
 	},
 	{
 		label: "Insights",
-		defaultOpen: false,
 		items: [
 			{ href: "/insights", label: "Contributions", icon: "LayoutDashboard" },
 		],
 	},
 	{
 		label: "System",
-		defaultOpen: true,
 		items: [
 			{
 				href: "/policy-instructions",
