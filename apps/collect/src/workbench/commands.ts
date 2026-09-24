@@ -19,7 +19,9 @@ import {
 import { projectSchema } from "@signoff/domain/workbench";
 import { type Command, CommanderError, Option } from "commander";
 import { z } from "zod";
+import { version } from "../../../../package.json";
 import { isPipelineClientError } from "../pipeline/client";
+import { registerConnectorCommands } from "./connector-commands";
 import { measuredAdoFetch } from "./network";
 import { parsePrArgument, queryRequest, readAllPages } from "./query-client";
 
@@ -496,13 +498,49 @@ export function registerWorkbenchCommands(program: Command) {
 		process.once("SIGINT", shutdown);
 		process.once("SIGTERM", shutdown);
 		let ado: ReturnType<typeof createAdoClient> | undefined;
-		const api = createCollectionClient({
-			apiBase: options(command).apiBase ?? process.env.SIGNOFF_QUERY_API_BASE,
-		});
+		const { connectorStore } = await import("./connector-config");
+		const { detectCapabilities } = await import("./capabilities");
+		const local =
+			command.opts().local === true ||
+			Boolean(options(command).apiBase ?? process.env.SIGNOFF_QUERY_API_BASE);
+		const connector = local ? null : connectorStore().read();
 		const log = createRuntimeLogger();
+		if (connector && connector.expiresAt <= Math.floor(Date.now() / 1000))
+			throw new CommanderError(
+				1,
+				"signoff.connector",
+				"Connector sign-in expired. Run: signoff connector login",
+			);
+		if (connector)
+			log.info(
+				`Connector ${connector.connectorId.slice(0, 8)} → ${connector.apiOrigin} as ${connector.owner}`,
+			);
+		const api = createCollectionClient(
+			connector
+				? { connector }
+				: {
+						apiBase:
+							options(command).apiBase ?? process.env.SIGNOFF_QUERY_API_BASE,
+					},
+		);
+		let capabilities:
+			| { at: number; value: Awaited<ReturnType<typeof detectCapabilities>> }
+			| undefined;
 		try {
 			await watchCollections({
 				api,
+				...(connector
+					? {
+							describe: async () => {
+								if (!capabilities || Date.now() - capabilities.at > 300_000)
+									capabilities = {
+										at: Date.now(),
+										value: await detectCapabilities(defaultExec),
+									};
+								return { capabilities: capabilities.value, version };
+							},
+						}
+					: {}),
 				makeAdo: () =>
 					(ado ??= createAdoClient({
 						exec: defaultExec,
@@ -521,7 +559,12 @@ export function registerWorkbenchCommands(program: Command) {
 		.description(
 			"Run saved discovery tasks and refresh only the shared watch list",
 		)
+		.option(
+			"--local",
+			"Use the loopback Worker even when a connector is signed in",
+		)
 		.action(async (_opts, command) => daemon(command));
+	registerConnectorCommands(program, print);
 	const legacy = program
 		.command("workbench")
 		.description("Compatibility aliases for the watch-list architecture");

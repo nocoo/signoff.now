@@ -48,6 +48,7 @@ export async function pipelineRequest(
 		fetchImpl: FetchLike;
 		timeoutMs: number;
 		redirect?: "error" | "follow" | "manual";
+		headers?: Record<string, string>;
 	},
 	method: string,
 	path: string,
@@ -55,6 +56,7 @@ export async function pipelineRequest(
 ): Promise<unknown> {
 	const headers: Record<string, string> = {
 		accept: "application/json",
+		...opts.headers,
 	};
 	if (opts.writeToken) {
 		headers.authorization = `Bearer ${opts.writeToken}`;

@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { adoPullId, type CollectorClaim } from "@signoff/domain/collection";
+import type { ConnectorCapabilities } from "@signoff/domain/connector";
 import { advanceDemoPull, makeDemoPulls } from "@signoff/domain/demo";
 import { matchesRepositoryReference } from "@signoff/domain/monitoring";
 import type { CollectionLane, PullRequest } from "@signoff/domain/workbench";
@@ -428,11 +429,23 @@ export async function watchCollections(
 	opts: RunOptions & {
 		makeAdo: () => AdoAvatarClient;
 		sleep?: (ms: number) => Promise<unknown>;
+		/** Remote connectors report local tooling with each heartbeat. */
+		describe?: () => Promise<{
+			capabilities: ConnectorCapabilities;
+			version: string;
+		}>;
 	},
 ): Promise<void> {
+	const describe = opts.describe;
 	const api = {
 		...opts.api,
-		heartbeat: withCooldown(opts.api.heartbeat, 15_000),
+		heartbeat: withCooldown(
+			async (
+				state: Parameters<CollectionClient["heartbeat"]>[0],
+				message?: string,
+			) => opts.api.heartbeat(state, message, describe ? await describe() : {}),
+			15_000,
+		),
 	};
 	const schedule = {
 		checks: withCooldown(() => api.schedule("details", "checks"), 15_000),

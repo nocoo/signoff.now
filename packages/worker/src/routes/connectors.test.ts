@@ -293,6 +293,30 @@ describe("owner routing and leases", () => {
 	});
 });
 
+test("connectors refresh avatars only for their owner's organizations", async () => {
+	seedProject(sqlite, { id: "mine", organization: "org-a", repositories: [] });
+	for (const org of ["org-a", "org-b"])
+		sqlite.raw
+			.query(
+				"INSERT INTO avatar_cache(source,url,organization,due_at) VALUES('cli',?,?,0)",
+			)
+			.run(
+				`https://dev.azure.com/${org}/_api/_common/identityImage?id=u1`,
+				org,
+			);
+	const maya = await login("maya@x.io");
+	expect(
+		await (
+			await machine("/api/collector/avatars/claim", maya.token, {})
+		).json(),
+	).toEqual([]);
+	await assignOwner("mine", "email:maya@x.io");
+	const tasks = (await (
+		await machine("/api/collector/avatars/claim", maya.token, {})
+	).json()) as { organization: string }[];
+	expect(tasks.map((t) => t.organization)).toEqual(["org-a"]);
+});
+
 describe("connector management", () => {
 	test("owners list and revoke their own connectors; revocation frees leases", async () => {
 		const project = seedProject(sqlite, { repositories: ["web-app"] });

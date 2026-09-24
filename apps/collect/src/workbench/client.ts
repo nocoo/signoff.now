@@ -8,6 +8,7 @@ import {
 	type CollectorClaim,
 	collectorClaimSchema,
 } from "@signoff/domain/collection";
+import type { ConnectorCapabilities } from "@signoff/domain/connector";
 import type { NetworkEvent } from "@signoff/domain/network";
 import {
 	type CollectionLane,
@@ -28,6 +29,8 @@ import {
 	isPipelineClientError,
 	pipelineRequest,
 } from "../pipeline/client.ts";
+import { connectorHeaders } from "./connector.ts";
+import type { ConnectorConfig } from "./connector-config.ts";
 
 export function collectionApiBase(value = "http://127.0.0.1:37042"): string {
 	const url = new URL(value);
@@ -72,14 +75,27 @@ export function collectionChunks(pulls: PullRequest[]): PullRequest[][] {
 
 type Lease = Pick<CollectorClaim, "leaseToken"> & { job: { id: string } };
 
+/**
+ * Local collectors write the loopback Worker. A signed-in connector writes the
+ * deployed machine host with its own token; the pipeline token is never used.
+ */
 export function createCollectionClient(
-	opts: { apiBase?: string; fetchImpl?: FetchLike } = {},
+	opts: {
+		apiBase?: string;
+		fetchImpl?: FetchLike;
+		connector?: Pick<ConnectorConfig, "apiOrigin" | "token">;
+	} = {},
 ) {
 	const config = {
-		apiBase: collectionApiBase(opts.apiBase),
+		apiBase: opts.connector
+			? new URL(opts.connector.apiOrigin).origin
+			: collectionApiBase(opts.apiBase),
 		fetchImpl: opts.fetchImpl ?? globalThis.fetch.bind(globalThis),
 		timeoutMs: 30_000,
 		redirect: "error" as const,
+		...(opts.connector
+			? { headers: connectorHeaders(opts.connector.token) }
+			: {}),
 	};
 	const request = async (
 		method: string,
@@ -158,8 +174,17 @@ export function createCollectionClient(
 					{ revision: project.revision },
 				),
 			),
-		heartbeat: (state: CollectorStatus["state"], message = "") =>
-			request("POST", "/api/collector/heartbeat", { state, message }, true),
+		heartbeat: (
+			state: CollectorStatus["state"],
+			message = "",
+			extra: { capabilities?: ConnectorCapabilities; version?: string } = {},
+		) =>
+			request(
+				"POST",
+				"/api/collector/heartbeat",
+				{ state, message, ...extra },
+				true,
+			),
 		schedule: async (kind: RefreshQueueKind, lane?: CollectionLane) =>
 			refreshQueueSchema.parse(
 				await request("POST", "/api/collector/schedule", {

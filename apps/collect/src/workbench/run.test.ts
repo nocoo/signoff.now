@@ -915,6 +915,33 @@ describe("sample and daemon orchestration", () => {
 		expect(deps.events).toContain("heartbeat");
 		expect(deps.events).not.toContain("provider");
 	});
+	test("remote connectors send local tooling with heartbeats", async () => {
+		const deps = setup();
+		const controller = new AbortController();
+		deps.api.claim = async () => null;
+		const beats: unknown[] = [];
+		deps.api.heartbeat = async (state, message, extra) => {
+			beats.push({ state, message, extra });
+			return null;
+		};
+		const capabilities = {
+			az: { installed: true, loggedIn: false },
+			gh: { installed: false, loggedIn: false },
+		};
+		await watchCollections({
+			...deps,
+			signal: controller.signal,
+			describe: async () => ({ capabilities, version: "0.4.0" }),
+			sleep: async () => {
+				controller.abort();
+			},
+		});
+		expect(beats[0]).toEqual({
+			state: "ready",
+			message: "Watching the shared PR list",
+			extra: { capabilities, version: "0.4.0" },
+		});
+	});
 	test("two claimed projects progress independently and shut down after in-flight work", async () => {
 		const deps = setup();
 		const controller = new AbortController();

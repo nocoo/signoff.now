@@ -39,16 +39,20 @@ avatarRoutes.get("/", async (c) => {
 	return c.body(new Uint8Array(cached.body));
 });
 
+/** A remote connector refreshes avatars only for its owner's organizations. */
 export async function claimAvatars(
 	db: D1Database,
 	now: number,
+	owner?: string,
 ): Promise<AvatarTask[]> {
 	const candidates = (
 		await db
 			.prepare(
-				"SELECT source,url,organization FROM avatar_cache WHERE source='cli' AND due_at<=? AND (lease_expires_at IS NULL OR lease_expires_at<=?) ORDER BY due_at,url LIMIT 4",
+				`SELECT source,url,organization FROM avatar_cache WHERE source='cli' AND due_at<=? AND (lease_expires_at IS NULL OR lease_expires_at<=?)
+         AND (? IS NULL OR lower(organization) IN (SELECT lower(organization) FROM projects WHERE data_owner=? AND source='cli'))
+         ORDER BY due_at,url LIMIT 4`,
 			)
-			.bind(now, now)
+			.bind(now, now, owner ?? null, owner ?? null)
 			.all<{ source: "cli"; url: string; organization: string }>()
 	).results;
 	const tasks: AvatarTask[] = [];
@@ -79,9 +83,16 @@ collectorAvatarRoutes.use("*", async (c, next) => {
 	c.header("Cache-Control", "no-store");
 	return next();
 });
-collectorAvatarRoutes.post("/claim", async (c) =>
-	c.json(await claimAvatars(c.env.DB, Math.floor(Date.now() / 1000))),
-);
+collectorAvatarRoutes.post("/claim", async (c) => {
+	const caller = c.get("caller");
+	return c.json(
+		await claimAvatars(
+			c.env.DB,
+			Math.floor(Date.now() / 1000),
+			caller?.kind === "connector" ? caller.owner : undefined,
+		),
+	);
+});
 const publishSchema = avatarTaskSchema.extend({
 	contentType: avatarContentTypeSchema,
 	base64: z
