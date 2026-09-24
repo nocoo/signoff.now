@@ -24,6 +24,12 @@ const POLICIES: Record<string, RoutePolicy> = {
 	"GET /api/live": "public",
 	"GET /api/me": "public",
 
+	"GET /api/admin/directory": "admin",
+	"POST /api/admin/tenants/:id/members": "admin",
+	"DELETE /api/admin/tenants/:id/members/:principal": "admin",
+	"POST /api/admin/admins": "admin",
+	"DELETE /api/admin/admins/:principal": "admin",
+
 	"GET /api/pipeline/bootstrap": "pipeline",
 	"POST /api/pipeline/ingest": "pipeline",
 	"POST /api/pipeline/recompute/complete": "pipeline",

@@ -8,6 +8,7 @@ import {
 	activityHeatmapRoute,
 	activityTimelineRoute,
 } from "./routes/activity.js";
+import { adminRoutes } from "./routes/admin.js";
 import { aiRoutes } from "./routes/ai.js";
 import { avatarRoutes, collectorAvatarRoutes } from "./routes/avatars.js";
 import {
@@ -102,6 +103,7 @@ app.use("/api/*", sameOriginWrites);
 app.get("/", (c) => c.text("signoff ok"));
 app.get("/api/live", liveRoute);
 app.get("/api/me", meRoute);
+app.route("/api/admin", adminRoutes);
 app.route("/api/query/v1", queryRoutes);
 app.route("/api/pr-collections", prCollectionRoutes);
 app.route("/api/ai", aiRoutes);
