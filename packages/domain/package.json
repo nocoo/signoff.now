@@ -18,7 +18,8 @@
 		},
 		"./ai-readiness": "./src/ai-readiness.ts",
 		"./network": "./src/network.ts",
-		"./avatars": "./src/avatars.ts"
+		"./avatars": "./src/avatars.ts",
+		"./principal": "./src/principal.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit --emitDeclarationOnly false",
