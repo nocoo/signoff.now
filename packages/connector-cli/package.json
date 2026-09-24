@@ -1,0 +1,33 @@
+{
+	"name": "@nocoo/signoff",
+	"version": "0.3.0",
+	"description": "SignOff connector: refresh a deployed SignOff site with your local Azure CLI",
+	"type": "module",
+	"bin": {
+		"signoff": "dist/signoff.mjs"
+	},
+	"files": [
+		"dist"
+	],
+	"engines": {
+		"node": ">=22.16"
+	},
+	"scripts": {
+		"build": "bun run build.ts",
+		"prepack": "bun run build.ts"
+	},
+	"keywords": [
+		"signoff",
+		"azure-devops",
+		"pull-requests",
+		"connector"
+	],
+	"author": "nocoo",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/nocoo/signoff.now.git",
+		"directory": "packages/connector-cli"
+	},
+	"homepage": "https://signoff.hexly.ai"
+}
