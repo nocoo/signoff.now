@@ -1,7 +1,14 @@
 # 23 — Remote access, tenants and connectors
 
-> Status: **M1 implemented** (identity, admins, tenant membership, default-deny
-> route policy, admin and waiting pages), 2026-09-24. M2–M5 remain planned.
+> Status: **M1 and M2 implemented**, 2026-09-24. M1: identity, admins, tenant
+> membership, default-deny route policy, admin and waiting pages. M2: browser
+> connector sign-in, owner-routed claims, lease ownership, connector guide,
+> data-owner picker, npm package scaffold. M3–M5 remain planned.
+>
+> M2 deviations: sign-in uses the base-cli loopback flow (`/api/auth/cli` →
+> `http://localhost:<port>/callback`) instead of a device code, because the
+> connector always runs on the person's own machine. Revocation requeues the
+> connector's running jobs immediately. Gravatar provides profile images.
 > Each invariant change lands with the code that needs it, never ahead of it.
 >
 > M1 deviations from the plan below: only the default tenant exists; the

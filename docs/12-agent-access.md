@@ -30,7 +30,9 @@ applies one policy per registered route and denies anything unlisted:
 | `public` | everyone (`/api/live`, `/api/me`) |
 | `member` | Access callers with a selected tenant; trusted local |
 | `admin` | admins; trusted local |
-| `collector` | trusted local (remote connectors arrive in doc 23 M2) |
+| `collector` | trusted local, or a connector token (only its owner's projects) |
+| `connector` | a connector token (`/api/connector/v1/me`) |
+| `login` | an Access person (`/api/auth/cli` issues a connector token) |
 | `pipeline` | machine host; `pipelineAuth` checks the token |
 
 Admins are the `SIGNOFF_ADMIN_EMAILS` Worker secret (comma-separated emails or
@@ -48,6 +50,18 @@ Loopback trust needs both a local host (`localhost`, `127.0.0.1`, `[::1]`,
 **Before deploying, set `SIGNOFF_ADMIN_EMAILS`** with
 `wrangler secret put SIGNOFF_ADMIN_EMAILS`; otherwise nobody can administer the
 deployed site.
+
+### Connectors
+
+`signoff connector login` (base-cli `performLogin`) opens
+`https://signoff.hexly.ai/api/auth/cli` behind Access. The Worker issues an
+`sfc_` token (SHA-256 stored, 90 days) and redirects only to the loopback
+`/callback` with the CLI's state nonce. The CLI saves it at
+`~/.config/signoff/connector.json` (0600) and sends it only to
+`signoff-ingest.hexly.ai`. Connector and pipeline tokens are disjoint. Leases
+record the connector; every job call re-checks that the connector holds the
+lease and that its owner is still the project's data owner and a tenant
+member. Revoking a connector returns its running jobs to the queue.
 
 **The pipeline token cannot create entities.** `MACHINE_ROUTES`
 (`middleware/entry-control.ts`) whitelists only bootstrap / ingest /

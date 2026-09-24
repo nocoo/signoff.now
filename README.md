@@ -40,6 +40,22 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 
 ## 使用
 
+### 连接线上站点（Connector）
+
+在 `https://signoff.hexly.ai` 打开 **Workspace → Connectors**，页面按步骤显示进度。命令如下：
+
+```bash
+npm install -g @nocoo/signoff            # 需要 Node.js 22+
+signoff connector login                  # 浏览器弹窗登录，token 保存在 ~/.config/signoff/connector.json
+az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
+signoff daemon                           # 保持运行，心跳到达后页面变绿
+```
+
+管理员在 **Projects** 为项目选择 Data owner；只有该成员的 Connector 会刷新这个项目。`signoff connector status` 检查 token，`signoff daemon --local` 仍连接本机 Worker。
+
+### 本地开发与采集
+
+
 按下方[开发](#开发)步骤启动 Worker 和 Web，在 **Projects** 添加 ADO organization、project 和可选的仓库范围，再启动本地采集器：
 
 ```bash
