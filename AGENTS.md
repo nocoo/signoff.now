@@ -119,5 +119,5 @@ Move accident narratives to [Retrospective.md](Retrospective.md); keep at most a
 
 ## Modal Pickers
 
-- Set `modal` on Basalt `MultiSelect` inside a dialog so its portaled list participates in the active scroll/focus lock. The Bun patch for Basalt 2.1.8 exposes Radix Popover's existing option; retain this behavior when upgrading Basalt.
+- Set `modal` on Basalt `MultiSelect` inside a dialog so its portaled list participates in the active scroll/focus lock. The Bun patch for Basalt 2.2.0 exposes Radix Popover's existing option; retain this behavior when upgrading Basalt.
 - Verify overflowing pickers with real browser wheel and touch input. DOM-only selection tests do not exercise modal scroll locks; see `tests/e2e/directory-scroll.spec.ts`.
