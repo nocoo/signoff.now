@@ -353,7 +353,10 @@ export function registerWorkbenchCommands(program: Command) {
 		.command("watch")
 		.description("Shared web and CLI watch list");
 	listOptions(watch.command("list"))
-		.option("--include-stopped", "Include retained stopped observations")
+		.option(
+			"--include-stopped",
+			"Include removed and invalidated watch history",
+		)
 		.action(async (_opts, command) =>
 			list(command, "observations", observationListSchema),
 		);

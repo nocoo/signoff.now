@@ -39,6 +39,49 @@ const count = (table: string) =>
 	).n;
 
 describe("shared observation commands", () => {
+	test.each([
+		"completed",
+		"abandoned",
+	] as const)("manual removal clears retained %s membership without scheduling work", async (stopReason) => {
+		const { pull } = fixture();
+		const { observation } = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			100,
+		);
+		sqlite.raw
+			.query(
+				"UPDATE pr_observations SET active=0,stopped_at=200,stop_reason=? WHERE id=?",
+			)
+			.run(stopReason, observation.id);
+		const before = count("collection_jobs");
+		const removed = await removeObservation(
+			sqlite.db,
+			"cli",
+			observation.id,
+			observation.generation,
+			300,
+		);
+		expect(removed.status).toBe("removed");
+		expect(removed.observation).toMatchObject({
+			active: false,
+			stopReason: "manual",
+			stoppedAt: 300,
+		});
+		expect(
+			(
+				await removeObservation(
+					sqlite.db,
+					"cli",
+					observation.id,
+					observation.generation,
+					301,
+				)
+			).status,
+		).toBe("already_stopped");
+		expect(count("collection_jobs")).toBe(before);
+	});
 	test("Unicode references identify the same watch before and after project deletion", async () => {
 		const project = seedProject(sqlite, {
 			projectKey: "Équipe",

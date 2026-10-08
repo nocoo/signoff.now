@@ -24,7 +24,7 @@
 | `signoff repo add <repo-url...>` | 显式注册仓库范围，复用现有项目注册规则 | 否；之后需要显式 discover |
 | `signoff pr list` | 查询已发现 / 已缓存的 PR，支持范围、状态与观察筛选 | 否 |
 | `signoff pr get <pr-ref>` | 返回单条已缓存 PR 的状态与检查详情 | 否 |
-| `signoff watch list` | 查询 active 观察列表及每项已有快照；包括 Draft 和待首次结果项 | 否 |
+| `signoff watch list` | Read retained watch membership, including Draft, pending snapshots and terminal PRs | 否 |
 | `signoff watch add <pr-ref...>` | 幂等加入观察，返回首个刷新任务回执 | 命令本身否 |
 | `signoff watch remove <pr-ref...>` | 移除当前观察代次，保留 PR 快照 | 否 |
 | `signoff discover --repo <repo-url>` | 明确请求发现一个仓库的 PR，不自动观察 | 命令本身否 |
@@ -87,11 +87,11 @@ signoff pr get 59382 \
 | `--state open\|merged\|closed\|all` | 默认 open；Draft 由下一项单独控制 |
 | `--draft exclude\|include\|only` | 默认 exclude；只看 Draft 时要求 state 为 open 或 all |
 | `--author <identity-key>` | 可重复，使用输出的精确账号键，不通过显示名猜测同一人 |
-| `--watching` | 仅返回当前 active 观察项对应的已缓存 PR；待首次结果项需看 `watch list` |
+| `--watching` | Return cached PRs with retained watch membership, including merged/closed PRs; use `watch list` for pending snapshots |
 | `--limit <n>` / `--cursor <opaque>` | CLI 默认 100，最大 200；服务端分页 |
 | `--all` | 顺序读取该查询的全部页，完整成功后一次性输出 JSON；不是发现全部 PR |
 
-生命周期先筛选：`state=open` 匹配 open / draft 这一开放集合，再应用 draft 选项；输出仍保留独立的 draft 状态。`state=all` 仍遵守默认排除 Draft。`watch list` 默认返回全部 active 项，包括显式观察的 Draft，可用 `--repo` 限定范围、`--include-stopped` 包含所有保留的停止记录，同样支持分页。
+生命周期先筛选：`state=open` 匹配 open / draft 这一开放集合，再应用 draft 选项；输出仍保留独立的 draft 状态。`state=all` 仍遵守默认排除 Draft。`watch list` returns retained membership: active observations and terminal observations stopped with `completed` or `abandoned`. Lifecycle and watch filters compose independently. `--include-stopped` additionally includes manually removed or invalidated observations. `watch.active` controls collection, not membership; manual removal changes `stopReason` to `manual`, including for already-retired PRs. All queries remain cache-only and paginated.
 
 CLI 列表默认按稳定身份排序，不受个人网页的排序设置影响。网页额外的 readiness / updated 等排序参数仍由同一查询服务处理，并带稳定 ID 作为同值排序的后备条件。
 
@@ -103,7 +103,7 @@ Each item has exactly seven sections:
 
 | Section | Purpose and fields |
 | --- | --- |
-| `watch` | `id`, `generation`, `active`, `addedAt`, `stoppedAt`, `stopReason`. A stopped watch does not imply a merged PR. |
+| `watch` | `id`, `generation`, `active`, `addedAt`, `stoppedAt`, `stopReason`. `active` controls collection. Membership survives `completed` / `abandoned` retirement, but not `manual`, `project_deleted` or `scope_changed`. A stopped watch does not imply a merged PR. |
 | `pr` | Opaque SignOff `id`, provider PR `number`, title, canonical URL, provider, organization, `project: {signoffId, providerId, name}`, provider repository `{id,name}`, author `{id,name}`, draft, lifecycle, raw `providerStatus` / `providerMergeStatus`, source/target branches, head/target/merge SHAs, mergeability, created time, collection quality. |
 | `readiness` | One last business `state`, its source/model/rubric/fingerprint and evaluation/reuse times, `isCurrent`, and collection/evaluation `phase` with operational `update` details. No duplicated labels, previous/current objects, model probabilities or rule-generated readiness. |
 | `nextAction` | Coarse `{code,text,evidenceRefs,url}` advice, or null when no judgment exists or watching stopped. Never write authorization. |

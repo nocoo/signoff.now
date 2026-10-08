@@ -344,7 +344,7 @@ export async function removeObservation(
 	const results = await db.batch([
 		db
 			.prepare(
-				"UPDATE pr_observations SET active=0,stopped_at=?,stop_reason='manual' WHERE id=? AND source=? AND generation=? AND active=1",
+				"UPDATE pr_observations SET active=0,stopped_at=?,stop_reason='manual' WHERE id=? AND source=? AND generation=? AND (active=1 OR stop_reason IN ('completed','abandoned'))",
 			)
 			.bind(timestamp, id, source, generation),
 		db

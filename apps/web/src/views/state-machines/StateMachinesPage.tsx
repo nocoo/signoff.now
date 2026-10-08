@@ -1,4 +1,5 @@
 import { Badge, Button, Checkbox, LayerCard } from "@nocoo/basalt";
+import { isWatched } from "@signoff/domain/monitoring";
 import { repositoryUrl } from "@signoff/domain/workbench";
 import {
 	ExternalLink,
@@ -306,7 +307,7 @@ function MachineWorkspace({
 				scope={scope}
 				pullId={pullId}
 				selectedPull={
-					pull ? { ...pull, watched: Boolean(pull.observation?.active) } : null
+					pull ? { ...pull, watched: isWatched(pull.observation) } : null
 				}
 				autoSelect={!requestedTrace}
 				onChange={(id) => {

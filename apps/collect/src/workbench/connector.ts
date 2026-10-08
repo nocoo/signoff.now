@@ -6,7 +6,7 @@ import {
 	type ConnectorMe,
 	connectorMeSchema,
 } from "@signoff/domain/connector";
-import { version } from "../../../../package.json";
+import pkg from "../../../../package.json" with { type: "json" };
 import type { FetchLike } from "../pipeline/client.ts";
 import {
 	type ConnectorConfig,
@@ -15,6 +15,8 @@ import {
 	connectorStore,
 	DEFAULT_SERVER,
 } from "./connector-config.ts";
+
+const { version } = pkg;
 
 export type ConnectorDeps = {
 	store: ConnectorStore;

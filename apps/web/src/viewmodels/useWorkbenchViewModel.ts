@@ -1,5 +1,6 @@
 import {
 	canonicalObservationKey,
+	isWatched,
 	makeWatchRef,
 	type Observation,
 	publicSource,
@@ -118,7 +119,10 @@ function matchesResolvedRepository(
 type Selection = {
 	key: string;
 	pullId: string;
-	observation: Pick<Observation, "id" | "generation" | "active"> | null;
+	observation: Pick<
+		Observation,
+		"id" | "generation" | "active" | "stopReason"
+	> | null;
 };
 type MutationFeedback = {
 	source: PullFilter["source"];
@@ -432,7 +436,7 @@ export function useWorkbenchViewModel() {
 			const optimistic = optimisticWatches.get(rowWatchKey(filter.source, row));
 			return {
 				...row,
-				watching: optimistic ?? Boolean(row.observation?.active),
+				watching: optimistic ?? isWatched(row.observation),
 				watchPending: optimistic !== undefined,
 			};
 		},
@@ -771,7 +775,7 @@ export function useWorkbenchViewModel() {
 			: [];
 	const selectedIds = new Set(selectionItems.map((item) => item.pullId));
 	const selectableRows = pageRows.filter(
-		(row) => row.pull.state === "open" || row.observation?.active,
+		(row) => row.pull.state === "open" || isWatched(row.observation),
 	);
 	const toggleSelection = (id: string, checked: boolean) => {
 		const row = selectableRows.find((r) => r.pull.id === id);
@@ -800,7 +804,7 @@ export function useWorkbenchViewModel() {
 		const applicable = items.filter(
 			(item) =>
 				!watchRequests.current.has(item.key) &&
-				(adding ? !item.observation?.active : item.observation?.active),
+				(adding ? !isWatched(item.observation) : isWatched(item.observation)),
 		);
 		if (!applicable.length)
 			return !items.some((item) => watchRequests.current.has(item.key));
@@ -945,8 +949,8 @@ export function useWorkbenchViewModel() {
 	const toggleWatchRow = (row: PullRow | null | undefined) => {
 		return row &&
 			row.project.source === filter.source &&
-			(row.pull.state === "open" || row.observation?.active)
-			? changeWatches(!row.observation?.active, [
+			(row.pull.state === "open" || isWatched(row.observation))
+			? changeWatches(!isWatched(row.observation), [
 					{
 						key: rowWatchKey(filter.source, row),
 						pullId: row.pull.id,
@@ -1128,7 +1132,7 @@ export function useWorkbenchViewModel() {
 				{
 					key: pendingWatchKey(filter.source, observation),
 					pullId: `observation:${observation.id}:${observation.generation}`,
-					observation: { ...observation, active: true },
+					observation: { ...observation, active: true, stopReason: null },
 				},
 			]),
 		refreshPull: (id?: string) =>

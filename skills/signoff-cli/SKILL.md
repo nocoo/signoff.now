@@ -40,7 +40,7 @@ Worker defaults to `http://127.0.0.1:37042`; `--api-base` or `SIGNOFF_QUERY_API_
 ## Read cached facts
 
 ```bash
-# Entire active watch list, including Draft and pending first results
+# Retained watch list, including terminal PRs, Draft and pending first results
 bun "$SIGNOFF_CLI" watch list --all
 # Watched PRs with saved snapshots; explicitly include Draft
 bun "$SIGNOFF_CLI" pr list --watching --draft include --all
@@ -51,7 +51,7 @@ bun "$SIGNOFF_CLI" repo list --all
 bun "$SIGNOFF_CLI" watch list --include-stopped --all
 ```
 
-Default source is Live; Sample requires explicit `--source sample`. Never substitute Sample for unavailable live data. `pr list` defaults to open PRs with Draft excluded; `watch list` includes all active references and may have null PR facts before collection. Terminal PRs retire from active watching but remain cached and in `--include-stopped`.
+Default source is Live; Sample requires explicit `--source sample`. Never substitute Sample for unavailable live data. `pr list` defaults to open PRs with Draft excluded; `watch list` includes all active references and may have null PR facts before collection. Terminal PRs stop collection but retain watch membership in default `watch list` and `pr list --watching --state merged|closed|all`. `watch.active` is the collection flag; membership is active or stopped with `completed` / `abandoned`. Manual removal clears membership even after terminal retirement. `--include-stopped` additionally includes removed or invalidated watches.
 
 stdout is one JSON document (`schemaVersion: 2` for watch queries; other query families remain version 1); errors go to stderr and nonzero exit codes. Check exit status before replacing a consumer snapshot. Preserve full provider, org, project, repository ID, PR number, URL and observation generation; PR number alone is not unique. For watch inspection, assess `pr.collection` and `checks` observation times, coverage and errors before reporting readiness. `generatedAt` is query time, not collection time.
 

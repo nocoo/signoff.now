@@ -19,6 +19,7 @@ import {
 	AccordionTrigger,
 } from "@nocoo/basalt/components/accordion";
 import type { DataSource } from "@signoff/domain/insights";
+import { isWatched } from "@signoff/domain/monitoring";
 import {
 	approvalCount,
 	type Build,
@@ -235,10 +236,10 @@ function WatchButton({
 	busy: boolean;
 	onToggleWatch?: () => void;
 }) {
-	const watching = row.watching ?? Boolean(row.observation?.active);
+	const watching = row.watching ?? isWatched(row.observation);
 	if (
 		!onToggleWatch ||
-		(row.pull.state !== "open" && !watching && !row.observation?.active)
+		(row.pull.state !== "open" && !watching && !isWatched(row.observation))
 	)
 		return null;
 	return (
@@ -256,7 +257,7 @@ function WatchButton({
 			)}
 			{watching
 				? "Stop watching"
-				: row.watchPending && row.observation?.active
+				: row.watchPending && isWatched(row.observation)
 					? "Stopping…"
 					: "Add to watch list"}
 		</Button>

@@ -1,4 +1,8 @@
-import { type DataSource, publicSource } from "@signoff/domain/monitoring";
+import {
+	type DataSource,
+	isWatched,
+	publicSource,
+} from "@signoff/domain/monitoring";
 import {
 	machineHistorySchema,
 	machinePageSchema,
@@ -49,7 +53,7 @@ export async function loadMachinePulls(
 			id: p.id,
 			number: p.number,
 			title: p.title,
-			watched: Boolean(p.observation?.active),
+			watched: isWatched(p.observation),
 		})),
 		nextCursor: page.page.nextCursor,
 	};

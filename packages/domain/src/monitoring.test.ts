@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { demoWorkspace } from "./demo";
 import {
 	canonicalObservationKey,
+	isWatched,
 	makeWatchRef,
 	matchesRepositoryReference,
 	mergeCollectedPull,
@@ -16,6 +17,21 @@ import {
 const workspace = demoWorkspace(1_800_000_000);
 const project = workspace.projects[0]!;
 const pull = workspace.pullRequests[0]!;
+
+test("watch membership survives terminal retirement but not manual or scope removal", () => {
+	expect(isWatched(null)).toBe(false);
+	expect(isWatched(undefined)).toBe(false);
+	expect(isWatched({ active: true, stopReason: null })).toBe(true);
+	for (const stopReason of ["completed", "abandoned"] as const)
+		expect(isWatched({ active: false, stopReason })).toBe(true);
+	for (const stopReason of [
+		null,
+		"manual",
+		"project_deleted",
+		"scope_changed",
+	] as const)
+		expect(isWatched({ active: false, stopReason })).toBe(false);
+});
 
 describe("independent summary and checks publications", () => {
 	test("summary publications preserve check evidence and replace only summary evidence", () => {

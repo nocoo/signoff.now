@@ -2,6 +2,7 @@ import { readinessBadge } from "@signoff/domain/ai-readiness";
 import {
 	canonicalObservationKey,
 	type DataSource,
+	isWatched,
 	makeWatchRef,
 	type Observation,
 	parseRepositoryReference,
@@ -210,7 +211,7 @@ function pullScopeSql(
           ON watched.project_id=o.project_id
           AND lower(watched.repository_id)=lower(json_extract(o.ref_json,'$.repository.id'))
           AND CAST(watched.external_id AS INTEGER)=json_extract(o.ref_json,'$.number')
-        WHERE o.source=? AND o.active=1)`);
+        WHERE o.source=? AND (o.active=1 OR o.stop_reason IN ('completed','abandoned')))`);
 			values.push(source);
 		}
 		if (filters.collectionId) {
@@ -1049,7 +1050,7 @@ async function readRepositoryPage(
 					closed: counts?.closed ?? 0,
 					watching: snapshot.observations.filter(
 						(o) =>
-							o.active &&
+							isWatched(o) &&
 							o.ref.projectId === project.id &&
 							o.ref.repository.id === id,
 					).length,
@@ -1169,7 +1170,8 @@ async function readObservationPage(
 			);
 		}
 	} else {
-		if (filters.includeStopped !== "true") where.push("o.active=1");
+		if (filters.includeStopped !== "true")
+			where.push("(o.active=1 OR o.stop_reason IN ('completed','abandoned'))");
 		if (filters.pending === "true") where.push("o.pull_id IS NULL");
 	}
 	if (

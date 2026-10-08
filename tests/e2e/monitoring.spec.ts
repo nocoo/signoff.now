@@ -197,7 +197,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(
 		page.getByRole("heading", { name: "Pull requests", exact: true }),
 	).toBeVisible();
-	await page.getByRole("button", { name: /^Connector/ }).click();
+	await page.getByRole("button", { name: /^Connector / }).click();
 	await expect(
 		page.getByRole("combobox", { name: "Watched PR refresh cooldown" }),
 	).toHaveText("5 min");
@@ -642,7 +642,21 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
 	await expect(page.getByRole("dialog")).toContainText("Merged");
 	await page.keyboard.press("Escape");
-	expect((await watchList()).data).toEqual([]);
+	expect((await watchList()).data[0]?.watch).toMatchObject({
+		active: false,
+		stopReason: "completed",
+	});
+	await page.getByRole("button", { name: "Merged", exact: true }).click();
+	await expect(
+		page.getByRole("button", { name: "Watched", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
+	await page.getByRole("button", { name: "Watched", exact: true }).click();
+	await page.getByRole("button", { name: "Watched", exact: true }).click();
+	await expect(
+		page.getByRole("button", { name: "Merged", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
 	const final = pullListSchema.parse(
 		await cli(
 			"pr",
@@ -660,6 +674,15 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		active: false,
 		stopReason: "completed",
 	});
+	await page.getByRole("button", { name: /^Watch PR #2 in/ }).click();
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
+	expect((await watchList()).data).toEqual([]);
+	expect(
+		observationListSchema
+			.parse(await cli("watch", "list", "--include-stopped", "--all"))
+			.data.find((item) => item.pr?.number === 2)?.watch.stopReason,
+	).toBe("manual");
+	await page.getByRole("button", { name: "Open", exact: true }).click();
 	expect((await execute()).state).toBe("idle");
 	expect(repoListSchema.parse(await cli("repo", "list")).data).toHaveLength(2);
 	// Provider renames keep old URLs usable and cannot create a second watch identity.
@@ -770,6 +793,7 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		active: false,
 		stopReason: "completed",
 	});
+	await cli("watch", "remove", slowUrl);
 	// Reusing stable PR IDs after an external project edit must not attach its old stopped watch.
 	const oldProjectUrl = `${repoUrl(repos[0]!)}/pullrequest/1`;
 	await cli("watch", "add", oldProjectUrl);

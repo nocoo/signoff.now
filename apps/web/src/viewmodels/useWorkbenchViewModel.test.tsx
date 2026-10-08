@@ -133,7 +133,7 @@ function QuickFiltersHarness() {
 	const vm = useWorkbench();
 	return <PullQuickFilters vm={vm} />;
 }
-it("combines independent quick filters and clears incompatible historical selections", async () => {
+it("combines lifecycle and watch quick filters without resetting history", async () => {
 	renderView(
 		<MemoryRouter initialEntries={["/?source=cli&q=review"]}>
 			<WorkbenchProvider>
@@ -186,7 +186,7 @@ it("combines independent quick filters and clears incompatible historical select
 	click("Watched");
 	click("Running");
 	click("Merged");
-	await queryMatches({ state: "merged", status: "all", watching: null });
+	await queryMatches({ state: "merged", status: "all", watching: "true" });
 	expect(bar.getByRole("button", { name: "Running" })).toHaveProperty(
 		"disabled",
 		true,
@@ -195,14 +195,20 @@ it("combines independent quick filters and clears incompatible historical select
 		bar.getByRole("combobox", { name: "Detailed readiness" }),
 	).toHaveProperty("disabled", true);
 	click("Watched");
-	await queryMatches({ state: "open", watching: "true", status: "all" });
+	await queryMatches({ state: "merged", watching: null, status: "all" });
+	click("Watched");
+	await queryMatches({ state: "merged", watching: "true", status: "all" });
 	click("All states");
 	await queryMatches({ state: "all", watching: "true", status: "all" });
 	fireEvent.click(bar.getByRole("combobox", { name: "Detailed readiness" }));
 	fireEvent.click(screen.getByRole("option", { name: "Error" }));
 	await queryMatches({ state: "open", watching: "true", status: "error" });
 	click("Closed");
+	await queryMatches({ state: "closed", status: "all", watching: "true" });
+	click("Watched");
 	await queryMatches({ state: "closed", status: "all", watching: null });
+	click("Watched");
+	await queryMatches({ state: "closed", status: "all", watching: "true" });
 });
 it("keeps PR columns mounted during loading and links the target branch after the snapshot arrives", async () => {
 	const pending = deferred<typeof fixture.pulls>();
@@ -1247,6 +1253,35 @@ describe("filters, server pages and temporary selection", () => {
 });
 
 describe("shared watch mutations", () => {
+	it.each([
+		"merged",
+		"closed",
+	] as const)("keeps retired %s PRs watched and supports explicit removal", async (state) => {
+		const observation = fixtureObservation({
+			active: false,
+			stopReason: state === "merged" ? "completed" : "abandoned",
+		});
+		vi.mocked(api.loadPulls).mockResolvedValue({
+			...fixture.pulls,
+			data: [publicPull({ ...pull, state }, project, observation)],
+		});
+		const { result } = render(`/?state=${state}&watching=watching`);
+		await loaded(result);
+		expect(result.current.vm.filter).toMatchObject({
+			state,
+			watching: "watching",
+		});
+		expect(result.current.vm.pageRows[0]?.watching).toBe(true);
+		expect(result.current.vm.selectableCount).toBe(1);
+		await act(() =>
+			result.current.vm.toggleWatchRow(result.current.vm.pageRows[0]!),
+		);
+		expect(api.removeWatches).toHaveBeenCalledOnce();
+		expect(api.removeWatches).toHaveBeenCalledWith(project.source, [
+			observation,
+		]);
+		expect(api.addWatches).not.toHaveBeenCalled();
+	});
 	it("optimistically toggles independent rows and rolls back only a failed command without replacing the table", async () => {
 		const other = { ...pull, id: "second", number: pull.number + 1 };
 		const observation = fixtureObservation({ generation: 4 });

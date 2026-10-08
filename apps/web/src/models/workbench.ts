@@ -79,15 +79,9 @@ export function updatePullFilter(
 	const next = { ...filter, ...patch };
 	if (patch.state !== undefined && patch.status === undefined)
 		next.status = "all";
-	if (
-		(patch.status !== undefined && patch.status !== "all") ||
-		(patch.watching === "watching" &&
-			(next.state === "merged" || next.state === "closed"))
-	)
-		next.state = "open";
+	if (patch.status !== undefined && patch.status !== "all") next.state = "open";
 	if (next.state === "merged" || next.state === "closed") {
 		next.status = "all";
-		if (next.watching === "watching") next.watching = "all";
 	} else if (next.status !== "all") next.state = "open";
 	return next;
 }

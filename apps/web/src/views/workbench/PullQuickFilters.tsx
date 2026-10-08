@@ -191,7 +191,7 @@ export function PullQuickFilters({
 								filter.watching === watching
 									? "Clear watch filter"
 									: watching === "watching"
-										? "Only watched PRs (returns to Open from history)"
+										? "Only watched PRs, including merged and closed history"
 										: "Only unwatched PRs"
 							}
 							onClick={() =>

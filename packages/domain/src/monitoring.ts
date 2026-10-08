@@ -74,6 +74,16 @@ export const observationSchema = z.object({
 });
 export type Observation = z.infer<typeof observationSchema>;
 
+export function isWatched(
+	observation: Pick<Observation, "active" | "stopReason"> | null | undefined,
+): boolean {
+	return Boolean(
+		observation?.active ||
+			observation?.stopReason === "completed" ||
+			observation?.stopReason === "abandoned",
+	);
+}
+
 export type RepositoryReference = {
 	provider: "ado" | "github";
 	organization: string;

@@ -18,6 +18,11 @@ test("picker pages only the requested cache scope and includes terminal or unwat
 		...fixture.pulls,
 		data: [
 			publicPull(fixturePull, fixtureProject, fixtureObservation()),
+			publicPull(
+				{ ...fixturePull, state: "closed" },
+				fixtureProject,
+				fixtureObservation({ active: false, stopReason: "abandoned" }),
+			),
 			publicPull(),
 		],
 		page: { limit: 50, total: 70, nextCursor: "next" },
@@ -32,7 +37,7 @@ test("picker pages only the requested cache scope and includes terminal or unwat
 		{ search: "query", watchedOnly: true, cursor: "previous" },
 		signal,
 	);
-	expect(result.data.map((p) => p.watched)).toEqual([true, false]);
+	expect(result.data.map((p) => p.watched)).toEqual([true, true, false]);
 	expect(result.nextCursor).toBe("next");
 	const request = new URL(
 		String(vi.mocked(apiFetch).mock.lastCall?.[0]),

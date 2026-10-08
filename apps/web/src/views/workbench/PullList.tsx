@@ -7,6 +7,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
+import { isWatched } from "@signoff/domain/monitoring";
 import { pullUrl, repositoryBranchUrl } from "@signoff/domain/workbench";
 import {
 	ArrowDown,
@@ -342,7 +343,7 @@ function PullTableRow({
 	onOpen: (element: HTMLButtonElement) => void;
 }) {
 	const { pull, project, readiness, progress, observation } = row;
-	const watching = row.watching ?? Boolean(observation?.active);
+	const watching = row.watching ?? isWatched(observation);
 	const evaluation = readiness.current ?? readiness.previous;
 	const evaluatedAt = evaluation
 		? Date.parse(evaluation.evaluatedAt) / 1000
@@ -546,7 +547,7 @@ function PullTableRow({
 								busy ||
 								(selection.canSelect
 									? !selection.canSelect(row)
-									: pull.state !== "open" && !observation?.active)
+									: pull.state !== "open" && !isWatched(observation))
 							}
 							onCheckedChange={(checked) =>
 								selection?.onToggle(pull.id, checked === true)
@@ -576,12 +577,12 @@ function PullTableRow({
 									? "In watch list · Click to remove"
 									: pull.state === "open"
 										? "Not in watch list · Click to watch"
-										: "Completed PRs are no longer watched"
+										: "New watches require an open PR"
 						}
 						disabled={
 							busy ||
 							row.watchPending ||
-							(pull.state !== "open" && !observation?.active)
+							(pull.state !== "open" && !isWatched(observation))
 						}
 						onClick={() => onToggleWatch(row)}
 					>

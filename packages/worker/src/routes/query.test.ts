@@ -60,6 +60,70 @@ function seed() {
 }
 
 describe("v1 cache queries", () => {
+	test.each([
+		"merged",
+		"closed",
+	] as const)("%s combines with watched membership until explicit removal", async (state) => {
+		const { project, pull } = seed();
+		const { observation } = await addObservation(
+			sqlite.db,
+			"cli",
+			{ pullId: pull.id },
+			PR_TEST_NOW,
+		);
+		seedPull(sqlite, { ...pull, state });
+		sqlite.raw
+			.query(
+				"UPDATE pr_observations SET active=0,stopped_at=?,stop_reason=? WHERE id=?",
+			)
+			.run(
+				PR_TEST_NOW + 1,
+				state === "merged" ? "completed" : "abandoned",
+				observation.id,
+			);
+		const list = async (watching: boolean) =>
+			pullListSchema.parse(
+				await (
+					await request(`/api/query/v1/prs?state=${state}&watching=${watching}`)
+				).json(),
+			);
+		expect((await list(true)).data.map((p) => p.id)).toEqual([pull.id]);
+		expect((await list(false)).data).toEqual([]);
+		const watches = observationListSchema.parse(
+			await (await request("/api/query/v1/observations")).json(),
+		);
+		expect(watches.data.map((item) => item.watch.id)).toEqual([observation.id]);
+		expect(
+			(await queryCollector(sqlite.db, "cli", PR_TEST_NOW + 2)).watching,
+		).toBe(0);
+		const catalogue = repoListSchema.parse(
+			await (await request("/api/query/v1/repos")).json(),
+		);
+		expect(
+			catalogue.data.find((r) => r.project.id === project.id)?.counts.watching,
+		).toBe(1);
+		await removeObservation(
+			sqlite.db,
+			"cli",
+			observation.id,
+			observation.generation,
+			PR_TEST_NOW + 3,
+		);
+		expect((await list(true)).data).toEqual([]);
+		expect((await list(false)).data.map((p) => p.id)).toEqual([pull.id]);
+		expect(
+			observationListSchema.parse(
+				await (await request("/api/query/v1/observations")).json(),
+			).data,
+		).toEqual([]);
+		expect(
+			observationListSchema.parse(
+				await (
+					await request("/api/query/v1/observations?includeStopped=true")
+				).json(),
+			).data[0]?.watch.stopReason,
+		).toBe("manual");
+	});
 	test("history retains successive attempts and paginates without duplicates while new jobs arrive", async () => {
 		const { project, pull } = seed();
 		const observation = await addObservation(
@@ -572,8 +636,8 @@ describe("v1 cache queries", () => {
 		};
 		for (const [query, total, hydrated] of [
 			["pending=true&limit=20", 0, 0],
-			["limit=20", 25, 20],
-			["limit=20&page=2", 25, 5],
+			["limit=20", 1500, 20],
+			["limit=20&page=2", 1500, 20],
 			["includeStopped=true&limit=20&page=2", 1500, 20],
 		] as const) {
 			snapshotsRead = 0;
@@ -743,8 +807,10 @@ describe("v1 cache queries", () => {
 				PR_TEST_NOW,
 			),
 		);
-		expect(current.data).toEqual([]);
-		expect(current.page.total).toBe(0);
+		expect(current.data.map((item) => item.watch.stopReason)).toEqual([
+			"completed",
+		]);
+		expect(current.page.total).toBe(1);
 		expect(current.dataRevision).not.toBe(first.dataRevision);
 	});
 	test("Unicode aliases that resolve to multiple watched repository identities are rejected", async () => {

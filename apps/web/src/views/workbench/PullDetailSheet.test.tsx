@@ -110,6 +110,28 @@ it.each([
 it.each([
 	"merged",
 	"closed",
+] as const)("can unwatch a retired %s PR without restarting collection", (state) => {
+	const onToggleWatch = show(
+		queryRow(
+			publicPull(
+				{ ...fixturePull, state },
+				undefined,
+				fixtureObservation({
+					active: false,
+					stopReason: state === "merged" ? "completed" : "abandoned",
+				}),
+			),
+		),
+	);
+	const button = screen.getByRole("button", { name: "Stop watching" });
+	expect(button).toHaveProperty("disabled", false);
+	fireEvent.click(button);
+	expect(onToggleWatch).toHaveBeenCalledOnce();
+});
+
+it.each([
+	"merged",
+	"closed",
 ] as const)("cannot add a new watch from %s PR details", (state) => {
 	show(queryRow(publicPull({ ...fixturePull, state })));
 	expect(

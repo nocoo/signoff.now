@@ -12,19 +12,19 @@ import {
 
 const NOW = 1_800_000_000;
 describe("persisted PR filters", () => {
-	it("normalizes saved combinations and keeps only compatible filters across transitions", () => {
+	it("combines lifecycle and watch filters while keeping readiness open-only", () => {
 		for (const state of ["merged", "closed"] as const) {
 			expect(
 				readPullFilter(
 					new URLSearchParams(`state=${state}&status=ready&watching=watching`),
 				),
-			).toMatchObject({ state, status: "all", watching: "all" });
+			).toMatchObject({ state, status: "all", watching: "watching" });
 			expect(
 				readPullFilter(new URLSearchParams(`state=${state}`)),
 			).toMatchObject({ state, status: "all" });
 			const history = { ...DEFAULT_PULL_FILTER, state };
 			expect(updatePullFilter(history, { watching: "watching" })).toMatchObject(
-				{ state: "open", watching: "watching" },
+				{ state, watching: "watching" },
 			);
 			expect(
 				updatePullFilter(history, { watching: "unwatched" }),
@@ -47,7 +47,7 @@ describe("persisted PR filters", () => {
 		expect(updatePullFilter(ready, { state: "merged" })).toMatchObject({
 			state: "merged",
 			status: "all",
-			watching: "all",
+			watching: "watching",
 		});
 		expect(updatePullFilter(ready, { status: "all" })).toMatchObject({
 			state: "open",

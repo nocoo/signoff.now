@@ -1,6 +1,7 @@
 import { Button, Checkbox, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SectionRule } from "@nocoo/basalt/components/section-rule";
+import { isWatched } from "@signoff/domain/monitoring";
 import {
 	ArrowRight,
 	ChevronLeft,
@@ -250,7 +251,8 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 								Boolean(vm.busy) ||
 								!vm.selectionItems.some(
 									(item) =>
-										!item.observation?.active && !vm.watchPending(item.pullId),
+										!isWatched(item.observation) &&
+										!vm.watchPending(item.pullId),
 								)
 							}
 							onClick={() => void vm.watchSelected(true)}
@@ -266,7 +268,8 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 								Boolean(vm.busy) ||
 								!vm.selectionItems.some(
 									(item) =>
-										item.observation?.active && !vm.watchPending(item.pullId),
+										isWatched(item.observation) &&
+										!vm.watchPending(item.pullId),
 								)
 							}
 							onClick={() => void vm.watchSelected(false)}

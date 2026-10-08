@@ -195,3 +195,15 @@ Four browser E2E tests had been failing on `main` before the tenant work began; 
 
 The tenant migration also first used `ADD COLUMN ... REFERENCES` with a non-NULL default, which SQLite rejects when foreign keys are enforced. In-memory tests did not apply migrations the same way as Wrangler, so the failure surfaced only on the local D1 database; it was not partially applied. Dry-run new migrations against a copy of the local database before starting the Worker.
 
+
+## 2026-10-08: terminal collection conflated with watch membership
+
+The Watched filter reused the collector's `active` flag, so terminal publication
+hid retained watches and the UI forced Closed / Merged selections back to Open.
+Tests encoded that coupling instead of the user's independent filter intent.
+Retain membership for completed / abandoned observations while leaving collection
+stopped; manual removal clears membership even after retirement. Verify lifecycle
+and membership combinations end to end, including removal and stale generations.
+During regression editing, a broad match initially placed the terminal assertions
+at the first empty-watch check, and a new test guessed a nonexistent ViewModel
+method. Inspect the exact fixture phase and exported API before editing tests.
