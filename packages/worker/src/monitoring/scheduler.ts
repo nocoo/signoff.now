@@ -3,7 +3,6 @@ import type { DataSource, Observation } from "@signoff/domain/monitoring";
 import {
 	type CollectionLane,
 	DISCOVERY_HISTORY_DAYS,
-	DISCOVERY_RECENT_DAYS,
 	pullRequestSchema,
 } from "@signoff/domain/workbench";
 import { enqueueDiscovery } from "./observations.js";
@@ -175,9 +174,9 @@ export async function claimJob(
 			)
 			.bind(token),
 		db
-			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation)
-      SELECT j.id,pr.id,pr.version,o.id,o.generation FROM collection_jobs j JOIN pull_requests pr ON pr.project_id=j.project_id
-      LEFT JOIN pr_observations o ON o.project_id=j.project_id AND o.active=1 AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id) AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER)
+			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation,observation_active)
+      SELECT j.id,pr.id,pr.version,o.id,o.generation,COALESCE(o.active,1) FROM collection_jobs j JOIN pull_requests pr ON pr.project_id=j.project_id
+      LEFT JOIN pr_observations o ON o.project_id=j.project_id AND (o.active=1 OR (j.kind='list' AND o.stop_reason IN ('completed','abandoned'))) AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id) AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER)
       WHERE j.lease_token=? AND (j.kind='list' OR pr.id IN (SELECT value FROM json_each(j.pull_ids_json)))
       AND (j.kind<>'list' OR (j.catalogue_only=0 AND json_extract(pr.snapshot,'$.createdAt')>=?-${DISCOVERY_HISTORY_DAYS * 86400}))
       AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(pr.repository_id),lower(json_extract(pr.snapshot,'$.repository.name')))))`)
@@ -223,28 +222,12 @@ export async function claimJob(
 		? mapObservation(observationRow)
 		: undefined;
 	let discoverySince: number | undefined;
-	let discoveryCachedBefore: number | undefined;
 	if (job.kind === "list") {
-		const cached =
-			job.discovery_depth === "smart" && !job.catalogue_only
-				? await db
-						.prepare(`SELECT r.last_discovered_at,json_extract(r.discovery_cursor_json, '$.createdBefore') AS created_before FROM workbench_repositories r WHERE r.project_id=?
-			 AND lower(r.repository_id)=lower(json_extract(?, '$[0]')) AND r.last_discovered_at IS NOT NULL
-		 AND json_type(r.discovery_cursor_json, '$.createdBefore') IN ('integer','real')`)
-						.bind(project.id, job.scope_json)
-						.first<{ last_discovered_at: number; created_before: number }>()
-				: null;
-		discoveryCachedBefore = cached?.created_before;
-		discoverySince = Math.max(
-			0,
-			timestamp - DISCOVERY_HISTORY_DAYS * 86400,
-			cached ? cached.last_discovered_at - DISCOVERY_RECENT_DAYS * 86400 : 0,
-		);
+		discoverySince = Math.max(0, timestamp - DISCOVERY_HISTORY_DAYS * 86400);
 	}
 	return {
 		job: mapJob(job),
 		discoverySince,
-		discoveryCachedBefore,
 		project: mapProject(project),
 		leaseToken: token,
 		observation,

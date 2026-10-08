@@ -50,22 +50,17 @@ not inherit another repository's completion cooldown.
 
 ## Discovery depth
 
-- Initial discovery and deep discovery enumerate every PR state in the last
+- Initial, routine and deep discovery enumerate every PR state in the last
   90 days, refreshing summary and lifecycle facts from the provider list.
-- Smart discovery always reads the first page, refreshes the returned summaries,
-  and reuses older cached history. It follows additional pages only while they
-  may contain new PRs beyond the last successfully covered creation-time boundary.
-  The entire boundary page is published before paging stops. Timestamp ties are
-  drained; observed non-descending page order disables this optimization.
-- The cursor records the successful job's start time, not its completion time or
-  the newest independently watched PR. Failed or partial publication cannot
-  advance it. Initial discovery, deep discovery and caches without a successful
-  cursor enumerate the complete 90-day window. Smart provider queries overlap
-  30 days before the last successful completion, capped at 90 days, so downtime
-  cannot truncate newly created PRs. Old lifecycle updates beyond the fetched
-  pages are left for explicit deep calculation.
-- Older cached PRs remain available. Routine discovery does not promise to
-  refresh every historical PR's state.
+  Routine discovery does not stop at a previously covered creation-time cursor:
+  old PRs in the window can be closed or reopened at any time.
+- Older cached PRs remain available. Routine discovery does not refresh PRs
+  created more than 90 days ago.
+- A retained watch stopped with `completed` or `abandoned` resumes when validated
+  discovery publishes its PR as open. Publication atomically increments the
+  observation generation, clears retirement and queues a full refresh. Claim-time
+  active/generation bindings fence removal and re-add races. Manual Unwatch,
+  project deletion and scope invalidation never resume automatically.
 - Build, policy and detailed review collection remains attached to watched PRs.
   Deep report discovery does not fan out checks requests for third-party PRs.
 

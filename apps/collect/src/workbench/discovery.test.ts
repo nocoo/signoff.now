@@ -134,7 +134,7 @@ test("each list refresh includes old PR state changes without per-PR requests", 
 	).toBe(true);
 });
 
-test("provider date filtering is enforced locally and smart refresh uses its recent boundary", async () => {
+test("provider date filtering includes reopened old PRs and excludes facts outside ninety days", async () => {
 	const now = 1789646400;
 	const urls: URL[] = [];
 	const client = {
@@ -151,25 +151,19 @@ test("provider date filtering is enforced locally and smart refresh uses its rec
 			};
 		},
 	};
-	const counts: number[] = [];
-	for (const days of [90, 30]) {
-		const pulls = [];
-		for await (const page of discoverRepositoryPulls(
-			client,
-			project,
-			repository,
-			now,
-			now - days * 86400,
-		))
-			pulls.push(...page);
-		counts.push(pulls.length);
-	}
-	expect(counts).toEqual([4, 2]);
+	const pulls = [];
+	for await (const page of discoverRepositoryPulls(
+		client,
+		project,
+		repository,
+		now,
+		now - 90 * 86400,
+	))
+		pulls.push(...page);
+	expect(pulls.map((pull) => pull.number)).toEqual([1, 2, 3, 4]);
 	expect(
 		urls.map((url) => url.searchParams.get("searchCriteria.minTime")),
-	).toEqual(
-		[90, 30].map((days) => new Date((now - days * 86400) * 1000).toISOString()),
-	);
+	).toEqual([new Date((now - 90 * 86400) * 1000).toISOString()]);
 	expect(
 		urls.every(
 			(url) => url.searchParams.get("searchCriteria.status") === "all",
@@ -199,24 +193,27 @@ async function readSmart(pages: ReturnType<typeof datedRaw>[][]) {
 		project,
 		repository,
 		smartNow,
-		smartNow - 30 * 86400,
-		cachedBefore,
+		smartNow - 90 * 86400,
 	))
 		pulls.push(...page);
 	return { calls, pulls };
 }
 
-test("smart discovery refreshes the first page and reuses the successfully cached history", async () => {
+test("routine discovery refreshes old reopened PRs beyond the first cached page", async () => {
 	const first = Array.from({ length: 100 }, (_, n) =>
 		datedRaw(n + 1, cachedBefore - n - 1),
 	);
-	const result = await readSmart([first, [datedRaw(101, cachedBefore - 200)]]);
-	expect(result.calls).toBe(1);
-	expect(result.pulls).toHaveLength(100);
+	const result = await readSmart([
+		first,
+		[{ ...datedRaw(101, smartNow - 70 * 86400), status: "active" }],
+	]);
+	expect(result.calls).toBe(2);
+	expect(result.pulls).toHaveLength(101);
 	expect(result.pulls[1]?.state).toBe("closed");
+	expect(result.pulls[100]?.state).toBe("open");
 });
 
-test("smart discovery drains more than one page of new PRs before the cached boundary", async () => {
+test("routine discovery drains new and cached PR pages across the complete window", async () => {
 	const first = Array.from({ length: 100 }, (_, n) =>
 		datedRaw(n + 1, smartNow - n),
 	);
@@ -228,21 +225,21 @@ test("smart discovery drains more than one page of new PRs before the cached bou
 		second,
 		[datedRaw(201, cachedBefore - 300)],
 	]);
-	expect(result.calls).toBe(2);
-	expect(result.pulls).toHaveLength(200);
+	expect(result.calls).toBe(3);
+	expect(result.pulls).toHaveLength(201);
 	expect(
 		result.pulls.filter((pull) => pull.createdAt > cachedBefore),
 	).toHaveLength(125);
 });
 
-test("smart discovery drains timestamp ties and disables early stopping for unordered pages", async () => {
+test("routine discovery drains timestamp ties and unordered pages", async () => {
 	const tied = await readSmart([
 		[datedRaw(1, cachedBefore), datedRaw(2, cachedBefore)],
 		[datedRaw(3, cachedBefore), datedRaw(4, cachedBefore - 1)],
 		[datedRaw(5, cachedBefore - 2)],
 	]);
-	expect(tied.calls).toBe(2);
-	expect(tied.pulls.map((pull) => pull.number)).toEqual([1, 2, 3, 4]);
+	expect(tied.calls).toBe(3);
+	expect(tied.pulls.map((pull) => pull.number)).toEqual([1, 2, 3, 4, 5]);
 	const unordered = await readSmart([
 		[datedRaw(1, cachedBefore - 10), datedRaw(2, smartNow - 1)],
 		[datedRaw(3, cachedBefore - 20)],

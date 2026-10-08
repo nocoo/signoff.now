@@ -214,3 +214,22 @@ trace artifacts despite isolated databases. Run browser lanes sequentially unles
 their output directories are isolated too. The focused watch lifecycle passed;
 the broader run still had focus/inference and collection-reload failures, so do
 not report that lane as fully passing.
+
+## 2026-10-08: reopened watches remained permanently stopped
+
+Retaining terminal watch membership fixed filtering but left collection stopped
+after provider reactivation. Routine discovery also excluded old reopened PRs
+with its 30-day creation window and cached-page early stop. Scan the complete
+90-day window, resume retained terminal watches in the validated publication
+transaction, increment their generation and queue fresh checks. Bind stopped
+observations at claim time as well as active ones; fence manual removal and late
+results. Project/scope invalidation must include retained stopped membership,
+otherwise a later scope expansion can revive a watch the user invalidated.
+Verify provider reopen, discovery, collection and AI scheduling as separate steps;
+source activation alone does not prove the workbench has resumed monitoring.
+The browser regression initially hid the reopened draft because selecting Open
+resets Draft to Exclude; explicitly include drafts before asserting the row.
+Concurrent browser/build/coverage work caused unrelated five-second collector
+timeouts; rerun the unchanged gate after the heavy lane finishes, not with a
+lowered threshold. Validate local migrations on a SQLite backup, including WAL,
+before applying them to daily state.

@@ -15,6 +15,7 @@ import {
 	projectMergeRequirements,
 	pullRequestSchema,
 } from "@signoff/domain/workbench";
+import { insertRefresh } from "./observations.js";
 import {
 	type JobRepositoryRow,
 	type JobRow,
@@ -275,7 +276,7 @@ export async function stagePulls(
       SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${RUNNING_JOB}
       AND (?=1 OR COALESCE((SELECT version FROM pull_requests WHERE id=?),0)=COALESCE((SELECT snapshot_version FROM collection_claim_bindings WHERE job_id=? AND pull_id=?),0))
       AND NOT EXISTS (SELECT 1 FROM collection_claim_bindings b WHERE b.job_id=? AND b.pull_id=? AND b.observation_id IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=1 AND o.generation=b.generation))
+        AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=b.observation_active AND o.generation=b.generation AND (o.active=1 OR o.stop_reason IN ('completed','abandoned'))))
       ON CONFLICT(job_id,pull_id) DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at,snapshot=excluded.snapshot,raw_snapshot=excluded.raw_snapshot,base_version=excluded.base_version`)
 				.bind(
 					id,
@@ -439,7 +440,7 @@ export async function publishRepository(
       AND NOT EXISTS (SELECT 1 FROM collection_staging s LEFT JOIN pull_requests pr ON pr.id=s.pull_id
         LEFT JOIN collection_claim_bindings b ON b.job_id=s.job_id AND b.pull_id=s.pull_id
 		WHERE s.job_id=? AND s.repository_id=? AND (COALESCE(pr.version,0)<>COALESCE(s.base_version,b.snapshot_version,0)
-          OR (b.observation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=1 AND o.generation=b.generation))))`)
+          OR (b.observation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=b.observation_id AND o.active=b.observation_active AND o.generation=b.generation AND (o.active=1 OR o.stop_reason IN ('completed','abandoned'))))))`)
 			.bind(
 				pullCount,
 				message,
@@ -462,17 +463,10 @@ export async function publishRepository(
 			.bind(timestamp, id, repositoryId, ...receiptBinds),
 		db
 			.prepare(
-				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_cursor_json=json_object('createdBefore',?),discovery_state='complete',discovery_message=NULL
+				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_state='complete',discovery_message=NULL
         WHERE project_id=? AND repository_id=? AND ?='list' AND ${receipt}`,
 			)
-			.bind(
-				timestamp,
-				job.started_at,
-				project.id,
-				repositoryId,
-				job.kind,
-				...receiptBinds,
-			),
+			.bind(timestamp, project.id, repositoryId, job.kind, ...receiptBinds),
 		// A saved watch ref is a target, not a new provider observation. Publish
 		// refreshed metadata only alongside the validated PR snapshot and receipt.
 		db
@@ -550,6 +544,36 @@ export async function publishRepository(
 				repositoryId,
 				id,
 				repositoryId,
+				...receiptBinds,
+			),
+		db
+			.prepare(`UPDATE pr_observations SET active=1,generation=generation+1,activation_token=?,stopped_at=NULL,stop_reason=NULL
+      WHERE active=0 AND stop_reason IN ('completed','abandoned') AND source=? AND project_id=? AND ?='list'
+      AND EXISTS (SELECT 1 FROM collection_claim_bindings b JOIN collection_staging s ON s.job_id=b.job_id AND s.pull_id=b.pull_id
+        WHERE b.job_id=? AND b.observation_id=pr_observations.id AND b.generation=pr_observations.generation AND b.observation_active=0
+        AND s.repository_id=? AND s.state='open') AND ${receipt}`)
+			.bind(
+				publication,
+				project.source,
+				project.id,
+				job.kind,
+				id,
+				repositoryId,
+				...receiptBinds,
+			),
+		db
+			.prepare(
+				`${insertRefresh} AND o.activation_token=? AND o.source=? AND o.project_id=? AND ${receipt}`,
+			)
+			.bind(
+				JSON.stringify(project),
+				timestamp,
+				timestamp,
+				timestamp,
+				"",
+				publication,
+				project.source,
+				project.id,
 				...receiptBinds,
 			),
 		db

@@ -86,7 +86,7 @@ Both cooldowns are configured in the Collector dialog metadata column, through `
 
 The daemon has two refresh workers and one discovery worker. Atomic claims allow at most two refresh leases and one discovery lease per project. Discovery and refresh may run concurrently; revision, lease, generation and snapshot version fences protect publication. Idle workers check for eligible local jobs every three seconds. These scheduler ticks do not contact ADO unless a task is claimed.
 
-A discovery task freezes its project revision and repository scope. Equivalent unfinished commands coalesce. Each repository is fully paginated with a fixed request upper bound; creation-time incremental cursors and the `--full` discovery option have been removed. Complete repository results publish atomically. An interrupted or invalid page cannot be published as complete, and missing PRs do not delete cached snapshots.
+Initial, routine and deep discovery paginate every state in the complete 90-day creation window. A discovery task freezes its project revision and repository scope. Equivalent unfinished commands coalesce. Each repository is fully paginated with a fixed request upper bound; creation-time incremental cursors and the `--full` discovery option have been removed. Complete repository results publish atomically. An interrupted or invalid page cannot be published as complete, and missing PRs do not delete cached snapshots.
 
 上游仓库改名但 provider ID 未变时，用该 ID 已保存的名称别名验证项目配置范围，接受新名称并保留旧名称。旧 URL、新 URL、GUID URL 和缓存 PR ID 都解析到同一个观察身份；不能把不同 provider ID 当成原仓库接纳。
 
@@ -107,7 +107,7 @@ refreshDueAt = latest completed attempt for this observation generation + detail
 discoveryDueAt = latest completed list attempt for this project revision + listCooldownSeconds
 ```
 
-A new watch is immediately eligible. Running tasks have no fixed next start time: their cooldown begins when the entire task completes. Queueing, authentication, network delays and provider limits can postpone starts beyond the due time. Removing or retiring a watch cancels its outstanding work.
+A new watch is immediately eligible. Running tasks have no fixed next start time: their cooldown begins when the entire task completes. Queueing, authentication, network delays and provider limits can postpone starts beyond the due time. Removing or retiring a watch cancels its outstanding work. When validated discovery publishes a retained terminal PR as open, it atomically resumes collection under a new generation and queues an immediate full refresh. Manual removal and project/scope invalidation cannot resume automatically.
 
 Collector groups retain a stable PR/project identity across state changes. Each group exposes its latest attempt, last completion, next due time and cooldown; history contains all outcomes. Job detail includes phase events, repository receipts and the immutable returned PR snapshot. Old attempts that predate snapshot recording explicitly lack that evidence.
 

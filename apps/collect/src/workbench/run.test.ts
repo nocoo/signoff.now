@@ -469,13 +469,12 @@ describe("explicit repository discovery", () => {
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
 		expect(calls).toBe(1);
 	});
-	test("passes the worker cache boundary to provider discovery", async () => {
+	test("passes the ninety-day window to every provider discovery page", async () => {
 		const deps = discovery();
 		const claimTask = deps.api.claim;
 		deps.api.claim = async (...args) => ({
 			...(await claimTask(...args))!,
-			discoverySince: time - 30 * 86400,
-			discoveryCachedBefore: time - 86400,
+			discoverySince: time - 90 * 86400,
 		});
 		deps.api.repositories = async () => [
 			{ repository_id: "empty", state: "queued" },
@@ -486,6 +485,8 @@ describe("explicit repository discovery", () => {
 		deps.ado.getPage = async (value) => {
 			if (!value.includes("/pullrequests")) return original(value);
 			calls.push(new URL(value));
+			if (new URL(value).searchParams.has("continuationToken"))
+				return { data: { value: [] }, continuationToken: null };
 			const repositoryId = new URL(value).pathname
 				.split("/repositories/")[1]!
 				.split("/")[0]!;
@@ -509,9 +510,9 @@ describe("explicit repository discovery", () => {
 			};
 		};
 		expect((await runCollectionOnce(deps)).state).toBe("complete");
-		expect(calls).toHaveLength(2);
+		expect(calls).toHaveLength(4);
 		expect(calls[0]?.searchParams.get("searchCriteria.minTime")).toBe(
-			new Date((time - 30 * 86400) * 1000).toISOString(),
+			new Date((time - 90 * 86400) * 1000).toISOString(),
 		);
 		expect(calls[1]?.searchParams.has("searchCriteria.minTime")).toBe(true);
 	});

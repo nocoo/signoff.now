@@ -30,7 +30,7 @@ Closing the webpage does not stop the daemon. Hidden query blocks suspend automa
 10:06:20  PR A becomes eligible, subject to available worker capacity.
 ```
 
-Cooldown is a minimum wait after completion, not a freshness SLA. Task duration, queues and provider availability can make data older. Initial and deep discovery cover 90 days. Smart discovery always reads the first page, then stops after the page crossing its last successful creation-time boundary. It drains timestamp ties and continues full paging if observed order is not newest-first. Its provider window overlaps 30 days before the last successful discovery, capped at 90 days, to cover downtime. Older cached PRs remain readable. Only watched PRs receive periodic detailed checks. The separate 30-second status lane has been removed.
+Cooldown is a minimum wait after completion, not a freshness SLA. Task duration, queues and provider availability can make data older. Initial, routine and deep discovery paginate the complete 90-day creation window without cursor-based early stopping. Older cached PRs remain readable. Only watched PRs receive periodic detailed checks. A retained terminal watch resumes with a new generation and an immediate full-check job when validated discovery publishes it as open. Manually removed or invalidated watches never resume automatically. The separate 30-second status lane has been removed.
 
 ## 3. 时间字段的唯一含义
 

@@ -250,7 +250,7 @@ export async function resolveObservation(
 	return mapObservation(rows[0]);
 }
 
-const insertRefresh = `INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,message)
+export const insertRefresh = `INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,observation_id,observation_generation,message)
  SELECT lower(hex(randomblob(16))),p.id,p.revision,p.source,?, 'queued',?,?,?,'details',json_array(COALESCE(o.pull_id,?)),json_array(json_extract(o.ref_json,'$.repository.id')),o.id,o.generation,'Waiting to refresh watched PR'
  FROM pr_observations o JOIN projects p ON p.id=o.project_id AND p.source=o.source
  WHERE o.active=1 AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.observation_id=o.id AND j.observation_generation=o.generation AND j.summary_only=0 AND j.state IN (${ACTIVE_JOBS}))`;

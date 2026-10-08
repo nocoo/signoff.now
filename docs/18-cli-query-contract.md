@@ -184,7 +184,7 @@ Collector returns `listCooldownSeconds` and `detailCooldownSeconds`. Zero disabl
 
 discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；pullCount 是本次返回的窗口数量，不是仓库历史总量。单仓库完整结果与成功游标原子发布，失败仓库保留旧数据和边界，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
 
-Every discovery paginates all accessible PR states without individual PR requests. Creation-time cursors and the discovery `--full` option are removed. Full watched PR refreshes use an independent completion-based cooldown. See [16](16-scheduler-state-machine.md).
+Every discovery paginates all accessible PR states in the complete 90-day creation window without individual PR requests. Retained terminal watches resume with a new generation and an immediate full refresh when validated discovery publishes them as open; manually removed or invalidated watches never resume automatically. Creation-time cursors and the discovery `--full` option are removed. Full watched PR refreshes use an independent completion-based cooldown. See [16](16-scheduler-state-machine.md).
 
 对未终结任务，取消事务立即令整体 state=canceled，优先于未结算的 partial / failed，不等待在途请求。已结束的 repositories 项保留 succeeded / failed，尚未结束的项变成 canceled；所以“一个仓库已成功，另一个被取消”返回 canceled 和逐仓库结果。先前发布不因取消而回滚，项目删除 / 来源替换仍可按配置操作的语义删除缓存；旧任务摘要保留。迟到响应不得再发布。若任务先已终结，则后来的配置操作不改写其历史结果。
 

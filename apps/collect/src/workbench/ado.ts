@@ -45,15 +45,12 @@ export async function* discoverRepositoryPulls(
 	repo: RepoMeta,
 	now: number,
 	since = Math.max(0, now - DISCOVERY_HISTORY_DAYS * 86400),
-	cachedBefore?: number,
 ): AsyncGenerator<PullRequest[]> {
 	let skip = 0;
 	let token: string | null = null;
 	const tokens = new Set<string>();
 	const ids = new Set<number>();
 	const started = Date.now();
-	let previousCreatedAt = Number.POSITIVE_INFINITY;
-	let newestFirst = true;
 	for (;;) {
 		const summaryObservedAt = now + Math.max(0, (Date.now() - started) / 1000);
 		const page = await client.getPage(
@@ -84,8 +81,6 @@ export async function* discoverRepositoryPulls(
 					"bad_response",
 					"PR creation date is missing or invalid; retry discovery",
 				);
-			if (createdAt > previousCreatedAt) newestFirst = false;
-			previousCreatedAt = createdAt;
 			if (
 				raw.repository.id.toLowerCase() !== repo.id.toLowerCase() ||
 				(raw.repository.project?.id &&
@@ -120,12 +115,6 @@ export async function* discoverRepositoryPulls(
 					],
 				}),
 			);
-		if (
-			cachedBefore !== undefined &&
-			newestFirst &&
-			previousCreatedAt < cachedBefore
-		)
-			break;
 		if (page.continuationToken) {
 			if (tokens.has(page.continuationToken))
 				throw new AdoError(

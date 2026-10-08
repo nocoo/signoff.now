@@ -319,7 +319,6 @@ export type CollectionLane = z.infer<typeof collectionLaneSchema>;
 export const discoveryDepthSchema = z.enum(["smart", "deep"]);
 export type DiscoveryDepth = z.infer<typeof discoveryDepthSchema>;
 export const DISCOVERY_HISTORY_DAYS = 90;
-export const DISCOVERY_RECENT_DAYS = 30;
 export const collectionJobSchema = z.object({
 	id: name,
 	projectId: name,

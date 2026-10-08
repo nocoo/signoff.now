@@ -674,6 +674,24 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 		active: false,
 		stopReason: "completed",
 	});
+	const retired = (await watchList()).data[0]!;
+	await cli("discover", "--repo", repoUrl(repos[1]!));
+	expect((await execute()).state).toBe("complete");
+	expect((await watchList()).data[0]?.watch).toMatchObject({
+		id: retired.watch.id,
+		generation: retired.watch.generation + 1,
+		active: true,
+		stopReason: null,
+	});
+	expect((await execute()).state).toBe("complete");
+	await page.clock.fastForward(3100);
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
+	await page.getByRole("button", { name: "Open", exact: true }).click();
+	await page.getByRole("combobox", { name: "Draft", exact: true }).click();
+	await page
+		.getByRole("option", { name: "Include drafts", exact: true })
+		.click();
+	await expect(page.locator("tr[data-pull-id]")).toHaveCount(1);
 	await page.getByRole("button", { name: /^Watch PR #2 in/ }).click();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
 	expect((await watchList()).data).toEqual([]);

@@ -274,7 +274,6 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 						repo,
 						Date.now() / 1000,
 						claim.discoverySince,
-						claim.discoveryCachedBefore,
 					)) {
 						check();
 						await api.upload(claim, pulls);
