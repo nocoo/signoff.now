@@ -207,3 +207,10 @@ and membership combinations end to end, including removal and stale generations.
 During regression editing, a broad match initially placed the terminal assertions
 at the first empty-watch check, and a new test guessed a nonexistent ViewModel
 method. Inspect the exact fixture phase and exported API before editing tests.
+The E2E lane also exposed a JSON import that worked in Bun but prevented Node
+from loading the collector module; use the default JSON import with its type
+attribute. Overlapping E2E runs shared `test-results` and collided while writing
+trace artifacts despite isolated databases. Run browser lanes sequentially unless
+their output directories are isolated too. The focused watch lifecycle passed;
+the broader run still had focus/inference and collection-reload failures, so do
+not report that lane as fully passing.
