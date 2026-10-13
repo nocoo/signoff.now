@@ -1,6 +1,5 @@
 import type { DataSource, DirectoryData } from "@signoff/domain/insights";
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -12,6 +11,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { fetchDirectory, saveDirectoryEntity } from "@/models/directoryApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { DirectoryTeamsPage } from "./DirectoryPage";
 
 const workbench = vi.hoisted(() => ({
@@ -253,7 +253,7 @@ it("keeps the dialog open during a pending write and blocks selection changes", 
 	).toBe(true);
 	fireEvent.keyDown(dialog, { key: "Escape" });
 	expect(screen.getByRole("dialog")).toBe(dialog);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		finish({ id: "core" });
 	});
 	expect(screen.queryByRole("dialog")).toBeNull();

@@ -1,9 +1,10 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { AppShell } from "@/components/layout/app-shell";
 import { NAV_GROUPS } from "@/lib/navigation";
+import { awaitReactAct } from "@/test/reactAct";
 
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/viewmodels/SessionProvider", () => ({
@@ -51,23 +52,24 @@ it.each(
 			category: group.label,
 		})),
 	),
-)("marks the current page correctly in the only breadcrumb on $path", async ({
-	path,
-	title,
-	category,
-}) => {
-	const { container } = render(
-		<MemoryRouter initialEntries={[path]}>
-			<AppShell />
-		</MemoryRouter>,
-	);
-	await act(async () => {});
-	const breadcrumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" });
-	expect(breadcrumbs).toHaveLength(1);
-	const current = breadcrumbs[0]!.querySelector("[aria-current=page]");
-	expect(current?.textContent).toBe(title);
-	expect(breadcrumbs[0]!.textContent).toContain(category);
-	expect(
-		container.querySelectorAll("nav[aria-label=Breadcrumb] a"),
-	).toHaveLength(0);
-});
+)(
+	"marks the current page correctly in the only breadcrumb on $path",
+	async ({ path, title, category }) => {
+		const { container } = render(
+			<MemoryRouter initialEntries={[path]}>
+				<AppShell />
+			</MemoryRouter>,
+		);
+		await awaitReactAct(async () => {});
+		const breadcrumbs = screen.getAllByRole("navigation", {
+			name: "Breadcrumb",
+		});
+		expect(breadcrumbs).toHaveLength(1);
+		const current = breadcrumbs[0]!.querySelector("[aria-current=page]");
+		expect(current?.textContent).toBe(title);
+		expect(breadcrumbs[0]!.textContent).toContain(category);
+		expect(
+			container.querySelectorAll("nav[aria-label=Breadcrumb] a"),
+		).toHaveLength(0);
+	},
+);

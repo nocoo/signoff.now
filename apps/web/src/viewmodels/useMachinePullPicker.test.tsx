@@ -1,6 +1,8 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { loadMachinePulls } from "@/models/stateMachineApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useMachinePullPicker } from "./useMachinePullPicker";
 
 vi.mock("@/models/stateMachineApi", () => ({ loadMachinePulls: vi.fn() }));
@@ -41,18 +43,18 @@ it("loads one bounded page, coalesces scrolling, deduplicates results and stops 
 		{ search: "", watchedOnly: true, cursor: "next" },
 		expect.any(AbortSignal),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		pending.resolve({ data: [item(2), item(1)], nextCursor: null });
 		await read;
 	});
 	expect(result.current.items.map((pr) => pr.number)).toEqual([3, 2, 1]);
-	await act(() => result.current.loadMore());
+	await awaitReactAct(() => result.current.loadMore());
 	expect(loadMachinePulls).toHaveBeenCalledTimes(2);
 	vi.mocked(loadMachinePulls).mockResolvedValueOnce({
 		data: [item(4)],
 		nextCursor: null,
 	});
-	await act(() => result.current.reload());
+	await awaitReactAct(() => result.current.reload());
 	expect(result.current.items.map((pr) => pr.number)).toEqual([4]);
 });
 it("debounces searches and fences late pages when search, watch filter or source changes", async () => {
@@ -77,7 +79,9 @@ it("debounces searches and fences late pages when search, watch filter or source
 	rerender({ search: "42", watchedOnly: false, source: "demo" });
 	expect(result.current.items).toEqual([]);
 	expect(originalSignal.aborted).toBe(true);
-	await act(async () => late.resolve({ data: [item(1)], nextCursor: "old" }));
+	await awaitReactAct(async () =>
+		late.resolve({ data: [item(1)], nextCursor: "old" }),
+	);
 	await waitFor(() => expect(result.current.items[0]?.number).toBe(42));
 	expect(loadMachinePulls).toHaveBeenCalledTimes(2);
 	expect(loadMachinePulls).toHaveBeenLastCalledWith(
@@ -96,10 +100,10 @@ it("retains loaded choices after a page error and retries the same cursor", asyn
 		.mockResolvedValueOnce({ data: [item(1)], nextCursor: null });
 	const { result } = renderHook(() => useMachinePullPicker(scope, "", false));
 	await waitFor(() => expect(result.current.items).toHaveLength(1));
-	await act(() => result.current.loadMore());
+	await awaitReactAct(() => result.current.loadMore());
 	expect(result.current.error).toBe("Offline");
 	expect(result.current.items).toEqual([item(2)]);
-	await act(() => result.current.loadMore());
+	await awaitReactAct(() => result.current.loadMore());
 	expect(result.current.items).toHaveLength(2);
 	expect(result.current.error).toBeNull();
 	expect(
@@ -117,12 +121,12 @@ it("waits for a project and reports first-page failures without leaving loading 
 		({ projectId }) => useMachinePullPicker({ ...scope, projectId }, "", true),
 		{ initialProps: { projectId: "" } },
 	);
-	await act(() => result.current.loadMore());
+	await awaitReactAct(() => result.current.loadMore());
 	expect(loadMachinePulls).not.toHaveBeenCalled();
 	rerender({ projectId: "p" });
 	await waitFor(() => expect(result.current.error).toBe("Unable to load PRs"));
 	expect(result.current.loading).toBe(false);
-	await act(() => result.current.loadMore());
+	await awaitReactAct(() => result.current.loadMore());
 	expect(result.current.error).toBeNull();
 	expect(result.current.hasMore).toBe(false);
 });

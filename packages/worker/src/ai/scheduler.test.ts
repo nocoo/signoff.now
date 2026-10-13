@@ -249,90 +249,87 @@ test("independent evidence requests run concurrently with a fixed bound", async 
 	expect(calls).toBe(4);
 });
 
-test.each([
-	"conflicts",
-	"feature",
-	"missing",
-	"invalidated",
-])("%s bypasses Jev before inference", async (kind) => {
-	await setup();
-	if (kind === "conflicts") change("mergeable", "conflicts");
-	if (kind === "feature") change("targetBranch", "feature/test");
-	if (kind === "missing") change("checksObservedAt", null);
-	if (kind === "invalidated") change("checksInvalidated", true);
-	let calls = 0;
-	await tick(
-		now,
-		fake(() => {
-			calls++;
-			return response();
-		}),
-	);
-	expect(calls).toBe(0);
-	const result = await queryObservations(
-		sqlite.db,
-		"cli",
-		parseQuery(new URLSearchParams()),
-		now,
-	);
-	expect(
-		(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
-			.phase,
-	).toBe(["missing", "invalidated"].includes(kind) ? "collecting" : "decided");
-	if (kind === "conflicts")
+test.each(["conflicts", "feature", "missing", "invalidated"])(
+	"%s bypasses Jev before inference",
+	async (kind) => {
+		await setup();
+		if (kind === "conflicts") change("mergeable", "conflicts");
+		if (kind === "feature") change("targetBranch", "feature/test");
+		if (kind === "missing") change("checksObservedAt", null);
+		if (kind === "invalidated") change("checksInvalidated", true);
+		let calls = 0;
+		await tick(
+			now,
+			fake(() => {
+				calls++;
+				return response();
+			}),
+		);
+		expect(calls).toBe(0);
+		const result = await queryObservations(
+			sqlite.db,
+			"cli",
+			parseQuery(new URLSearchParams()),
+			now,
+		);
 		expect(
 			(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
-				.state,
-		).toBe("conflict");
-	if (kind === "feature")
-		expect(
-			(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
-				.state,
-		).toBe("skipped");
-});
+				.phase,
+		).toBe(
+			["missing", "invalidated"].includes(kind) ? "collecting" : "decided",
+		);
+		if (kind === "conflicts")
+			expect(
+				(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
+					.state,
+			).toBe("conflict");
+		if (kind === "feature")
+			expect(
+				(Array.isArray(result.data) ? result.data[0] : result.data)?.readiness
+					.state,
+			).toBe("skipped");
+	},
+);
 
-test.each([
-	"facts",
-	"rules",
-	"watch",
-	"key",
-	"clock",
-	"stage",
-])("late response handles %s changes without exposing obsolete judgments", async (kind) => {
-	const watch = await setup();
-	await tick(
-		now,
-		fake(async () => {
-			if (kind === "facts") change("draft", true);
-			if (kind === "rules")
-				sqlite.raw
-					.query(
-						"INSERT INTO ai_rules(scope,revision,text) VALUES('common',1,'Review carefully')",
-					)
-					.run();
-			if (kind === "watch") {
-				await removeObservation(
-					sqlite.db,
-					"cli",
-					watch.id,
-					watch.generation,
-					now + 1,
-				);
-				await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now + 2);
-			}
-			if (kind === "key")
-				sqlite.raw.query("UPDATE ai_settings SET revision=revision+1").run();
-			if (kind === "clock") change("observedAt", now + 2);
-			if (kind === "stage")
-				change("builds[0].stages[0].detail", "A different task failed");
-			return response("attention");
-		}),
-	);
-	expect(row().status).toBe(
-		["clock", "stage"].includes(kind) ? "complete" : "pending",
-	);
-	if (!["clock", "stage"].includes(kind)) expect(row().result_json).toBeNull();
-});
+test.each(["facts", "rules", "watch", "key", "clock", "stage"])(
+	"late response handles %s changes without exposing obsolete judgments",
+	async (kind) => {
+		const watch = await setup();
+		await tick(
+			now,
+			fake(async () => {
+				if (kind === "facts") change("draft", true);
+				if (kind === "rules")
+					sqlite.raw
+						.query(
+							"INSERT INTO ai_rules(scope,revision,text) VALUES('common',1,'Review carefully')",
+						)
+						.run();
+				if (kind === "watch") {
+					await removeObservation(
+						sqlite.db,
+						"cli",
+						watch.id,
+						watch.generation,
+						now + 1,
+					);
+					await addObservation(sqlite.db, "cli", { pullId: "pull-1" }, now + 2);
+				}
+				if (kind === "key")
+					sqlite.raw.query("UPDATE ai_settings SET revision=revision+1").run();
+				if (kind === "clock") change("observedAt", now + 2);
+				if (kind === "stage")
+					change("builds[0].stages[0].detail", "A different task failed");
+				return response("attention");
+			}),
+		);
+		expect(row().status).toBe(
+			["clock", "stage"].includes(kind) ? "complete" : "pending",
+		);
+		if (!["clock", "stage"].includes(kind))
+			expect(row().result_json).toBeNull();
+	},
+);
 
 test("read-only HTTP projections share currentness before scheduler reconciliation", async () => {
 	await setup();
@@ -425,16 +422,17 @@ test("missing credentials fail operationally and a restored key retries without 
 	expect(row().status).toBe("complete");
 });
 
-test.each(
-	Object.keys(CLASSIFICATION) as (keyof typeof CLASSIFICATION)[],
-)("Jev's valid %s choice is authoritative", async (kind) => {
-	await setup();
-	await tick(
-		now,
-		fake(() => response(kind)),
-	);
-	expect(evaluationOutput(row(), true).current?.kind).toBe(kind);
-});
+test.each(Object.keys(CLASSIFICATION) as (keyof typeof CLASSIFICATION)[])(
+	"Jev's valid %s choice is authoritative",
+	async (kind) => {
+		await setup();
+		await tick(
+			now,
+			fake(() => response(kind)),
+		);
+		expect(evaluationOutput(row(), true).current?.kind).toBe(kind);
+	},
+);
 
 test("encrypts at rest and rejects missing, corrupt or unavailable credentials", async () => {
 	const encrypted = await sealKey("test-key", master);
@@ -446,29 +444,30 @@ test("encrypts at rest and rejects missing, corrupt or unavailable credentials",
 	await expect(openKey(encrypted, undefined)).rejects.toThrow("not configured");
 });
 
-test.each([
-	401, 403, 429, 500,
-])("provider HTTP %s remains sanitized", async (status) => {
-	await expect(
-		evaluateJev(
-			"secret",
-			{},
-			"f",
-			now,
-			(async () =>
-				new Response("secret echoed by upstream", {
-					status,
-					headers: { "retry-after": "7" },
-				})) as unknown as typeof fetch,
-		),
-	).rejects.toThrow(
-		status === 401 || status === 403
-			? "rejected"
-			: status === 429
-				? "rate limit"
-				: `HTTP ${status}`,
-	);
-});
+test.each([401, 403, 429, 500])(
+	"provider HTTP %s remains sanitized",
+	async (status) => {
+		await expect(
+			evaluateJev(
+				"secret",
+				{},
+				"f",
+				now,
+				(async () =>
+					new Response("secret echoed by upstream", {
+						status,
+						headers: { "retry-after": "7" },
+					})) as unknown as typeof fetch,
+			),
+		).rejects.toThrow(
+			status === 401 || status === 403
+				? "rejected"
+				: status === 429
+					? "rate limit"
+					: `HTTP ${status}`,
+		);
+	},
+);
 test("invalid typed responses, transport failures and oversized state fail explicitly", async () => {
 	await expect(
 		evaluateJev("key", {}, "f", now, (async () =>

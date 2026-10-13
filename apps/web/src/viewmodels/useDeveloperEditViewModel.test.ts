@@ -1,6 +1,8 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Developer } from "@/models/entities";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	draftFrom,
 	useDeveloperEditViewModel,
@@ -175,7 +177,7 @@ describe("useDeveloperEditViewModel", () => {
 		act(() => {
 			result.current.setField("alias", "has@at");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onSubmit).not.toHaveBeenCalled();
@@ -184,7 +186,7 @@ describe("useDeveloperEditViewModel", () => {
 
 	it("submits and signals done", async () => {
 		const { result, onSubmit, onDone } = mount(dev());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(true);
 		});
 		expect(onSubmit).toHaveBeenCalledWith(result.current.draft);
@@ -195,7 +197,7 @@ describe("useDeveloperEditViewModel", () => {
 		// Closing would throw away the edits along with the reason.
 		const onSubmit = vi.fn().mockRejectedValue(new Error("alias taken"));
 		const { result, onDone } = mount(dev(), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onDone).not.toHaveBeenCalled();
@@ -205,7 +207,7 @@ describe("useDeveloperEditViewModel", () => {
 	it("coerces a non-Error rejection", async () => {
 		const onSubmit = vi.fn().mockRejectedValue("nope");
 		const { result } = mount(dev(), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toBe("Save failed");
@@ -227,12 +229,12 @@ describe("useDeveloperEditViewModel", () => {
 		});
 		await waitFor(() => expect(result.current.busy).toBe(true));
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onSubmit).toHaveBeenCalledTimes(1);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			release();
 			await first;
 		});
@@ -241,7 +243,7 @@ describe("useDeveloperEditViewModel", () => {
 	it("clears busy and error when switching rows mid-edit", async () => {
 		const onSubmit = vi.fn().mockRejectedValue(new Error("boom"));
 		const { result, rerender } = mount(dev({ id: "d1" }), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toBe("boom");

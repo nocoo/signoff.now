@@ -3,7 +3,8 @@ import {
 	type DirectoryData,
 	identityKey,
 } from "@signoff/domain/insights";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import {
@@ -16,6 +17,7 @@ import {
 	saveDirectoryEntity,
 	setDirectoryArchived,
 } from "@/models/directoryApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useDirectoryViewModel } from "./useDirectoryViewModel";
 
 vi.mock("@/models/directoryApi", () => ({
@@ -174,7 +176,7 @@ it("ignores old-source success and errors even after switching back to that sour
 	rerender({ source: "demo" });
 	rerender({ source: "cli" });
 	await waitFor(() => expect(result.current.loading).toBe(false));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		first.resolve({ ...initial, members: [] });
 		second.reject(new Error("old sample error"));
 	});
@@ -190,22 +192,22 @@ it("keeps the newest reload and last good directory after a failed reload", asyn
 	act(() => {
 		earlier = result.current.reload();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.reload();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		old.resolve({ ...initial, members: [] });
 		await earlier;
 	});
 	expect(result.current.members).toHaveLength(1);
 	vi.mocked(fetchDirectory).mockRejectedValueOnce("failed");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.reload()).toBe(false);
 	});
 	expect(result.current.error).toBe("Could not load directory");
 	expect(result.current.members).toHaveLength(1);
 	vi.mocked(fetchDirectory).mockRejectedValueOnce(new Error("Offline"));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.reload();
 	});
 	expect(result.current.error).toBe("Offline");
@@ -214,14 +216,14 @@ it("keeps the newest reload and last good directory after a failed reload", asyn
 it("edits complete member drafts, validates before writing, and clears a closed draft", async () => {
 	const { result } = await mount();
 	act(() => result.current.updateDraft({ name: "ignored" }));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(false);
 	});
 	act(() => result.current.edit("missing"));
 	expect(result.current.editor).toBeNull();
 	act(() => result.current.edit("ada"));
 	act(() => result.current.updateDraft({ name: " " }));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(false);
 	});
 	expect(result.current.formError).toBeTruthy();
@@ -230,7 +232,7 @@ it("edits complete member drafts, validates before writing, and clears a closed 
 		result.current.updateDraft({ name: " Ada Updated ", avatarUrl: null }),
 	);
 	expect(result.current.formError).toBeNull();
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(true);
 	});
 	expect(saveDirectoryEntity).toHaveBeenCalledWith(
@@ -286,7 +288,7 @@ it("follows an exact discovered author or links that account to an existing memb
 		id: null,
 		draft: { name: "Guest", identityKeys: [freeKey] },
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(true);
 	});
 	expect(saveDirectoryEntity).toHaveBeenCalledWith(
@@ -314,7 +316,7 @@ it("blocks assigning an account already owned by another member or removed from 
 			identityKeys: [linkedKey],
 		}),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(false);
 	});
 	expect(result.current.formError).toContain("already linked");
@@ -323,7 +325,7 @@ it("blocks assigning an account already owned by another member or removed from 
 			identityKeys: [identityKey("ado", "org", "gone")],
 		}),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(false);
 	});
 	expect(result.current.formError).toContain("no longer available");
@@ -336,7 +338,7 @@ it("prevents duplicate saves, changing editors, and closing during an in-flight 
 	vi.mocked(saveDirectoryEntity).mockReturnValueOnce(write.promise);
 	act(() => result.current.edit("ada"));
 	let pending!: Promise<boolean>;
-	await act(async () => {
+	await awaitReactAct(async () => {
 		pending = result.current.save();
 		expect(await result.current.save()).toBe(false);
 		result.current.closeEditor();
@@ -352,7 +354,7 @@ it("prevents duplicate saves, changing editors, and closing during an in-flight 
 		draft: { name: "Ada Lovelace" },
 	});
 	expect(saveDirectoryEntity).toHaveBeenCalledTimes(1);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		write.resolve({ id: "ada" });
 		await pending;
 	});
@@ -366,18 +368,18 @@ it("keeps drafts on write errors but closes a successful create even when its re
 	vi.mocked(saveDirectoryEntity).mockRejectedValueOnce(
 		new Error("Name is taken"),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(false);
 	});
 	expect(result.current.formError).toBe("Name is taken");
 	expect(result.current.editor?.draft.name).toBe("New member");
 	vi.mocked(saveDirectoryEntity).mockRejectedValueOnce("failed");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.save();
 	});
 	expect(result.current.formError).toBe("Could not save changes");
 	vi.mocked(fetchDirectory).mockRejectedValueOnce(new Error("Read offline"));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(true);
 	});
 	expect(result.current.editor).toBeNull();
@@ -405,14 +407,14 @@ it("does not let an old mutation update the new source or unlock a new-source sa
 	act(() => {
 		currentSave = result.current.save();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		old.reject(new Error("old failure"));
 		expect(await oldSave).toBe(false);
 	});
 	expect(result.current.busy).toBe(true);
 	expect(result.current.formError).toBeNull();
 	expect(result.current.editor?.id).toBe("ada");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		current.resolve({ id: "ada" });
 		await currentSave;
 	});
@@ -428,10 +430,10 @@ it("does not let an old mutation update the new source or unlock a new-source sa
 
 it("archives/restores selected rows, reporting errors and rejecting stale IDs", async () => {
 	const { result } = await mount();
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.setArchived("missing", true)).toBe(false);
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.setArchived("ada", true)).toBe(true);
 	});
 	expect(setDirectoryArchived).toHaveBeenLastCalledWith(
@@ -441,7 +443,7 @@ it("archives/restores selected rows, reporting errors and rejecting stale IDs", 
 		true,
 		42,
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.setArchived("archived", false)).toBe(true);
 	});
 	expect(setDirectoryArchived).toHaveBeenLastCalledWith(
@@ -454,12 +456,12 @@ it("archives/restores selected rows, reporting errors and rejecting stale IDs", 
 	vi.mocked(setDirectoryArchived).mockRejectedValueOnce(
 		new Error("Cannot archive"),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.setArchived("ada", true)).toBe(false);
 	});
 	expect(result.current.error).toBe("Cannot archive");
 	vi.mocked(setDirectoryArchived).mockRejectedValueOnce(null);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.setArchived("ada", true);
 	});
 	expect(result.current.error).toBe("Could not save changes");
@@ -470,7 +472,7 @@ it("submits team memberships and tag colors through their matching contracts", a
 	act(() => result.current.edit("core"));
 	act(() => result.current.chooseFollowMember("ada"));
 	act(() => result.current.updateDraft({ memberIds: [], name: "Core edited" }));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.save();
 	});
 	expect(saveDirectoryEntity).toHaveBeenLastCalledWith(
@@ -491,7 +493,7 @@ it("submits team memberships and tag colors through their matching contracts", a
 	act(() =>
 		result.current.updateDraft({ name: "Front end", color: "#aabbcc" }),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.save();
 	});
 	expect(saveDirectoryEntity).toHaveBeenLastCalledWith(
@@ -516,7 +518,7 @@ it("does not publish or reload after unmounting an in-flight save", async () => 
 		pending = result.current.save();
 	});
 	unmount();
-	await act(async () => {
+	await awaitReactAct(async () => {
 		write.resolve({ id: "ada" });
 		expect(await pending).toBe(false);
 	});
@@ -528,7 +530,7 @@ it("keeps the editor's original revision after reload and preserves its draft on
 	act(() => result.current.edit("ada"));
 	act(() => result.current.updateDraft({ name: "My unsaved name" }));
 	vi.mocked(fetchDirectory).mockResolvedValueOnce({ ...initial, revision: 43 });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.reload();
 	});
 	expect(result.current.data?.revision).toBe(43);
@@ -536,7 +538,7 @@ it("keeps the editor's original revision after reload and preserves its draft on
 	vi.mocked(saveDirectoryEntity).mockRejectedValueOnce(
 		new ApiError("Directory version conflict", 409),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.save()).toBe(false);
 	});
 	expect(saveDirectoryEntity).toHaveBeenLastCalledWith(
@@ -564,14 +566,14 @@ it("keeps the initial follow revision when choosing an existing member or return
 	act(() => result.current.follow(freeKey));
 	expect(result.current.editor?.revision).toBe(42);
 	vi.mocked(fetchDirectory).mockResolvedValueOnce({ ...initial, revision: 43 });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.reload();
 	});
 	act(() => result.current.chooseFollowMember("ada"));
 	expect(result.current.editor).toMatchObject({ id: "ada", revision: 42 });
 	act(() => result.current.chooseFollowMember(null));
 	expect(result.current.editor).toMatchObject({ id: null, revision: 42 });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.save();
 	});
 	expect(saveDirectoryEntity).toHaveBeenLastCalledWith(
@@ -588,7 +590,7 @@ it("archives the displayed revision, surfaces a conflict, and uses a newer versi
 	vi.mocked(setDirectoryArchived).mockRejectedValueOnce(
 		new ApiError("Directory version conflict", 409),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.setArchived("ada", true)).toBe(false);
 	});
 	expect(setDirectoryArchived).toHaveBeenLastCalledWith(
@@ -600,10 +602,10 @@ it("archives the displayed revision, surfaces a conflict, and uses a newer versi
 	);
 	expect(result.current.error).toMatch(/reload/i);
 	vi.mocked(fetchDirectory).mockResolvedValueOnce({ ...initial, revision: 43 });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.reload();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.setArchived("ada", true);
 	});
 	expect(setDirectoryArchived).toHaveBeenLastCalledWith(
@@ -620,59 +622,59 @@ it.each([
 	{ operation: "archive", readFirst: true },
 	{ operation: "save", readFirst: false },
 	{ operation: "save", readFirst: true },
-] as const)("releases a superseded reload after a rejected $operation (read first: $readFirst)", async ({
-	operation,
-	readFirst,
-}) => {
-	const { result } = await mount();
-	if (operation === "save") act(() => result.current.edit("ada"));
-	const read = deferred<DirectoryData>();
-	const write = deferred<never>();
-	vi.mocked(fetchDirectory).mockReturnValueOnce(read.promise);
-	const writeApi =
-		operation === "save" ? saveDirectoryEntity : setDirectoryArchived;
-	vi.mocked(writeApi).mockReturnValueOnce(write.promise);
-	let reloading!: Promise<boolean>;
-	let mutating!: Promise<boolean>;
-	act(() => {
-		reloading = result.current.reload();
-	});
-	expect(result.current.refreshing).toBe(true);
-	act(() => {
-		mutating =
-			operation === "save"
-				? result.current.save()
-				: result.current.setArchived("ada", true);
-	});
-	if (readFirst) {
-		await act(async () => {
-			read.resolve({ ...initial, members: [] });
-			expect(await reloading).toBe(false);
+] as const)(
+	"releases a superseded reload after a rejected $operation (read first: $readFirst)",
+	async ({ operation, readFirst }) => {
+		const { result } = await mount();
+		if (operation === "save") act(() => result.current.edit("ada"));
+		const read = deferred<DirectoryData>();
+		const write = deferred<never>();
+		vi.mocked(fetchDirectory).mockReturnValueOnce(read.promise);
+		const writeApi =
+			operation === "save" ? saveDirectoryEntity : setDirectoryArchived;
+		vi.mocked(writeApi).mockReturnValueOnce(write.promise);
+		let reloading!: Promise<boolean>;
+		let mutating!: Promise<boolean>;
+		act(() => {
+			reloading = result.current.reload();
 		});
-	}
-	await act(async () => {
-		write.reject(new Error("Write rejected"));
-		expect(await mutating).toBe(false);
-	});
-	if (!readFirst) {
-		await act(async () => {
-			read.resolve({ ...initial, members: [] });
-			expect(await reloading).toBe(false);
+		expect(result.current.refreshing).toBe(true);
+		act(() => {
+			mutating =
+				operation === "save"
+					? result.current.save()
+					: result.current.setArchived("ada", true);
 		});
-	}
-	expect(result.current.refreshing).toBe(false);
-	expect(result.current.busy).toBe(false);
-	expect(result.current.members.map((member) => member.id)).toEqual(["ada"]);
-	expect(
-		operation === "save" ? result.current.formError : result.current.error,
-	).toBe("Write rejected");
-	if (operation === "save")
-		expect(result.current.editor).toMatchObject({ id: "ada", revision: 42 });
-	await act(async () => {
-		expect(await result.current.reload()).toBe(true);
-	});
-	expect(result.current.refreshing).toBe(false);
-});
+		if (readFirst) {
+			await awaitReactAct(async () => {
+				read.resolve({ ...initial, members: [] });
+				expect(await reloading).toBe(false);
+			});
+		}
+		await awaitReactAct(async () => {
+			write.reject(new Error("Write rejected"));
+			expect(await mutating).toBe(false);
+		});
+		if (!readFirst) {
+			await awaitReactAct(async () => {
+				read.resolve({ ...initial, members: [] });
+				expect(await reloading).toBe(false);
+			});
+		}
+		expect(result.current.refreshing).toBe(false);
+		expect(result.current.busy).toBe(false);
+		expect(result.current.members.map((member) => member.id)).toEqual(["ada"]);
+		expect(
+			operation === "save" ? result.current.formError : result.current.error,
+		).toBe("Write rejected");
+		if (operation === "save")
+			expect(result.current.editor).toMatchObject({ id: "ada", revision: 42 });
+		await awaitReactAct(async () => {
+			expect(await result.current.reload()).toBe(true);
+		});
+		expect(result.current.refreshing).toBe(false);
+	},
+);
 
 it("keeps a newer read refreshing when an earlier archive fails", async () => {
 	const { result } = await mount();
@@ -695,17 +697,17 @@ it("keeps a newer read refreshing when an earlier archive fails", async () => {
 	act(() => {
 		newRead = result.current.reload();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		write.reject(new Error("Archive rejected"));
 		await archiving;
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		obsolete.reject(new Error("Old read rejected"));
 		expect(await oldRead).toBe(false);
 	});
 	expect(result.current.busy).toBe(false);
 	expect(result.current.refreshing).toBe(true);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		latest.resolve({ ...initial, revision: 43 });
 		expect(await newRead).toBe(true);
 	});
@@ -731,19 +733,19 @@ it("waits for a successful save's follow-up read without letting an obsolete rea
 	act(() => {
 		saving = result.current.save();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		write.resolve({ id: "ada" });
 	});
 	expect(result.current.editor).toBeNull();
 	expect(result.current.busy).toBe(true);
 	expect(result.current.refreshing).toBe(true);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		obsolete.resolve({ ...initial, members: [] });
 		expect(await oldRead).toBe(false);
 	});
 	expect(result.current.refreshing).toBe(true);
 	expect(result.current.busy).toBe(true);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		latest.resolve({ ...initial, revision: 43 });
 		expect(await saving).toBe(true);
 	});
@@ -770,11 +772,11 @@ it("does not clear a new source's loading state when an old read and archive fai
 		archiving = result.current.setArchived("ada", true);
 	});
 	rerender({ source: "demo", page: "members" });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		write.reject(new Error("Old archive rejected"));
 		await archiving;
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		old.reject(new Error("Old read rejected"));
 		await reloading;
 	});
@@ -782,7 +784,7 @@ it("does not clear a new source's loading state when an old read and archive fai
 	expect(result.current.loading).toBe(true);
 	expect(result.current.refreshing).toBe(true);
 	expect(result.current.error).toBeNull();
-	await act(async () => {
+	await awaitReactAct(async () => {
 		sample.resolve({ ...initial, source: "demo", revision: 50 });
 	});
 	expect(result.current.data?.source).toBe("demo");

@@ -629,9 +629,11 @@ export async function directoryBlockRoute(c: Context<AppEnv>) {
 		return c.json({
 			ok: true,
 			blockedContributorKeys: (
-				result[2]?.results as { contributor_key: string }[]
+				(result[2]?.results ?? []) as { contributor_key: string }[]
 			).map((row) => row.contributor_key),
-			revision: (result[3]?.results[0] as { revision: number }).revision,
+			revision:
+				(result[3]?.results?.[0] as { revision: number } | undefined)
+					?.revision ?? 0,
 		});
 	} catch (error) {
 		const conflict = writeConflict(error);

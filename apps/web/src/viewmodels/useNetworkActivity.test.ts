@@ -1,6 +1,8 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { apiFetch } from "@/lib/api";
+import { awaitReactAct } from "@/test/reactAct";
 import { useNetworkActivity } from "./useNetworkActivity";
 
 vi.mock("@/lib/api", async (original) => ({
@@ -22,19 +24,19 @@ test("reads local counts every ten seconds, pauses hidden and refreshes on retur
 		buckets: [{ at: 0, adoDiscovery: 1, adoDetails: 2, adoChecks: 3, jev: 4 }],
 	});
 	const { result } = renderHook(useNetworkActivity);
-	await act(async () => {});
+	await awaitReactAct(async () => {});
 	expect(result.current.data?.buckets[0]?.jev).toBe(4);
 	expect(apiFetch).toHaveBeenCalledTimes(1);
-	await act(() => vi.advanceTimersByTimeAsync(9999));
+	await awaitReactAct(() => vi.advanceTimersByTimeAsync(9999));
 	expect(apiFetch).toHaveBeenCalledTimes(1);
-	await act(() => vi.advanceTimersByTimeAsync(1));
+	await awaitReactAct(() => vi.advanceTimersByTimeAsync(1));
 	expect(apiFetch).toHaveBeenCalledTimes(2);
 	visibility.mockReturnValue("hidden");
 	act(() => document.dispatchEvent(new Event("visibilitychange")));
-	await act(() => vi.advanceTimersByTimeAsync(60000));
+	await awaitReactAct(() => vi.advanceTimersByTimeAsync(60000));
 	expect(apiFetch).toHaveBeenCalledTimes(2);
 	visibility.mockReturnValue("visible");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		document.dispatchEvent(new Event("visibilitychange"));
 	});
 	expect(apiFetch).toHaveBeenCalledTimes(3);

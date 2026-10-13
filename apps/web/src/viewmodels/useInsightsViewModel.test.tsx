@@ -3,9 +3,11 @@ import {
 	type DirectoryData,
 	defaultContributionFilters,
 } from "@signoff/domain/insights";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchDirectory } from "@/models/directoryApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useInsightsViewModel } from "./useInsightsViewModel";
 
 vi.mock("@/models/directoryApi", () => ({ fetchDirectory: vi.fn() }));
@@ -28,26 +30,23 @@ beforeEach(() => {
 });
 
 describe("insights filters and directory scope", () => {
-	it.each([
-		"null",
-		"7",
-		'"saved"',
-		"[]",
-		'{"includeDraft":true}',
-	])("restores page defaults from incomplete or non-object storage: %s", async (stored) => {
-		localStorage.setItem("signoff-insights-filters:cli", stored);
-		const { result } = renderHook(() => useInsightsViewModel("cli"));
-		expect(result.current.filters.from).toBe(
-			defaultContributionFilters("cli").from,
-		);
-		expect(result.current.filters.to).toBe(
-			defaultContributionFilters("cli").to,
-		);
-		expect(result.current.filters.includeDraft).toBe(
-			stored.includes("includeDraft"),
-		);
-		await waitFor(() => expect(result.current.loading).toBe(false));
-	});
+	it.each(["null", "7", '"saved"', "[]", '{"includeDraft":true}'])(
+		"restores page defaults from incomplete or non-object storage: %s",
+		async (stored) => {
+			localStorage.setItem("signoff-insights-filters:cli", stored);
+			const { result } = renderHook(() => useInsightsViewModel("cli"));
+			expect(result.current.filters.from).toBe(
+				defaultContributionFilters("cli").from,
+			);
+			expect(result.current.filters.to).toBe(
+				defaultContributionFilters("cli").to,
+			);
+			expect(result.current.filters.includeDraft).toBe(
+				stored.includes("includeDraft"),
+			);
+			await waitFor(() => expect(result.current.loading).toBe(false));
+		},
+	);
 	it("persists every filter separately by source and page, with no draft default", async () => {
 		const { result, rerender, unmount } = renderHook(
 			({ source }) => useInsightsViewModel(source),
@@ -138,16 +137,16 @@ describe("insights filters and directory scope", () => {
 		);
 		rerender({ source: "demo" });
 		await waitFor(() => expect(result.current.error).toBe("Network down"));
-		await act(async () => {
+		await awaitReactAct(async () => {
 			resolve(directory("cli"));
 		});
 		expect(result.current.directory).toBeNull();
 		fetch.mockRejectedValueOnce("Unavailable");
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.reloadDirectory();
 		});
 		expect(result.current.error).toBe("Could not load directory");
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.reloadDirectory();
 		});
 		expect(result.current.directory?.source).toBe("demo");
@@ -172,7 +171,7 @@ it("keeps directory controls available while a background refresh fails", async 
 	});
 	expect(vm.result.current.loading).toBe(false);
 	expect(vm.result.current.directory).toBe(cached);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		reject(new Error("Offline"));
 		await pending;
 	});

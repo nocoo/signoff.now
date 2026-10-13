@@ -77,58 +77,61 @@ describe("project readiness settings", () => {
 			providerName: "Κώδικας",
 			changes: { repositories: ["κΏΔΙκας", "new-repository"] },
 		},
-	])("Unicode-equivalent scope preserves cached PRs and watch generation: %j", async (input) => {
-		const project = seedProject(sqlite, {
-			projectKey: input.projectKey,
-			repositories: [input.configured],
-		});
-		const pull = seedPull(sqlite, {
-			repository: { id: "repo-1", name: input.providerName },
-		});
-		const watch = await addObservation(
-			sqlite.db,
-			"cli",
-			{ pullId: pull.id },
-			PR_TEST_NOW,
-		);
-		const response = await request(`/api/projects/${project.id}`, "PATCH", {
-			revision: project.revision,
-			...input.changes,
-		});
-		expect(response.status).toBe(200);
-		expect(
-			sqlite.raw
-				.query(
-					"SELECT active,generation,pull_id,stop_reason FROM pr_observations WHERE id=?",
-				)
-				.get(watch.observation.id),
-		).toEqual({
-			active: 1,
-			generation: 1,
-			pull_id: pull.id,
-			stop_reason: null,
-		});
-		expect(
-			sqlite.raw.query("SELECT COUNT(*) n FROM pull_requests").get(),
-		).toEqual({ n: 1 });
-		expect(
-			sqlite.raw.query("SELECT COUNT(*) n FROM workbench_repositories").get(),
-		).toEqual({ n: 1 });
-		const changed = projectSchema.parse(await response.json());
-		const removed = await request(`/api/projects/${project.id}`, "PATCH", {
-			revision: changed.revision,
-			repositories: ["truly-other-repository"],
-		});
-		expect(removed.status).toBe(200);
-		expect(
-			sqlite.raw
-				.query("SELECT active,stop_reason FROM pr_observations WHERE id=?")
-				.get(watch.observation.id),
-		).toEqual({ active: 0, stop_reason: "scope_changed" });
-		expect(
-			sqlite.raw.query("SELECT COUNT(*) n FROM pull_requests").get(),
-		).toEqual({ n: 0 });
-	});
+	])(
+		"Unicode-equivalent scope preserves cached PRs and watch generation: %j",
+		async (input) => {
+			const project = seedProject(sqlite, {
+				projectKey: input.projectKey,
+				repositories: [input.configured],
+			});
+			const pull = seedPull(sqlite, {
+				repository: { id: "repo-1", name: input.providerName },
+			});
+			const watch = await addObservation(
+				sqlite.db,
+				"cli",
+				{ pullId: pull.id },
+				PR_TEST_NOW,
+			);
+			const response = await request(`/api/projects/${project.id}`, "PATCH", {
+				revision: project.revision,
+				...input.changes,
+			});
+			expect(response.status).toBe(200);
+			expect(
+				sqlite.raw
+					.query(
+						"SELECT active,generation,pull_id,stop_reason FROM pr_observations WHERE id=?",
+					)
+					.get(watch.observation.id),
+			).toEqual({
+				active: 1,
+				generation: 1,
+				pull_id: pull.id,
+				stop_reason: null,
+			});
+			expect(
+				sqlite.raw.query("SELECT COUNT(*) n FROM pull_requests").get(),
+			).toEqual({ n: 1 });
+			expect(
+				sqlite.raw.query("SELECT COUNT(*) n FROM workbench_repositories").get(),
+			).toEqual({ n: 1 });
+			const changed = projectSchema.parse(await response.json());
+			const removed = await request(`/api/projects/${project.id}`, "PATCH", {
+				revision: changed.revision,
+				repositories: ["truly-other-repository"],
+			});
+			expect(removed.status).toBe(200);
+			expect(
+				sqlite.raw
+					.query("SELECT active,stop_reason FROM pr_observations WHERE id=?")
+					.get(watch.observation.id),
+			).toEqual({ active: 0, stop_reason: "scope_changed" });
+			expect(
+				sqlite.raw.query("SELECT COUNT(*) n FROM pull_requests").get(),
+			).toEqual({ n: 0 });
+		},
+	);
 	test("project scope resolution rejects a concurrent catalog change without partial pruning", async () => {
 		const project = seedProject(sqlite, { repositories: [] });
 		const pull = seedPull(sqlite);

@@ -1,12 +1,13 @@
 import {
-	act,
 	cleanup,
 	render,
 	renderHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	SessionProvider,
 	useSession,
@@ -63,13 +64,13 @@ it("reports load failures and recovers on reload", async () => {
 		}),
 	);
 	reply = () => Promise.reject("offline");
-	await act(() => result.current.reload());
+	await awaitReactAct(() => result.current.reload());
 	expect(result.current.state).toEqual({
 		status: "error",
 		message: "Could not load your session",
 	});
 	reply = () => Response.json(session);
-	await act(() => result.current.reload());
+	await awaitReactAct(() => result.current.reload());
 	expect(result.current.state.status).toBe("ready");
 });
 

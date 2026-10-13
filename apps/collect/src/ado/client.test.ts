@@ -263,13 +263,15 @@ describe("status handling", () => {
 		await c.get("https://dev.azure.com/acme/Other/_apis/git/repositories");
 		expect(commands).toHaveLength(2);
 		expect(commands[1]).toContain(tenant);
-		expect((calls[1]?.init as RequestInit).method).toBe("HEAD");
+		const headCall = calls[1] as (typeof calls)[number];
+		expect((headCall.init as RequestInit).method).toBe("HEAD");
 		expect(
-			(calls[1]?.init as { headers: Record<string, string> }).headers
+			(headCall.init as { headers: Record<string, string> }).headers
 				.authorization,
 		).toBeUndefined();
+		const tokenCall = calls[3] as (typeof calls)[number];
 		expect(
-			(calls[3]?.init as { headers: Record<string, string> }).headers
+			(tokenCall.init as { headers: Record<string, string> }).headers
 				.authorization,
 		).toBe("Bearer org-token");
 	});
@@ -302,7 +304,8 @@ describe("status handling", () => {
 			data: { value: [1] },
 			continuationToken: "opaque+/=",
 		});
-		expect((calls[0]?.init as RequestInit).redirect).toBe("manual");
+		const firstCall = calls[0] as (typeof calls)[number];
+		expect((firstCall.init as RequestInit).redirect).toBe("manual");
 	});
 	test("a persistent login redirect requires reauthentication", async () => {
 		const c = createAdoClient({
@@ -833,32 +836,35 @@ describe("authenticated avatar download", () => {
 		"https://dev.azure.com/other/_api/_common/identityImage?id=alice",
 		"https://dev.azure.com/acme/_api/_common/identityImage?id=alice&redirect=evil",
 		"https://dev.azure.com.evil.example/acme/_api/_common/identityImage?id=alice",
-	])("rejects an untrusted URL before acquiring credentials: %s", async (target) => {
-		const ado = createAdoClient({
-			exec: async () => {
-				throw new Error("Credentials must not be requested");
-			},
-			fetchFn: async () => {
-				throw new Error("Network must not be requested");
-			},
-		});
-		await expect(ado.getAvatar(target, "acme")).rejects.toMatchObject({
-			kind: "bad_request",
-		});
-	});
-	test.each([
-		"text/html",
-		"image/svg+xml",
-	])("rejects unsafe content type %s", async (contentType) => {
-		const ado = createAdoClient({
-			exec: okExec,
-			fetchFn: async () =>
-				new Response("body", { headers: { "content-type": contentType } }),
-		});
-		await expect(ado.getAvatar(url, "acme")).rejects.toMatchObject({
-			kind: "bad_response",
-		});
-	});
+	])(
+		"rejects an untrusted URL before acquiring credentials: %s",
+		async (target) => {
+			const ado = createAdoClient({
+				exec: async () => {
+					throw new Error("Credentials must not be requested");
+				},
+				fetchFn: async () => {
+					throw new Error("Network must not be requested");
+				},
+			});
+			await expect(ado.getAvatar(target, "acme")).rejects.toMatchObject({
+				kind: "bad_request",
+			});
+		},
+	);
+	test.each(["text/html", "image/svg+xml"])(
+		"rejects unsafe content type %s",
+		async (contentType) => {
+			const ado = createAdoClient({
+				exec: okExec,
+				fetchFn: async () =>
+					new Response("body", { headers: { "content-type": contentType } }),
+			});
+			await expect(ado.getAvatar(url, "acme")).rejects.toMatchObject({
+				kind: "bad_response",
+			});
+		},
+	);
 	test("bounds streamed bodies even without content-length", async () => {
 		let canceled = false;
 		const stream = new ReadableStream<Uint8Array>({

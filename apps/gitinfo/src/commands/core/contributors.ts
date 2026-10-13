@@ -14,8 +14,9 @@ function parseShortlog(output: string): GitAuthorSummary[] {
 	const lines = splitLines(output);
 	const results: GitAuthorSummary[] = [];
 
+	const linePattern = /^\s*(\d+)\t(.+?)\s+<([^>]+)>$/;
 	for (const line of lines) {
-		const match = line.match(/^\s*(\d+)\t(.+?)\s+<([^>]+)>$/);
+		const match = linePattern.exec(line);
 		if (!match) continue;
 		results.push({
 			name: match[2] as string,

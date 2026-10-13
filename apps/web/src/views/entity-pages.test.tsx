@@ -10,7 +10,6 @@
  */
 
 import {
-	act,
 	fireEvent,
 	render,
 	screen,
@@ -26,6 +25,7 @@ import {
 	listTags,
 	listTeams,
 } from "@/models/entitiesApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { DeveloperDialog } from "@/views/developers/DeveloperDialog";
 import { ReposPage } from "@/views/repos/ReposPage";
 import { TagsPage } from "@/views/tags/TagsPage";
@@ -154,7 +154,7 @@ describe("DeveloperDialog", () => {
 		expect((tag as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.keyDown(dialog, { key: "Escape" });
 		expect(onOpenChange).not.toHaveBeenCalled();
-		await act(async () => finishSave());
+		await awaitReactAct(async () => finishSave());
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
 });
