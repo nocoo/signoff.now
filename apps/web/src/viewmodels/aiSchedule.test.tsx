@@ -1,5 +1,7 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import { useAiScheduleViewModel } from "./useAiScheduleViewModel";
 
 const schedule = {
@@ -45,7 +47,7 @@ it("loads and saves schedule with its revision and reports CAS errors", async ()
 	await waitFor(() =>
 		expect(hook.result.current.data?.cooldownSeconds).toBe(300),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await hook.result.current.save(600);
 	});
 	expect(calls.find((c) => c.init?.method === "PUT")?.body).toEqual({
@@ -54,7 +56,7 @@ it("loads and saves schedule with its revision and reports CAS errors", async ()
 	});
 	reply = async () =>
 		Response.json({ error: "Changed; reload" }, { status: 409 });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await hook.result.current.save(60);
 	});
 	expect(hook.result.current.mutationError).toBe("Changed; reload");
@@ -67,11 +69,11 @@ it("saving waits for data and guards concurrent writes", async () => {
 			release = r;
 		});
 	const hook = renderHook(() => useAiScheduleViewModel("demo"));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await hook.result.current.save(600);
 	});
 	expect(calls.some((c) => c.init?.method === "PUT")).toBe(false);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		release(Response.json(schedule));
 	});
 	await waitFor(() => expect(hook.result.current.data).not.toBeNull());
@@ -79,12 +81,12 @@ it("saving waits for data and guards concurrent writes", async () => {
 	act(() => {
 		save = hook.result.current.save(600);
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await hook.result.current.save(60);
 	});
 	expect(calls.filter((c) => c.init?.method === "PUT")).toHaveLength(1);
 	reply = async () => Response.json(schedule);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		release(Response.json({ saved: true }));
 		await save;
 	});

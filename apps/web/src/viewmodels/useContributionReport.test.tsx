@@ -6,12 +6,14 @@ import {
 	type DirectoryData,
 	repositoryKey,
 } from "@signoff/domain/insights";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { fetchContributionReport } from "@/models/contributionsApi";
 import { discover, loadCollectionJob } from "@/models/monitoringApi";
 import { fixtureJob, fixtureProject } from "@/test/monitoring-fixture";
+import { awaitReactAct } from "@/test/reactAct";
 import { useContributionReport } from "./useContributionReport";
 
 vi.mock("@/models/contributionsApi", () => ({
@@ -122,10 +124,10 @@ function setup(
 	);
 }
 async function flush() {
-	await act(async () => {});
+	await awaitReactAct(async () => {});
 }
 async function tick(ms: number) {
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vi.advanceTimersByTimeAsync(ms);
 	});
 }
@@ -185,7 +187,7 @@ it("dispatches deep discovery by project and selected repository, excluding disa
 		},
 	});
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(vi.mocked(discover).mock.calls).toEqual([
 		["cli", { projectId: "p1", repositoryIds: ["r1"], depth: "deep" }],
 		["cli", { projectId: "p2", repositoryIds: ["r3"], depth: "deep" }],
@@ -204,7 +206,7 @@ it("dispatches deep discovery by project and selected repository, excluding disa
 	expect(
 		JSON.parse(sessionStorage.getItem(storageKey("cli")) ?? "null"),
 	).toEqual(["p1", "p2"]);
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(discover).toHaveBeenCalledTimes(2);
 });
 
@@ -223,7 +225,7 @@ it("allows demo GitHub projects, respects project scope, and lets the project ta
 		},
 	});
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(discover).toHaveBeenCalledExactlyOnceWith("demo", {
 		projectId: "p2",
 		depth: "deep",
@@ -240,9 +242,9 @@ it("serializes duplicate clicks and deduplicates coalesced job receipts", async 
 		calculate = result.current.calculate();
 	});
 	expect(result.current.progress).toBe("Scheduling discovery by repository…");
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(discover).toHaveBeenCalledTimes(2);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		pending.resolve(receipt("shared"));
 		await calculate;
 	});
@@ -305,7 +307,7 @@ it("keeps successful project receipts when other dispatches fail and reports par
 	);
 	const { result } = setup();
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	await flush();
 	expect(result.current.calculating).toBe(false);
 	expect(result.current.error).toContain("Project p2 denied");
@@ -324,7 +326,7 @@ it("keeps scheduling failures visible after successful queued work completes", a
 	);
 	const { result } = setup();
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	await flush();
 	expect(result.current.error).toBe("Could not start discovery");
 	expect(result.current.calculating).toBe(false);
@@ -334,7 +336,7 @@ it("shows empty receipts without a stuck calculating state", async () => {
 	vi.mocked(discover).mockResolvedValue({ jobs: [] });
 	const { result } = setup();
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(result.current.calculating).toBe(false);
 	expect(result.current.progress).toBe("No discovery tasks were scheduled.");
 	expect(result.current.error).toBeNull();
@@ -348,7 +350,7 @@ it.each([
 ])("never dispatches without a valid matching scope (%s)", async (props) => {
 	const { result } = setup(props);
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(discover).not.toHaveBeenCalled();
 	if (props.filters === null || props.filters?.source === "demo")
 		expect(fetchContributionReport).not.toHaveBeenCalled();
@@ -370,17 +372,17 @@ it.each([
 		},
 		error: "No enabled repositories match",
 	},
-])("rejects an invalid project/repository intersection (%s)", async ({
-	scope,
-	error,
-}) => {
-	const { result } = setup({ filters: { ...filters, ...scope } });
-	await flush();
-	await act(async () => result.current.calculate());
-	expect(result.current.error).toContain(error);
-	expect(discover).not.toHaveBeenCalled();
-	expect(result.current.calculating).toBe(false);
-});
+])(
+	"rejects an invalid project/repository intersection (%s)",
+	async ({ scope, error }) => {
+		const { result } = setup({ filters: { ...filters, ...scope } });
+		await flush();
+		await awaitReactAct(async () => result.current.calculate());
+		expect(result.current.error).toContain(error);
+		expect(discover).not.toHaveBeenCalled();
+		expect(result.current.calculating).toBe(false);
+	},
+);
 
 it("shows read errors, retries job polling, and leaves cached results available", async () => {
 	sessionStorage.setItem(storageKey("cli"), JSON.stringify(["job"]));
@@ -396,7 +398,7 @@ it("shows read errors, retries job polling, and leaves cached results available"
 	vi.mocked(fetchContributionReport).mockRejectedValueOnce(
 		new Error("Cache unavailable"),
 	);
-	await act(async () => result.current.reload());
+	await awaitReactAct(async () => result.current.reload());
 	expect(result.current.error).toBe("Cache unavailable");
 	expect(result.current.report).toEqual(report);
 });
@@ -414,7 +416,7 @@ it("clears expired task history and allows a new calculation while retaining the
 	expect(
 		JSON.parse(sessionStorage.getItem(storageKey("cli")) ?? "null"),
 	).toEqual([]);
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(discover).toHaveBeenCalledTimes(2);
 	expect(result.current.calculating).toBe(true);
 	expect(result.current.error).toBeNull();
@@ -474,7 +476,7 @@ it("ignores late report responses after filters and sources change", async () =>
 		filters: { ...filters, source: "demo" },
 	});
 	await flush();
-	await act(async () => pending.resolve(report));
+	await awaitReactAct(async () => pending.resolve(report));
 	expect(result.current.report?.filters.source).toBe("demo");
 	expect(discover).not.toHaveBeenCalled();
 });
@@ -491,7 +493,7 @@ it("ignores late old-source job results without clearing its resumable tasks", a
 		filters: { ...filters, source: "demo" },
 	});
 	await flush();
-	await act(async () =>
+	await awaitReactAct(async () =>
 		pending.resolve(fixtureJob({ id: "old", state: "succeeded" })),
 	);
 	expect(result.current.calculating).toBe(false);
@@ -515,7 +517,7 @@ it("persists in-flight old-source receipts for resume without publishing them to
 		directory: null,
 		filters: { ...filters, source: "demo" },
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		pending.resolve(receipt("cli-job"));
 		await calculate;
 	});
@@ -543,7 +545,7 @@ it("rejects old calculate handlers after filter changes, source changes, and unm
 		directory,
 		filters: { ...filters, projectIds: ["p2"] },
 	});
-	await act(async () => previousFilter());
+	await awaitReactAct(async () => previousFilter());
 	expect(discover).not.toHaveBeenCalled();
 	const previousSource = result.current.calculate;
 	rerender({
@@ -551,13 +553,13 @@ it("rejects old calculate handlers after filter changes, source changes, and unm
 		directory: null,
 		filters: { ...filters, source: "demo" },
 	});
-	await act(async () => previousSource());
+	await awaitReactAct(async () => previousSource());
 	expect(discover).not.toHaveBeenCalled();
 	rerender({ source: "cli", directory, filters });
 	await flush();
 	const detached = result.current.calculate;
 	unmount();
-	await act(async () => detached());
+	await awaitReactAct(async () => detached());
 	expect(discover).not.toHaveBeenCalled();
 });
 
@@ -578,9 +580,9 @@ it("resumes a submission when switching back before its receipt and blocks dupli
 	rerender({ source: "cli", directory, filters });
 	await flush();
 	expect(result.current.calculating).toBe(true);
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(discover).toHaveBeenCalledTimes(2);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		pending.resolve(receipt("resumed"));
 		await calculate;
 	});
@@ -592,17 +594,16 @@ it("resumes a submission when switching back before its receipt and blocks dupli
 	);
 });
 
-it.each([
-	"broken",
-	"{}",
-	"[1]",
-])("ignores invalid stored jobs (%s)", async (saved) => {
-	sessionStorage.setItem(storageKey("cli"), saved);
-	const { result } = setup();
-	await flush();
-	expect(result.current.calculating).toBe(false);
-	expect(loadCollectionJob).not.toHaveBeenCalled();
-});
+it.each(["broken", "{}", "[1]"])(
+	"ignores invalid stored jobs (%s)",
+	async (saved) => {
+		sessionStorage.setItem(storageKey("cli"), saved);
+		const { result } = setup();
+		await flush();
+		expect(result.current.calculating).toBe(false);
+		expect(loadCollectionJob).not.toHaveBeenCalled();
+	},
+);
 
 it("works when browser session storage is unavailable", async () => {
 	vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
@@ -613,7 +614,7 @@ it("works when browser session storage is unavailable", async () => {
 	});
 	const { result } = setup();
 	await flush();
-	await act(async () => result.current.calculate());
+	await awaitReactAct(async () => result.current.calculate());
 	expect(result.current.calculating).toBe(true);
 	expect(result.current.error).toBeNull();
 });
@@ -632,7 +633,7 @@ it("revalidates directory changes without clearing the visible report", async ()
 	await flush();
 	expect(vm.result.current.report).toBe(visible);
 	expect(vm.result.current.loading).toBe(false);
-	await act(async () =>
+	await awaitReactAct(async () =>
 		pending.resolve({ ...report, totals: { ...report.totals, total: 2 } }),
 	);
 	expect(vm.result.current.report?.totals.total).toBe(2);

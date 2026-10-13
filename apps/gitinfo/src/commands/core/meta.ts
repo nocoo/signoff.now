@@ -71,8 +71,9 @@ export async function getRemotes(
 	const lines = splitLines(result.stdout);
 	const remoteMap = new Map<string, { fetchUrl: string; pushUrls: string[] }>();
 
+	const remoteLinePattern = /^(\S+)\s+(\S+)\s+\((fetch|push)\)$/;
 	for (const line of lines) {
-		const match = line.match(/^(\S+)\s+(\S+)\s+\((fetch|push)\)$/);
+		const match = remoteLinePattern.exec(line);
 		if (!match) continue;
 
 		const name = match[1] as string;

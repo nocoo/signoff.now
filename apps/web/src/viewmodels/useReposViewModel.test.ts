@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repo } from "@/models/entities";
 import {
@@ -8,6 +9,7 @@ import {
 	patchRepo,
 	restoreRepo,
 } from "@/models/entitiesApi";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	repoDraftFrom,
 	useRepoEditViewModel,
@@ -153,12 +155,12 @@ describe("useReposViewModel", () => {
 		const hook = renderHook(() => useReposViewModel());
 
 		vi.mocked(listRepos).mockResolvedValue([repo({ name: "fresh" })]);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await hook.result.current.reload();
 		});
 		expect(hook.result.current.items[0]?.name).toBe("fresh");
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			releaseSlow([repo({ name: "stale" })]);
 			await Promise.resolve();
 		});
@@ -213,7 +215,7 @@ describe("useReposViewModel", () => {
 		// "" would fail the server's string check; null is how it spells
 		// "not backfilled yet".
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(
 				draft({
 					org: "  contoso  ",
@@ -238,7 +240,7 @@ describe("useReposViewModel", () => {
 
 	it("carries a project GUID through when one was given", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(draft({ projectExternalId: " proj-guid " }));
 		});
 		expect(vi.mocked(createRepo).mock.calls[0]?.[0].projectExternalId).toBe(
@@ -251,7 +253,7 @@ describe("useReposViewModel", () => {
 		act(() => {
 			result.current.setEditing(repo());
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(draft({ enabled: false }));
 		});
 		expect(patchRepo).toHaveBeenCalledWith(
@@ -264,7 +266,7 @@ describe("useReposViewModel", () => {
 	it("a failed submit rejects so the dialog can stay open", async () => {
 		vi.mocked(createRepo).mockRejectedValueOnce(new Error("guid conflict"));
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await expect(result.current.submit(draft())).rejects.toThrow(
 				"guid conflict",
 			);
@@ -273,7 +275,7 @@ describe("useReposViewModel", () => {
 
 	it("archives then reloads", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("r1");
 		});
 		expect(archiveRepo).toHaveBeenCalledWith("r1");
@@ -282,7 +284,7 @@ describe("useReposViewModel", () => {
 
 	it("restores then reloads", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.restore("r1");
 		});
 		expect(restoreRepo).toHaveBeenCalledWith("r1");
@@ -292,7 +294,7 @@ describe("useReposViewModel", () => {
 	it("reports a mutation failure", async () => {
 		vi.mocked(archiveRepo).mockRejectedValueOnce("boom");
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("r1");
 		});
 		expect(result.current.error).toBe("Request failed");
@@ -313,12 +315,12 @@ describe("useReposViewModel", () => {
 		});
 		await waitFor(() => expect(result.current.busy).toBe(true));
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.archive("r1")).toBe(false);
 		});
 		expect(archiveRepo).toHaveBeenCalledTimes(1);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			release();
 			await first;
 		});
@@ -388,7 +390,7 @@ describe("useRepoEditViewModel", () => {
 		act(() => {
 			result.current.setField("org", "");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onSubmit).not.toHaveBeenCalled();
@@ -397,7 +399,7 @@ describe("useRepoEditViewModel", () => {
 
 	it("submits and signals done", async () => {
 		const { result, onSubmit, onDone } = mount(repo());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(true);
 		});
 		expect(onSubmit).toHaveBeenCalled();
@@ -407,7 +409,7 @@ describe("useRepoEditViewModel", () => {
 	it("stays open on failure", async () => {
 		const onSubmit = vi.fn().mockRejectedValue(new Error("guid conflict"));
 		const { result, onDone } = mount(repo(), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(onDone).not.toHaveBeenCalled();
@@ -417,7 +419,7 @@ describe("useRepoEditViewModel", () => {
 	it("coerces a non-Error rejection", async () => {
 		const onSubmit = vi.fn().mockRejectedValue("nope");
 		const { result } = mount(repo(), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toBe("Save failed");
@@ -439,12 +441,12 @@ describe("useRepoEditViewModel", () => {
 		});
 		await waitFor(() => expect(result.current.busy).toBe(true));
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onSubmit).toHaveBeenCalledTimes(1);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			release();
 			await first;
 		});

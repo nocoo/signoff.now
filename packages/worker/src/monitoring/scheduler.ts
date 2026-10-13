@@ -255,7 +255,7 @@ export async function claimJob(
 							: {}),
 					}))
 				: undefined,
-		targets: (results[9]?.results as { snapshot: string }[]).map((r) =>
+		targets: ((results[9]?.results ?? []) as { snapshot: string }[]).map((r) =>
 			pullRequestSchema.parse(JSON.parse(r.snapshot)),
 		),
 	};

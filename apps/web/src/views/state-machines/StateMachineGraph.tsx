@@ -219,7 +219,6 @@ export function StateMachineGraph({
 			}),
 		);
 	}, [graph, setNodes]);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: only structural changes re-layout; polling changes colors and trace without moving the canvas
 	useEffect(() => {
 		let active = true;
 		setLayoutError(null);

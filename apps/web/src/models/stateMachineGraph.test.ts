@@ -24,102 +24,107 @@ const page = machinePageSchema.parse({
 	policyCodes: {},
 });
 const history: MachineHistory = { events: [] };
-test.each([
-	"running",
-	"review_needed",
-] as const)("renders %s judgment without reclassification", (kind) => {
-	const result = {
-		kind,
-		model: "jev-test",
-		rubric: "test",
-		fingerprint: "f",
-		evaluatedAt: new Date().toISOString(),
-		probabilities: { running: 1 },
-		confidence: 1,
-		reusedAt: null,
-	};
-	const failing = {
-		...pull,
-		requirements: pull.requirements.map((g) => ({
-			...g,
-			state: "failed" as const,
-		})),
-		readiness: presentReadiness("complete", result),
-	};
-	const graph = machineGraph(page, failing, history, "model");
-	expect(graph.nodes.find((n) => n.id === `state:${kind}`)?.data.active).toBe(
-		true,
-	);
-	expect(graph.nodes.find((n) => n.id === "state:attention")?.data.active).toBe(
-		false,
-	);
-	expect(
-		graph.nodes
-			.filter((n) => n.data.category === "gate")
-			.map((n) => n.data.entityId),
-	).toEqual(page.instructions.map((i) => i.gateId));
-	expect(
-		graph.edges.every(
-			(e) =>
-				graph.nodes.some((n) => n.id === e.source) &&
-				graph.nodes.some((n) => n.id === e.target),
-		),
-	).toBe(true);
-	const pending = machineGraph(
-		page,
-		{ ...failing, readiness: presentReadiness("pending", null, null, result) },
-		history,
-		"model",
-	);
-	expect(
-		pending.nodes.find((n) => n.id === `state:${kind}`)?.data.detail,
-	).toContain("Previous judgment");
-	expect(
-		machineGraph(page, undefined, history, "model").nodes.filter(
-			(n) => n.data.active,
-		),
-	).toHaveLength(0);
-	const unwatched = machineGraph(page, publicPull(), history, "model");
-	expect(
-		unwatched.nodes.filter((n) => n.data.category === "state" && n.data.active),
-	).toHaveLength(0);
-	const filtered = machineGraph(
-		page,
-		{ ...pull, requirements: [] },
-		history,
-		"model",
-		false,
-	);
-	expect(filtered.nodes.filter((n) => n.data.category === "gate")).toHaveLength(
-		0,
-	);
-	const extra = structuredClone(page);
-	extra.instructions = [{ gateId: "missing", description: "" }];
-	extra.catalog[0]!.sourceIds = ["underlying"];
-	extra.instructions.push(
-		{ gateId: "underlying", description: "" },
-		{ gateId: extra.catalog[0]!.id, description: "Same logical gate" },
-	);
-	extra.policyCodes[extra.catalog[0]!.id] = "C1";
-	const mapped = machineGraph(
-		extra,
-		{
+test.each(["running", "review_needed"] as const)(
+	"renders %s judgment without reclassification",
+	(kind) => {
+		const result = {
+			kind,
+			model: "jev-test",
+			rubric: "test",
+			fingerprint: "f",
+			evaluatedAt: new Date().toISOString(),
+			probabilities: { running: 1 },
+			confidence: 1,
+			reusedAt: null,
+		};
+		const failing = {
 			...pull,
-			requirements: [
-				{ ...pull.requirements[0]!, id: "underlying", required: false },
-			],
-		},
-		history,
-		"model",
-	);
-	expect(mapped.nodes.filter((n) => n.data.category === "gate")).toHaveLength(
-		extra.catalog.length,
-	);
-	expect(
-		mapped.nodes.find((n) => n.id === `gate:${extra.catalog[0]!.id}`)?.data
-			.detail,
-	).toContain("Advisory");
-});
+			requirements: pull.requirements.map((g) => ({
+				...g,
+				state: "failed" as const,
+			})),
+			readiness: presentReadiness("complete", result),
+		};
+		const graph = machineGraph(page, failing, history, "model");
+		expect(graph.nodes.find((n) => n.id === `state:${kind}`)?.data.active).toBe(
+			true,
+		);
+		expect(
+			graph.nodes.find((n) => n.id === "state:attention")?.data.active,
+		).toBe(false);
+		expect(
+			graph.nodes
+				.filter((n) => n.data.category === "gate")
+				.map((n) => n.data.entityId),
+		).toEqual(page.instructions.map((i) => i.gateId));
+		expect(
+			graph.edges.every(
+				(e) =>
+					graph.nodes.some((n) => n.id === e.source) &&
+					graph.nodes.some((n) => n.id === e.target),
+			),
+		).toBe(true);
+		const pending = machineGraph(
+			page,
+			{
+				...failing,
+				readiness: presentReadiness("pending", null, null, result),
+			},
+			history,
+			"model",
+		);
+		expect(
+			pending.nodes.find((n) => n.id === `state:${kind}`)?.data.detail,
+		).toContain("Previous judgment");
+		expect(
+			machineGraph(page, undefined, history, "model").nodes.filter(
+				(n) => n.data.active,
+			),
+		).toHaveLength(0);
+		const unwatched = machineGraph(page, publicPull(), history, "model");
+		expect(
+			unwatched.nodes.filter(
+				(n) => n.data.category === "state" && n.data.active,
+			),
+		).toHaveLength(0);
+		const filtered = machineGraph(
+			page,
+			{ ...pull, requirements: [] },
+			history,
+			"model",
+			false,
+		);
+		expect(
+			filtered.nodes.filter((n) => n.data.category === "gate"),
+		).toHaveLength(0);
+		const extra = structuredClone(page);
+		extra.instructions = [{ gateId: "missing", description: "" }];
+		extra.catalog[0]!.sourceIds = ["underlying"];
+		extra.instructions.push(
+			{ gateId: "underlying", description: "" },
+			{ gateId: extra.catalog[0]!.id, description: "Same logical gate" },
+		);
+		extra.policyCodes[extra.catalog[0]!.id] = "C1";
+		const mapped = machineGraph(
+			extra,
+			{
+				...pull,
+				requirements: [
+					{ ...pull.requirements[0]!, id: "underlying", required: false },
+				],
+			},
+			history,
+			"model",
+		);
+		expect(mapped.nodes.filter((n) => n.data.category === "gate")).toHaveLength(
+			extra.catalog.length,
+		);
+		expect(
+			mapped.nodes.find((n) => n.id === `gate:${extra.catalog[0]!.id}`)?.data
+				.detail,
+		).toContain("Advisory");
+	},
+);
 
 test("observed transitions use retained provider facts, including initial and unchanged observations", () => {
 	const gate = page.catalog[0]!.id;

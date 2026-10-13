@@ -330,67 +330,74 @@ it.each([
 		relatedName: null,
 		relatedHref: null,
 	},
-])("hides archived $kind contribution links and restores them with the entry", async ({
-	kind,
-	Page,
-	id,
-	name,
-	href,
-	relatedName,
-	relatedHref,
-}) => {
-	const current = structuredClone(data);
-	vi.mocked(fetchDirectory).mockImplementation(async () =>
-		structuredClone(current),
-	);
-	vi.mocked(setDirectoryArchived).mockImplementation(
-		async (_source, entityKind, entityId, archived) => {
-			const entry = current[entityKind].find((row) => row.id === entityId);
-			if (!entry) throw new Error("Missing test directory entry");
-			entry.archivedAt = archived ? 100 : null;
-			current.revision += 1;
-		},
-	);
-	render(
-		<MemoryRouter>
-			<Page />
-		</MemoryRouter>,
-	);
-	expect(
-		(await screen.findByRole("link", { name: "Contributions" })).getAttribute(
-			"href",
-		),
-	).toBe(href);
-	fireEvent.click(screen.getByLabelText("Status"));
-	fireEvent.click(await screen.findByRole("option", { name: "All" }));
-	fireEvent.click(screen.getByRole("button", { name: `Archive ${name}` }));
-	await screen.findByRole("button", { name: `Restore ${name}` });
-	expect(setDirectoryArchived).toHaveBeenCalledWith("cli", kind, id, true, 42);
-	expect(screen.queryByRole("link", { name: "Contributions" })).toBeNull();
-	expect(screen.getByText(name).closest("a")).toBeNull();
-	if (kind === "members") expect(screen.getByText("AL")).toBeTruthy();
-	if (relatedName === "Ada Lovelace") {
+])(
+	"hides archived $kind contribution links and restores them with the entry",
+	async ({ kind, Page, id, name, href, relatedName, relatedHref }) => {
+		const current = structuredClone(data);
+		vi.mocked(fetchDirectory).mockImplementation(async () =>
+			structuredClone(current),
+		);
+		vi.mocked(setDirectoryArchived).mockImplementation(
+			async (_source, entityKind, entityId, archived) => {
+				const entry = current[entityKind].find((row) => row.id === entityId);
+				if (!entry) throw new Error("Missing test directory entry");
+				entry.archivedAt = archived ? 100 : null;
+				current.revision += 1;
+			},
+		);
+		render(
+			<MemoryRouter>
+				<Page />
+			</MemoryRouter>,
+		);
 		expect(
-			screen.getByRole("button", { name: `View ${relatedName}'s profile` }),
-		).toBeTruthy();
-	} else if (relatedName) {
+			(await screen.findByRole("link", { name: "Contributions" })).getAttribute(
+				"href",
+			),
+		).toBe(href);
+		fireEvent.click(screen.getByLabelText("Status"));
+		fireEvent.click(await screen.findByRole("option", { name: "All" }));
+		fireEvent.click(screen.getByRole("button", { name: `Archive ${name}` }));
+		await screen.findByRole("button", { name: `Restore ${name}` });
+		expect(setDirectoryArchived).toHaveBeenCalledWith(
+			"cli",
+			kind,
+			id,
+			true,
+			42,
+		);
+		expect(screen.queryByRole("link", { name: "Contributions" })).toBeNull();
+		expect(screen.getByText(name).closest("a")).toBeNull();
+		if (kind === "members") expect(screen.getByText("AL")).toBeTruthy();
+		if (relatedName === "Ada Lovelace") {
+			expect(
+				screen.getByRole("button", { name: `View ${relatedName}'s profile` }),
+			).toBeTruthy();
+		} else if (relatedName) {
+			expect(
+				screen.getByRole("link", { name: relatedName }).getAttribute("href"),
+			).toBe(relatedHref);
+		}
+		fireEvent.click(screen.getByRole("button", { name: `Restore ${name}` }));
 		expect(
-			screen.getByRole("link", { name: relatedName }).getAttribute("href"),
-		).toBe(relatedHref);
-	}
-	fireEvent.click(screen.getByRole("button", { name: `Restore ${name}` }));
-	expect(
-		(await screen.findByRole("link", { name: "Contributions" })).getAttribute(
-			"href",
-		),
-	).toBe(href);
-	expect(setDirectoryArchived).toHaveBeenCalledWith("cli", kind, id, false, 43);
-	if (kind === "members") {
-		expect(
-			screen.getByRole("button", { name: `View ${name}'s profile` }),
-		).toBeTruthy();
-	}
-});
+			(await screen.findByRole("link", { name: "Contributions" })).getAttribute(
+				"href",
+			),
+		).toBe(href);
+		expect(setDirectoryArchived).toHaveBeenCalledWith(
+			"cli",
+			kind,
+			id,
+			false,
+			43,
+		);
+		if (kind === "members") {
+			expect(
+				screen.getByRole("button", { name: `View ${name}'s profile` }),
+			).toBeTruthy();
+		}
+	},
+);
 
 it("keeps archived team affiliations visible without linking to excluded contributions", async () => {
 	const current = structuredClone(data);

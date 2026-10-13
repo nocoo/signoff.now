@@ -16,8 +16,8 @@ describe("ACTIVITY_TYPES / DEFAULT_WEIGHTS", () => {
 	});
 
 	test("DEFAULT_WEIGHTS has no extra keys", () => {
-		expect(Object.keys(DEFAULT_WEIGHTS).sort()).toEqual(
-			[...ACTIVITY_TYPES].sort(),
-		);
+		expect(
+			Object.keys(DEFAULT_WEIGHTS).sort((a, b) => a.localeCompare(b)),
+		).toEqual([...ACTIVITY_TYPES].sort((a, b) => a.localeCompare(b)));
 	});
 });

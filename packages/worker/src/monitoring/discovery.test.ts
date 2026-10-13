@@ -115,77 +115,75 @@ test("repository completion and candidate publication roll back together on fail
 	).toEqual({ state: "queued" });
 });
 
-test.each([
-	"failed",
-	"partial",
-	"canceled",
-	"snapshot_changed",
-] as const)("%s discovery cannot advance the last successful completion", async (outcome) => {
-	const project = seedProject(sqlite, { repositories: [] });
-	const pull = seedPull(sqlite);
-	await publish((await start(project)).claim, discovered(pull, 10));
-	const { claim } = await start(project, now + 1);
-	const candidate = discovered(pull, 11, now - 50);
-	await stagePulls(
-		sqlite.db,
-		claim.job.id,
-		claim.leaseToken,
-		[candidate],
-		now + 1,
-	);
-	if (outcome === "failed")
-		await rejectRepository(
+test.each(["failed", "partial", "canceled", "snapshot_changed"] as const)(
+	"%s discovery cannot advance the last successful completion",
+	async (outcome) => {
+		const project = seedProject(sqlite, { repositories: [] });
+		const pull = seedPull(sqlite);
+		await publish((await start(project)).claim, discovered(pull, 10));
+		const { claim } = await start(project, now + 1);
+		const candidate = discovered(pull, 11, now - 50);
+		await stagePulls(
 			sqlite.db,
 			claim.job.id,
 			claim.leaseToken,
-			repo.id,
-			"Lost page",
+			[candidate],
 			now + 1,
 		);
-	else if (outcome === "partial") {
-		await expect(
-			publishRepository(
+		if (outcome === "failed")
+			await rejectRepository(
 				sqlite.db,
 				claim.job.id,
 				claim.leaseToken,
 				repo.id,
-				1,
-				"partial",
-				"Incomplete enumeration",
+				"Lost page",
 				now + 1,
-			),
-		).rejects.toMatchObject({ code: "INCOMPLETE_UPLOAD", status: 409 });
-		expect(
-			sqlite.raw
-				.query("SELECT id FROM pull_requests WHERE id=?")
-				.get(candidate.id),
-		).toBeNull();
-		expect(
-			sqlite.raw
-				.query("SELECT state FROM collection_job_repositories WHERE job_id=?")
-				.get(claim.job.id),
-		).toEqual({ state: "queued" });
-	} else {
-		if (outcome === "canceled")
-			sqlite.raw
-				.query("UPDATE projects SET revision=revision+1 WHERE id=?")
-				.run(project.id);
-		else seedPull(sqlite, candidate);
-		await expect(
-			publishRepository(
-				sqlite.db,
-				claim.job.id,
-				claim.leaseToken,
-				repo.id,
-				1,
-				"complete",
-				"Late response",
-				now + 1,
-			),
-		).rejects.toMatchObject({ status: 409 });
-	}
-	expect(readDiscovery(project.id)).toBe(now);
-});
+			);
+		else if (outcome === "partial") {
+			await expect(
+				publishRepository(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					repo.id,
+					1,
+					"partial",
+					"Incomplete enumeration",
+					now + 1,
+				),
+			).rejects.toMatchObject({ code: "INCOMPLETE_UPLOAD", status: 409 });
+			expect(
+				sqlite.raw
+					.query("SELECT id FROM pull_requests WHERE id=?")
+					.get(candidate.id),
+			).toBeNull();
+			expect(
+				sqlite.raw
+					.query("SELECT state FROM collection_job_repositories WHERE job_id=?")
+					.get(claim.job.id),
+			).toEqual({ state: "queued" });
+		} else {
+			if (outcome === "canceled")
+				sqlite.raw
+					.query("UPDATE projects SET revision=revision+1 WHERE id=?")
+					.run(project.id);
+			else seedPull(sqlite, candidate);
+			await expect(
+				publishRepository(
+					sqlite.db,
+					claim.job.id,
+					claim.leaseToken,
+					repo.id,
+					1,
+					"complete",
+					"Late response",
+					now + 1,
+				),
+			).rejects.toMatchObject({ status: 409 });
+		}
+		expect(readDiscovery(project.id)).toBe(now);
+	},
+);
 
 test("authentication retry retains its repository plan and an old lease cannot publish", async () => {
 	const project = seedProject(sqlite, { repositories: [] });
@@ -454,20 +452,21 @@ test("discovery binds cached versions only inside its ninety-day cohort", async 
 	).toEqual([{ pull_id: current.id }]);
 });
 
-test.each([
-	45, 120,
-])("smart discovery fills an offline gap of %s days within the ninety-day cap", async (days) => {
-	const project = seedProject(sqlite, { repositories: [] });
-	seedPull(sqlite);
-	sqlite.raw
-		.query(
-			"UPDATE workbench_repositories SET last_discovered_at=?,discovery_cursor_json=json_object('createdBefore',?) WHERE project_id=?",
-		)
-		.run(now - days * 86400, now - days * 86400, project.id);
-	const queued = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
-	const claim = (await claimJob(sqlite.db, now, { jobId: queued.id }))!;
-	expect(claim.discoverySince).toBe(now - Math.min(90, days + 30) * 86400);
-});
+test.each([45, 120])(
+	"smart discovery fills an offline gap of %s days within the ninety-day cap",
+	async (days) => {
+		const project = seedProject(sqlite, { repositories: [] });
+		seedPull(sqlite);
+		sqlite.raw
+			.query(
+				"UPDATE workbench_repositories SET last_discovered_at=?,discovery_cursor_json=json_object('createdBefore',?) WHERE project_id=?",
+			)
+			.run(now - days * 86400, now - days * 86400, project.id);
+		const queued = (await enqueueDiscovery(sqlite.db, project, [], now))[0]!;
+		const claim = (await claimJob(sqlite.db, now, { jobId: queued.id }))!;
+		expect(claim.discoverySince).toBe(now - Math.min(90, days + 30) * 86400);
+	},
+);
 
 test("smart stopping boundaries advance only after successful discovery and survive failure", async () => {
 	const project = seedProject(sqlite, { repositories: [] });

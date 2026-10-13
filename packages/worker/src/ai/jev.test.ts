@@ -77,42 +77,42 @@ test("uses the official SDK identity, exact endpoint and model, 30-second deadli
 	}
 });
 
-test.each([
-	429, 500,
-])("SDK does not retry HTTP %s; network measurement and retry-after stay with the scheduler", async (status) => {
-	const db = createSqliteD1();
-	const send = mock(
-		() =>
-			new Response("private-key upstream details", {
-				status,
-				headers: { "retry-after": "7" },
-			}),
-	);
-	try {
-		await expect(
-			evaluateJev(
-				"private-key",
-				{},
-				"fingerprint",
-				now,
-				measuredJevFetch(db.db, transport(send)),
-			),
-		).rejects.toMatchObject({
-			code: `http_${status}`,
-			transient: true,
-			retryAfter: 7,
-		});
-		expect(send).toHaveBeenCalledTimes(1);
-		expect(
-			(await queryNetwork(db.db, Math.floor(Date.now() / 1000))).buckets.reduce(
-				(total, bucket) => total + bucket.jev,
-				0,
-			),
-		).toBe(1);
-	} finally {
-		db.close();
-	}
-});
+test.each([429, 500])(
+	"SDK does not retry HTTP %s; network measurement and retry-after stay with the scheduler",
+	async (status) => {
+		const db = createSqliteD1();
+		const send = mock(
+			() =>
+				new Response("private-key upstream details", {
+					status,
+					headers: { "retry-after": "7" },
+				}),
+		);
+		try {
+			await expect(
+				evaluateJev(
+					"private-key",
+					{},
+					"fingerprint",
+					now,
+					measuredJevFetch(db.db, transport(send)),
+				),
+			).rejects.toMatchObject({
+				code: `http_${status}`,
+				transient: true,
+				retryAfter: 7,
+			});
+			expect(send).toHaveBeenCalledTimes(1);
+			expect(
+				(
+					await queryNetwork(db.db, Math.floor(Date.now() / 1000))
+				).buckets.reduce((total, bucket) => total + bucket.jev, 0),
+			).toBe(1);
+		} finally {
+			db.close();
+		}
+	},
+);
 
 test("SDK does not retry transport errors and never exposes their private details", async () => {
 	const send = mock(() => {

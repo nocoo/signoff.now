@@ -193,7 +193,10 @@ async function readScope(
 		projects: ((results[0]?.results ?? []) as ProjectRow[]).map(mapProject),
 		repositories: (results[1]?.results ?? []) as RepositoryRow[],
 		identities: (results[3]?.results ?? []) as RepositoryScopeRow[],
-		revision: String((results[2]?.results[0] as { revision: number }).revision),
+		revision: String(
+			(results[2]?.results?.[0] as { revision: number } | undefined)
+				?.revision ?? 0,
+		),
 	};
 }
 function pullScopeSql(
@@ -351,7 +354,8 @@ async function readSnapshot(
 		...decisionContextQueries(db),
 	]);
 	const revision = String(
-		(results[4]?.results[0] as { revision: number }).revision,
+		(results[4]?.results?.[0] as { revision: number } | undefined)?.revision ??
+			0,
 	);
 	if (scope && scope.revision !== revision)
 		throw new MonitoringError(
@@ -365,16 +369,15 @@ async function readSnapshot(
 			pull: pullRequestSchema.parse(JSON.parse(stored.snapshot)),
 		}),
 	);
+	const requirementRows = (results[results.length - 5]?.results ?? []) as {
+		project_id: string;
+		policies: string;
+		builds: string;
+		reviewers: string;
+		required_approvals: number;
+	}[];
 	const requirementPulls = requirementsScope
-		? (
-				results[results.length - 5]?.results as {
-					project_id: string;
-					policies: string;
-					builds: string;
-					reviewers: string;
-					required_approvals: number;
-				}[]
-			).map((row) => ({
+		? requirementRows.map((row) => ({
 				projectId: row.project_id,
 				policies: JSON.parse(row.policies) as PullRequest["policies"],
 				builds: JSON.parse(row.builds) as PullRequest["builds"],
@@ -823,8 +826,9 @@ async function readPullPage(
 			.bind(source),
 	]);
 	if (
-		String((results[4]?.results[0] as { revision: number }).revision) !==
-		snapshot.revision
+		String(
+			(results[4]?.results?.[0] as { revision: number } | undefined)?.revision,
+		) !== snapshot.revision
 	)
 		throw new MonitoringError(
 			"SNAPSHOT_CHANGED",
@@ -835,7 +839,8 @@ async function readPullPage(
 		stored,
 		pull: pullRequestSchema.parse(JSON.parse(stored.snapshot)),
 	}));
-	const total = (results[1]?.results[0] as { total: number }).total;
+	const total =
+		(results[1]?.results?.[0] as { total: number } | undefined)?.total ?? 0;
 	return {
 		...envelope(snapshot, source, timestamp),
 		data: rows.map((row) => pullOutput(snapshot, row, timestamp)),
@@ -1237,15 +1242,17 @@ async function readObservationPage(
 		db.prepare("SELECT * FROM ai_evaluations"),
 	]);
 	if (
-		String((results[2]?.results[0] as { revision: number }).revision) !==
-		scope.revision
+		String(
+			(results[2]?.results?.[0] as { revision: number } | undefined)?.revision,
+		) !== scope.revision
 	)
 		throw new MonitoringError(
 			"SNAPSHOT_CHANGED",
 			"Data changed while preparing the watch page; retry the query",
 			409,
 		);
-	const total = (results[1]?.results[0] as { total: number }).total;
+	const total =
+		(results[1]?.results?.[0] as { total: number } | undefined)?.total ?? 0;
 	if (lookup && total > 1)
 		throw new MonitoringError(
 			"REFERENCE_AMBIGUOUS",
@@ -1403,7 +1410,7 @@ export async function queryJob(
 	if (!job) throw new MonitoringError("NOT_FOUND", "Job not found", 404);
 	return {
 		...publicJob(job, (results[1]?.results ?? []) as JobRepositoryRow[]),
-		children: (results[2]?.results as { child_id: string }[]).map(
+		children: ((results[2]?.results ?? []) as { child_id: string }[]).map(
 			(row) => row.child_id,
 		),
 		events: JSON.parse(job.events_json),
@@ -1563,8 +1570,9 @@ export async function queryCollector(
 		active: number | null;
 		pending: number | null;
 	};
-	const cooldown = (results[4]?.results[0] as { cooldown_seconds: number })
-		.cooldown_seconds;
+	const cooldown = (
+		results[4]?.results?.[0] as { cooldown_seconds: number } | undefined
+	)?.cooldown_seconds;
 	const auth = results[6]?.results[0] as { message: string } | undefined;
 	const offline = !heartbeat || timestamp - heartbeat.last_seen_at > 65;
 	const cadence = (results[3]?.results ?? []) as {
@@ -1602,7 +1610,8 @@ export async function queryCollector(
 		schemaVersion: 1 as const,
 		source: publicSource(source),
 		dataRevision: String(
-			(results[7]?.results[0] as { revision: number }).revision,
+			(results[7]?.results?.[0] as { revision: number } | undefined)
+				?.revision ?? 0,
 		),
 		generatedAt: iso(timestamp),
 		connection: {
@@ -1619,9 +1628,12 @@ export async function queryCollector(
 		watching: counts.active ?? 0,
 		pendingFirstResult: counts.pending ?? 0,
 		detailCooldownSeconds: cooldown,
-		listCooldownSeconds: (
-			results[4]?.results[0] as { list_cooldown_seconds: number }
-		).list_cooldown_seconds,
+		listCooldownSeconds:
+			(
+				results[4]?.results?.[0] as
+					| { list_cooldown_seconds: number }
+					| undefined
+			)?.list_cooldown_seconds ?? 0,
 		discovery: "scheduled" as const,
 		jobs: jobs.map((j) => publicJob(j, [])),
 		// Retained as an empty compatibility field for older v1 clients.

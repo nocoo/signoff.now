@@ -20,9 +20,10 @@ beforeEach(() => {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (_url: string, init?: RequestInit) => {
-			headers.push(
-				(init?.headers as Record<string, string>)["x-signoff-tenant"] ?? null,
-			);
+			const requestHeaders = init?.headers as
+				| Record<string, string>
+				| undefined;
+			headers.push(requestHeaders?.["x-signoff-tenant"] ?? null);
 			return Response.json(replies.shift());
 		}),
 	);

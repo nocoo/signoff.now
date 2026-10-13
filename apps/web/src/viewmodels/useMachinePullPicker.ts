@@ -25,7 +25,6 @@ export function useMachinePullPicker(
 	const execute = useRef<(reset: boolean) => Promise<void>>(() =>
 		Promise.resolve(),
 	);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the primitive key includes every query input
 	useEffect(() => {
 		let active = true;
 		let pending = false;

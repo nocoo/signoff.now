@@ -70,19 +70,22 @@ describe("apiFetch", () => {
 test.each([
 	new TypeError("Failed to fetch"),
 	new DOMException("signal timed out", "TimeoutError"),
-])("normalizes transport failures without exposing browser errors: %s", async (error) => {
-	const signal =
-		error.name === "TimeoutError" ? AbortSignal.abort(error) : undefined;
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async () => {
-			throw error;
-		}),
-	);
-	await expect(apiFetch("/api/query/v1/prs", { signal })).rejects.toMatchObject(
-		{ message: SERVICE_UNAVAILABLE, status: 0 },
-	);
-});
+])(
+	"normalizes transport failures without exposing browser errors: %s",
+	async (error) => {
+		const signal =
+			error.name === "TimeoutError" ? AbortSignal.abort(error) : undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw error;
+			}),
+		);
+		await expect(
+			apiFetch("/api/query/v1/prs", { signal }),
+		).rejects.toMatchObject({ message: SERVICE_UNAVAILABLE, status: 0 });
+	},
+);
 
 test("preserves caller cancellation and unrelated errors", async () => {
 	const cancellation = new DOMException("Navigation canceled", "AbortError");
@@ -105,18 +108,19 @@ test("preserves caller cancellation and unrelated errors", async () => {
 	await expect(apiFetch("/api/x")).rejects.toBe(error);
 });
 
-test.each([
-	502, 503, 504,
-])("normalizes empty proxy response %s", async (status) => {
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async () => new Response(null, { status })),
-	);
-	await expect(apiFetch("/api/x")).rejects.toMatchObject({
-		message: SERVICE_UNAVAILABLE,
-		status,
-	});
-});
+test.each([502, 503, 504])(
+	"normalizes empty proxy response %s",
+	async (status) => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status })),
+		);
+		await expect(apiFetch("/api/x")).rejects.toMatchObject({
+			message: SERVICE_UNAVAILABLE,
+			status,
+		});
+	},
+);
 
 test("preserves structured business errors and authentication failures", async () => {
 	vi.stubGlobal(

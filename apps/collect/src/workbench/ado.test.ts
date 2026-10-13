@@ -33,54 +33,56 @@ function makeMockProject(overrides: Partial<Project> = {}): Project {
 }
 
 describe("collectProjectPulls", () => {
-	test.each([
-		"completed",
-		"abandoned",
-	])("collects complete details even when the watched PR has become %s", async (status) => {
-		const calls: string[] = [];
-		const client: AdoPagedClient = {
-			checkAuth: async () => {},
-			invalidateToken: () => {},
-			get: async (url) => {
-				calls.push(url);
-				if (!url.includes("/pullrequests/59382?")) return { value: [] };
-				return {
-					pullRequestId: 59382,
-					status,
-					title: "Terminal PR",
-					creationDate: "2026-09-17T00:00:00Z",
-					closedDate: "2026-09-18T06:04:39Z",
-					repository: { id: "repo", name: "app" },
-				};
-			},
-			getPage: async (url) => {
-				calls.push(url);
-				return { data: { value: [] }, continuationToken: null };
-			},
-			post: async () => {
-				throw new Error("No writes allowed");
-			},
-		};
-		const result = await collectProjectPulls({
-			project: makeMockProject(),
-			client,
-			now: 1789711800,
-			targets: [
-				{
-					id: "selected",
-					number: 59382,
-					repository: { id: "repo", name: "app" },
+	test.each(["completed", "abandoned"])(
+		"collects complete details even when the watched PR has become %s",
+		async (status) => {
+			const calls: string[] = [];
+			const client: AdoPagedClient = {
+				checkAuth: async () => {},
+				invalidateToken: () => {},
+				get: async (url) => {
+					calls.push(url);
+					if (!url.includes("/pullrequests/59382?")) return { value: [] };
+					return {
+						pullRequestId: 59382,
+						status,
+						title: "Terminal PR",
+						creationDate: "2026-09-17T00:00:00Z",
+						closedDate: "2026-09-18T06:04:39Z",
+						repository: { id: "repo", name: "app" },
+					};
 				},
-			],
-		});
-		expect(result.state).toBe("complete");
-		expect(result.pulls[0]).toMatchObject({
-			state: status === "completed" ? "merged" : "closed",
-			checksObservedAt: expect.any(Number),
-		});
-		expect(calls.some((url) => url.includes("policy/evaluations"))).toBe(true);
-		expect(calls.some((url) => url.includes("/builds"))).toBe(true);
-	});
+				getPage: async (url) => {
+					calls.push(url);
+					return { data: { value: [] }, continuationToken: null };
+				},
+				post: async () => {
+					throw new Error("No writes allowed");
+				},
+			};
+			const result = await collectProjectPulls({
+				project: makeMockProject(),
+				client,
+				now: 1789711800,
+				targets: [
+					{
+						id: "selected",
+						number: 59382,
+						repository: { id: "repo", name: "app" },
+					},
+				],
+			});
+			expect(result.state).toBe("complete");
+			expect(result.pulls[0]).toMatchObject({
+				state: status === "completed" ? "merged" : "closed",
+				checksObservedAt: expect.any(Number),
+			});
+			expect(calls.some((url) => url.includes("policy/evaluations"))).toBe(
+				true,
+			);
+			expect(calls.some((url) => url.includes("/builds"))).toBe(true);
+		},
+	);
 
 	test("ambiguous Unicode repository names cannot silently select the first provider row", async () => {
 		const client = {
@@ -109,34 +111,36 @@ describe("collectProjectPulls", () => {
 			),
 		).rejects.toMatchObject({ kind: "bad_request" });
 	});
-	test.each([
-		false,
-		true,
-	])("repository enumeration prefers IDs regardless of response order: %s", async (reversed) => {
-		const id = "11111111-1111-1111-1111-111111111111";
-		const correct = {
-			id,
-			name: "main-repository",
-			project: { id: "project-guid", name: "Platform" },
-		};
-		const collision = {
-			...correct,
-			id: "22222222-2222-2222-2222-222222222222",
-			name: id,
-		};
-		let value = reversed ? [correct, collision] : [collision, correct];
-		const client = {
-			getPage: async () => ({ data: { value }, continuationToken: null }),
-		};
-		const project = makeMockProject({ repositories: [id] });
-		expect(
-			(await discoverRepositories(client, project)).map((r) => r.id),
-		).toEqual([id]);
-		value = [collision];
-		await expect(discoverRepositories(client, project)).rejects.toMatchObject({
-			kind: "not_found",
-		});
-	});
+	test.each([false, true])(
+		"repository enumeration prefers IDs regardless of response order: %s",
+		async (reversed) => {
+			const id = "11111111-1111-1111-1111-111111111111";
+			const correct = {
+				id,
+				name: "main-repository",
+				project: { id: "project-guid", name: "Platform" },
+			};
+			const collision = {
+				...correct,
+				id: "22222222-2222-2222-2222-222222222222",
+				name: id,
+			};
+			let value = reversed ? [correct, collision] : [collision, correct];
+			const client = {
+				getPage: async () => ({ data: { value }, continuationToken: null }),
+			};
+			const project = makeMockProject({ repositories: [id] });
+			expect(
+				(await discoverRepositories(client, project)).map((r) => r.id),
+			).toEqual([id]);
+			value = [collision];
+			await expect(discoverRepositories(client, project)).rejects.toMatchObject(
+				{
+					kind: "not_found",
+				},
+			);
+		},
+	);
 	test("reconciles known open PRs beyond the recent history window using summaries only", async () => {
 		const project = makeMockProject();
 		const repository = {
@@ -1249,91 +1253,92 @@ describe("collectProjectPulls", () => {
 		expect(result.pulls[0]?.builds[0]?.state).toBe("passed");
 	});
 
-	test.each([
-		0, 888,
-	])("distinguishes an unassigned build ID from a missing real build (%s)", async (buildId) => {
-		const repoId = "repo-guid-1";
-		const project = makeMockProject();
-		const client: AdoPagedClient = {
-			get: async (url) => {
-				if (url.includes("/policy/evaluations")) {
-					return {
-						value: [
-							{
-								configuration: {
-									id: 50,
-									type: {
-										id: "0609b952-1397-4640-95ec-e00a01b2c241",
-										displayName: "Build",
+	test.each([0, 888])(
+		"distinguishes an unassigned build ID from a missing real build (%s)",
+		async (buildId) => {
+			const repoId = "repo-guid-1";
+			const project = makeMockProject();
+			const client: AdoPagedClient = {
+				get: async (url) => {
+					if (url.includes("/policy/evaluations")) {
+						return {
+							value: [
+								{
+									configuration: {
+										id: 50,
+										type: {
+											id: "0609b952-1397-4640-95ec-e00a01b2c241",
+											displayName: "Build",
+										},
+										isBlocking: true,
+										isEnabled: true,
 									},
-									isBlocking: true,
-									isEnabled: true,
+									status: "queued",
+									context: { buildId },
 								},
-								status: "queued",
-								context: { buildId },
+							],
+						};
+					}
+					if (url.includes("/_apis/build/builds/0")) {
+						throw new Error("Unassigned builds must not be requested");
+					}
+					if (url.includes("/_apis/build/builds/888")) {
+						throw new AdoError("not_found", "not found: build 888", 404);
+					}
+					return { value: [] };
+				},
+				post: async () => ({}),
+				getPage: async (url) => {
+					if (url.includes("/_apis/git/repositories?")) {
+						return {
+							data: {
+								value: [
+									{
+										id: repoId,
+										name: "repo-alpha",
+										project: { id: "proj-guid", name: project.name },
+									},
+								],
 							},
-						],
-					};
-				}
-				if (url.includes("/_apis/build/builds/0")) {
-					throw new Error("Unassigned builds must not be requested");
-				}
-				if (url.includes("/_apis/build/builds/888")) {
-					throw new AdoError("not_found", "not found: build 888", 404);
-				}
-				return { value: [] };
-			},
-			post: async () => ({}),
-			getPage: async (url) => {
-				if (url.includes("/_apis/git/repositories?")) {
-					return {
-						data: {
-							value: [
-								{
-									id: repoId,
-									name: "repo-alpha",
-									project: { id: "proj-guid", name: project.name },
-								},
-							],
-						},
-						continuationToken: null,
-					};
-				}
-				if (url.includes("searchCriteria.status=active")) {
-					return {
-						data: {
-							value: [
-								{
-									pullRequestId: 101,
-									status: "active",
-									title: "PR",
-									repository: { id: repoId, name: "repo-alpha" },
-								},
-							],
-						},
-						continuationToken: null,
-					};
-				}
-				return { data: { value: [] }, continuationToken: null };
-			},
-			checkAuth: async () => {},
-			invalidateToken: () => {},
-		};
-		const result = await collectProjectPulls({
-			project,
-			client,
-			now: 1_789_632_000,
-		});
-		expect(result.state).toBe(buildId === 0 ? "complete" : "partial");
-		expect(result.pulls[0]?.builds).toEqual([]);
-		expect(result.pulls[0]?.policies[0]?.state).toBe("queued");
-		if (buildId === 0)
-			expect(result.pulls[0]?.collectionIssues ?? []).toEqual([]);
-		else
-			expect(result.pulls[0]?.collectionIssues).toContain(
-				"Build 888 is unavailable",
-			);
-	});
+							continuationToken: null,
+						};
+					}
+					if (url.includes("searchCriteria.status=active")) {
+						return {
+							data: {
+								value: [
+									{
+										pullRequestId: 101,
+										status: "active",
+										title: "PR",
+										repository: { id: repoId, name: "repo-alpha" },
+									},
+								],
+							},
+							continuationToken: null,
+						};
+					}
+					return { data: { value: [] }, continuationToken: null };
+				},
+				checkAuth: async () => {},
+				invalidateToken: () => {},
+			};
+			const result = await collectProjectPulls({
+				project,
+				client,
+				now: 1_789_632_000,
+			});
+			expect(result.state).toBe(buildId === 0 ? "complete" : "partial");
+			expect(result.pulls[0]?.builds).toEqual([]);
+			expect(result.pulls[0]?.policies[0]?.state).toBe("queued");
+			if (buildId === 0)
+				expect(result.pulls[0]?.collectionIssues ?? []).toEqual([]);
+			else
+				expect(result.pulls[0]?.collectionIssues).toContain(
+					"Build 888 is unavailable",
+				);
+		},
+	);
 
 	test("records timeline failures except expected 404s on queued builds", async () => {
 		const repoId = "repo-guid-1";

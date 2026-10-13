@@ -1,5 +1,7 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import { useAiRulesViewModel } from "./useAiRulesViewModel";
 
 afterEach(() => {
@@ -41,7 +43,7 @@ it("keeps common and project edits separate, saves CAS revisions and retains fai
 	const { result } = renderHook(useAiRulesViewModel);
 	await waitFor(() => expect(result.current.text).toBe("Common"));
 	act(() => result.current.edit("Build failure means Attention"));
-	await act(() => result.current.save());
+	await awaitReactAct(() => result.current.save());
 	expect(writes[0]).toEqual({
 		scope: "common",
 		revision: 0,
@@ -50,11 +52,11 @@ it("keeps common and project edits separate, saves CAS revisions and retains fai
 	act(() => result.current.select("a"));
 	expect(result.current.text).toBe("Project A");
 	act(() => result.current.edit("PoP last"));
-	await act(() => result.current.save());
+	await awaitReactAct(() => result.current.save());
 	expect(data.projects[1]!.text).toBe("Project B");
 	fail = true;
 	act(() => result.current.edit("Keep this draft"));
-	await act(() => result.current.save());
+	await awaitReactAct(() => result.current.save());
 	expect(result.current.text).toBe("Keep this draft");
 	expect(result.current.message).toContain("Reload");
 	act(() => result.current.select("common"));
