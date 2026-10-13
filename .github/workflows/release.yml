@@ -34,7 +34,7 @@ jobs:
       node-version: "24.20.0"
       install-policy: "blocked"
       build-command: "bun run build:web"
-      wrangler-version: "4.131.1"
+      wrangler-version: "4.149.0"
       d1-migrations: true
       d1-databases: "signoff-db"
       environment: production
