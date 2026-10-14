@@ -244,6 +244,22 @@ it("keeps PR columns mounted during loading and links the target branch after th
 	);
 	expect(link.getAttribute("target")).toBe("_blank");
 	expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+	expect(screen.queryByText("Select PRs to watch")).toBeNull();
+	expect(screen.queryByText(/Jev Readiness indicates/)).toBeNull();
+	expect(screen.queryByRole("region", { name: "Stage colors" })).toBeNull();
+	const results = screen.getByRole("region", { name: "PR results" });
+	expect(results.firstElementChild).toBe(table.parentElement);
+	const select = within(table).getByRole("checkbox", {
+		name: "Select all eligible PRs on this page",
+	});
+	fireEvent.click(select);
+	expect(screen.getByText("1 selected")).toBeTruthy();
+	expect(
+		screen.getByRole("button", { name: "Add to watch list" }),
+	).toBeTruthy();
+	fireEvent.click(select);
+	expect(screen.queryByText("1 selected")).toBeNull();
+	expect(results.firstElementChild).toBe(table.parentElement);
 });
 
 it.each([

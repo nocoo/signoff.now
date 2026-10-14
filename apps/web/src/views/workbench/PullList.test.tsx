@@ -13,6 +13,42 @@ import { publicPull } from "@/test/monitoring-fixture";
 import { PullList } from "./PullList";
 
 afterEach(cleanup);
+test("checks legend opens from its header without changing sorting", async () => {
+	const sort = vi.fn();
+	render(
+		<PullList
+			rows={[]}
+			loading={false}
+			busy={false}
+			sort={{ sort: "updated", sortDirection: "desc" }}
+			onSort={sort}
+			onOpen={vi.fn()}
+			onToggleWatch={vi.fn()}
+			aiSchedule={null}
+		/>,
+	);
+	const help = screen.getByRole("button", { name: "Checks status legend" });
+	expect(help.closest("th")?.textContent).toContain("Checks & stages");
+	expect(screen.queryByRole("region", { name: "Stage colors" })).toBeNull();
+	fireEvent.click(help);
+	const legend = await screen.findByRole("region", { name: "Stage colors" });
+	for (const label of [
+		"Passed",
+		"Failed",
+		"Running",
+		"Awaiting approval",
+		"Queued",
+	])
+		expect(within(legend).getByText(label)).toBeTruthy();
+	expect(sort).not.toHaveBeenCalled();
+	fireEvent.keyDown(legend, { key: "Escape" });
+	expect(screen.queryByRole("region", { name: "Stage colors" })).toBeNull();
+	fireEvent.click(
+		screen.getByRole("button", { name: "Sort by Checks & stages" }),
+	);
+	expect(sort).toHaveBeenCalledWith("progress");
+});
+
 test("configurable columns, skeletons and row actions keep one table contract", () => {
 	const row = queryRow(publicPull());
 	const open = vi.fn(),

@@ -1,5 +1,10 @@
 import { Badge, Button, Checkbox, LayerCard } from "@nocoo/basalt";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@nocoo/basalt/components/popover";
+import {
 	Table,
 	TableBody,
 	TableCell,
@@ -19,6 +24,7 @@ import {
 	Eye,
 	EyeOff,
 	GitBranch,
+	Info,
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { EntityLabel } from "@/components/EntityAvatar";
@@ -32,7 +38,7 @@ import { usePullTableLayout } from "@/viewmodels/usePullTableLayout";
 import { PrCollectionMarker } from "../collections/PrCollectionMemberships";
 import { ReadinessCell } from "./ReadinessCell";
 import { RepositoryScopeLinks } from "./RepositoryFilters";
-import { LifecycleBadge, StageBar } from "./WorkbenchStatus";
+import { LifecycleBadge, StageBar, StageLegend } from "./WorkbenchStatus";
 
 const repositoryColumn = "group-data-[hidden-columns~=repository]/pulls:hidden";
 const authorColumn = "group-data-[hidden-columns~=author]/pulls:hidden";
@@ -293,6 +299,27 @@ function SortableHead({
 				{label}
 				<Icon className="h-3 w-3 shrink-0" aria-hidden />
 			</Button>
+			{sort === "progress" ? (
+				<Popover>
+					<PopoverTrigger asChild>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="ml-1 size-6 align-middle"
+							aria-label="Checks status legend"
+						>
+							<Info className="size-3.5" aria-hidden />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent
+						align="start"
+						aria-label="Checks status legend"
+						className="max-w-[calc(100vw-2rem)]"
+					>
+						<StageLegend />
+					</PopoverContent>
+				</Popover>
+			) : null}
 		</TableHead>
 	);
 }

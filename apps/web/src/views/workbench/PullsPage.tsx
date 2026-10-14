@@ -28,7 +28,6 @@ import { PullFilters } from "./PullFilters";
 import { PullList, PullListPagination } from "./PullList";
 import { RepositoryFilters, RepositoryScopeLinks } from "./RepositoryFilters";
 import { WorkbenchFeedback } from "./WorkbenchControls";
-import { StageLegend } from "./WorkbenchStatus";
 
 export function PullsPage() {
 	const vm = useWorkbench();
@@ -132,14 +131,17 @@ export function PullsPage() {
 				>
 					<PendingWatchList vm={vm} />
 					<LayerCard padding="none" role="region" aria-label="PR results">
-						<LayerCard.Header className="px-3 py-0.5">
-							<WatchToolbar vm={vm} />
-							{vm.loading ? (
-								<span role="status" className="sr-only">
-									Loading pull requests
-								</span>
-							) : null}
-						</LayerCard.Header>
+						{vm.selectedCount > 0 ||
+						(vm.feedbackKind === "watch" && (vm.mutationError || vm.notice)) ? (
+							<LayerCard.Header className="px-3 py-0.5">
+								<WatchToolbar vm={vm} />
+							</LayerCard.Header>
+						) : null}
+						{vm.loading ? (
+							<span role="status" className="sr-only">
+								Loading pull requests
+							</span>
+						) : null}
 						{!vm.loading && (!vm.pullsLoaded || vm.total === 0) ? (
 							<PullsEmptyState vm={vm} />
 						) : (
@@ -174,13 +176,6 @@ export function PullsPage() {
 						/>
 					</LayerCard>
 				</SectionRule>
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					<StageLegend />
-					<p className="text-xs text-basalt-muted-foreground">
-						Jev Readiness indicates whether a watched PR needs human
-						intervention. Running is not permission to merge.
-					</p>
-				</div>
 				<PullDetailSheet
 					row={vm.selected}
 					missing={vm.missingSelection}
@@ -237,13 +232,11 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 	return (
 		<div className="flex min-h-6 w-full flex-wrap items-center gap-2">
 			<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-				<span className="text-xs tabular-nums text-basalt-muted-foreground">
-					{vm.selectedCount
-						? `${vm.selectedCount} selected`
-						: "Select PRs to watch"}
-				</span>
 				{vm.selectedCount > 0 ? (
 					<>
+						<span className="text-xs tabular-nums text-basalt-muted-foreground">
+							{vm.selectedCount} selected
+						</span>
 						<Button
 							size="sm"
 							className="h-6 px-2 text-[11px]"
