@@ -30,14 +30,13 @@ export function decisionContextQueries(db: Database) {
 export function decisionContext(results: D1Result[]) {
 	return {
 		rules: new Map(
-			(results[0]?.results as { scope: string; text: string }[]).map((r) => [
-				r.scope,
-				r.text,
-			]),
+			((results[0]?.results ?? []) as { scope: string; text: string }[]).map(
+				(r) => [r.scope, r.text],
+			),
 		),
 		codes: new Map(
 			(
-				results[1]?.results as {
+				(results[1]?.results ?? []) as {
 					project_id: string;
 					gate_id: string;
 					id: number;

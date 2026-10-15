@@ -153,29 +153,29 @@ describe("independent summary and checks publications", () => {
 });
 
 describe("provider-neutral observation identity", () => {
-	test.each([
-		"ado",
-		"github",
-	] as const)("repository references prefer known stable IDs to names and retained aliases (%s)", (provider) => {
-		const first = { id: "stable-id", name: "Éditeur", aliases: ["Παλαιό"] };
-		const other = { id: "other-id", name: first.id, aliases: [first.id] };
-		const ids = [first.id, other.id];
-		expect(matchesRepositoryReference(first, "STABLE-ID", provider, ids)).toBe(
-			true,
-		);
-		expect(matchesRepositoryReference(other, "stable-id", provider, ids)).toBe(
-			false,
-		);
-		expect(matchesRepositoryReference(first, "éditeur", provider, ids)).toBe(
-			true,
-		);
-		expect(matchesRepositoryReference(first, "παλαιό", provider, ids)).toBe(
-			true,
-		);
-		expect(matchesRepositoryReference(first, "missing", provider, ids)).toBe(
-			false,
-		);
-	});
+	test.each(["ado", "github"] as const)(
+		"repository references prefer known stable IDs to names and retained aliases (%s)",
+		(provider) => {
+			const first = { id: "stable-id", name: "Éditeur", aliases: ["Παλαιό"] };
+			const other = { id: "other-id", name: first.id, aliases: [first.id] };
+			const ids = [first.id, other.id];
+			expect(
+				matchesRepositoryReference(first, "STABLE-ID", provider, ids),
+			).toBe(true);
+			expect(
+				matchesRepositoryReference(other, "stable-id", provider, ids),
+			).toBe(false);
+			expect(matchesRepositoryReference(first, "éditeur", provider, ids)).toBe(
+				true,
+			);
+			expect(matchesRepositoryReference(first, "παλαιό", provider, ids)).toBe(
+				true,
+			);
+			expect(matchesRepositoryReference(first, "missing", provider, ids)).toBe(
+				false,
+			);
+		},
+	);
 	test("ADO GUID references remain IDs before discovery, while GitHub names keep their own grammar", () => {
 		const id = "abcdefab-1111-2222-3333-123456789abc";
 		const repo = { id: "another-id", name: id };
@@ -247,23 +247,22 @@ describe("provider-neutral observation identity", () => {
 			).projectKey,
 		).toBe("My Project");
 	});
-	test.each([
-		"%ZZ",
-		"%E0%A4%A",
-		"%",
-	])("malformed URL encoding is a reference type error: %s", (segment) => {
-		for (const url of [
-			`https://dev.azure.com/o/p/_git/${segment}`,
-			`https://github.com/o/${segment}`,
-		]) {
-			expect(() => parseRepositoryReference(url)).toThrow(TypeError);
-			expect(() =>
-				parsePullReference(
-					`${url}/${url.includes("dev.azure.com") ? "pullrequest" : "pull"}/1`,
-				),
-			).toThrow(TypeError);
-		}
-	});
+	test.each(["%ZZ", "%E0%A4%A", "%"])(
+		"malformed URL encoding is a reference type error: %s",
+		(segment) => {
+			for (const url of [
+				`https://dev.azure.com/o/p/_git/${segment}`,
+				`https://github.com/o/${segment}`,
+			]) {
+				expect(() => parseRepositoryReference(url)).toThrow(TypeError);
+				expect(() =>
+					parsePullReference(
+						`${url}/${url.includes("dev.azure.com") ? "pullrequest" : "pull"}/1`,
+					),
+				).toThrow(TypeError);
+			}
+		},
+	);
 	test.each([
 		"http://dev.azure.com/o/p/_git/r/pullrequest/1",
 		"https://evil.test/o/p/_git/r/pullrequest/1",

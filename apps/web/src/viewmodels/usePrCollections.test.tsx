@@ -1,10 +1,12 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	loadCollectionPulls,
 	loadCollections,
 	loadMemberships,
 } from "@/models/prCollectionsApi";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	useCollectionMutation,
 	useCollectionPullList,
@@ -78,30 +80,32 @@ test("mutation dedupes repeated clicks, reloads before completion, and can retry
 		pending = result.current.run(work);
 	});
 	expect(result.current.busy).toBe(true);
-	await act(async () => expect(await result.current.run(work)).toBeNull());
+	await awaitReactAct(async () =>
+		expect(await result.current.run(work)).toBeNull(),
+	);
 	expect(work).toHaveBeenCalledTimes(1);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		saved.resolve("saved");
 		await Promise.resolve();
 	});
 	expect(reload).toHaveBeenCalledTimes(1);
 	expect(result.current.busy).toBe(true);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		reloaded.resolve();
 		expect(await pending).toBe("saved");
 	});
 	expect(result.current.busy).toBe(false);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(
 			await result.current.run(() => Promise.reject(new Error("Conflict"))),
 		).toBeNull();
 	});
 	expect(result.current.error).toBe("Conflict");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.run(() => Promise.reject("offline"));
 	});
 	expect(result.current.error).toBe("Could not update collection.");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.run(() => Promise.resolve(true))).toBe(true);
 	});
 	expect(result.current.error).toBeNull();
@@ -123,7 +127,7 @@ test("unmounted mutations cannot publish results or run a follow-up reload", asy
 	act(() => {
 		pending = second.result.current.run(() => Promise.resolve("saved"));
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await Promise.resolve();
 	});
 	second.unmount();

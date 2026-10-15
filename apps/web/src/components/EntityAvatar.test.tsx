@@ -1,12 +1,7 @@
-import {
-	act,
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import { AvatarSourceContext, EntityAvatar, EntityLabel } from "./EntityAvatar";
 
 vi.mock("@nocoo/basalt", () => ({
@@ -92,18 +87,18 @@ it("retries only missing cached photos and stops after the background cache is f
 	);
 	const first = container.querySelector("img") as HTMLImageElement;
 	fireEvent.error(first);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vi.advanceTimersByTimeAsync(59_999);
 	});
 	expect(container.querySelector("img")).toBe(first);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vi.advanceTimersByTimeAsync(1);
 	});
 	const retried = container.querySelector("img") as HTMLImageElement;
 	expect(retried).not.toBe(first);
 	expect(retried.getAttribute("src")).toBe(first.getAttribute("src"));
 	fireEvent.load(retried);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vi.advanceTimersByTimeAsync(120_000);
 	});
 	expect(container.querySelector("img")).toBe(retried);
@@ -125,7 +120,7 @@ it("suspends missing-photo retries while hidden and retries when the page become
 	fireEvent.error(first);
 	visibility = "hidden";
 	fireEvent(document, new Event("visibilitychange"));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vi.advanceTimersByTimeAsync(60_000);
 	});
 	expect(container.querySelector("img")).toBe(first);

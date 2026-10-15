@@ -1,7 +1,9 @@
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchHeatmap, fetchTimeline } from "@/models/activityApi";
 import { listDevelopers } from "@/models/entitiesApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useActivityHeatmapViewModel } from "./useActivityHeatmapViewModel";
 
 vi.mock("@/models/activityApi", () => ({
@@ -81,7 +83,7 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.data?.rows).toHaveLength(2);
@@ -100,7 +102,7 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.timelineDev).toBe("only-one");
@@ -108,7 +110,7 @@ describe("useActivityHeatmapViewModel", () => {
 
 	it("errors when missing inputs", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.error).toMatch(/Provide developer/);
@@ -122,7 +124,7 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.error).toBe("boom");
@@ -137,7 +139,7 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.error).toBe("string-fail");
@@ -150,7 +152,7 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setTo("2026-01-07");
 			result.current.setTimelineDev("d1");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		expect(result.current.timelineItems).toHaveLength(1);
@@ -172,7 +174,7 @@ describe("useActivityHeatmapViewModel", () => {
 			],
 			nextCursor: null,
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline({ more: true });
 		});
 		expect(result.current.timelineItems).toHaveLength(2);
@@ -184,129 +186,129 @@ describe("useActivityHeatmapViewModel", () => {
 		});
 	});
 
-	it.each([
-		"heatmap",
-		"timeline",
-	] as const)("recovers %s after the other endpoint reports stale scores", async (recover) => {
-		const { result } = renderHook(() => useActivityHeatmapViewModel());
-		act(() => {
-			result.current.setDevs("d1");
-			result.current.setTimelineDev("d1");
-			result.current.setFrom("2026-01-01");
-			result.current.setTo("2026-01-07");
-		});
-		await act(async () => {
-			await result.current.load();
-		});
-		await act(async () => {
-			await result.current.loadTimeline();
-		});
-		expect(result.current.data).not.toBeNull();
-		expect(result.current.timelineItems).toHaveLength(1);
-		vi.mocked(fetchHeatmap).mockResolvedValue({
-			...sample,
-			pipelineConfigVersion: 2,
-		});
-		vi.mocked(fetchTimeline).mockResolvedValue({
-			...timelineSample,
-			pipelineConfigVersion: 2,
-		});
-		if (recover === "heatmap") {
-			vi.mocked(fetchTimeline).mockResolvedValueOnce({
-				...timelineSample,
-				pipelineConfigVersion: 2,
-				scoresStale: true,
+	it.each(["heatmap", "timeline"] as const)(
+		"recovers %s after the other endpoint reports stale scores",
+		async (recover) => {
+			const { result } = renderHook(() => useActivityHeatmapViewModel());
+			act(() => {
+				result.current.setDevs("d1");
+				result.current.setTimelineDev("d1");
+				result.current.setFrom("2026-01-01");
+				result.current.setTo("2026-01-07");
 			});
-			await act(async () => {
-				await result.current.loadTimeline();
-			});
-			expect(result.current.data).toBeNull();
-			await act(async () => {
+			await awaitReactAct(async () => {
 				await result.current.load();
 			});
-			expect(result.current.data?.scoresStale).toBe(false);
-			expect(result.current.timeline).toBeNull();
-			expect(result.current.timelineItems).toEqual([]);
-		} else {
-			vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+			await awaitReactAct(async () => {
+				await result.current.loadTimeline();
+			});
+			expect(result.current.data).not.toBeNull();
+			expect(result.current.timelineItems).toHaveLength(1);
+			vi.mocked(fetchHeatmap).mockResolvedValue({
 				...sample,
 				pipelineConfigVersion: 2,
-				scoresStale: true,
 			});
-			await act(async () => {
-				await result.current.load();
+			vi.mocked(fetchTimeline).mockResolvedValue({
+				...timelineSample,
+				pipelineConfigVersion: 2,
 			});
-			expect(result.current.timeline).toBeNull();
-			expect(result.current.timelineItems).toEqual([]);
-			await act(async () => {
-				await result.current.loadTimeline();
-			});
-			expect(result.current.timeline?.scoresStale).toBe(false);
-			expect(result.current.data).toBeNull();
-		}
-	});
+			if (recover === "heatmap") {
+				vi.mocked(fetchTimeline).mockResolvedValueOnce({
+					...timelineSample,
+					pipelineConfigVersion: 2,
+					scoresStale: true,
+				});
+				await awaitReactAct(async () => {
+					await result.current.loadTimeline();
+				});
+				expect(result.current.data).toBeNull();
+				await awaitReactAct(async () => {
+					await result.current.load();
+				});
+				expect(result.current.data?.scoresStale).toBe(false);
+				expect(result.current.timeline).toBeNull();
+				expect(result.current.timelineItems).toEqual([]);
+			} else {
+				vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+					...sample,
+					pipelineConfigVersion: 2,
+					scoresStale: true,
+				});
+				await awaitReactAct(async () => {
+					await result.current.load();
+				});
+				expect(result.current.timeline).toBeNull();
+				expect(result.current.timelineItems).toEqual([]);
+				await awaitReactAct(async () => {
+					await result.current.loadTimeline();
+				});
+				expect(result.current.timeline?.scoresStale).toBe(false);
+				expect(result.current.data).toBeNull();
+			}
+		},
+	);
 
-	it.each([
-		"heatmap",
-		"timeline",
-	] as const)("rejects a delayed %s response from an older pipeline version", async (delayed) => {
-		const { result } = renderHook(() => useActivityHeatmapViewModel());
-		act(() => {
-			result.current.setDevs("d1");
-			result.current.setTimelineDev("d1");
-			result.current.setFrom("2026-01-01");
-			result.current.setTo("2026-01-07");
-		});
-		let release = () => {};
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		let request: Promise<void>;
-		if (delayed === "heatmap") {
-			vi.mocked(fetchHeatmap).mockImplementationOnce(async () => {
-				await gate;
-				return sample;
-			});
+	it.each(["heatmap", "timeline"] as const)(
+		"rejects a delayed %s response from an older pipeline version",
+		async (delayed) => {
+			const { result } = renderHook(() => useActivityHeatmapViewModel());
 			act(() => {
-				request = result.current.load();
+				result.current.setDevs("d1");
+				result.current.setTimelineDev("d1");
+				result.current.setFrom("2026-01-01");
+				result.current.setTo("2026-01-07");
 			});
-			vi.mocked(fetchTimeline).mockResolvedValueOnce({
-				...timelineSample,
-				pipelineConfigVersion: 2,
-				scoresStale: true,
+			let release = () => {};
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
 			});
-			await act(async () => {
-				await result.current.loadTimeline();
+			let request: Promise<void>;
+			if (delayed === "heatmap") {
+				vi.mocked(fetchHeatmap).mockImplementationOnce(async () => {
+					await gate;
+					return sample;
+				});
+				act(() => {
+					request = result.current.load();
+				});
+				vi.mocked(fetchTimeline).mockResolvedValueOnce({
+					...timelineSample,
+					pipelineConfigVersion: 2,
+					scoresStale: true,
+				});
+				await awaitReactAct(async () => {
+					await result.current.loadTimeline();
+				});
+			} else {
+				vi.mocked(fetchTimeline).mockImplementationOnce(async () => {
+					await gate;
+					return timelineSample;
+				});
+				act(() => {
+					request = result.current.loadTimeline();
+				});
+				vi.mocked(fetchHeatmap).mockResolvedValueOnce({
+					...sample,
+					pipelineConfigVersion: 2,
+					scoresStale: true,
+				});
+				await awaitReactAct(async () => {
+					await result.current.load();
+				});
+			}
+			await awaitReactAct(async () => {
+				release();
+				await request;
 			});
-		} else {
-			vi.mocked(fetchTimeline).mockImplementationOnce(async () => {
-				await gate;
-				return timelineSample;
-			});
-			act(() => {
-				request = result.current.loadTimeline();
-			});
-			vi.mocked(fetchHeatmap).mockResolvedValueOnce({
-				...sample,
-				pipelineConfigVersion: 2,
-				scoresStale: true,
-			});
-			await act(async () => {
-				await result.current.load();
-			});
-		}
-		await act(async () => {
-			release();
-			await request;
-		});
-		if (delayed === "heatmap") {
-			expect(result.current.data).toBeNull();
-			expect(result.current.timeline?.scoresStale).toBe(true);
-		} else {
-			expect(result.current.timeline).toBeNull();
-			expect(result.current.data?.scoresStale).toBe(true);
-		}
-	});
+			if (delayed === "heatmap") {
+				expect(result.current.data).toBeNull();
+				expect(result.current.timeline?.scoresStale).toBe(true);
+			} else {
+				expect(result.current.timeline).toBeNull();
+				expect(result.current.data?.scoresStale).toBe(true);
+			}
+		},
+	);
 
 	it("invalidates older caches and restarts pagination when the configuration changes", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
@@ -316,17 +318,17 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		vi.mocked(fetchHeatmap).mockResolvedValueOnce({
 			...sample,
 			pipelineConfigVersion: 2,
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.timeline).toBeNull();
@@ -334,7 +336,7 @@ describe("useActivityHeatmapViewModel", () => {
 			...timelineSample,
 			pipelineConfigVersion: 2,
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		vi.mocked(fetchTimeline)
@@ -344,7 +346,7 @@ describe("useActivityHeatmapViewModel", () => {
 				pipelineConfigVersion: 3,
 				nextCursor: "v3-page-2",
 			});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline({ more: true });
 		});
 		expect(fetchTimeline).toHaveBeenLastCalledWith({
@@ -358,56 +360,57 @@ describe("useActivityHeatmapViewModel", () => {
 		expect(result.current.data).toBeNull();
 	});
 
-	it.each([
-		"heatmap",
-		"timeline",
-	] as const)("keeps a newer successful refresh when an older %s reports stale in the same version", async (delayed) => {
-		const { result } = renderHook(() => useActivityHeatmapViewModel());
-		act(() => {
-			result.current.setDevs("d1");
-			result.current.setTimelineDev("d1");
-			result.current.setFrom("2026-01-01");
-			result.current.setTo("2026-01-07");
-		});
-		let release = () => {};
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		let request: Promise<void>;
-		if (delayed === "heatmap") {
-			vi.mocked(fetchHeatmap).mockImplementationOnce(async () => {
-				await gate;
-				return { ...sample, scoresStale: true };
-			});
+	it.each(["heatmap", "timeline"] as const)(
+		"keeps a newer successful refresh when an older %s reports stale in the same version",
+		async (delayed) => {
+			const { result } = renderHook(() => useActivityHeatmapViewModel());
 			act(() => {
-				request = result.current.load();
+				result.current.setDevs("d1");
+				result.current.setTimelineDev("d1");
+				result.current.setFrom("2026-01-01");
+				result.current.setTo("2026-01-07");
 			});
-			await act(async () => {
-				await result.current.loadTimeline();
+			let release = () => {};
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
 			});
-		} else {
-			vi.mocked(fetchTimeline).mockImplementationOnce(async () => {
-				await gate;
-				return { ...timelineSample, scoresStale: true };
+			let request: Promise<void>;
+			if (delayed === "heatmap") {
+				vi.mocked(fetchHeatmap).mockImplementationOnce(async () => {
+					await gate;
+					return { ...sample, scoresStale: true };
+				});
+				act(() => {
+					request = result.current.load();
+				});
+				await awaitReactAct(async () => {
+					await result.current.loadTimeline();
+				});
+			} else {
+				vi.mocked(fetchTimeline).mockImplementationOnce(async () => {
+					await gate;
+					return { ...timelineSample, scoresStale: true };
+				});
+				act(() => {
+					request = result.current.loadTimeline();
+				});
+				await awaitReactAct(async () => {
+					await result.current.load();
+				});
+			}
+			await awaitReactAct(async () => {
+				release();
+				await request;
 			});
-			act(() => {
-				request = result.current.loadTimeline();
-			});
-			await act(async () => {
-				await result.current.load();
-			});
-		}
-		await act(async () => {
-			release();
-			await request;
-		});
-		expect(
-			result.current.data?.scoresStale || result.current.timeline?.scoresStale,
-		).toBeFalsy();
-		expect(
-			delayed === "heatmap" ? result.current.timeline : result.current.data,
-		).not.toBeNull();
-	});
+			expect(
+				result.current.data?.scoresStale ||
+					result.current.timeline?.scoresStale,
+			).toBeFalsy();
+			expect(
+				delayed === "heatmap" ? result.current.timeline : result.current.data,
+			).not.toBeNull();
+		},
+	);
 
 	it("treats recompute completion as final within one configuration version", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
@@ -417,26 +420,26 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		vi.mocked(fetchTimeline).mockResolvedValueOnce({
 			...timelineSample,
 			scoresStale: true,
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		expect(result.current.data?.scoresStale).toBe(false);
 		expect(result.current.timeline).toBeNull();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		vi.mocked(fetchHeatmap).mockResolvedValueOnce({
 			...sample,
 			scoresStale: true,
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.timeline?.scoresStale).toBe(false);
@@ -446,7 +449,7 @@ describe("useActivityHeatmapViewModel", () => {
 			pipelineConfigVersion: 2,
 			scoresStale: true,
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.timeline).toBeNull();
@@ -461,16 +464,16 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-07");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		vi.mocked(fetchTimeline)
 			.mockResolvedValueOnce({ ...timelineSample, pipelineConfigVersion: 2 })
 			.mockRejectedValueOnce(new Error("Restart unavailable"));
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline({ more: true });
 		});
 		expect(result.current.data).toBeNull();
@@ -480,7 +483,7 @@ describe("useActivityHeatmapViewModel", () => {
 
 	it("timeline validation error when missing fields", async () => {
 		const { result } = renderHook(() => useActivityHeatmapViewModel());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		expect(result.current.timelineError).toMatch(/Provide timeline developer/);
@@ -494,7 +497,7 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setTo("2026-01-07");
 			result.current.setTimelineDev("d1");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		expect(result.current.timelineError).toBe("tl-boom");
@@ -509,13 +512,13 @@ describe("useActivityHeatmapViewModel", () => {
 			result.current.setTo("2026-01-07");
 			result.current.setTimelineDev("d1");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline();
 		});
 		expect(result.current.timelineItems).toHaveLength(1);
 
 		vi.mocked(fetchTimeline).mockRejectedValueOnce("more-fail");
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.loadTimeline({ more: true });
 		});
 		expect(result.current.timelineError).toBe("more-fail");
@@ -531,7 +534,7 @@ describe("resolving ids to people", () => {
 	const mountedWithRoster = async () => {
 		const hook = renderHook(() => useActivityHeatmapViewModel());
 		// Flush the roster effect before asserting on it.
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await Promise.resolve();
 		});
 		return hook;
@@ -569,7 +572,7 @@ describe("resolving ids to people", () => {
 		expect(result.current.rosterError).toBe("boom");
 
 		vi.mocked(listDevelopers).mockResolvedValue([dev("d1", "Ada")]);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.reloadRoster();
 		});
 		expect(result.current.rosterError).toBeNull();
@@ -593,7 +596,7 @@ describe("resolving ids to people", () => {
 			result.current.setFrom("2026-01-01");
 			result.current.setTo("2026-01-31");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.load();
 		});
 		expect(result.current.levels).toHaveLength(2);

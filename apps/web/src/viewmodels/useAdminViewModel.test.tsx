@@ -1,5 +1,7 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import { useAdminViewModel } from "./useAdminViewModel";
 
 const directory = {
@@ -40,10 +42,10 @@ const writes = () => calls.filter((c) => c.method !== "GET");
 it("loads the directory and runs each write, then reloads", async () => {
 	const { result } = renderHook(() => useAdminViewModel());
 	await waitFor(() => expect(result.current.directory.data).toEqual(directory));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.addMember("default", " a@x.io ")).toBe(true);
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.removeMember("default", "email:a@x.io");
 		await result.current.addAdmin(" b@x.io ");
 		await result.current.removeAdmin("email:b@x.io");
@@ -62,7 +64,7 @@ it("reports failures and ignores writes while busy", async () => {
 	const { result } = renderHook(() => useAdminViewModel());
 	await waitFor(() => expect(result.current.directory.data).not.toBeNull());
 	fail = "Enter an email address or service:<client id>";
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.addAdmin("nope")).toBe(false);
 	});
 	expect(result.current.error).toBe(fail);
@@ -87,11 +89,11 @@ it("reports failures and ignores writes while busy", async () => {
 	});
 	await waitFor(() => expect(result.current.busy).toBe("admin"));
 	let second: boolean | undefined;
-	await act(async () => {
+	await awaitReactAct(async () => {
 		second = await result.current.addAdmin("b@x.io");
 	});
 	expect(second).toBe(false);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		release();
 		await first;
 	});
@@ -109,7 +111,7 @@ it("uses a generic message for non-Error failures", async () => {
 			return Response.json(directory);
 		}),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.addAdmin("a@x.io");
 	});
 	expect(result.current.error).toBe("Administrator request failed.");

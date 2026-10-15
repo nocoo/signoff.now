@@ -1,8 +1,10 @@
 import type { DataSource } from "@signoff/domain/insights";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { apiFetch } from "@/lib/api";
 import { fetchDirectory } from "@/models/directoryApi";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	CONTRIBUTOR_CHANGED,
 	useContributorProfile,
@@ -61,7 +63,7 @@ function setup(open = true) {
 }
 it("loads only cached statistics when opened and clears data across sources", async () => {
 	const vm = setup(false);
-	await act(async () => {});
+	await awaitReactAct(async () => {});
 	expect(apiFetch).not.toHaveBeenCalled();
 	vm.rerender({ source: "cli", key: "member:ada", visible: true });
 	await waitFor(() => expect(vm.result.current.data?.totals.total).toBe(8));
@@ -77,7 +79,7 @@ it("uses the current directory revision, emits a scoped change, and prevents dup
 	await waitFor(() => expect(vm.result.current.data).toBeTruthy());
 	const listener = vi.fn();
 	window.addEventListener(CONTRIBUTOR_CHANGED, listener);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		const first = vm.result.current.setBlocked(true);
 		await vm.result.current.setBlocked(true);
 		await first;
@@ -98,17 +100,17 @@ it("reports mutation failures and can retry an unblock", async () => {
 	vi.mocked(fetchDirectory).mockRejectedValueOnce(
 		new Error("Revision unavailable"),
 	);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vm.result.current.setBlocked(false);
 	});
 	expect(vm.result.current.error).toBe("Revision unavailable");
 	expect(vm.result.current.busy).toBe(false);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vm.result.current.setBlocked(false);
 	});
 	expect(vm.result.current.error).toBeNull();
 	vi.mocked(fetchDirectory).mockRejectedValueOnce("failed");
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await vm.result.current.setBlocked(false);
 	});
 	expect(vm.result.current.error).toBe("Could not update contributor");
@@ -139,7 +141,7 @@ it("does not write after a source change or unmount during the revision read", a
 		pending = old(true);
 	});
 	vm.rerender({ source: "demo", key: "member:ada", visible: false });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		resolve({
 			source: "cli",
 			revision: 8,

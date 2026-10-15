@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { avatarColorHex } from "@/lib/avatar";
 import type { Tag, Team } from "@/models/entities";
@@ -11,6 +12,7 @@ import {
 	patchTeam,
 	restoreTeam,
 } from "@/models/entitiesApi";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	teamDraftFrom,
 	useTeamEditViewModel,
@@ -128,12 +130,12 @@ describe("useTeamsViewModel", () => {
 		const hook = renderHook(() => useTeamsViewModel());
 
 		vi.mocked(listTeams).mockResolvedValue([team({ name: "Fresh" })]);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await hook.result.current.reload();
 		});
 		expect(hook.result.current.items[0]?.name).toBe("Fresh");
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			releaseSlow([team({ name: "Stale" })]);
 			await Promise.resolve();
 		});
@@ -142,7 +144,7 @@ describe("useTeamsViewModel", () => {
 
 	it("refuses a blank name without calling the API", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await expect(
 				result.current.submit({ name: "   ", avatarUrl: "", tagIds: [] }),
 			).resolves.toBeUndefined();
@@ -158,7 +160,7 @@ describe("useTeamsViewModel", () => {
 
 	it("creates with a trimmed name, avatar and tags", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit({
 				name: "  Platform  ",
 				avatarUrl: " https://x/t.png ",
@@ -177,7 +179,7 @@ describe("useTeamsViewModel", () => {
 		// avatar and tags the user had just picked.
 		vi.mocked(createTeam).mockRejectedValueOnce(new Error("exists"));
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await expect(
 				result.current.submit({
 					name: "Platform",
@@ -191,7 +193,7 @@ describe("useTeamsViewModel", () => {
 	it("addTag derives a colour and keeps the list sorted", async () => {
 		const { result } = await mounted();
 		let id = "";
-		await act(async () => {
+		await awaitReactAct(async () => {
 			id = await result.current.addTag("infra");
 		});
 		// Assert the SHAPE, not just `avatarColorHex(...)` echoed back: the
@@ -214,7 +216,7 @@ describe("useTeamsViewModel", () => {
 
 	it("archives then reloads", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("t1");
 		});
 		expect(archiveTeam).toHaveBeenCalledWith("t1");
@@ -224,7 +226,7 @@ describe("useTeamsViewModel", () => {
 	it("reports an archive failure", async () => {
 		vi.mocked(archiveTeam).mockRejectedValueOnce("boom");
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("t1");
 		});
 		expect(result.current.error).toBe("Request failed");
@@ -235,7 +237,7 @@ describe("useTeamsViewModel", () => {
 		act(() => {
 			result.current.setCreating(true);
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit({ name: "X", avatarUrl: "", tagIds: [] });
 		});
 		// No row selected means create, never a patch against some other team.
@@ -250,7 +252,7 @@ describe("useTeamsViewModel", () => {
 		act(() => {
 			result.current.setEditing(team());
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit({
 				name: "Core",
 				avatarUrl: "  ",
@@ -285,7 +287,7 @@ describe("useTeamsViewModel", () => {
 
 	it("restores then reloads", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.restore("t1");
 		});
 		expect(restoreTeam).toHaveBeenCalledWith("t1");
@@ -339,12 +341,12 @@ describe("useTeamsViewModel", () => {
 		});
 		await waitFor(() => expect(result.current.busy).toBe(true));
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.archive("t1")).toBe(false);
 		});
 		expect(archiveTeam).toHaveBeenCalledTimes(1);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			release();
 			await first;
 		});
@@ -418,7 +420,7 @@ describe("useTeamEditViewModel", () => {
 		act(() => {
 			result.current.setField("name", "");
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onSubmit).not.toHaveBeenCalled();
@@ -426,7 +428,7 @@ describe("useTeamEditViewModel", () => {
 
 	it("submits and signals done", async () => {
 		const { result, onSubmit, onDone } = mount(team());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(true);
 		});
 		expect(onSubmit).toHaveBeenCalled();
@@ -436,7 +438,7 @@ describe("useTeamEditViewModel", () => {
 	it("stays open on failure", async () => {
 		const onSubmit = vi.fn().mockRejectedValue(new Error("name taken"));
 		const { result, onDone } = mount(team(), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(onDone).not.toHaveBeenCalled();
@@ -446,7 +448,7 @@ describe("useTeamEditViewModel", () => {
 	it("coerces a non-Error rejection", async () => {
 		const onSubmit = vi.fn().mockRejectedValue("nope");
 		const { result } = mount(team(), onSubmit);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toBe("Save failed");
@@ -468,12 +470,12 @@ describe("useTeamEditViewModel", () => {
 		});
 		await waitFor(() => expect(result.current.busy).toBe(true));
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.save()).toBe(false);
 		});
 		expect(onSubmit).toHaveBeenCalledTimes(1);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			release();
 			await first;
 		});

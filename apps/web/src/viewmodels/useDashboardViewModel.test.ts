@@ -1,7 +1,8 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StatsSummary } from "@/models/stats";
 import { fetchStatsSummary } from "@/models/statsApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useDashboardViewModel } from "./useDashboardViewModel";
 
 vi.mock("@/models/statsApi", () => ({
@@ -81,7 +82,7 @@ describe("useDashboardViewModel", () => {
 		// Not the browser's today: the two differ across a timezone boundary,
 		// and the bars would then shift under the manager for no reason.
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(7);
 		});
 		expect(fetchStatsSummary).toHaveBeenLastCalledWith({
@@ -93,7 +94,7 @@ describe("useDashboardViewModel", () => {
 
 	it("re-requests the default preset with an explicit window once anchored", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(28);
 		});
 		expect(fetchStatsSummary).toHaveBeenLastCalledWith({
@@ -106,7 +107,7 @@ describe("useDashboardViewModel", () => {
 		// A tab left open across midnight must not stay anchored to yesterday,
 		// so reload drops the stored anchor and lets the server date the window.
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.reload();
 		});
 		expect(fetchStatsSummary).toHaveBeenCalledTimes(2);
@@ -115,13 +116,13 @@ describe("useDashboardViewModel", () => {
 
 	it("reload re-applies a non-default preset against the fresh anchor", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(7);
 		});
 		vi.mocked(fetchStatsSummary).mockResolvedValue(
 			summary({ window: { from: "2026-06-30", to: "2026-07-27" } }),
 		);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.reload();
 		});
 		// Anchored on the NEW day the server reported, not the old one.
@@ -149,10 +150,10 @@ describe("useDashboardViewModel", () => {
 		vi.mocked(fetchStatsSummary).mockImplementation(async (opts) =>
 			summary(opts ? { window: opts } : {}),
 		);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(92);
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			settleFirst?.(summary());
 			await Promise.resolve();
 		});
@@ -188,12 +189,12 @@ describe("useDashboardViewModel", () => {
 		vi.mocked(fetchStatsSummary).mockResolvedValue(
 			summary({ totals: { activities: 9, score: 99, activeDevelopers: 3 } }),
 		);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(92);
 		});
 		expect(result.current.summary?.totals.score).toBe(99);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			settleFirst?.(
 				summary({ totals: { activities: 1, score: 1, activeDevelopers: 1 } }),
 			);
@@ -214,11 +215,11 @@ describe("useDashboardViewModel", () => {
 		const { result } = renderHook(() => useDashboardViewModel());
 
 		vi.mocked(fetchStatsSummary).mockResolvedValue(summary());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(7);
 		});
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			rejectFirst?.(new Error("stale"));
 			await Promise.resolve();
 		});
@@ -240,18 +241,18 @@ describe("useDashboardViewModel", () => {
 			);
 		const { result } = renderHook(() => useDashboardViewModel());
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.selectPreset(92);
 		});
 		expect(result.current.loading).toBe(true);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			settleFirst?.(summary());
 			await Promise.resolve();
 		});
 		expect(result.current.loading).toBe(true);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			settleSecond?.(summary());
 			await Promise.resolve();
 		});

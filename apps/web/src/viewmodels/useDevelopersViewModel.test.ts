@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { avatarColorHex } from "@/lib/avatar";
 import type { Developer, Tag, Team } from "@/models/entities";
@@ -12,6 +13,7 @@ import {
 	patchDeveloper,
 	restoreDeveloper,
 } from "@/models/entitiesApi";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	type DeveloperDraft,
 	useDevelopersViewModel,
@@ -120,12 +122,12 @@ describe("loading", () => {
 		const hook = renderHook(() => useDevelopersViewModel());
 
 		vi.mocked(listDevelopers).mockResolvedValue([dev({ name: "Fresh" })]);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await hook.result.current.reload();
 		});
 		expect(hook.result.current.items[0]?.name).toBe("Fresh");
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			releaseSlow([dev({ name: "Stale" })]);
 			await Promise.resolve();
 		});
@@ -174,7 +176,7 @@ describe("submit (create and edit share one path)", () => {
 
 	it("creates when nothing is being edited", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(draft({ tagIds: ["g1"] }));
 		});
 		expect(createDeveloper).toHaveBeenCalledWith("Bob", "bob", {
@@ -190,7 +192,7 @@ describe("submit (create and edit share one path)", () => {
 		act(() => {
 			result.current.setEditing(dev());
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(draft({ name: "Ada", alias: "ada" }));
 		});
 		expect(patchDeveloper).toHaveBeenCalledWith("d1", {
@@ -206,7 +208,7 @@ describe("submit (create and edit share one path)", () => {
 	it("sends a blank avatar as null, not an empty string", async () => {
 		// null is the API's one spelling of "no image"; "" would be a second.
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(draft({ avatarUrl: "   " }));
 		});
 		expect(vi.mocked(createDeveloper).mock.calls[0]?.[2]).toMatchObject({
@@ -216,7 +218,7 @@ describe("submit (create and edit share one path)", () => {
 
 	it("reloads after a successful write", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.submit(draft());
 		});
 		expect(listDevelopers).toHaveBeenCalledTimes(2);
@@ -236,7 +238,7 @@ describe("addTag", () => {
 		// trade than a stable generated one.
 		const { result } = await mounted();
 		let id = "";
-		await act(async () => {
+		await awaitReactAct(async () => {
 			id = await result.current.addTag("infra");
 		});
 		// Assert the SHAPE, not just `avatarColorHex(...)` echoed back: the
@@ -252,7 +254,7 @@ describe("addTag", () => {
 
 	it("adds it to the local list without a full reload", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.addTag("infra");
 		});
 		expect(result.current.tags.map((t) => t.name)).toContain("infra");
@@ -262,7 +264,7 @@ describe("addTag", () => {
 
 	it("keeps the list sorted by name", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.addTag("infra");
 		});
 		const names = result.current.tags.map((t) => t.name);
@@ -273,7 +275,7 @@ describe("addTag", () => {
 describe("archive / restore", () => {
 	it("archives then reloads", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("d1");
 		});
 		expect(archiveDeveloper).toHaveBeenCalledWith("d1");
@@ -282,7 +284,7 @@ describe("archive / restore", () => {
 
 	it("restores then reloads", async () => {
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.restore("d1");
 		});
 		expect(restoreDeveloper).toHaveBeenCalledWith("d1");
@@ -305,12 +307,12 @@ describe("archive / restore", () => {
 		});
 		await waitFor(() => expect(result.current.busy).toBe(true));
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.archive("d1")).toBe(false);
 		});
 		expect(archiveDeveloper).toHaveBeenCalledTimes(1);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			release();
 			await first;
 		});
@@ -320,7 +322,7 @@ describe("archive / restore", () => {
 	it("reports a failure", async () => {
 		vi.mocked(archiveDeveloper).mockRejectedValueOnce(new Error("gone"));
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("d1");
 		});
 		expect(result.current.error).toBe("gone");
@@ -329,7 +331,7 @@ describe("archive / restore", () => {
 	it("coerces a non-Error mutation rejection", async () => {
 		vi.mocked(archiveDeveloper).mockRejectedValueOnce("boom");
 		const { result } = await mounted();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.archive("d1");
 		});
 		expect(result.current.error).toBe("Request failed");

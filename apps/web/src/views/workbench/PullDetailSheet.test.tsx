@@ -91,54 +91,53 @@ it("shows expired build evidence and its next action despite a generic saved Bui
 	).toContain("Build Expired");
 });
 
-it.each([
-	"open",
-	"merged",
-	"closed",
-] as const)("can remove an active watch from %s PR details", (state) => {
-	const onToggleWatch = show(
-		queryRow(
-			publicPull({ ...fixturePull, state }, undefined, fixtureObservation()),
-		),
-	);
-	const button = screen.getByRole("button", { name: "Stop watching" });
-	expect(button).toHaveProperty("disabled", false);
-	fireEvent.click(button);
-	expect(onToggleWatch).toHaveBeenCalledOnce();
-});
-
-it.each([
-	"merged",
-	"closed",
-] as const)("can unwatch a retired %s PR without restarting collection", (state) => {
-	const onToggleWatch = show(
-		queryRow(
-			publicPull(
-				{ ...fixturePull, state },
-				undefined,
-				fixtureObservation({
-					active: false,
-					stopReason: state === "merged" ? "completed" : "abandoned",
-				}),
+it.each(["open", "merged", "closed"] as const)(
+	"can remove an active watch from %s PR details",
+	(state) => {
+		const onToggleWatch = show(
+			queryRow(
+				publicPull({ ...fixturePull, state }, undefined, fixtureObservation()),
 			),
-		),
-	);
-	const button = screen.getByRole("button", { name: "Stop watching" });
-	expect(button).toHaveProperty("disabled", false);
-	fireEvent.click(button);
-	expect(onToggleWatch).toHaveBeenCalledOnce();
-});
+		);
+		const button = screen.getByRole("button", { name: "Stop watching" });
+		expect(button).toHaveProperty("disabled", false);
+		fireEvent.click(button);
+		expect(onToggleWatch).toHaveBeenCalledOnce();
+	},
+);
 
-it.each([
-	"merged",
-	"closed",
-] as const)("cannot add a new watch from %s PR details", (state) => {
-	show(queryRow(publicPull({ ...fixturePull, state })));
-	expect(
-		screen.queryByRole("button", { name: "Add to watch list" }),
-	).toBeNull();
-	expect(screen.queryByRole("button", { name: "Stop watching" })).toBeNull();
-});
+it.each(["merged", "closed"] as const)(
+	"can unwatch a retired %s PR without restarting collection",
+	(state) => {
+		const onToggleWatch = show(
+			queryRow(
+				publicPull(
+					{ ...fixturePull, state },
+					undefined,
+					fixtureObservation({
+						active: false,
+						stopReason: state === "merged" ? "completed" : "abandoned",
+					}),
+				),
+			),
+		);
+		const button = screen.getByRole("button", { name: "Stop watching" });
+		expect(button).toHaveProperty("disabled", false);
+		fireEvent.click(button);
+		expect(onToggleWatch).toHaveBeenCalledOnce();
+	},
+);
+
+it.each(["merged", "closed"] as const)(
+	"cannot add a new watch from %s PR details",
+	(state) => {
+		show(queryRow(publicPull({ ...fixturePull, state })));
+		expect(
+			screen.queryByRole("button", { name: "Add to watch list" }),
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Stop watching" })).toBeNull();
+	},
+);
 
 it("keeps a terminal watch removal visible and disabled while its optimistic request is pending", () => {
 	const onToggleWatch = show({

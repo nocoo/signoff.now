@@ -410,46 +410,48 @@ test("batch removal reports a middle ambiguous lookup and continues independent 
 	expect(JSON.parse(stderr).error.code).toBe("PARTIAL_FAILURE");
 	expect(calls.filter((call) => call.method === "POST")).toHaveLength(2);
 });
-test.each([
-	400, 422,
-])("batch removal keeps malformed item errors separate from service errors (%s)", async (httpStatus) => {
-	reply = () => Response.json(null, { status: httpStatus });
-	await cli("watch", "remove", "first", "second");
-	expect(process.exitCode).toBe(3);
-	expect(
-		JSON.parse(stdout).results.map(
-			(item: { error: { code: string } }) => item.error.code,
-		),
-	).toEqual(["COMMAND_REJECTED", "COMMAND_REJECTED"]);
-	expect(calls).toHaveLength(2);
-});
-test.each([
-	503, 0,
-])("batch removal preserves acknowledged receipts before a fatal service error (%s)", async (httpStatus) => {
-	reply = (url, _body, method) => {
-		if (url.searchParams.get("pullId") === "unavailable") {
-			if (!httpStatus) throw new Error("Connection lost");
+test.each([400, 422])(
+	"batch removal keeps malformed item errors separate from service errors (%s)",
+	async (httpStatus) => {
+		reply = () => Response.json(null, { status: httpStatus });
+		await cli("watch", "remove", "first", "second");
+		expect(process.exitCode).toBe(3);
+		expect(
+			JSON.parse(stdout).results.map(
+				(item: { error: { code: string } }) => item.error.code,
+			),
+		).toEqual(["COMMAND_REJECTED", "COMMAND_REJECTED"]);
+		expect(calls).toHaveLength(2);
+	},
+);
+test.each([503, 0])(
+	"batch removal preserves acknowledged receipts before a fatal service error (%s)",
+	async (httpStatus) => {
+		reply = (url, _body, method) => {
+			if (url.searchParams.get("pullId") === "unavailable") {
+				if (!httpStatus) throw new Error("Connection lost");
+				return Response.json(
+					{ error: { code: "UNAVAILABLE" } },
+					{ status: httpStatus },
+				);
+			}
 			return Response.json(
-				{ error: { code: "UNAVAILABLE" } },
-				{ status: httpStatus },
+				method === "GET"
+					? { ...envelope, schemaVersion: 2, data: inspection }
+					: { results: [{ status: "removed", observation }] },
 			);
-		}
-		return Response.json(
-			method === "GET"
-				? { ...envelope, schemaVersion: 2, data: inspection }
-				: { results: [{ status: "removed", observation }] },
-		);
-	};
-	await expect(
-		cli("watch", "remove", "first", "unavailable", "third"),
-	).rejects.toBeTruthy();
-	expect(
-		JSON.parse(stdout).results.map((item: { status: string }) => item.status),
-	).toEqual(["removed"]);
-	expect(
-		calls.some((call) => call.url.searchParams.get("pullId") === "third"),
-	).toBe(false);
-});
+		};
+		await expect(
+			cli("watch", "remove", "first", "unavailable", "third"),
+		).rejects.toBeTruthy();
+		expect(
+			JSON.parse(stdout).results.map((item: { status: string }) => item.status),
+		).toEqual(["removed"]);
+		expect(
+			calls.some((call) => call.url.searchParams.get("pullId") === "third"),
+		).toBe(false);
+	},
+);
 test("discovery and each refresh form enqueue commands without reading providers", async () => {
 	await cli("discover", "--repo", referenceLinks(ref).repository.url);
 	await cli("refresh", "--all");

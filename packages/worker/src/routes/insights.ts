@@ -116,7 +116,9 @@ function mapMember(row: MemberRow): MemberContribution {
 	const { team_ids, ...rest } = row;
 	return {
 		...rest,
-		teamIds: (JSON.parse(team_ids) as string[]).sort(),
+		teamIds: (JSON.parse(team_ids) as string[]).sort((a, b) =>
+			a.localeCompare(b),
+		),
 		avatarUrl: "value" in avatar ? avatar.value : null,
 	};
 }
@@ -191,7 +193,10 @@ async function calculate(
 	};
 	if (module === "trend" && filters.from !== null && filters.to !== null) {
 		const byDay = new Map(
-			(result[1]?.results as DailyContribution[]).map((row) => [row.day, row]),
+			((result[1]?.results ?? []) as DailyContribution[]).map((row) => [
+				row.day,
+				row,
+			]),
 		);
 		for (
 			let time = Date.parse(filters.from);
@@ -205,12 +210,12 @@ async function calculate(
 		snapshot.repositories = result[1]?.results as RepositoryContribution[];
 	} else if (module === "members") {
 		const members = new Map(
-			(result[1]?.results as MemberRow[]).map((row) => [
+			((result[1]?.results ?? []) as MemberRow[]).map((row) => [
 				row.key,
 				mapMember(row),
 			]),
 		);
-		for (const row of result[2]?.results as MemberRow[]) {
+		for (const row of (result[2]?.results ?? []) as MemberRow[]) {
 			if (!members.has(row.key))
 				members.set(
 					row.key,
@@ -300,8 +305,9 @@ export async function insightsRoute(c: Context<AppEnv>) {
 			"SELECT requested_at FROM pr_stat_snapshots WHERE source = ? AND module = ? AND filter_key = ?",
 		).bind(filters.source, module.data, key),
 	]);
-	const generation = (reservation[1]?.results[0] as { requested_at: number })
-		.requested_at;
+	const generation = (
+		reservation[1]?.results?.[0] as { requested_at: number } | undefined
+	)?.requested_at;
 	const snapshot = await calculate(c.env.DB, module.data, filters);
 	const saved = await c.env.DB.batch([
 		c.env.DB.prepare(
@@ -399,7 +405,7 @@ async function calculateReport(
 		repositories: 0,
 		lastCollectedAt: null,
 	};
-	for (const row of result[0]?.results as ContributionRow[]) {
+	for (const row of (result[0]?.results ?? []) as ContributionRow[]) {
 		const {
 			repositoryKey,
 			projectId,
@@ -452,7 +458,7 @@ async function calculateReport(
 			contribution.lastCollectedAt,
 		);
 	}
-	for (const row of result[1]?.results as MemberRow[]) {
+	for (const row of (result[1]?.results ?? []) as MemberRow[]) {
 		if (!members.has(row.key))
 			members.set(
 				row.key,

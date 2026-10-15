@@ -1,8 +1,10 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { DEFAULT_ACTIVITY_WEIGHTS } from "@/models/settings";
 import * as settingsApi from "@/models/settingsApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useSettingsViewModel } from "./useSettingsViewModel";
 
 vi.mock("@/models/settingsApi", () => ({
@@ -72,7 +74,7 @@ describe("useSettingsViewModel", () => {
 		});
 		expect(result.current.dirty).toBe(true);
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.toast).toMatch(/full rematch/i);
@@ -89,7 +91,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.toast).toMatch(/no changes/i);
@@ -115,7 +117,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		await waitFor(() =>
@@ -142,7 +144,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toMatch(/boom/);
@@ -158,7 +160,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toMatch(/suffix/i);
@@ -174,11 +176,11 @@ describe("useSettingsViewModel", () => {
 				}),
 		);
 		const { result } = renderHook(() => useSettingsViewModel());
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(settingsApi.putSettings).not.toHaveBeenCalled();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			resolveFetch(sample);
 		});
 		await waitFor(() => expect(result.current.loading).toBe(false));
@@ -201,7 +203,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		await waitFor(() =>
@@ -226,7 +228,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		await waitFor(() => expect(result.current.error).toMatch(/reload failed/));
@@ -245,7 +247,7 @@ describe("useSettingsViewModel", () => {
 				activityWeights: { ...DEFAULT_ACTIVITY_WEIGHTS },
 			});
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.save();
 		});
 		expect(result.current.error).toBe("Save failed");

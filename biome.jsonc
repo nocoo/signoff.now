@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -20,10 +20,10 @@
 	"linter": {
 		"rules": {
 			"a11y": {
-				"recommended": true
+				"preset": "recommended"
 			},
 			"complexity": {
-				"recommended": true,
+				"preset": "recommended",
 				"noExcessiveCognitiveComplexity": {
 					"level": "error",
 					"options": { "maxAllowedComplexity": 40 }
@@ -32,10 +32,11 @@
 				"noVoid": "off",
 				"noForEach": "error",
 				"noUselessUndefined": "error",
-				"noImplicitCoercions": "off"
+				"noImplicitCoercions": "off",
+				"noDivRegex": "off"
 			},
 			"correctness": {
-				"recommended": true,
+				"preset": "recommended",
 				"useImportExtensions": "off",
 				"noNodejsModules": "off",
 				"noUndeclaredDependencies": "off",
@@ -46,18 +47,20 @@
 				"noGlobalDirnameFilename": "off"
 			},
 			"performance": {
-				"recommended": true,
+				"preset": "recommended",
 				"useSolidForComponent": "off",
 				"noBarrelFile": "off",
 				"noReExportAll": "off",
-				"noNamespaceImport": "off"
+				"noNamespaceImport": "off",
+				"noSyncScripts": "off",
+				"noJsxPropsBind": "off"
 			},
 			"security": {
-				"recommended": true,
+				"preset": "recommended",
 				"noSecrets": "off"
 			},
 			"style": {
-				"recommended": true,
+				"preset": "recommended",
 				"noNonNullAssertion": "error",
 				"useConsistentArrayType": "error",
 				"useForOf": "error",
@@ -79,45 +82,42 @@
 				"useConsistentObjectDefinitions": "off",
 				"useConsistentMemberAccessibility": "off",
 				"noInferrableTypes": "off",
-				"noExportedImports": "off"
+				"noExportedImports": "off",
+				"noHexColors": "off",
+				"noTernary": "off",
+				"noIncrementDecrement": "off",
+				"noContinue": "off",
+				"noExcessiveLinesPerFile": "off",
+				"noExcessiveClassesPerFile": "off",
+				"useDestructuring": "off",
+				"useConsistentMethodSignatures": "off",
+				"useErrorCause": "off",
+				"useGlobalThis": "off"
 			},
 			"suspicious": {
-				"recommended": true,
+				"preset": "recommended",
 				"noReactSpecificProps": "off",
 				"noConsole": "error",
 				"noEmptyBlockStatements": "error",
 				"noExplicitAny": "error",
 				"useAwait": "off",
 				"noArrayIndexKey": "error",
-				"noEvolvingTypes": "off"
-			},
-			"nursery": {
-				"recommended": true,
-				"useSortedClasses": "off",
-				"noHexColors": "off",
-				"noSyncScripts": "off",
-				"noTernary": "off",
-				"noIncrementDecrement": "off",
-				"noContinue": "off",
-				"noExcessiveLinesPerFile": "off",
-				"noExcessiveClassesPerFile": "off",
+				"noEvolvingTypes": "off",
 				"noLeakedRender": "error",
-				"noJsxPropsBind": "off",
-				"noFloatingPromises": "off",
 				"noShadow": "error",
-				"useDestructuring": "off",
-				"useExplicitType": "off",
-				"useConsistentMethodSignatures": "off",
-				"useErrorCause": "off",
-				"useExpect": "off",
-				"useGlobalThis": "off",
-				"useRegexpExec": "error",
 				"useArraySortCompare": "error",
 				"noEqualsToNull": "error",
 				"noUnnecessaryConditions": "off",
 				"noUndeclaredEnvVars": "off",
-				"noNestedPromises": "error",
-				"noDivRegex": "off",
+				"noNestedPromises": "error"
+			},
+			"nursery": {
+				"preset": "recommended",
+				"useSortedClasses": "off",
+				"noFloatingPromises": "off",
+				"useExplicitType": "off",
+				"useExpect": "off",
+				"useRegexpExec": "error",
 				"noConditionalExpect": "off",
 				"useAwaitThenable": "error"
 			}
@@ -145,8 +145,25 @@
 					},
 					"nursery": {
 						"noConditionalExpect": "off",
-						"noJsxPropsBind": "off",
 						"noFloatingPromises": "off"
+					},
+					"performance": {
+						"noJsxPropsBind": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["apps/web/public/learn/*.html"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noDescendingSpecificity": "off"
+					},
+					"a11y": {
+						"useHeadingContent": "off",
+						"useAriaPropsSupportedByRole": "off",
+						"noNoninteractiveTabindex": "off"
 					}
 				}
 			}

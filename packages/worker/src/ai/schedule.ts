@@ -16,7 +16,7 @@ export async function readAiSchedule(db: D1Database, source: string) {
 			)
 			.bind(source),
 	]);
-	const settings = settingsResult?.results[0] as
+	const settings = settingsResult?.results?.[0] as
 		| { cooldown_seconds: number; schedule_revision: number }
 		| undefined;
 	if (!settings) throw new Error("AI schedule is unavailable");
@@ -24,7 +24,7 @@ export async function readAiSchedule(db: D1Database, source: string) {
 		revision: settings.schedule_revision,
 		cooldownSeconds: settings.cooldown_seconds,
 		pulls: (
-			pulls?.results as {
+			(pulls?.results ?? []) as {
 				pull_id: string | null;
 				last_started_at: number | null;
 				last_completed_at: number | null;
@@ -37,7 +37,7 @@ export async function readAiSchedule(db: D1Database, source: string) {
 				nextEligibleAt: nextEligibleAt(p, settings.cooldown_seconds) || null,
 			})),
 		projects: (
-			projects?.results as {
+			(projects?.results ?? []) as {
 				id: string;
 				name: string;
 				last_started_at: number | null;

@@ -1,6 +1,7 @@
 import type { Connector } from "@signoff/domain/connector";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import {
 	guideProgress,
 	useConnectorsViewModel,
@@ -75,12 +76,12 @@ it("loads connectors, revokes one and reports failures", async () => {
 	const { result } = renderHook(() => useConnectorsViewModel());
 	await waitFor(() => expect(result.current.list.data).not.toBeNull());
 	expect(result.current.progress.current).toBe("owner");
-	await act(() => result.current.revoke("c1"));
+	await awaitReactAct(() => result.current.revoke("c1"));
 	expect(calls.filter((c) => c.method === "DELETE")).toEqual([
 		{ url: "/api/connectors/c1", method: "DELETE" },
 	]);
 	fail = true;
-	await act(() => result.current.revoke("c1"));
+	await awaitReactAct(() => result.current.revoke("c1"));
 	expect(result.current.error).toBe("Connector not found");
 	expect(result.current.busy).toBeNull();
 });
@@ -107,8 +108,8 @@ it("ignores a second revoke while one is running and names unknown errors", asyn
 		first = result.current.revoke("c1");
 	});
 	await waitFor(() => expect(result.current.busy).toBe("c1"));
-	await act(() => result.current.revoke("c2"));
-	await act(async () => {
+	await awaitReactAct(() => result.current.revoke("c2"));
+	await awaitReactAct(async () => {
 		release();
 		await first;
 	});

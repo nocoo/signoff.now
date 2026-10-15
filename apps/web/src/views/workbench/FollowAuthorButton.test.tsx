@@ -1,6 +1,5 @@
 import { type DirectoryData, identityKey } from "@signoff/domain/insights";
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -8,6 +7,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	fetchDirectory,
@@ -15,6 +15,7 @@ import {
 	setDirectoryArchived,
 } from "@/models/directoryApi";
 import { fixtureProject, fixturePull } from "@/test/monitoring-fixture";
+import { awaitReactAct } from "@/test/reactAct";
 import { useFollowAuthor } from "@/viewmodels/useFollowAuthor";
 import { FollowAuthorButton } from "./FollowAuthorButton";
 
@@ -124,7 +125,7 @@ it("follows the exact observed account with the latest directory revision", asyn
 		"disabled",
 		true,
 	);
-	await act(async () => write.resolve({ id: "member-1" }));
+	await awaitReactAct(async () => write.resolve({ id: "member-1" }));
 	expect(screen.getByRole("button", { name: "Followed" })).toHaveProperty(
 		"disabled",
 		true,
@@ -193,51 +194,53 @@ it("does not fetch or follow an unknown author", async () => {
 	expect(fetchDirectory).not.toHaveBeenCalled();
 });
 
-it.each([
-	new Error("Directory unavailable"),
-	null,
-])("allows retry after a failed directory read (%s)", async (error) => {
-	vi.mocked(fetchDirectory).mockRejectedValueOnce(error);
-	show();
-	fireEvent.click(await screen.findByRole("button", { name: "Retry author" }));
-	expect(await followButton()).toHaveProperty("disabled", false);
-	expect(screen.queryByRole("alert")).toBeNull();
-});
+it.each([new Error("Directory unavailable"), null])(
+	"allows retry after a failed directory read (%s)",
+	async (error) => {
+		vi.mocked(fetchDirectory).mockRejectedValueOnce(error);
+		show();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Retry author" }),
+		);
+		expect(await followButton()).toHaveProperty("disabled", false);
+		expect(screen.queryByRole("alert")).toBeNull();
+	},
+);
 
-it.each([
-	new Error("Directory changed"),
-	null,
-])("allows retry after a failed follow (%s)", async (error) => {
-	vi.mocked(saveDirectoryEntity).mockRejectedValueOnce(error);
-	show();
-	fireEvent.click(await followButton());
-	expect((await screen.findByRole("alert")).textContent).toContain(
-		error?.message ?? "Could not follow author",
-	);
-	fireEvent.click(await followButton());
-	await screen.findByRole("button", { name: "Followed" });
-	expect(saveDirectoryEntity).toHaveBeenCalledTimes(2);
-});
+it.each([new Error("Directory changed"), null])(
+	"allows retry after a failed follow (%s)",
+	async (error) => {
+		vi.mocked(saveDirectoryEntity).mockRejectedValueOnce(error);
+		show();
+		fireEvent.click(await followButton());
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			error?.message ?? "Could not follow author",
+		);
+		fireEvent.click(await followButton());
+		await screen.findByRole("button", { name: "Followed" });
+		expect(saveDirectoryEntity).toHaveBeenCalledTimes(2);
+	},
+);
 
-it.each([
-	"account",
-	"member",
-])("reports a disappeared %s before creating a duplicate", async (missing) => {
-	show();
-	const button = await followButton();
-	vi.mocked(fetchDirectory).mockResolvedValue(
-		missing === "account"
-			? { ...directory, identities: [] }
-			: { ...linked(), members: [] },
-	);
-	fireEvent.click(button);
-	expect((await screen.findByRole("alert")).textContent).toContain(
-		missing === "account"
-			? "Author account is unavailable"
-			: "Linked member is unavailable",
-	);
-	expect(saveDirectoryEntity).not.toHaveBeenCalled();
-});
+it.each(["account", "member"])(
+	"reports a disappeared %s before creating a duplicate",
+	async (missing) => {
+		show();
+		const button = await followButton();
+		vi.mocked(fetchDirectory).mockResolvedValue(
+			missing === "account"
+				? { ...directory, identities: [] }
+				: { ...linked(), members: [] },
+		);
+		fireEvent.click(button);
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			missing === "account"
+				? "Author account is unavailable"
+				: "Linked member is unavailable",
+		);
+		expect(saveDirectoryEntity).not.toHaveBeenCalled();
+	},
+);
 
 it("never writes a stale author after the data source changes during its pre-write read", async () => {
 	const pending = deferred<DirectoryData>();
@@ -253,7 +256,7 @@ it("never writes a stale author after the data source changes during its pre-wri
 		/>,
 	);
 	await followButton();
-	await act(async () => pending.resolve(linked()));
+	await awaitReactAct(async () => pending.resolve(linked()));
 	expect(saveDirectoryEntity).not.toHaveBeenCalled();
 	expect(screen.queryByRole("button", { name: "Followed" })).toBeNull();
 	fireEvent.click(await followButton());
@@ -267,31 +270,34 @@ it("never writes a stale author after the data source changes during its pre-wri
 	);
 });
 
-it.each([
-	"resolve",
-	"reject",
-] as const)("ignores an old directory request that %s after switching away and back", async (outcome) => {
-	const pending = deferred<DirectoryData>();
-	vi.mocked(fetchDirectory).mockReturnValueOnce(pending.promise);
-	const { rerender } = show();
-	rerender(
-		<FollowAuthorButton
-			project={{ ...fixtureProject, source: "demo" }}
-			author={fixturePull.author}
-		/>,
-	);
-	rerender(
-		<FollowAuthorButton project={fixtureProject} author={fixturePull.author} />,
-	);
-	await followButton();
-	await act(async () =>
-		outcome === "resolve"
-			? pending.resolve(linked())
-			: pending.reject(new Error("Old request")),
-	);
-	expect(await followButton()).toHaveProperty("disabled", false);
-	expect(screen.queryByRole("alert")).toBeNull();
-});
+it.each(["resolve", "reject"] as const)(
+	"ignores an old directory request that %s after switching away and back",
+	async (outcome) => {
+		const pending = deferred<DirectoryData>();
+		vi.mocked(fetchDirectory).mockReturnValueOnce(pending.promise);
+		const { rerender } = show();
+		rerender(
+			<FollowAuthorButton
+				project={{ ...fixtureProject, source: "demo" }}
+				author={fixturePull.author}
+			/>,
+		);
+		rerender(
+			<FollowAuthorButton
+				project={fixtureProject}
+				author={fixturePull.author}
+			/>,
+		);
+		await followButton();
+		await awaitReactAct(async () =>
+			outcome === "resolve"
+				? pending.resolve(linked())
+				: pending.reject(new Error("Old request")),
+		);
+		expect(await followButton()).toHaveProperty("disabled", false);
+		expect(screen.queryByRole("alert")).toBeNull();
+	},
+);
 
 it("ignores stale callbacks and serializes follow writes", async () => {
 	const pending = deferred<DirectoryData>();
@@ -305,26 +311,26 @@ it("ignores stale callbacks and serializes follow writes", async () => {
 	act(() => {
 		follow = result.current.follow();
 	});
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.follow();
 		await result.current.reload();
 	});
 	expect(fetchDirectory).toHaveBeenCalledTimes(2);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		pending.resolve(directory);
 		await follow;
 	});
-	await act(async () => result.current.follow());
+	await awaitReactAct(async () => result.current.follow());
 	expect(saveDirectoryEntity).toHaveBeenCalledTimes(1);
 	const old = result.current;
 	rerender({ account: null });
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await old.reload();
 		await old.follow();
 		await result.current.follow();
 	});
 	unmount();
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.reload();
 		await result.current.follow();
 	});

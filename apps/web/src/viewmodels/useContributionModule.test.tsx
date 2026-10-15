@@ -2,12 +2,14 @@ import {
 	type ContributionSnapshot,
 	contributionFiltersSchema,
 } from "@signoff/domain/insights";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	calculateContribution,
 	fetchContribution,
 } from "@/models/contributionsApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useContributionModule } from "./useContributionModule";
 
 vi.mock("@/models/contributionsApi", () => ({
@@ -71,7 +73,7 @@ describe("manual statistics lifecycle", () => {
 		});
 		expect(calculate).toHaveBeenCalledTimes(1);
 		expect(result.current.refreshing).toBe(true);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			refresh.resolve(saved);
 			await first;
 			initial.resolve(null);
@@ -81,7 +83,7 @@ describe("manual statistics lifecycle", () => {
 		calculate.mockRejectedValueOnce(
 			new Error("Collector database unavailable"),
 		);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.refresh();
 		});
 		expect(result.current.snapshot).toEqual(saved);
@@ -103,7 +105,7 @@ describe("manual statistics lifecycle", () => {
 		});
 		rerender({ scope: { ...filters, source: "demo" } });
 		expect(result.current.snapshot).toBeNull();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			old.resolve(saved);
 			write.reject("Old source failed");
 			await old.promise;
@@ -117,7 +119,7 @@ describe("manual statistics lifecycle", () => {
 			void result.current.refresh();
 		});
 		unmount();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			later.resolve(saved);
 			await later.promise;
 		});
@@ -133,17 +135,17 @@ describe("manual statistics lifecycle", () => {
 			expect(result.current.error).toBe("Could not load statistics"),
 		);
 		calculate.mockRejectedValueOnce("No network");
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.refresh();
 		});
 		expect(result.current.error).toBe("Could not calculate statistics");
 		calculate.mockResolvedValue(saved);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.refresh();
 		});
 		expect(result.current.error).toBeNull();
 		rerender({ scope: null });
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await result.current.refresh();
 		});
 		expect(result.current.snapshot).toBeNull();

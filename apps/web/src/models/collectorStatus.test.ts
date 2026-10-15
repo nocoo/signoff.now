@@ -54,21 +54,20 @@ test("separates incomplete PR data, failed jobs and connector health, and clears
 		tone: "neutral",
 	});
 });
-test.each([
-	"offline",
-	"auth_required",
-	"error",
-] as const)("reports %s without claiming work is running", (state) => {
-	const snapshot = queryFixture().collector;
-	snapshot.connection = { state, lastSeenAt: null, message: "Reconnect" };
-	snapshot.jobs = [fixtureJob({ state: "running" })];
-	expect(collectorStatus(snapshot, null, fixtureNow)).toMatchObject({
-		tone: "error",
-		problem: "Reconnect",
-		running: [],
-		activity: "Collection paused",
-	});
-});
+test.each(["offline", "auth_required", "error"] as const)(
+	"reports %s without claiming work is running",
+	(state) => {
+		const snapshot = queryFixture().collector;
+		snapshot.connection = { state, lastSeenAt: null, message: "Reconnect" };
+		snapshot.jobs = [fixtureJob({ state: "running" })];
+		expect(collectorStatus(snapshot, null, fixtureNow)).toMatchObject({
+			tone: "error",
+			problem: "Reconnect",
+			running: [],
+			activity: "Collection paused",
+		});
+	},
+);
 test("keeps other work visible when one project needs authentication", () => {
 	const snapshot = queryFixture().collector;
 	snapshot.connection.state = "auth_required";

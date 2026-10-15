@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	listDevelopers,
@@ -7,6 +7,7 @@ import {
 	listTeams,
 } from "@/models/entitiesApi";
 import { fetchSettings } from "@/models/settingsApi";
+import { awaitReactAct } from "@/test/reactAct";
 import { useDashboardDirectoryViewModel } from "./useDashboardDirectoryViewModel";
 
 vi.mock("@/models/entitiesApi", () => ({
@@ -99,7 +100,7 @@ describe("useDashboardDirectoryViewModel", () => {
 		const { result } = await mounted();
 		expect(result.current.error).toBe("teams down");
 
-		await act(async () => {
+		await awaitReactAct(async () => {
 			result.current.reload();
 		});
 		expect(result.current.error).toBeNull();

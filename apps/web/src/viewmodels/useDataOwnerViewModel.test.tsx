@@ -1,5 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { awaitReactAct } from "@/test/reactAct";
 import { ownerLabel, useDataOwnerViewModel } from "./useDataOwnerViewModel";
 
 const directory = {
@@ -49,8 +50,8 @@ it("offers email members as candidates and assigns an owner", async () => {
 	await waitFor(() =>
 		expect(result.current.candidates).toEqual(["email:a@x.io", "email:b@x.io"]),
 	);
-	await act(() => result.current.assign("p1", "email:a@x.io"));
-	await act(() => result.current.assign("p1", null));
+	await awaitReactAct(() => result.current.assign("p1", "email:a@x.io"));
+	await awaitReactAct(() => result.current.assign("p1", null));
 	expect(writes).toEqual([
 		{ url: "/api/projects/p1/data-owner", body: { dataOwner: "email:a@x.io" } },
 		{ url: "/api/projects/p1/data-owner", body: { dataOwner: null } },
@@ -73,10 +74,10 @@ it("stays idle for non-admins and reports failures", async () => {
 		),
 	);
 	fail = "The data owner must be a member of the project's tenant";
-	await act(() => result.current.assign("p1", "email:z@x.io"));
+	await awaitReactAct(() => result.current.assign("p1", "email:z@x.io"));
 	expect(result.current.error).toBe(fail);
 	fail = new TypeError("x");
-	await act(() => result.current.assign("p1", "email:z@x.io"));
+	await awaitReactAct(() => result.current.assign("p1", "email:z@x.io"));
 	expect(result.current.error).toBe("Cannot reach the SignOff service.");
 });
 
@@ -105,8 +106,8 @@ it("ignores overlapping assignments", async () => {
 		first = result.current.assign("p1", "email:a@x.io");
 	});
 	await waitFor(() => expect(result.current.busy).toBe("p1"));
-	await act(() => result.current.assign("p2", "email:a@x.io"));
-	await act(async () => {
+	await awaitReactAct(() => result.current.assign("p2", "email:a@x.io"));
+	await awaitReactAct(async () => {
 		release();
 		await first;
 	});

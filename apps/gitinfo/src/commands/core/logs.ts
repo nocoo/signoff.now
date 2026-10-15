@@ -137,7 +137,7 @@ export async function getConventionalTypes(
 	const types: Record<string, number> = {};
 
 	for (const line of splitLines(result.stdout)) {
-		const match = line.match(pattern);
+		const match = pattern.exec(line);
 		if (match) {
 			const type = match[1] as string;
 			types[type] = (types[type] ?? 0) + 1;

@@ -4,6 +4,13 @@ export function stableStringify(value: unknown): string {
 	return JSON.stringify(sortKeys(value));
 }
 
+/** Lexicographic order by UTF-16 code units (matches `Array.prototype.sort` for strings). */
+function compareUtf16CodeUnits(a: string, b: string): number {
+	if (a < b) return -1;
+	if (a > b) return 1;
+	return 0;
+}
+
 function sortKeys(value: unknown): unknown {
 	if (value === null || typeof value !== "object") {
 		return value;
@@ -13,7 +20,7 @@ function sortKeys(value: unknown): unknown {
 	}
 	const obj = value as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
-	for (const k of Object.keys(obj).sort()) {
+	for (const k of Object.keys(obj).sort(compareUtf16CodeUnits)) {
 		out[k] = sortKeys(obj[k]);
 	}
 	return out;

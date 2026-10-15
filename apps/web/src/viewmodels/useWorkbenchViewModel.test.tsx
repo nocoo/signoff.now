@@ -2,7 +2,6 @@ import { TooltipProvider } from "@nocoo/basalt";
 import { makeWatchRef } from "@signoff/domain/monitoring";
 import type { ProjectWrite } from "@signoff/domain/workbench";
 import {
-	act,
 	cleanup,
 	fireEvent,
 	renderHook,
@@ -12,6 +11,7 @@ import {
 	within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { act } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, SERVICE_UNAVAILABLE } from "@/lib/api";
@@ -37,6 +37,7 @@ import {
 	fixturePull as pull,
 	queryFixture,
 } from "@/test/monitoring-fixture";
+import { awaitReactAct } from "@/test/reactAct";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 import { PullQuickFilters } from "@/views/workbench/PullQuickFilters";
 import { PullsPage } from "@/views/workbench/PullsPage";
@@ -227,7 +228,7 @@ it("keeps PR columns mounted during loading and links the target branch after th
 	).toBeTruthy();
 	expect(within(table).getByRole("checkbox")).toHaveProperty("disabled", true);
 	expect(screen.queryByText("No matching pull requests")).toBeNull();
-	await act(async () => pending.resolve(fixture.pulls));
+	await awaitReactAct(async () => pending.resolve(fixture.pulls));
 	await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
 	expect(screen.getByRole("table", { name: "Pull requests" })).toBe(table);
 	const link = within(table).getByRole("link", {
@@ -437,7 +438,7 @@ describe("independent cached blocks", () => {
 		});
 		const { result } = render("/");
 		for (let round = 0; round < 10; round++)
-			await act(async () => {
+			await awaitReactAct(async () => {
 				await vi.advanceTimersByTimeAsync(3000);
 			});
 		expect(result.current.vm.loading).toBe(false);
@@ -452,7 +453,7 @@ describe("independent cached blocks", () => {
 			dataRevision: revision,
 		}));
 		const { result } = render(`/?watching=watching&pr=${pull.id}`);
-		await act(async () => {});
+		await awaitReactAct(async () => {});
 		const reads = [
 			api.loadPulls,
 			api.loadPull,
@@ -460,7 +461,7 @@ describe("independent cached blocks", () => {
 			api.loadPending,
 		];
 		for (const read of reads) vi.mocked(read).mockClear();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await vi.advanceTimersByTimeAsync(3000);
 		});
 		for (const read of reads) expect(read).not.toHaveBeenCalled();
@@ -481,7 +482,7 @@ describe("independent cached blocks", () => {
 			data: final,
 		});
 		revision = "2";
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await vi.advanceTimersByTimeAsync(3000);
 		});
 		for (const read of reads) expect(read).toHaveBeenCalledTimes(1);
@@ -505,7 +506,7 @@ describe("independent cached blocks", () => {
 			dataRevision: revision,
 		}));
 		const { result } = render(`/?pr=${pull.id}`);
-		await act(async () => {});
+		await awaitReactAct(async () => {});
 		vi.mocked(api.loadPulls).mockClear();
 		const slow = deferred<typeof fixture.pulls>();
 		vi.mocked(api.loadPulls).mockImplementationOnce(() => slow.promise);
@@ -513,14 +514,14 @@ describe("independent cached blocks", () => {
 			new Error("Detail unavailable"),
 		);
 		revision = "2";
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await vi.advanceTimersByTimeAsync(3000);
 		});
 		expect(result.current.vm.detailError).toBe("Detail unavailable");
 		expect(result.current.vm.rows).toHaveLength(1);
 		expect(result.current.vm.loading).toBe(false);
 		for (revision of ["3", "4"])
-			await act(async () => {
+			await awaitReactAct(async () => {
 				await vi.advanceTimersByTimeAsync(3000);
 			});
 		expect(api.loadPulls).toHaveBeenCalledTimes(1);
@@ -529,7 +530,7 @@ describe("independent cached blocks", () => {
 			dataRevision: "4",
 			data: [{ ...fixture.pulls.data[0]!, title: "Newest publication" }],
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			slow.resolve({ ...fixture.pulls, dataRevision: "2" });
 		});
 		expect(api.loadPulls).toHaveBeenCalledTimes(2);
@@ -547,17 +548,17 @@ describe("independent cached blocks", () => {
 			dataRevision: revision,
 		}));
 		const { result } = render("/projects");
-		await act(async () => {});
+		await awaitReactAct(async () => {});
 		vi.mocked(api.loadCatalog).mockClear();
 		visibility.mockReturnValue("hidden");
 		act(() => document.dispatchEvent(new Event("visibilitychange")));
 		revision = "2";
-		await act(async () => {
+		await awaitReactAct(async () => {
 			await vi.advanceTimersByTimeAsync(60000);
 		});
 		expect(api.loadCatalog).not.toHaveBeenCalled();
 		visibility.mockReturnValue("visible");
-		await act(async () => {
+		await awaitReactAct(async () => {
 			document.dispatchEvent(new Event("visibilitychange"));
 		});
 		expect(api.loadCatalog).toHaveBeenCalled();
@@ -607,20 +608,20 @@ describe("independent cached blocks", () => {
 		const { result } = render();
 		await loaded(result);
 		vi.mocked(api.loadPulls).mockRejectedValueOnce(new Error("Read failed"));
-		await act(() => result.current.vm.reload());
+		await awaitReactAct(() => result.current.vm.reload());
 		expect(result.current.vm.error).toBe("Read failed");
 		expect(result.current.vm.rows).toHaveLength(1);
-		await act(() => result.current.vm.reload());
+		await awaitReactAct(() => result.current.vm.reload());
 		expect(result.current.vm.error).toBeNull();
 	});
 	it("never displays a late Live result in Sample", async () => {
 		const old = deferred<typeof fixture.pulls>();
 		vi.mocked(api.loadPulls).mockReturnValueOnce(old.promise);
 		const { result } = render();
-		await act(async () => {});
+		await awaitReactAct(async () => {});
 		act(() => result.current.vm.setFilter({ source: "demo" }));
 		await loaded(result);
-		await act(async () => old.resolve(fixture.pulls));
+		await awaitReactAct(async () => old.resolve(fixture.pulls));
 		expect(result.current.vm.pageRows[0]?.project.source).toBe("demo");
 	});
 	it("loads full detail independently from the visible list and reports cache misses", async () => {
@@ -652,12 +653,12 @@ describe("independent cached blocks", () => {
 		expect(result.current.vm.missingSelection).toBe(false);
 		expect(result.current.vm.selected).toBeNull();
 		const listReads = vi.mocked(api.loadPulls).mock.calls.length;
-		await act(() => result.current.vm.reloadDetail());
+		await awaitReactAct(() => result.current.vm.reloadDetail());
 		expect(result.current.vm.selected?.pull.id).toBe("off-page");
 		expect(result.current.vm.detailError).toBeNull();
 		expect(api.loadPulls).toHaveBeenCalledTimes(listReads);
 		vi.mocked(api.loadPull).mockRejectedValueOnce(new Error("Connection lost"));
-		await act(() => result.current.vm.reloadDetail());
+		await awaitReactAct(() => result.current.vm.reloadDetail());
 		expect(result.current.vm.selected?.pull.description).toBe("Full detail");
 		expect(result.current.vm.detailError).toBe("Connection lost");
 	});
@@ -710,7 +711,7 @@ describe("filters, server pages and temporary selection", () => {
 		expect(
 			`${result.current.location.pathname}${result.current.location.search}`,
 		).toBe(`${href}?watching=watching`);
-		await act(() => result.current.vm.reloadDetail());
+		await awaitReactAct(() => result.current.vm.reloadDetail());
 		expect(api.loadPull).toHaveBeenCalledWith(
 			"cli",
 			pull.id,
@@ -776,7 +777,7 @@ describe("filters, server pages and temporary selection", () => {
 		expect(result.current.vm.detailLoading).toBe(true);
 		act(() => result.current.vm.setFilter({ source: "demo" }));
 		await loaded(result);
-		await act(async () =>
+		await awaitReactAct(async () =>
 			pending.resolve({ ...fixture.envelope, data: fixture.pulls.data[0]! }),
 		);
 		expect(result.current.location.pathname).toBe("/prs");
@@ -808,42 +809,42 @@ describe("filters, server pages and temporary selection", () => {
 			new URLSearchParams(result.current.location.search).has("trace"),
 		).toBe(false);
 	});
-	it.each([
-		"/",
-		"/prs",
-	])("restores saved filters at %s and gives explicit URL filters priority", async (path) => {
-		localStorage.setItem(
-			PULL_FILTER_STORAGE_KEY,
-			"source=demo&q=review+me&org=northstar&project=core&repo=repo-id&draft=include&author=one&author=two&state=all&watching=watching&sort=updated&direction=asc",
-		);
-		const first = render(path);
-		await loaded(first.result);
-		expect(first.result.current.vm.filter).toEqual({
-			source: "demo",
-			query: "review me",
-			organization: "northstar",
-			projectId: "core",
-			repository: "repo-id",
-			draft: "include",
-			authors: ["one", "two"],
-			state: "all",
-			status: "all",
-			watching: "watching",
-			sort: "updated",
-			sortDirection: "asc",
-		});
-		expect(first.result.current.location.pathname).toBe("/prs");
-		expect(
-			new URLSearchParams(first.result.current.location.search).get("source"),
-		).toBe("sample");
-		first.unmount();
-		const second = render(`${path}?source=cli`);
-		await loaded(second.result);
-		expect(second.result.current.vm.filter).toEqual({
-			...DEFAULT_PULL_FILTER,
-			source: "cli",
-		});
-	});
+	it.each(["/", "/prs"])(
+		"restores saved filters at %s and gives explicit URL filters priority",
+		async (path) => {
+			localStorage.setItem(
+				PULL_FILTER_STORAGE_KEY,
+				"source=demo&q=review+me&org=northstar&project=core&repo=repo-id&draft=include&author=one&author=two&state=all&watching=watching&sort=updated&direction=asc",
+			);
+			const first = render(path);
+			await loaded(first.result);
+			expect(first.result.current.vm.filter).toEqual({
+				source: "demo",
+				query: "review me",
+				organization: "northstar",
+				projectId: "core",
+				repository: "repo-id",
+				draft: "include",
+				authors: ["one", "two"],
+				state: "all",
+				status: "all",
+				watching: "watching",
+				sort: "updated",
+				sortDirection: "asc",
+			});
+			expect(first.result.current.location.pathname).toBe("/prs");
+			expect(
+				new URLSearchParams(first.result.current.location.search).get("source"),
+			).toBe("sample");
+			first.unmount();
+			const second = render(`${path}?source=cli`);
+			await loaded(second.result);
+			expect(second.result.current.vm.filter).toEqual({
+				...DEFAULT_PULL_FILTER,
+				source: "cli",
+			});
+		},
+	);
 	it("switches the policy editor source without retaining a foreign project scope", async () => {
 		const { result } = render(
 			"/policy-instructions/ado/northstar/Platform/repo?source=live",
@@ -861,24 +862,27 @@ describe("filters, server pages and temporary selection", () => {
 		"/policy-instructions/ado/northstar/Platform/repo?source=live",
 		"/projects?source=live",
 		pullHref(project, pull),
-	])("keeps list preferences when visiting %s and returning through the sidebar", async (path) => {
-		const saved =
-			"source=sample&draft=only&status=attention&watching=watching&sort=progress&direction=asc";
-		localStorage.setItem(PULL_FILTER_STORAGE_KEY, saved);
-		const { result } = render(path);
-		await loaded(result);
-		expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toBe(saved);
-		act(() => result.current.navigate(result.current.vm.pullsHref));
-		await loaded(result);
-		expect(result.current.vm.filter).toMatchObject({
-			source: "demo",
-			draft: "only",
-			status: "attention",
-			watching: "watching",
-			sort: "progress",
-			sortDirection: "asc",
-		});
-	});
+	])(
+		"keeps list preferences when visiting %s and returning through the sidebar",
+		async (path) => {
+			const saved =
+				"source=sample&draft=only&status=attention&watching=watching&sort=progress&direction=asc";
+			localStorage.setItem(PULL_FILTER_STORAGE_KEY, saved);
+			const { result } = render(path);
+			await loaded(result);
+			expect(localStorage.getItem(PULL_FILTER_STORAGE_KEY)).toBe(saved);
+			act(() => result.current.navigate(result.current.vm.pullsHref));
+			await loaded(result);
+			expect(result.current.vm.filter).toMatchObject({
+				source: "demo",
+				draft: "only",
+				status: "attention",
+				watching: "watching",
+				sort: "progress",
+				sortDirection: "asc",
+			});
+		},
+	);
 	it("persists changed filters and sort direction across reloads, including clearing them", async () => {
 		const first = render("/prs");
 		await loaded(first.result);
@@ -945,7 +949,7 @@ describe("filters, server pages and temporary selection", () => {
 			projectId: project.id,
 			repository: pull.repository.id,
 		});
-		await act(async () => {});
+		await awaitReactAct(async () => {});
 		expect(result.current.vm.selectedRepository?.name).toBe(
 			pull.repository.name,
 		);
@@ -1008,7 +1012,7 @@ describe("filters, server pages and temporary selection", () => {
 			),
 		);
 		expect(result.current.vm.filter.repository).toBe(repo.repository.url);
-		await act(() => result.current.vm.discoverRepo());
+		await awaitReactAct(() => result.current.vm.discoverRepo());
 		await waitFor(() => expect(result.current.vm.total).toBe(1));
 		expect(result.current.vm.selectedRepository?.id).toBe(repo.repository.id);
 		expect(result.current.vm.filter.repository).toBe(repo.repository.id);
@@ -1054,7 +1058,7 @@ describe("filters, server pages and temporary selection", () => {
 				"repo",
 			),
 		).toBe(url);
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.discoverRepo()).toBe(false),
 		);
 		expect(api.discover).not.toHaveBeenCalled();
@@ -1089,37 +1093,40 @@ describe("filters, server pages and temporary selection", () => {
 		{ provider: "github" as const },
 		{ source: "demo" as const },
 		{ id: "replacement-registration" },
-	])("does not retarget a delayed repository resolution after its project identity changes (%j)", async (changed) => {
-		const repo = fixture.catalog.data[0]!;
-		const response = deferred<typeof fixture.catalog>();
-		const replacement = publicProject({ ...project, ...changed });
-		vi.mocked(api.loadCatalog).mockImplementation(
-			async (_source, _signal, scope) =>
-				scope?.repository
-					? response.promise
-					: {
-							...fixture.catalog,
-							projects: [replacement],
-							data: [{ ...repo, project: replacement }],
-						},
-		);
-		const url = repo.repository.url;
-		const { result } = render(`/?repo=${encodeURIComponent(url)}`);
-		await loaded(result);
-		expect(result.current.vm.repositories[0]?.project).toMatchObject(changed);
-		await act(() => response.resolve(fixture.catalog));
-		expect(result.current.vm.selectedRepository).toBeNull();
-		expect(result.current.vm.filter.repository).toBe(url);
-		expect(
-			new URLSearchParams(localStorage.getItem(PULL_FILTER_STORAGE_KEY)!).get(
-				"repo",
-			),
-		).toBe(url);
-		await act(async () =>
-			expect(await result.current.vm.discoverRepo()).toBe(false),
-		);
-		expect(api.discover).not.toHaveBeenCalled();
-	});
+	])(
+		"does not retarget a delayed repository resolution after its project identity changes (%j)",
+		async (changed) => {
+			const repo = fixture.catalog.data[0]!;
+			const response = deferred<typeof fixture.catalog>();
+			const replacement = publicProject({ ...project, ...changed });
+			vi.mocked(api.loadCatalog).mockImplementation(
+				async (_source, _signal, scope) =>
+					scope?.repository
+						? response.promise
+						: {
+								...fixture.catalog,
+								projects: [replacement],
+								data: [{ ...repo, project: replacement }],
+							},
+			);
+			const url = repo.repository.url;
+			const { result } = render(`/?repo=${encodeURIComponent(url)}`);
+			await loaded(result);
+			expect(result.current.vm.repositories[0]?.project).toMatchObject(changed);
+			await awaitReactAct(() => response.resolve(fixture.catalog));
+			expect(result.current.vm.selectedRepository).toBeNull();
+			expect(result.current.vm.filter.repository).toBe(url);
+			expect(
+				new URLSearchParams(localStorage.getItem(PULL_FILTER_STORAGE_KEY)!).get(
+					"repo",
+				),
+			).toBe(url);
+			await awaitReactAct(async () =>
+				expect(await result.current.vm.discoverRepo()).toBe(false),
+			);
+			expect(api.discover).not.toHaveBeenCalled();
+		},
+	);
 	it("reconciles equivalent identities across independent revisions and metadata renames", async () => {
 		const repo = fixture.catalog.data[0]!;
 		const updatedProject = publicProject({
@@ -1221,10 +1228,10 @@ describe("filters, server pages and temporary selection", () => {
 		expect(first.result.current.vm.pageCount).toBe(3);
 		expect(first.result.current.vm.pageRows).toHaveLength(1);
 		act(() => first.result.current.vm.setPage(3));
-		await act(async () => {});
+		await awaitReactAct(async () => {});
 		expect(first.result.current.vm.page).toBe(3);
 		vi.mocked(api.loadPulls).mockResolvedValue(fixture.pulls);
-		await act(() => first.result.current.vm.reload());
+		await awaitReactAct(() => first.result.current.vm.reload());
 		await waitFor(() => expect(first.result.current.vm.page).toBe(1));
 		first.unmount();
 		const second = render("/?page=NaN");
@@ -1269,35 +1276,35 @@ describe("filters, server pages and temporary selection", () => {
 });
 
 describe("shared watch mutations", () => {
-	it.each([
-		"merged",
-		"closed",
-	] as const)("keeps retired %s PRs watched and supports explicit removal", async (state) => {
-		const observation = fixtureObservation({
-			active: false,
-			stopReason: state === "merged" ? "completed" : "abandoned",
-		});
-		vi.mocked(api.loadPulls).mockResolvedValue({
-			...fixture.pulls,
-			data: [publicPull({ ...pull, state }, project, observation)],
-		});
-		const { result } = render(`/?state=${state}&watching=watching`);
-		await loaded(result);
-		expect(result.current.vm.filter).toMatchObject({
-			state,
-			watching: "watching",
-		});
-		expect(result.current.vm.pageRows[0]?.watching).toBe(true);
-		expect(result.current.vm.selectableCount).toBe(1);
-		await act(() =>
-			result.current.vm.toggleWatchRow(result.current.vm.pageRows[0]!),
-		);
-		expect(api.removeWatches).toHaveBeenCalledOnce();
-		expect(api.removeWatches).toHaveBeenCalledWith(project.source, [
-			observation,
-		]);
-		expect(api.addWatches).not.toHaveBeenCalled();
-	});
+	it.each(["merged", "closed"] as const)(
+		"keeps retired %s PRs watched and supports explicit removal",
+		async (state) => {
+			const observation = fixtureObservation({
+				active: false,
+				stopReason: state === "merged" ? "completed" : "abandoned",
+			});
+			vi.mocked(api.loadPulls).mockResolvedValue({
+				...fixture.pulls,
+				data: [publicPull({ ...pull, state }, project, observation)],
+			});
+			const { result } = render(`/?state=${state}&watching=watching`);
+			await loaded(result);
+			expect(result.current.vm.filter).toMatchObject({
+				state,
+				watching: "watching",
+			});
+			expect(result.current.vm.pageRows[0]?.watching).toBe(true);
+			expect(result.current.vm.selectableCount).toBe(1);
+			await awaitReactAct(() =>
+				result.current.vm.toggleWatchRow(result.current.vm.pageRows[0]!),
+			);
+			expect(api.removeWatches).toHaveBeenCalledOnce();
+			expect(api.removeWatches).toHaveBeenCalledWith(project.source, [
+				observation,
+			]);
+			expect(api.addWatches).not.toHaveBeenCalled();
+		},
+	);
 	it("optimistically toggles independent rows and rolls back only a failed command without replacing the table", async () => {
 		const other = { ...pull, id: "second", number: pull.number + 1 };
 		const observation = fixtureObservation({ generation: 4 });
@@ -1335,7 +1342,7 @@ describe("shared watch mutations", () => {
 		fireEvent.click(secondButton);
 		expect(secondButton.getAttribute("aria-pressed")).toBe("true");
 		expect(api.addWatches).toHaveBeenCalledTimes(2);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			second.resolve({
 				results: [
 					{
@@ -1351,7 +1358,7 @@ describe("shared watch mutations", () => {
 		});
 		expect(secondButton.getAttribute("aria-pressed")).toBe("false");
 		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
-		await act(async () => {
+		await awaitReactAct(async () => {
 			watching = true;
 			first.resolve({
 				results: [
@@ -1387,7 +1394,7 @@ describe("shared watch mutations", () => {
 		});
 		const { result } = render();
 		await loaded(result);
-		await act(() => result.current.vm.toggleWatch(pull.id));
+		await awaitReactAct(() => result.current.vm.toggleWatch(pull.id));
 		expect(result.current.vm.pageRows[0]?.observation?.generation).toBe(4);
 		expect(result.current.vm.pageRows[0]?.watching).toBe(true);
 		expect(result.current.vm.busy).toBeNull();
@@ -1400,7 +1407,7 @@ describe("shared watch mutations", () => {
 		);
 		const { result } = render();
 		await loaded(result);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.vm.toggleWatch(pull.id)).toBe(false);
 		});
 		expect(result.current.vm.pageRows[0]?.watching).toBe(false);
@@ -1429,7 +1436,7 @@ describe("shared watch mutations", () => {
 		expect(result.current.vm.pageRows[0]?.watching).toBe(false);
 		expect(result.current.vm.pageRows[0]?.watchPending).toBe(true);
 		expect(api.removeWatches).toHaveBeenCalledWith("cli", [observation]);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.vm.toggleWatch(pull.id)).toBe(false);
 			reject(new Error("Connection interrupted"));
 			await write;
@@ -1455,7 +1462,7 @@ describe("shared watch mutations", () => {
 			});
 			if (transition === "unmount") unmount();
 			else act(() => result.current.vm.setFilter({ source: "demo" }));
-			await act(async () => {
+			await awaitReactAct(async () => {
 				reject(new Error("Old Live command failed"));
 				expect(await write).toBe(false);
 			});
@@ -1475,7 +1482,7 @@ describe("shared watch mutations", () => {
 		act(() => {
 			write = result.current.vm.save(draft, project);
 		});
-		await act(async () => {
+		await awaitReactAct(async () => {
 			expect(await result.current.vm.toggleWatch(pull.id)).toBe(false);
 			saved.resolve(project);
 			await write;
@@ -1485,41 +1492,44 @@ describe("shared watch mutations", () => {
 	it.each([
 		{ generation: 4, active: false },
 		{ generation: 5, active: true },
-	])("a late add receipt cannot overwrite a newer CLI watch state: %j", async (latest) => {
-		const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
-		const nextRead = deferred<Awaited<ReturnType<typeof api.loadPulls>>>();
-		vi.mocked(api.addWatches).mockReturnValue(response.promise);
-		const { result } = render();
-		await loaded(result);
-		let write!: Promise<boolean>;
-		act(() => {
-			write = result.current.vm.toggleWatch(pull.id);
-		});
-		const newer = publicPull(pull, project, fixtureObservation(latest));
-		vi.mocked(api.loadPulls).mockResolvedValueOnce({
-			...fixture.pulls,
-			data: [newer],
-		});
-		await act(() => result.current.vm.reload());
-		vi.mocked(api.loadPulls).mockReturnValue(nextRead.promise);
-		await act(async () => {
-			response.resolve({
-				results: [
-					{
-						status: "added",
-						observation: publicPull(
-							pull,
-							project,
-							fixtureObservation({ generation: 4 }),
-						).observation,
-					},
-				],
+	])(
+		"a late add receipt cannot overwrite a newer CLI watch state: %j",
+		async (latest) => {
+			const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+			const nextRead = deferred<Awaited<ReturnType<typeof api.loadPulls>>>();
+			vi.mocked(api.addWatches).mockReturnValue(response.promise);
+			const { result } = render();
+			await loaded(result);
+			let write!: Promise<boolean>;
+			act(() => {
+				write = result.current.vm.toggleWatch(pull.id);
 			});
-			await write;
-		});
-		expect(result.current.vm.pageRows[0]?.observation).toMatchObject(latest);
-		expect(result.current.vm.pageRows[0]?.watching).toBe(latest.active);
-	});
+			const newer = publicPull(pull, project, fixtureObservation(latest));
+			vi.mocked(api.loadPulls).mockResolvedValueOnce({
+				...fixture.pulls,
+				data: [newer],
+			});
+			await awaitReactAct(() => result.current.vm.reload());
+			vi.mocked(api.loadPulls).mockReturnValue(nextRead.promise);
+			await awaitReactAct(async () => {
+				response.resolve({
+					results: [
+						{
+							status: "added",
+							observation: publicPull(
+								pull,
+								project,
+								fixtureObservation({ generation: 4 }),
+							).observation,
+						},
+					],
+				});
+				await write;
+			});
+			expect(result.current.vm.pageRows[0]?.observation).toMatchObject(latest);
+			expect(result.current.vm.pageRows[0]?.watching).toBe(latest.active);
+		},
+	);
 	it.each(
 		[
 			{ projectKey: "ReplacementProject" },
@@ -1528,72 +1538,72 @@ describe("shared watch mutations", () => {
 		].flatMap((identity) =>
 			[false, true].map((watched) => ({ identity, watched })),
 		),
-	)("fences optimistic state, selection and delayed receipts across project identity changes: %j", async ({
-		identity,
-		watched,
-	}) => {
-		const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
-		vi.mocked(api.addWatches).mockReturnValue(response.promise);
-		let current = publicPull();
-		vi.mocked(api.loadPulls).mockImplementation(async () => ({
-			...fixture.pulls,
-			data: [current],
-		}));
-		vi.mocked(api.loadPull).mockImplementation(async () => ({
-			...fixture.envelope,
-			data: current,
-		}));
-		const { result } = render(`/?pr=${encodeURIComponent(pull.id)}`);
-		await loaded(result);
-		await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
-		act(() => result.current.vm.selectPage(true));
-		let write!: Promise<boolean>;
-		act(() => {
-			write = result.current.vm.toggleWatch(pull.id);
-		});
-		expect(result.current.vm.pageRows[0]?.watchPending).toBe(true);
-		const nextProject = { ...project, ...identity };
-		const nextObservation = watched
-			? fixtureObservation({
-					id: "new-watch",
-					ref: makeWatchRef(nextProject, pull.repository, pull.number),
-				})
-			: null;
-		current = publicPull(pull, nextProject, nextObservation);
-		await act(() => result.current.vm.reload());
-		for (const row of [
-			result.current.vm.pageRows[0],
-			result.current.vm.selected,
-		]) {
-			expect(row?.watching).toBe(watched);
-			expect(row?.watchPending).toBe(false);
-		}
-		expect(result.current.vm.watchPending(pull.id)).toBe(false);
-		expect(result.current.vm.selectedCount).toBe(0);
-		act(() => result.current.vm.selectPage(true));
-		vi.mocked(api.loadPulls).mockReturnValue(new Promise(() => {}));
-		vi.mocked(api.loadPull).mockReturnValue(new Promise(() => {}));
-		await act(async () => {
-			response.resolve({
-				results: [
-					{
-						status: "added",
-						observation: publicPull(pull, project, fixtureObservation())
-							.observation,
-					},
-				],
+	)(
+		"fences optimistic state, selection and delayed receipts across project identity changes: %j",
+		async ({ identity, watched }) => {
+			const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+			vi.mocked(api.addWatches).mockReturnValue(response.promise);
+			let current = publicPull();
+			vi.mocked(api.loadPulls).mockImplementation(async () => ({
+				...fixture.pulls,
+				data: [current],
+			}));
+			vi.mocked(api.loadPull).mockImplementation(async () => ({
+				...fixture.envelope,
+				data: current,
+			}));
+			const { result } = render(`/?pr=${encodeURIComponent(pull.id)}`);
+			await loaded(result);
+			await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
+			act(() => result.current.vm.selectPage(true));
+			let write!: Promise<boolean>;
+			act(() => {
+				write = result.current.vm.toggleWatch(pull.id);
 			});
-			await write;
-		});
-		for (const row of [
-			result.current.vm.pageRows[0],
-			result.current.vm.selected,
-		]) {
-			expect(row?.observation?.id ?? null).toBe(nextObservation?.id ?? null);
-			expect(row?.watching).toBe(watched);
-		}
-		expect(result.current.vm.selectedCount).toBe(1);
-	});
+			expect(result.current.vm.pageRows[0]?.watchPending).toBe(true);
+			const nextProject = { ...project, ...identity };
+			const nextObservation = watched
+				? fixtureObservation({
+						id: "new-watch",
+						ref: makeWatchRef(nextProject, pull.repository, pull.number),
+					})
+				: null;
+			current = publicPull(pull, nextProject, nextObservation);
+			await awaitReactAct(() => result.current.vm.reload());
+			for (const row of [
+				result.current.vm.pageRows[0],
+				result.current.vm.selected,
+			]) {
+				expect(row?.watching).toBe(watched);
+				expect(row?.watchPending).toBe(false);
+			}
+			expect(result.current.vm.watchPending(pull.id)).toBe(false);
+			expect(result.current.vm.selectedCount).toBe(0);
+			act(() => result.current.vm.selectPage(true));
+			vi.mocked(api.loadPulls).mockReturnValue(new Promise(() => {}));
+			vi.mocked(api.loadPull).mockReturnValue(new Promise(() => {}));
+			await awaitReactAct(async () => {
+				response.resolve({
+					results: [
+						{
+							status: "added",
+							observation: publicPull(pull, project, fixtureObservation())
+								.observation,
+						},
+					],
+				});
+				await write;
+			});
+			for (const row of [
+				result.current.vm.pageRows[0],
+				result.current.vm.selected,
+			]) {
+				expect(row?.observation?.id ?? null).toBe(nextObservation?.id ?? null);
+				expect(row?.watching).toBe(watched);
+			}
+			expect(result.current.vm.selectedCount).toBe(1);
+		},
+	);
 	it("toggles a row's watch without opening details and preserves unrelated batch selections", async () => {
 		let watching = false;
 		const observation = fixtureObservation({ generation: 4 });
@@ -1615,15 +1625,15 @@ describe("shared watch mutations", () => {
 		const { result } = render();
 		await loaded(result);
 		act(() => result.current.vm.toggleSelection("second", true));
-		await act(() => result.current.vm.toggleWatch(pull.id));
+		await awaitReactAct(() => result.current.vm.toggleWatch(pull.id));
 		expect(result.current.vm.selected).toBeNull();
 		expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id]);
 		expect(result.current.vm.pageRows[0]?.observation?.active).toBe(true);
-		await act(() => result.current.vm.toggleWatch(pull.id));
+		await awaitReactAct(() => result.current.vm.toggleWatch(pull.id));
 		expect(api.removeWatches).toHaveBeenCalledWith("cli", [observation]);
 		expect(result.current.vm.pageRows[0]?.observation).toBeNull();
 		expect(result.current.vm.selectedIds).toEqual(new Set(["second"]));
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.toggleWatch("missing")).toBe(false),
 		);
 	});
@@ -1667,7 +1677,7 @@ describe("shared watch mutations", () => {
 		const { result } = render();
 		await loaded(result);
 		act(() => result.current.vm.selectPage(true));
-		await act(() => result.current.vm.watchSelected(true));
+		await awaitReactAct(() => result.current.vm.watchSelected(true));
 		expect(result.current.vm.selectedIds).toEqual(new Set(["second"]));
 		expect(result.current.vm.mutationError).toContain(
 			"second: Missing command result",
@@ -1695,7 +1705,7 @@ describe("shared watch mutations", () => {
 		const { result } = render();
 		await loaded(result);
 		act(() => result.current.vm.selectPage(true));
-		await act(() => result.current.vm.watchSelected(true));
+		await awaitReactAct(() => result.current.vm.watchSelected(true));
 		expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id, "second"]);
 		expect(result.current.vm.selectedIds).toEqual(new Set(["second"]));
 		expect(result.current.vm.mutationError).toContain("Already merged");
@@ -1714,11 +1724,11 @@ describe("shared watch mutations", () => {
 			...fixture.pulls,
 			data: [publicPull(pull, project, fixtureObservation({ generation: 2 }))],
 		});
-		await act(() => result.current.vm.reload());
+		await awaitReactAct(() => result.current.vm.reload());
 		vi.mocked(api.removeWatches).mockResolvedValue({
 			results: [{ status: "conflict" }],
 		});
-		await act(() => result.current.vm.watchSelected(false));
+		await awaitReactAct(() => result.current.vm.watchSelected(false));
 		expect(api.removeWatches).toHaveBeenCalledWith("cli", [
 			expect.objectContaining({ generation: 1 }),
 		]);
@@ -1729,22 +1739,22 @@ describe("shared watch mutations", () => {
 		const { result } = render(`/?pr=${encodeURIComponent(pull.id)}`);
 		await loaded(result);
 		await waitFor(() => expect(result.current.vm.detailLoading).toBe(false));
-		await act(() => result.current.vm.toggleWatch());
+		await awaitReactAct(() => result.current.vm.toggleWatch());
 		expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id]);
-		await act(() => result.current.vm.refreshPull());
+		await awaitReactAct(() => result.current.vm.refreshPull());
 		expect(api.refreshWatches).toHaveBeenCalledWith("cli", undefined);
 		expect(result.current.vm.notice).toBe("The watch list is empty.");
-		await act(() => result.current.vm.refreshPull(pull.id));
+		await awaitReactAct(() => result.current.vm.refreshPull(pull.id));
 		expect(api.refreshWatches).toHaveBeenLastCalledWith("cli", pull.id);
 		act(() => result.current.vm.selectPull(null));
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.toggleWatch()).toBe(false),
 		);
 	});
 	it("empty selections are no-ops and concurrent clicks do not duplicate writes", async () => {
 		const { result } = render();
 		await loaded(result);
-		await act(() => result.current.vm.watchSelected(true));
+		await awaitReactAct(() => result.current.vm.watchSelected(true));
 		expect(api.addWatches).not.toHaveBeenCalled();
 		act(() => result.current.vm.selectPage(true));
 		const pending = deferred<{ results: { status: "added" }[] }>();
@@ -1753,11 +1763,11 @@ describe("shared watch mutations", () => {
 		act(() => {
 			running = result.current.vm.watchSelected(true);
 		});
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.watchSelected(true)).toBe(false),
 		);
 		act(() => result.current.vm.setFilter({ source: "demo" }));
-		await act(async () => {
+		await awaitReactAct(async () => {
 			pending.resolve({ results: [{ status: "added" }] });
 			await running;
 		});
@@ -1775,11 +1785,11 @@ describe("shared watch mutations", () => {
 		const { result } = render("/?watching=watching");
 		await loaded(result);
 		await waitFor(() => expect(result.current.vm.pendingTotal).toBe(1));
-		await act(() => result.current.vm.removePending(watch));
+		await awaitReactAct(() => result.current.vm.removePending(watch));
 		expect(result.current.vm.notice).toContain("removed");
 		for (const status of ["conflict", "rejected"] as const) {
 			vi.mocked(api.removeWatches).mockResolvedValue({ results: [{ status }] });
-			await act(() => result.current.vm.removePending(watch));
+			await awaitReactAct(() => result.current.vm.removePending(watch));
 			expect(result.current.vm.mutationError).not.toBeNull();
 		}
 	});
@@ -1802,7 +1812,7 @@ describe("shared watch mutations", () => {
 		expect(result.current.vm.pendingObservations).toEqual([]);
 		expect(result.current.vm.pendingTotal).toBe(0);
 		expect(result.current.vm.busy).toBeNull();
-		await act(async () => {
+		await awaitReactAct(async () => {
 			response.resolve({ results: [{ status: "conflict" }] });
 			await write;
 		});
@@ -1827,12 +1837,12 @@ describe("shared watch mutations", () => {
 		expect(result.current.vm.pendingLoading).toBe(false);
 		expect(result.current.vm.pendingObservations).toEqual([]);
 		const listReads = vi.mocked(api.loadPulls).mock.calls.length;
-		await act(() => result.current.vm.reloadPending());
+		await awaitReactAct(() => result.current.vm.reloadPending());
 		expect(result.current.vm.pendingTotal).toBe(1);
 		expect(result.current.vm.pendingError).toBeNull();
 		expect(api.loadPulls).toHaveBeenCalledTimes(listReads);
 		vi.mocked(api.loadPending).mockRejectedValueOnce(new Error("Network lost"));
-		await act(() => result.current.vm.reloadPending());
+		await awaitReactAct(() => result.current.vm.reloadPending());
 		expect(result.current.vm.pendingError).toBe("Network lost");
 		expect(result.current.vm.pendingObservations).toEqual(response.data);
 	});
@@ -1859,10 +1869,10 @@ describe("shared watch mutations", () => {
 			data: [{ ...item, watch: { ...item.watch, generation: 2 } }],
 			page: { ...fixture.page, total: 1 },
 		});
-		await act(() => result.current.vm.reloadPending());
+		await awaitReactAct(() => result.current.vm.reloadPending());
 		expect(result.current.vm.pendingTotal).toBe(1);
 		vi.mocked(api.loadPending).mockReturnValue(nextRead.promise);
-		await act(async () => {
+		await awaitReactAct(async () => {
 			response.resolve({
 				results: [
 					{
@@ -1904,7 +1914,7 @@ describe("shared watch mutations", () => {
 			items = items.filter((item) => item.watch.id !== refs[0]?.id);
 			return { results: [{ status: "removed" }] };
 		});
-		await act(() =>
+		await awaitReactAct(() =>
 			result.current.vm.removePending(
 				result.current.vm.pendingObservations[0]!.watch,
 			),
@@ -1926,7 +1936,7 @@ describe("shared watch mutations", () => {
 		await loaded(result);
 		act(() => result.current.vm.selectPage(true));
 		vi.mocked(api.addWatches).mockRejectedValue("offline");
-		await act(() => result.current.vm.watchSelected(true));
+		await awaitReactAct(() => result.current.vm.watchSelected(true));
 		expect(result.current.vm.mutationError).toBe("Request failed");
 		expect(result.current.vm.selectedCount).toBe(1);
 		act(() => result.current.vm.clearMutationError());
@@ -1951,7 +1961,7 @@ describe("project settings and explicit discovery", () => {
 				...queryFixture("demo").collector,
 				sampleCommandsEnabled: false,
 			});
-			await act(() => result.current.vm.reload());
+			await awaitReactAct(() => result.current.vm.reload());
 			expect(result.current.vm.canScan(sample)).toBe(false);
 			expect(result.current.vm.data?.demoMode).toBe(false);
 		} finally {
@@ -1961,14 +1971,14 @@ describe("project settings and explicit discovery", () => {
 	it("saves project CRUD without collecting, using captured revisions", async () => {
 		const { result } = render();
 		await loaded(result);
-		await act(() => result.current.vm.save(draft, null));
+		await awaitReactAct(() => result.current.vm.save(draft, null));
 		expect(createProject).toHaveBeenCalledWith(draft);
-		await act(() => result.current.vm.save(draft, project));
+		await awaitReactAct(() => result.current.vm.save(draft, project));
 		expect(patchProject).toHaveBeenCalledWith(project.id, {
 			...draft,
 			revision: project.revision,
 		});
-		await act(() => result.current.vm.remove(project));
+		await awaitReactAct(() => result.current.vm.remove(project));
 		expect(deleteProject).toHaveBeenCalledWith(project.id, project.revision);
 		expect(api.discover).not.toHaveBeenCalled();
 	});
@@ -1976,17 +1986,19 @@ describe("project settings and explicit discovery", () => {
 		const { result } = render();
 		await loaded(result);
 		expect(result.current.vm.detailCooldownSeconds).toBe(300);
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.setRefreshCooldown("list", 120)).toBe(
 				true,
 			),
 		);
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.setRefreshCooldown("details", 1)).toBe(
 				false,
 			),
 		);
-		await act(() => result.current.vm.setRefreshCooldown("details", 600));
+		await awaitReactAct(() =>
+			result.current.vm.setRefreshCooldown("details", 600),
+		);
 		expect(patchRefreshSettings).toHaveBeenCalledWith({
 			detailCooldownSeconds: 600,
 		});
@@ -2014,7 +2026,9 @@ describe("project settings and explicit discovery", () => {
 		fireEvent.click(screen.getByRole("option", { name: "Manual" }));
 		await screen.findByText("Saving cooldown…");
 		expect((interval as HTMLButtonElement).disabled).toBe(true);
-		await act(() => save.reject(new Error("Cannot save refresh cooldown")));
+		await awaitReactAct(() =>
+			save.reject(new Error("Cannot save refresh cooldown")),
+		);
 		expect((await screen.findByRole("alert")).textContent).toBe(
 			"Cannot save refresh cooldown",
 		);
@@ -2031,62 +2045,64 @@ describe("project settings and explicit discovery", () => {
 		expect(screen.queryByRole("alert")).toBeNull();
 		await waitFor(() => expect(interval.textContent).toBe("Manual"));
 	});
-	it.each([
-		"success",
-		"failure",
-	] as const)("retains global cooldown save feedback across a source switch (%s)", async (outcome) => {
-		const save = deferred<Awaited<ReturnType<typeof patchRefreshSettings>>>();
-		vi.mocked(patchRefreshSettings).mockReturnValueOnce(save.promise);
-		const { result } = render();
-		await loaded(result);
-		let write!: Promise<boolean>;
-		act(() => {
-			write = result.current.vm.setRefreshCooldown("details", 600);
-		});
-		act(() => result.current.vm.setFilter({ source: "demo" }));
-		await loaded(result);
-		await act(async () => {
-			if (outcome === "success") save.resolve([]);
-			else save.reject(new Error("Cannot save refresh cooldown"));
-			expect(await write).toBe(outcome === "success");
-		});
-		expect(result.current.vm.feedbackKind).toBe("refresh-settings");
-		expect(result.current.vm.busy).toBeNull();
-		if (outcome === "success")
-			expect(result.current.vm.notice).toBe("Collector cooldown saved.");
-		else
+	it.each(["success", "failure"] as const)(
+		"retains global cooldown save feedback across a source switch (%s)",
+		async (outcome) => {
+			const save = deferred<Awaited<ReturnType<typeof patchRefreshSettings>>>();
+			vi.mocked(patchRefreshSettings).mockReturnValueOnce(save.promise);
+			const { result } = render();
+			await loaded(result);
+			let write!: Promise<boolean>;
+			act(() => {
+				write = result.current.vm.setRefreshCooldown("details", 600);
+			});
+			act(() => result.current.vm.setFilter({ source: "demo" }));
+			await loaded(result);
+			await awaitReactAct(async () => {
+				if (outcome === "success") save.resolve([]);
+				else save.reject(new Error("Cannot save refresh cooldown"));
+				expect(await write).toBe(outcome === "success");
+			});
+			expect(result.current.vm.feedbackKind).toBe("refresh-settings");
+			expect(result.current.vm.busy).toBeNull();
+			if (outcome === "success")
+				expect(result.current.vm.notice).toBe("Collector cooldown saved.");
+			else
+				expect(result.current.vm.mutationError).toBe(
+					"Cannot save refresh cooldown",
+				);
+		},
+	);
+	it.each(["receipt", "transport"] as const)(
+		"an earlier watch response cannot replace feedback from a later cooldown save (%s)",
+		async (outcome) => {
+			const watch = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
+			vi.mocked(api.addWatches).mockReturnValueOnce(watch.promise);
+			vi.mocked(patchRefreshSettings).mockRejectedValueOnce(
+				new Error("Cannot save refresh cooldown"),
+			);
+			const { result } = render();
+			await loaded(result);
+			let watching!: Promise<boolean>;
+			act(() => {
+				watching = result.current.vm.toggleWatch(pull.id);
+			});
+			await awaitReactAct(() =>
+				result.current.vm.setRefreshCooldown("details", 600),
+			);
+			await awaitReactAct(async () => {
+				if (outcome === "receipt")
+					watch.resolve({ results: [{ status: "added" }] });
+				else watch.reject(new Error("Watch request failed"));
+				await watching;
+			});
+			expect(result.current.vm.feedbackKind).toBe("refresh-settings");
 			expect(result.current.vm.mutationError).toBe(
 				"Cannot save refresh cooldown",
 			);
-	});
-	it.each([
-		"receipt",
-		"transport",
-	] as const)("an earlier watch response cannot replace feedback from a later cooldown save (%s)", async (outcome) => {
-		const watch = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
-		vi.mocked(api.addWatches).mockReturnValueOnce(watch.promise);
-		vi.mocked(patchRefreshSettings).mockRejectedValueOnce(
-			new Error("Cannot save refresh cooldown"),
-		);
-		const { result } = render();
-		await loaded(result);
-		let watching!: Promise<boolean>;
-		act(() => {
-			watching = result.current.vm.toggleWatch(pull.id);
-		});
-		await act(() => result.current.vm.setRefreshCooldown("details", 600));
-		await act(async () => {
-			if (outcome === "receipt")
-				watch.resolve({ results: [{ status: "added" }] });
-			else watch.reject(new Error("Watch request failed"));
-			await watching;
-		});
-		expect(result.current.vm.feedbackKind).toBe("refresh-settings");
-		expect(result.current.vm.mutationError).toBe(
-			"Cannot save refresh cooldown",
-		);
-		expect(result.current.vm.pageRows[0]?.watchPending).toBe(false);
-	});
+			expect(result.current.vm.pageRows[0]?.watchPending).toBe(false);
+		},
+	);
 	it("repository filter selects the stable ID when an earlier repository has that name", async () => {
 		const correct = fixture.catalog.data[0]!;
 		vi.mocked(api.loadCatalog).mockResolvedValue({
@@ -2109,7 +2125,7 @@ describe("project settings and explicit discovery", () => {
 		expect(result.current.vm.selectedRepository?.id).toBe(
 			correct.repository.id,
 		);
-		await act(() => result.current.vm.discoverRepo());
+		await awaitReactAct(() => result.current.vm.discoverRepo());
 		expect(api.discover).toHaveBeenCalledWith("cli", {
 			repositoryUrl: `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${correct.repository.id}`,
 		});
@@ -2148,7 +2164,7 @@ describe("project settings and explicit discovery", () => {
 		await loaded(result);
 		act(() => result.current.vm.selectRepository("second"));
 		expect(result.current.vm.selectedRepository?.id).toBe(secondId);
-		await act(() => result.current.vm.discoverRepo());
+		await awaitReactAct(() => result.current.vm.discoverRepo());
 		expect(api.discover).toHaveBeenCalledWith("cli", {
 			repositoryUrl: `${baseUrl}${secondId}`,
 		});
@@ -2156,18 +2172,18 @@ describe("project settings and explicit discovery", () => {
 	it("explicit discovery respects repository identity and reports scheduling failures", async () => {
 		const { result } = render();
 		await loaded(result);
-		await act(async () =>
+		await awaitReactAct(async () =>
 			expect(await result.current.vm.discoverRepo()).toBe(false),
 		);
 		act(() => result.current.vm.selectRepository("repo-key"));
-		await act(() => result.current.vm.discoverRepo());
+		await awaitReactAct(() => result.current.vm.discoverRepo());
 		expect(api.discover).toHaveBeenCalledWith("cli", {
 			repositoryUrl: `https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.id}`,
 		});
-		await act(() => result.current.vm.scan(project.id));
+		await awaitReactAct(() => result.current.vm.scan(project.id));
 		expect(api.discover).toHaveBeenCalledWith("cli", { projectId: project.id });
 		vi.mocked(api.discover).mockRejectedValue(new Error("Scheduler offline"));
-		await act(() => result.current.vm.scan());
+		await awaitReactAct(() => result.current.vm.scan());
 		expect(result.current.vm.mutationError).toBe("Scheduler offline");
 		expect(result.current.vm.canScan({ ...project, provider: "github" })).toBe(
 			false,
@@ -2183,7 +2199,7 @@ describe("project settings and explicit discovery", () => {
 		await loaded(result);
 		expect(result.current.vm.projects[0]?.total).toBe(0);
 		vi.mocked(api.loadCatalog).mockRejectedValue(new Error("No cache"));
-		await act(() => result.current.vm.reload());
+		await awaitReactAct(() => result.current.vm.reload());
 		expect(result.current.vm.error).toBe("No cache");
 	});
 });
@@ -2197,17 +2213,21 @@ describe("project form", () => {
 		act(() => result.current.setRepositoryText("api, "));
 		expect(result.current.repositoryText).toBe("api, ");
 		act(() => result.current.setRepositoryText("api, API"));
-		await act(async () => expect(await result.current.submit()).toBe(false));
+		await awaitReactAct(async () =>
+			expect(await result.current.submit()).toBe(false),
+		);
 		expect(result.current.errors.repositories).toBeDefined();
 		expect(onSave).not.toHaveBeenCalled();
 		act(() => result.current.setRepositoryText("api, web"));
 		expect(result.current.errors.repositories).toBeUndefined();
-		await act(async () => expect(await result.current.submit()).toBe(true));
+		await awaitReactAct(async () =>
+			expect(await result.current.submit()).toBe(true),
+		);
 		expect(onSave).toHaveBeenLastCalledWith(
 			expect.objectContaining({ repositories: ["api", "web"] }),
 		);
 		act(() => result.current.setRepositoryText(""));
-		await act(() => result.current.submit());
+		await awaitReactAct(() => result.current.submit());
 		expect(onSave).toHaveBeenLastCalledWith(
 			expect.objectContaining({ repositories: [] }),
 		);
@@ -2220,7 +2240,9 @@ describe("project form", () => {
 			name: "",
 			enabled: true,
 		});
-		await act(async () => expect(await result.current.submit()).toBe(false));
+		await awaitReactAct(async () =>
+			expect(await result.current.submit()).toBe(false),
+		);
 		expect(onSave).not.toHaveBeenCalled();
 		expect(result.current.errors).toMatchObject({
 			name: "Enter a project name",
@@ -2232,7 +2254,9 @@ describe("project form", () => {
 			result.current.setField("name", "  Core  ");
 		});
 		expect(result.current.errors.name).toBeUndefined();
-		await act(async () => expect(await result.current.submit()).toBe(false));
+		await awaitReactAct(async () =>
+			expect(await result.current.submit()).toBe(false),
+		);
 		expect(onSave).toHaveBeenCalledWith(draft);
 		expect(result.current.draft.name).toBe("  Core  ");
 		expect(result.current.errors).toEqual({});
@@ -2252,7 +2276,9 @@ describe("project form", () => {
 		act(() => result.current.setField("description", "Draft description"));
 		rerender({ item: { ...project, enabled: false } });
 		expect(result.current.draft.description).toBe("Draft description");
-		await act(async () => expect(await result.current.submit()).toBe(true));
+		await awaitReactAct(async () =>
+			expect(await result.current.submit()).toBe(true),
+		);
 	});
 });
 
@@ -2310,12 +2336,12 @@ it("watches collection rows outside the main page with the same identity and gen
 	});
 	expect(result.current.vm.withWatchState(external).watchPending).toBe(true);
 	expect(result.current.vm.withWatchState(external).watching).toBe(true);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(await result.current.vm.toggleWatchRow(external)).toBe(false);
 	});
 	expect(api.addWatches).toHaveBeenCalledTimes(1);
 	expect(api.addWatches).toHaveBeenCalledWith("cli", ["collection-member"]);
-	await act(async () => {
+	await awaitReactAct(async () => {
 		response.resolve({ results: [{ status: "added" }] });
 		await pending;
 	});
@@ -2324,12 +2350,12 @@ it("watches collection rows outside the main page with the same identity and gen
 		...external,
 		observation: fixtureObservation({ generation: 9 }),
 	};
-	await act(async () => {
+	await awaitReactAct(async () => {
 		await result.current.vm.toggleWatchRow(watched);
 	});
 	expect(api.removeWatches).toHaveBeenCalledWith("cli", [watched.observation]);
 	vi.mocked(api.addWatches).mockClear();
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(
 			await result.current.vm.toggleWatchRow({
 				...external,
@@ -2349,7 +2375,7 @@ it("bulk watches collection rows in bounded batches and excludes history and oth
 	vi.mocked(api.addWatches).mockImplementation(async (_, ids) => ({
 		results: ids.map(() => ({ status: "added" as const })),
 	}));
-	await act(async () => {
+	await awaitReactAct(async () => {
 		expect(
 			await result.current.vm.watchRows([
 				...rows,
@@ -2371,7 +2397,7 @@ it("bulk watches collection rows in bounded batches and excludes history and oth
 				},
 			],
 		});
-	await act(async () =>
+	await awaitReactAct(async () =>
 		expect(await result.current.vm.watchRows(rows)).toBe(false),
 	);
 	expect(api.addWatches).toHaveBeenCalledTimes(1);

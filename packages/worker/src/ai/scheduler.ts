@@ -61,7 +61,10 @@ async function readWork(db: D1Database, source: DataSource) {
 	]);
 	return {
 		projects: new Map(
-			(projects?.results as ProjectRow[]).map((r) => [r.id, mapProject(r)]),
+			((projects?.results ?? []) as ProjectRow[]).map((r) => [
+				r.id,
+				mapProject(r),
+			]),
 		),
 		rows: watches?.results as WatchRow[],
 		context: decisionContext(rest),

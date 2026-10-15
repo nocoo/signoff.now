@@ -238,92 +238,95 @@ test.each([
 	["attention", "inspect_pr"],
 	["review_needed", "request_review"],
 	["waiting", "wait_ci"],
-])("%s advice keeps current and historical judgments distinct", async (kind, code) => {
-	const { project, pull, watch, context } = await setup();
-	const state = inputState(pull, project, context);
-	const judgment = {
-		kind,
-		model: JEV_MODEL,
-		rubric: JEV_RUBRIC,
-		fingerprint: await decisionFingerprint(state),
-		evaluatedAt: new Date((now - 600) * 1000).toISOString(),
-		probabilities: { [kind]: 1 },
-		confidence: 1,
-	};
-	const row: EvaluationRow = {
-		observation_id: watch.id,
-		generation: watch.generation,
-		config_revision: context.settings.revision,
-		input_revision: 1,
-		status: "complete",
-		fingerprint: judgment.fingerprint,
-		result_json: JSON.stringify(judgment),
-		previous_json: null,
-		error: null,
-		attempts: 1,
-		not_before: now + 200,
-		lease_token: null,
-		state_json: canonicalJson(state),
-		last_started_at: null,
-		last_completed_at: null,
-	};
-	const read = () =>
-		inspectObservation(watch, pull, project, null, row, context, now);
-	expect((await read()).readiness).toMatchObject({
-		state: kind,
-		isCurrent: true,
-		evaluatedAt: judgment.evaluatedAt,
-		update: { state: "idle" },
-	});
-	expect((await read()).nextAction).toMatchObject({
-		code,
-		evidenceRefs: [],
-	});
-	pull.observedAt = now + 1;
-	expect((await read()).readiness.isCurrent).toBe(true);
-	context.rules.set("common", "Changed instruction");
-	expect((await read()).readiness).toMatchObject({
-		state: kind,
-		isCurrent: false,
-		update: {
-			state: "scheduled",
-			reason: null,
-			notBefore: new Date((now + 200) * 1000).toISOString(),
-		},
-	});
-	expect((await read()).readiness.update.state).toBe("scheduled");
-	row.state_json = canonicalJson(inputState(pull, project, context));
-	row.result_json = null;
-	row.previous_json = JSON.stringify(judgment);
-	row.status = "running";
-	expect((await read()).readiness.update.state).toBe("evaluating");
-	row.status = "error";
-	row.error = "Provider unavailable";
-	expect((await read()).readiness).toMatchObject({
-		state: kind,
-		update: { state: "error", error: "Provider unavailable" },
-	});
-	context.rules.clear();
-	row.status = "complete";
-	pull.draft = true;
-	expect((await read()).readiness.isCurrent).toBe(false);
-	pull.mergeable = "conflicts";
-	expect((await read()).readiness).toMatchObject({
-		state: "conflict",
-		source: "provider",
-		isCurrent: true,
-	});
-	pull.targetBranch = "release";
-	expect((await read()).readiness.state).toBe("skipped");
-	watch.active = false;
-	watch.stopReason = "manual";
-	watch.stoppedAt = now;
-	expect((await read()).readiness).toMatchObject({
-		isCurrent: false,
-		update: { state: "stopped", reason: "unwatched" },
-	});
-	expect((await read()).nextAction).toBeNull();
-});
+])(
+	"%s advice keeps current and historical judgments distinct",
+	async (kind, code) => {
+		const { project, pull, watch, context } = await setup();
+		const state = inputState(pull, project, context);
+		const judgment = {
+			kind,
+			model: JEV_MODEL,
+			rubric: JEV_RUBRIC,
+			fingerprint: await decisionFingerprint(state),
+			evaluatedAt: new Date((now - 600) * 1000).toISOString(),
+			probabilities: { [kind]: 1 },
+			confidence: 1,
+		};
+		const row: EvaluationRow = {
+			observation_id: watch.id,
+			generation: watch.generation,
+			config_revision: context.settings.revision,
+			input_revision: 1,
+			status: "complete",
+			fingerprint: judgment.fingerprint,
+			result_json: JSON.stringify(judgment),
+			previous_json: null,
+			error: null,
+			attempts: 1,
+			not_before: now + 200,
+			lease_token: null,
+			state_json: canonicalJson(state),
+			last_started_at: null,
+			last_completed_at: null,
+		};
+		const read = () =>
+			inspectObservation(watch, pull, project, null, row, context, now);
+		expect((await read()).readiness).toMatchObject({
+			state: kind,
+			isCurrent: true,
+			evaluatedAt: judgment.evaluatedAt,
+			update: { state: "idle" },
+		});
+		expect((await read()).nextAction).toMatchObject({
+			code,
+			evidenceRefs: [],
+		});
+		pull.observedAt = now + 1;
+		expect((await read()).readiness.isCurrent).toBe(true);
+		context.rules.set("common", "Changed instruction");
+		expect((await read()).readiness).toMatchObject({
+			state: kind,
+			isCurrent: false,
+			update: {
+				state: "scheduled",
+				reason: null,
+				notBefore: new Date((now + 200) * 1000).toISOString(),
+			},
+		});
+		expect((await read()).readiness.update.state).toBe("scheduled");
+		row.state_json = canonicalJson(inputState(pull, project, context));
+		row.result_json = null;
+		row.previous_json = JSON.stringify(judgment);
+		row.status = "running";
+		expect((await read()).readiness.update.state).toBe("evaluating");
+		row.status = "error";
+		row.error = "Provider unavailable";
+		expect((await read()).readiness).toMatchObject({
+			state: kind,
+			update: { state: "error", error: "Provider unavailable" },
+		});
+		context.rules.clear();
+		row.status = "complete";
+		pull.draft = true;
+		expect((await read()).readiness.isCurrent).toBe(false);
+		pull.mergeable = "conflicts";
+		expect((await read()).readiness).toMatchObject({
+			state: "conflict",
+			source: "provider",
+			isCurrent: true,
+		});
+		pull.targetBranch = "release";
+		expect((await read()).readiness.state).toBe("skipped");
+		watch.active = false;
+		watch.stopReason = "manual";
+		watch.stoppedAt = now;
+		expect((await read()).readiness).toMatchObject({
+			isCurrent: false,
+			update: { state: "stopped", reason: "unwatched" },
+		});
+		expect((await read()).nextAction).toBeNull();
+	},
+);
 test("read-only query exposes failed attempts without replacing old evidence and isolates rewatch generations", async () => {
 	const { pull, watch } = await setup();
 	sqlite.raw

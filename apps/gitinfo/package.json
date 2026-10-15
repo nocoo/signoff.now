@@ -41,9 +41,9 @@
 	},
 	"devDependencies": {
 		"@signoff/typescript": "workspace:*",
-		"@vitest/coverage-v8": "5.0.0",
-		"bun-types": "1.4.2",
+		"@vitest/coverage-v8": "5.0.4",
+		"bun-types": "1.4.3",
 		"typescript": "7.0.2",
-		"vitest": "5.0.0"
+		"vitest": "5.0.4"
 	}
 }

@@ -39,49 +39,49 @@ const count = (table: string) =>
 	).n;
 
 describe("shared observation commands", () => {
-	test.each([
-		"completed",
-		"abandoned",
-	] as const)("manual removal clears retained %s membership without scheduling work", async (stopReason) => {
-		const { pull } = fixture();
-		const { observation } = await addObservation(
-			sqlite.db,
-			"cli",
-			{ pullId: pull.id },
-			100,
-		);
-		sqlite.raw
-			.query(
-				"UPDATE pr_observations SET active=0,stopped_at=200,stop_reason=? WHERE id=?",
-			)
-			.run(stopReason, observation.id);
-		const before = count("collection_jobs");
-		const removed = await removeObservation(
-			sqlite.db,
-			"cli",
-			observation.id,
-			observation.generation,
-			300,
-		);
-		expect(removed.status).toBe("removed");
-		expect(removed.observation).toMatchObject({
-			active: false,
-			stopReason: "manual",
-			stoppedAt: 300,
-		});
-		expect(
-			(
-				await removeObservation(
-					sqlite.db,
-					"cli",
-					observation.id,
-					observation.generation,
-					301,
+	test.each(["completed", "abandoned"] as const)(
+		"manual removal clears retained %s membership without scheduling work",
+		async (stopReason) => {
+			const { pull } = fixture();
+			const { observation } = await addObservation(
+				sqlite.db,
+				"cli",
+				{ pullId: pull.id },
+				100,
+			);
+			sqlite.raw
+				.query(
+					"UPDATE pr_observations SET active=0,stopped_at=200,stop_reason=? WHERE id=?",
 				)
-			).status,
-		).toBe("already_stopped");
-		expect(count("collection_jobs")).toBe(before);
-	});
+				.run(stopReason, observation.id);
+			const before = count("collection_jobs");
+			const removed = await removeObservation(
+				sqlite.db,
+				"cli",
+				observation.id,
+				observation.generation,
+				300,
+			);
+			expect(removed.status).toBe("removed");
+			expect(removed.observation).toMatchObject({
+				active: false,
+				stopReason: "manual",
+				stoppedAt: 300,
+			});
+			expect(
+				(
+					await removeObservation(
+						sqlite.db,
+						"cli",
+						observation.id,
+						observation.generation,
+						301,
+					)
+				).status,
+			).toBe("already_stopped");
+			expect(count("collection_jobs")).toBe(before);
+		},
+	);
 	test("Unicode references identify the same watch before and after project deletion", async () => {
 		const project = seedProject(sqlite, {
 			projectKey: "Équipe",
@@ -138,65 +138,72 @@ describe("shared observation commands", () => {
 	test.each([
 		{ organization: "replacement-org" },
 		{ projectKey: "Replacement" },
-	])("a concurrent project identity change cannot register an old cached PR under the new identity: %j", async (changes) => {
-		const concurrent = createConcurrentSqliteD1(2);
-		try {
-			const fixtureDb = { ...sqlite, raw: concurrent.raw };
-			const project = seedProject(fixtureDb, { repositories: [] });
-			const pull = seedPull(fixtureDb);
-			const reader = concurrent.connections[0]!;
-			const writer = concurrent.connections[1]!;
-			let edited = false;
-			const wrap = (
-				statement: D1PreparedStatement,
-				sql: string,
-			): D1PreparedStatement => {
-				const bind = statement.bind.bind(statement);
-				const first = statement.first.bind(statement);
-				statement.bind = (...values: unknown[]) => wrap(bind(...values), sql);
-				statement.first = async <T>(column?: string) => {
-					const value = column ? await first<T>(column) : await first<T>();
-					if (!edited && sql.startsWith("SELECT pr.snapshot")) {
-						edited = true;
-						const response = await app.request(
-							`http://localhost/api/projects/${project.id}`,
-							{
-								method: "PATCH",
-								headers: {
-									host: "localhost",
-									"content-type": "application/json",
+	])(
+		"a concurrent project identity change cannot register an old cached PR under the new identity: %j",
+		async (changes) => {
+			const concurrent = createConcurrentSqliteD1(2);
+			try {
+				const fixtureDb = { ...sqlite, raw: concurrent.raw };
+				const project = seedProject(fixtureDb, { repositories: [] });
+				const pull = seedPull(fixtureDb);
+				const reader = concurrent.connections[0]!;
+				const writer = concurrent.connections[1]!;
+				let edited = false;
+				const wrap = (
+					statement: D1PreparedStatement,
+					sql: string,
+				): D1PreparedStatement => {
+					const bind = statement.bind.bind(statement);
+					const first = statement.first.bind(statement);
+					statement.bind = (...values: unknown[]) => wrap(bind(...values), sql);
+					statement.first = async <T>(column?: string) => {
+						const value = column ? await first<T>(column) : await first<T>();
+						if (!edited && sql.startsWith("SELECT pr.snapshot")) {
+							edited = true;
+							const response = await app.request(
+								`http://localhost/api/projects/${project.id}`,
+								{
+									method: "PATCH",
+									headers: {
+										host: "localhost",
+										"content-type": "application/json",
+									},
+									body: JSON.stringify({
+										revision: project.revision,
+										...changes,
+									}),
 								},
-								body: JSON.stringify({
-									revision: project.revision,
-									...changes,
-								}),
-							},
-							{ DB: writer, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
-						);
-						expect(response.status).toBe(200);
-					}
-					return value;
+								{
+									DB: writer,
+									SIGNOFF_LOCAL_TRUST: "1",
+									SIGNOFF_DEMO_MODE: "1",
+								},
+							);
+							expect(response.status).toBe(200);
+						}
+						return value;
+					};
+					return statement;
 				};
-				return statement;
-			};
-			const prepare = reader.prepare.bind(reader);
-			reader.prepare = (sql) => wrap(prepare(sql), sql);
-			await expect(
-				addObservation(reader, "cli", { pullId: pull.id }, 100),
-			).rejects.toMatchObject({ code: "CONFLICT" });
-			expect(edited).toBe(true);
-			for (const table of [
-				"pr_observations",
-				"collection_jobs",
-				"pull_requests",
-			])
-				expect(
-					concurrent.raw.query(`SELECT COUNT(*) n FROM ${table}`).get(),
-				).toEqual({ n: 0 });
-		} finally {
-			concurrent.close();
-		}
-	});
+				const prepare = reader.prepare.bind(reader);
+				reader.prepare = (sql) => wrap(prepare(sql), sql);
+				await expect(
+					addObservation(reader, "cli", { pullId: pull.id }, 100),
+				).rejects.toMatchObject({ code: "CONFLICT" });
+				expect(edited).toBe(true);
+				for (const table of [
+					"pr_observations",
+					"collection_jobs",
+					"pull_requests",
+				])
+					expect(
+						concurrent.raw.query(`SELECT COUNT(*) n FROM ${table}`).get(),
+					).toEqual({ n: 0 });
+			} finally {
+				concurrent.close();
+			}
+		},
+	);
 	test("unsupported live providers, stale cached scope and unresolved IDs never create work", async () => {
 		const { project, pull } = fixture();
 		await expect(
@@ -391,22 +398,22 @@ describe("shared observation commands", () => {
 		).rejects.toMatchObject({ code: "REPOSITORY_NOT_TRACKED" });
 		expect(count("pr_observations")).toBe(1);
 	});
-	test.each([
-		"merged",
-		"closed",
-	] as const)("known %s PRs cannot be reactivated", async (state) => {
-		const { pull } = fixture();
-		sqlite.raw
-			.query(
-				"UPDATE pull_requests SET state=?,snapshot=json_set(snapshot,'$.state',?) WHERE id=?",
-			)
-			.run(state, state, pull.id);
-		await expect(
-			addObservation(sqlite.db, "cli", { pullId: pull.id }, 100),
-		).rejects.toMatchObject({ code: "PR_TERMINAL" });
-		expect(count("pr_observations")).toBe(0);
-		expect(count("collection_jobs")).toBe(0);
-	});
+	test.each(["merged", "closed"] as const)(
+		"known %s PRs cannot be reactivated",
+		async (state) => {
+			const { pull } = fixture();
+			sqlite.raw
+				.query(
+					"UPDATE pull_requests SET state=?,snapshot=json_set(snapshot,'$.state',?) WHERE id=?",
+				)
+				.run(state, state, pull.id);
+			await expect(
+				addObservation(sqlite.db, "cli", { pullId: pull.id }, 100),
+			).rejects.toMatchObject({ code: "PR_TERMINAL" });
+			expect(count("pr_observations")).toBe(0);
+			expect(count("collection_jobs")).toBe(0);
+		},
+	);
 	test("activation and its first queued job roll back together", async () => {
 		const { url } = fixture();
 		sqlite.raw.exec(

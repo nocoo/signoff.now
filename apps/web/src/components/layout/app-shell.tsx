@@ -75,7 +75,6 @@ export function AppShell() {
 			</SelectControl>
 		) : undefined;
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: navigation closes the mobile drawer
 	useEffect(() => setMobileOpen(false), [location.pathname]);
 
 	const setDesktopCollapsed = (next: boolean) => {

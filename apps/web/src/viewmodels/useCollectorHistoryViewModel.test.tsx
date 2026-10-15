@@ -1,10 +1,12 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
 	loadCollectionJob,
 	loadCollectorHistory,
 } from "@/models/monitoringApi";
 import { fixtureJob } from "@/test/monitoring-fixture";
+import { awaitReactAct } from "@/test/reactAct";
 import { useCollectorHistoryViewModel } from "./useCollectorHistoryViewModel";
 
 vi.mock("@/models/monitoringApi", () => ({
@@ -67,7 +69,7 @@ test("reports history failures and does not advance without another page", async
 		data: [],
 		nextCursor: null,
 	});
-	await act(() => result.current.history.reload());
+	await awaitReactAct(() => result.current.history.reload());
 	expect(result.current.history.error).toBeNull();
 	act(() => result.current.older());
 	expect(result.current.page).toBe(1);

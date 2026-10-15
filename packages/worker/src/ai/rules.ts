@@ -18,7 +18,7 @@ export async function readAiRules(db: D1Database) {
 	const common = saved.find((r) => r.scope === "common");
 	return aiRulesSchema.parse({
 		common: common ?? { revision: 0, text: COMMON_RULES },
-		projects: (projects?.results as { id: string; name: string }[]).map(
+		projects: ((projects?.results ?? []) as { id: string; name: string }[]).map(
 			(p) => ({
 				...p,
 				revision: 0,
