@@ -1418,8 +1418,6 @@ test("discovery refreshes full history, retries partial pages and respects manua
 			Date.parse(min) >= (now - DISCOVERY_HISTORY_DAYS * 86400 - 60) * 1000
 		);
 	};
-	// Smart discovery stops at the published cursor; deep discovery rereads
-	// the whole window, which is what retrying a missing page requires.
 	const discover = async (depth: "smart" | "deep" = "smart") => {
 		const receipt = commandReceiptSchema.parse(
 			depth === "smart"
@@ -1462,12 +1460,25 @@ test("discovery refreshes full history, retries partial pages and respects manua
 	expect((await list()).data).toHaveLength(250);
 	total = 380;
 	expect((await discover()).state).toBe("complete");
-	expect(calls).toHaveLength(1);
-	expect((await list()).data).toHaveLength(350);
+	expect(calls).toHaveLength(4);
+	expect(calls.map((call) => call.searchParams.get("$skip"))).toEqual([
+		"0",
+		"100",
+		"200",
+		"300",
+	]);
+	expect(
+		calls.every(
+			(call) =>
+				call.searchParams.get("searchCriteria.status") === "all" &&
+				withinHistoryWindow(call),
+		),
+	).toBe(true);
+	expect((await list()).data).toHaveLength(380);
 	failSecondPage = true;
 	expect((await discover("deep")).state).toBe("failed");
 	expect(calls).toHaveLength(2);
-	expect((await list()).data).toHaveLength(350);
+	expect((await list()).data).toHaveLength(380);
 	expect(withinHistoryWindow(calls[0]!)).toBe(true);
 	failSecondPage = false;
 	expect((await discover("deep")).state).toBe("complete");

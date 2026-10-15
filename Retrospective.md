@@ -237,3 +237,7 @@ before applying them to daily state.
 ## 2026-10-15: readiness category propagation
 
 A bulk category insertion duplicated a project-card label and initially missed the SQL fallback sorting ranks. Focused tests caught both before commit. The first badge assertion also assumed an orange token name instead of reading the installed Basalt variant, which uses `basalt-warning`. When extending a category, audit explicit lists, fallback ranks and component variants independently; verify the installed design token rather than deriving its name.
+
+## 2026-10-15: stale discovery browser contract
+
+The full browser suite exposed a retained smart-discovery assertion that expected cursor-based early stopping, contradicting the complete 90-day all-state discovery contract already implemented and unit-tested. Update end-to-end expectations whenever discovery semantics change: assert every page and retained cache during failures, not an obsolete request-count optimization. The fix strengthens the browser assertions without changing discovery code or relaxing quality gates.
