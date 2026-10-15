@@ -199,6 +199,7 @@ export async function inspectObservation(
 			mergeSha: pull?.evidence?.mergeSha ?? null,
 			mergeability: pull?.mergeable ?? "unknown",
 			createdAt: iso(pull?.createdAt),
+			updatedAt: iso(pull?.updatedAt),
 			collection: {
 				observedAt: iso(summaryAt),
 				coverage: pull ? "complete" : "not_collected",

@@ -1,8 +1,14 @@
 import {
+	type PrSummary,
+	summarizeInspection,
+	summarizePull,
+} from "@signoff/domain";
+import {
 	matchesRepositoryReference,
 	parsePullReference,
 	parseRepositoryReference,
 } from "@signoff/domain/monitoring";
+import { prCollectionsSchema } from "@signoff/domain/pr-collections";
 import {
 	batchCommandSchema,
 	collectorQuerySchema,
@@ -11,6 +17,7 @@ import {
 	jobQuerySchema,
 	observationDetailSchema,
 	observationListSchema,
+	type PullQueryItem,
 	projectQuerySchema,
 	pullDetailSchema,
 	pullListSchema,
@@ -30,8 +37,10 @@ const cliOptionsSchema = z.object({
 	source: z.enum(["live", "sample"]).default("live"),
 	format: z.enum(["json", "table"]).default("json"),
 	pretty: z.boolean().default(false),
+	summary: z.boolean().default(false),
 	timeout: z.string().default("5s"),
 });
+type Inspection = z.infer<typeof observationListSchema>["data"][number];
 const append = (value: string, values: string[]) => [...values, value];
 const encode = encodeURIComponent;
 function options(command: Command) {
@@ -46,13 +55,14 @@ function options(command: Command) {
 }
 function print(value: unknown, command: Command) {
 	const opts = options(command);
+	const enriched = withSummaries(value, opts.summary);
 	if (opts.format === "json") {
 		process.stdout.write(
-			`${JSON.stringify(value, null, opts.pretty ? 2 : undefined)}\n`,
+			`${JSON.stringify(enriched, null, opts.pretty ? 2 : undefined)}\n`,
 		);
 		return;
 	}
-	const obj = value as Record<string, unknown>;
+	const obj = enriched as Record<string, unknown>;
 	const data = Array.isArray(obj.data)
 		? obj.data
 		: Array.isArray(obj.results)
@@ -60,6 +70,62 @@ function print(value: unknown, command: Command) {
 			: Array.isArray(obj.jobs)
 				? obj.jobs
 				: [obj.data ?? obj];
+	if (data.length && (data[0] as { summary?: PrSummary }).summary) {
+		const rows = data.map((item) => {
+			const row = item as {
+				id?: string;
+				number?: number;
+				repository?: { name?: string } | string;
+				title?: string;
+				pr?: Inspection["pr"];
+				watch?: Inspection["watch"];
+				summary: PrSummary;
+			};
+			const summary = row.summary;
+			const ref = row.pr ?? row;
+			const repo = ref.repository;
+			const ci = summary.ci.builds
+				.map(
+					(b) =>
+						`${b.name}:${b.status}${b.stages
+							.filter((s) => !["passed", "skipped"].includes(s.status))
+							.map((s) => `/${s.name}:${s.status}`)
+							.join("")}`,
+				)
+				.join("; ");
+			return [
+				ref.number,
+				row.watch
+					? row.watch.active
+						? "watching"
+						: "stopped"
+					: summary.lifecycle,
+				typeof repo === "string" ? repo : repo?.name,
+				summary.lifecycle,
+				summary.readiness.kind,
+				summary.readiness.isCurrent ? "current" : "historical/pending",
+				summary.readiness.nextAction,
+				`${summary.approvals.approved ?? "?"}/${summary.approvals.required ?? "?"} (-${summary.approvals.remaining ?? "?"})`,
+				`${summary.ci.status}${ci ? `: ${ci}` : ""}`,
+				summary.mergeable,
+				`${summary.pop.state}${summary.pop.deferred ? " (deferred)" : ""}`,
+				summary.blockers
+					.map(
+						(b) =>
+							`${b.group}${b.deferred ? " (deferred)" : ""}: ${b.name} [${b.states.join(",")}]`,
+					)
+					.join("; "),
+				summary.updatedAt,
+				ref.title,
+			]
+				.map((cell) => String(cell ?? "—").replace(/\p{Cc}/gu, " "))
+				.join("\t");
+		});
+		process.stdout.write(
+			`PR\tWATCH / STATE\tREPOSITORY\tLIFECYCLE\tREADINESS\tCURRENTNESS\tNEXT ACTION\tAPPROVALS\tCI\tMERGEABLE\tPOP\tBLOCKERS\tUPDATED AT\tTITLE\n${rows.join("\n")}\n`,
+		);
+		return;
+	}
 	const rows = data.map((item) => {
 		const row = item as Record<string, unknown>;
 		const ref = (row.pr ?? row) as Record<string, unknown>;
@@ -87,6 +153,50 @@ function print(value: unknown, command: Command) {
 	process.stdout.write(
 		`ID\tSTATE\tREPOSITORY\tPR\tTITLE / MESSAGE\n${rows.join("\n")}\n`,
 	);
+}
+function withSummaries(value: unknown, compact: boolean): unknown {
+	const envelope = value as { data?: unknown };
+	const enrich = (row: unknown) => {
+		const item = row as Record<string, unknown>;
+		if (!item || typeof item !== "object") return row;
+		if (item.pr && item.readiness && item.checks) {
+			const inspection = item as Inspection;
+			const summary = summarizeInspection(inspection);
+			return compact
+				? {
+						id: inspection.pr.id,
+						number: inspection.pr.number,
+						repository: inspection.pr.repository.name,
+						title: inspection.pr.title,
+						url: inspection.pr.url,
+						summary,
+					}
+				: { ...item, summary };
+		}
+		if (item.readiness && Array.isArray(item.policies)) {
+			const pull = item as PullQueryItem;
+			const summary = summarizePull(pull);
+			return compact
+				? {
+						id: pull.id,
+						number: pull.number,
+						repository: pull.repository.name,
+						title: pull.title,
+						url: pull.url,
+						summary,
+					}
+				: { ...item, summary };
+		}
+		return row;
+	};
+	return envelope?.data === undefined
+		? value
+		: {
+				...envelope,
+				data: Array.isArray(envelope.data)
+					? envelope.data.map(enrich)
+					: enrich(envelope.data),
+			};
 }
 function request(
 	command: Command,
@@ -151,6 +261,26 @@ async function list<
 	},
 >(command: Command, path: string, schema: z.ZodType<T>) {
 	const params = parameters(command);
+	if (command.opts().collection) {
+		const collectionRef = String(command.opts().collection);
+		const collections = prCollectionsSchema.parse(
+			await request(command, "GET", `/api/pr-collections?${scope(command)}`),
+		).items;
+		const matches = collections.filter((c) => c.id === collectionRef);
+		const resolved = matches.length
+			? matches
+			: collections.filter(
+					(c) => c.name.toLowerCase() === collectionRef.toLowerCase(),
+				);
+		const selected = resolved[0];
+		if (resolved.length !== 1 || !selected)
+			throw new TypeError(
+				resolved.length
+					? "Collection name is ambiguous; use its ID"
+					: "Collection not found in the selected source",
+			);
+		params.set("collectionId", selected.id);
+	}
 	const read = async (cursor?: string) => {
 		const query = new URLSearchParams(params);
 		if (cursor) query.set("cursor", cursor);
@@ -288,6 +418,7 @@ export function registerWorkbenchCommands(program: Command) {
 				.default("json"),
 		)
 		.option("--pretty", "Indent JSON output")
+		.option("--summary", "Compact bot summary for PR and watch reads")
 		.option("--timeout <duration>", "Cache request timeout", "5s");
 	program
 		.command("status")
@@ -316,6 +447,7 @@ export function registerWorkbenchCommands(program: Command) {
 		);
 	const prs = program.command("pr").description("Read published PR cache");
 	listOptions(prs.command("list"))
+		.option("--collection <name|id>", "Restrict to a cached collection")
 		.addOption(
 			new Option("--state <state>", "PR lifecycle")
 				.choices(["open", "merged", "closed", "all"])
@@ -353,6 +485,7 @@ export function registerWorkbenchCommands(program: Command) {
 		.command("watch")
 		.description("Shared web and CLI watch list");
 	listOptions(watch.command("list"))
+		.option("--collection <name|id>", "Restrict to a cached collection")
 		.option(
 			"--include-stopped",
 			"Include removed and invalidated watch history",

@@ -279,6 +279,7 @@ export function pendingInspection(observation = fixtureObservation()) {
 			mergeSha: null,
 			mergeability: "unknown",
 			createdAt: null,
+			updatedAt: null,
 			collection: quality,
 		},
 		readiness: {

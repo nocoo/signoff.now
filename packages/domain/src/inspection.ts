@@ -70,6 +70,7 @@ export const inspectionSchema = z.object({
 		mergeSha: text,
 		mergeability: z.enum(["clear", "conflicts", "unknown"]),
 		createdAt: timestamp,
+		updatedAt: timestamp,
 		collection: quality,
 	}),
 	readiness: z.object({

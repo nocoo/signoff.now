@@ -126,6 +126,7 @@ const inspection = {
 		mergeSha: null,
 		mergeability: "unknown",
 		createdAt: null,
+		updatedAt: null,
 		collection: {
 			observedAt: null,
 			coverage: "not_collected",
@@ -330,6 +331,80 @@ test("PR and watch lookup support cached IDs, scoped numbers and URLs", async ()
 		[{ id: observation.id, generation: 3 }],
 		[{ id: observation.id, generation: 3 }],
 	]);
+});
+
+test("PR reads expose compact bot summaries in JSON and table without provider work", async () => {
+	const judgment = {
+		kind: "pop_needed" as const,
+		model: "test",
+		rubric: "test",
+		fingerprint: "f",
+		evaluatedAt: iso(now),
+		probabilities: { pop_needed: 1 },
+		confidence: 1,
+		reusedAt: null,
+	};
+	const dto = { ...pullDto, readiness: presentReadiness("complete", judgment) };
+	reply = () => Response.json({ ...envelope, data: dto });
+	await cli("pr", "get", pull.id, "--summary");
+	const compact = JSON.parse(stdout).data;
+	expect(compact.summary.readiness).toMatchObject({
+		kind: "pop_needed",
+		label: "PoP Needed",
+		isCurrent: true,
+	});
+	expect(compact.policies).toBeUndefined();
+	stdout = "";
+	reply = () => Response.json({ ...list, data: [dto] });
+	await cli("pr", "list", "--summary", "--format", "table");
+	expect(stdout).toContain("pop_needed");
+	expect(stdout).toContain("NEXT ACTION");
+	expect(stdout).toContain("BLOCKERS");
+	stdout = "";
+	reply = () =>
+		Response.json({ ...envelope, schemaVersion: 2, data: [inspection], page });
+	await cli("watch", "list", "--summary");
+	expect(JSON.parse(stdout).data[0].summary.approvals).toEqual({
+		approved: null,
+		required: null,
+		remaining: null,
+		requiredReviewersPending: null,
+	});
+	expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
+test("collection names and IDs resolve within the source and paginate cache-only", async () => {
+	const collection = {
+		id: "collection-1",
+		source: "live",
+		name: "My PRs",
+		description: "",
+		color: "blue",
+		icon: "layers",
+		revision: 1,
+		createdAt: now,
+		updatedAt: now,
+		counts: { total: 1, open: 1, draft: 0, merged: 0, closed: 0 },
+	};
+	reply = (url) =>
+		Response.json(
+			url.pathname === "/api/pr-collections" ? { items: [collection] } : list,
+		);
+	for (const reference of ["My PRs", "collection-1"]) {
+		await cli("pr", "list", "--collection", reference, "--all");
+		expect(calls.at(-1)?.url.searchParams.get("collectionId")).toBe(
+			collection.id,
+		);
+	}
+	await expect(cli("pr", "list", "--collection", "missing")).rejects.toThrow(
+		"Collection not found",
+	);
+	reply = () =>
+		Response.json({ items: [collection, { ...collection, id: "duplicate" }] });
+	await expect(cli("pr", "list", "--collection", "my prs")).rejects.toThrow(
+		"ambiguous",
+	);
+	expect(calls.every((call) => call.method === "GET")).toBe(true);
 });
 test("batch failures retain item results with a nonzero exit and clean structured stderr", async () => {
 	reply = () =>
