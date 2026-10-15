@@ -241,3 +241,7 @@ A bulk category insertion duplicated a project-card label and initially missed t
 ## 2026-10-15: stale discovery browser contract
 
 The full browser suite exposed a retained smart-discovery assertion that expected cursor-based early stopping, contradicting the complete 90-day all-state discovery contract already implemented and unit-tested. Update end-to-end expectations whenever discovery semantics change: assert every page and retained cache during failures, not an obsolete request-count optimization. The fix strengthens the browser assertions without changing discovery code or relaxing quality gates.
+
+## 2026-10-15: verify grouped restart ownership
+
+Ctrl+C left the temporary Worker launcher's detached Wrangler process group orphaned, so the next grouped startup failed on port 37042 even though health requests returned 200 from the old Worker. Health alone does not prove a restart. Verify that both reserved ports are free before starting the replacement, inspect all grouped startup logs, and stop an orphan only after checking its process group, start time and repository cwd. The verified task-owned orphan was terminated and the full stack restarted; no launcher behavior or unrelated process was changed.
