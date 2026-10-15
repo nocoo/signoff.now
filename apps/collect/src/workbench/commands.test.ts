@@ -74,6 +74,7 @@ const list = {
 		error: 0,
 		attention: 1,
 		review_needed: 0,
+		pop_needed: 0,
 		merged: 0,
 		closed: 0,
 	},

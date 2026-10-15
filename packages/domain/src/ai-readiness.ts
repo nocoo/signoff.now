@@ -12,22 +12,25 @@ import { COMMON_RULES, defaultProjectRules } from "./ai-rules.js";
 export * from "./ai-rules.js";
 
 import { z } from "zod";
+import { interpretPull } from "./state-machine.js";
 
 import type { Project, PullRequest } from "./workbench.js";
 
 export const JEV_MODEL = "jev-1.13.0";
-export const JEV_RUBRIC = "signoff-evidence-v8";
+export const JEV_RUBRIC = "signoff-evidence-v9";
 export const CLASSIFICATION = {
 	attention:
 		"Human inspection is needed now: a failed or explicitly expired build, requested code changes, or another actionable blocker. Missing reviews and PoP deferred until builds/reviews finish are not Attention. Do not decide rerun versus repair.",
 	review_needed:
 		"Builds passed and remain unexpired, with no more serious blocker; only project review requirements remain unsatisfied (minimum non-author approvals, required/path reviewers or review compliance). Includes awaiting reviewers already assigned and rejected review-compliance evaluations without explicit evidence of requested code changes. A rejected review policy is not a reviewer rejection. PoP follows review and does not block this category. Explicit requested code changes are Attention.",
+	pop_needed:
+		"Builds passed and remain unexpired, reviews and all other applicable requirements are satisfied, and the PR is mergeable; only the author's final Proof Of Presence step remains. Deferred PoP never overrides Attention, ongoing/queued work or outstanding reviews. An unmet PoP is not Ready.",
 	warning:
 		"A known issue deserves observation and has evidence it may resolve automatically; no human action now.",
 	running:
 		"Automatic work is executing, or evidence is insufficient to identify an actionable blocker. Pending reviews and deferred PoP do not override a running build. Queued work is Waiting; review-only deficits after valid successful builds are Review Needed.",
 	ready:
-		"Builds succeeded and remain valid, PR is mergeable, all applicable policies passed; a configured PoP-only final-step exception may apply. Provider merge requirements remain authoritative.",
+		"Builds succeeded and remain valid, PR is mergeable, reviews and all applicable policies including Proof Of Presence passed. No PoP-only exception applies. Provider merge requirements remain authoritative.",
 	waiting:
 		"Waiting for non-review processes, such as a queued build or an automatic prerequisite, with no human intervention needed. Active execution is Running. Never use for external review, failed/expired builds needing intervention, or author changes.",
 } as const;
@@ -36,6 +39,7 @@ export const aiKindSchema = z.enum([
 	"conflict",
 	"attention",
 	"review_needed",
+	"pop_needed",
 	"warning",
 	"running",
 	"ready",
@@ -54,10 +58,11 @@ export const NEXT_ACTIONS = {
 	conflict: "Resolve the merge conflict.",
 	attention: "Human inspection is needed. Review the PR evidence.",
 	review_needed: "Request or follow up on the required reviews.",
+	pop_needed:
+		"Complete Proof Of Presence in person, then verify provider requirements before merging.",
 	warning: "Observe the issue for automatic recovery.",
 	running: "Wait for ongoing work or more evidence.",
-	ready:
-		"Complete any final PoP step, then confirm provider requirements before merging.",
+	ready: "Confirm current provider requirements before merging.",
 	waiting: "Wait for queued work or automatic prerequisites.",
 	unknown: "Waiting for a current evaluation.",
 	error: "Check AI Settings and retry the evaluation.",
@@ -67,6 +72,7 @@ export const jevResultSchema = z.object({
 	kind: z.enum([
 		"attention",
 		"review_needed",
+		"pop_needed",
 		"warning",
 		"running",
 		"ready",
@@ -105,6 +111,7 @@ export const AI_LABELS = {
 	conflict: "Conflict",
 	attention: "Attention",
 	review_needed: "Review Needed",
+	pop_needed: "PoP Needed",
 	warning: "Warning",
 	running: "Running",
 	ready: "Ready",
@@ -112,6 +119,37 @@ export const AI_LABELS = {
 	unknown: "Unknown",
 	error: "Error",
 } as const;
+export function partialBuildAdvice(snapshot: PullRequest) {
+	const pull = interpretPull(snapshot);
+	const failed = pull.builds.filter(
+		(build) => build.required && build.state === "failed",
+	);
+	if (
+		!failed.length ||
+		failed.some(
+			(build) => build.evidence?.result?.toLowerCase() !== "partiallysucceeded",
+		)
+	)
+		return null;
+	const stageNames = [
+		...new Set(
+			failed.flatMap((build) =>
+				build.stages
+					.filter(
+						(stage) =>
+							stage.state === "failed" ||
+							stage.evidence?.result?.toLowerCase() === "succeededwithissues",
+					)
+					.map((stage) => stage.name),
+			),
+		),
+	].sort();
+	return {
+		text: `${NEXT_ACTIONS.attention} ${stageNames.length ? `Rerun the unsuccessful stage(s): ${stageNames.join(", ")}.` : "Rerun the failed stage of the partially successful build in Azure DevOps."}`,
+		stageNames,
+		buildIds: failed.map((build) => build.id),
+	};
+}
 export function isMainTarget(pull: Pick<PullRequest, "targetBranch">): boolean {
 	return /^(?:refs\/heads\/)?(?:main|master)$/.test(pull.targetBranch);
 }

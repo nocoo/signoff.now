@@ -66,6 +66,108 @@ const fake = (
 const tick = (at = now, fetcher: typeof fetch = fake(() => response())) =>
 	runAiOnce(env(), "cli", at, fetcher);
 
+test("PoP choice stays authoritative even when provider evidence is failed", async () => {
+	await setup();
+	await tick(
+		now,
+		fake(() => response("pop_needed")),
+	);
+	expect(evaluationOutput(row(), true).kind).toBe("pop_needed");
+	expect(
+		(
+			await queryPulls(
+				sqlite.db,
+				"cli",
+				parseQuery(new URLSearchParams("draft=include")),
+				now,
+			)
+		).data[0]?.readiness.label,
+	).toBe("PoP Needed");
+});
+
+test("current partial-build Attention shares stage advice across PR and inspection outputs", async () => {
+	await setup();
+	change("builds", [
+		{
+			id: "partial",
+			name: "CI",
+			number: 1,
+			required: true,
+			state: "failed",
+			evidence: { status: "completed", result: "partiallySucceeded" },
+			stages: [
+				{
+					durationSeconds: null,
+					id: "verification",
+					name: "Verification",
+					state: "unknown",
+					required: true,
+					owner: "CI",
+					detail: "",
+					evidence: { result: "succeededWithIssues" },
+				},
+			],
+		},
+	]);
+	await tick(
+		now,
+		fake((_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			expect(
+				request.state.evidence.requirements.flatMap(
+					(r: { facts: unknown[] }) => r.facts,
+				),
+			).toContainEqual(
+				expect.objectContaining({
+					source: "build",
+					state: "failed",
+					providerResult: "partiallySucceeded",
+				}),
+			);
+			return response("attention");
+		}),
+	);
+	const pr = (
+		await queryPulls(
+			sqlite.db,
+			"cli",
+			parseQuery(new URLSearchParams("draft=include")),
+			now,
+		)
+	).data[0]!;
+	const observations = (
+		await queryObservations(
+			sqlite.db,
+			"cli",
+			parseQuery(new URLSearchParams("draft=include")),
+			now,
+		)
+	).data;
+	if (!Array.isArray(observations)) throw new Error("Expected watch list");
+	const inspection = observations[0]!;
+	expect(pr.readiness.kind).toBe("attention");
+	expect(pr.readiness.nextAction).toContain("Verification");
+	expect(inspection.nextAction).toMatchObject({
+		code: "rerun_stage",
+		text: pr.readiness.nextAction,
+	});
+	change("builds[0].evidence.result", "failed");
+	await tick(
+		now + 301,
+		fake(() => response("attention")),
+	);
+	expect(
+		(
+			await queryPulls(
+				sqlite.db,
+				"cli",
+				parseQuery(new URLSearchParams("draft=include")),
+				now + 301,
+			)
+		).data[0]?.readiness.nextAction,
+	).not.toContain("Rerun");
+});
+
 test("only watched valid evidence evaluates and unchanged semantic states never pay again", async () => {
 	let calls = 0;
 	const fetcher = fake((_url, init) => {

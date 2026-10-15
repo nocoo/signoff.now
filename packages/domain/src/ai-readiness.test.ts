@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import {
+	CLASSIFICATION,
+	COMMON_RULES,
 	canonicalJson,
 	decisionFingerprint,
 	decisionState,
@@ -7,6 +9,7 @@ import {
 	JEV_MODEL,
 	JEV_RUBRIC,
 	jevResultSchema,
+	partialBuildAdvice,
 	policyCatalog,
 	policyInstructions,
 	presentReadiness,
@@ -312,6 +315,7 @@ test("concise evidence retains conflicting conclusions and scoped instructions w
 				state: "passed",
 				required: true,
 				commitMatch: "match",
+				providerResult: "succeeded",
 			},
 			expect.objectContaining({
 				source: "policy",
@@ -449,6 +453,85 @@ test("unmet review conditions remain distinct from build failures and explicit e
 		]),
 	);
 	expect(snapshot.policies[1]?.evidence.status).toBe("rejected");
+});
+
+test("PoP is a Jev choice with strict Ready and unchanged build failures", () => {
+	expect(JEV_RUBRIC).toBe("signoff-evidence-v9");
+	expect(CLASSIFICATION.pop_needed).toContain(
+		"only the author's final Proof Of Presence",
+	);
+	expect(COMMON_RULES).toContain("classify PoP Needed, never Ready");
+	const popResult = jevResultSchema.parse({
+		kind: "pop_needed",
+		model: JEV_MODEL,
+		rubric: JEV_RUBRIC,
+		fingerprint: "pop",
+		evaluatedAt: new Date(now * 1000).toISOString(),
+		probabilities: { pop_needed: 1 },
+		confidence: 1,
+	});
+	expect(presentReadiness("complete", popResult)).toMatchObject({
+		kind: "pop_needed",
+		label: "PoP Needed",
+	});
+	expect(presentReadiness("complete", popResult).nextAction).toContain(
+		"in person",
+	);
+	expect(providerCheckState("partiallySucceeded")).toBe("failed");
+});
+
+test("partial build evidence and stage advice preserve failure semantics", () => {
+	const build = {
+		id: "ci",
+		name: "CI",
+		number: 1,
+		state: "failed" as const,
+		required: true,
+		evidence: { status: "completed", result: "partiallySucceeded" },
+		stages: [
+			{
+				id: "verification",
+				name: "Verification",
+				durationSeconds: null,
+				state: "unknown" as const,
+				required: true,
+				owner: "CI",
+				detail: "",
+				evidence: { result: "succeededWithIssues" },
+			},
+		],
+	};
+	const snapshot = { ...pull, builds: [build], policies: [] };
+	expect(
+		decisionState(snapshot, project).evidence.requirements.flatMap(
+			(r) => r.facts,
+		),
+	).toContainEqual(
+		expect.objectContaining({
+			source: "build",
+			state: "failed",
+			providerResult: "partiallySucceeded",
+		}),
+	);
+	expect(partialBuildAdvice(snapshot)?.text).toContain(
+		"Rerun the unsuccessful stage(s): Verification.",
+	);
+	expect(
+		partialBuildAdvice({ ...snapshot, builds: [{ ...build, stages: [] }] })
+			?.text,
+	).toContain("Rerun the failed stage");
+	expect(
+		partialBuildAdvice({
+			...snapshot,
+			builds: [{ ...build, evidence: { result: "failed" } }],
+		}),
+	).toBeNull();
+	expect(
+		partialBuildAdvice({
+			...snapshot,
+			builds: [{ ...build, required: false }],
+		}),
+	).toBeNull();
 });
 
 test("shortcuts and repository-scoped policy context are independent of model judgments", () => {

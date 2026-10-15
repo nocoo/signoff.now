@@ -126,6 +126,26 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 	await page.reload();
 	await expect(filter).toHaveAttribute("aria-pressed", "true");
 	await expect(row.getByText("Review Needed", { exact: true })).toBeVisible();
+	readiness = presentReadiness("complete", { ...previous, kind: "pop_needed" });
+	await page.reload();
+	await expect(row.getByText("PoP Needed", { exact: true })).toBeVisible();
+	await expect(
+		row.getByText("PoP Needed", { exact: true }).locator(".."),
+	).toHaveClass(/bg-basalt-warning/);
+	const popFilter = page.getByRole("button", {
+		name: "PoP Needed",
+		exact: true,
+	});
+	const popRequest = page.waitForRequest(
+		(request) =>
+			new URL(request.url()).searchParams.get("status") === "pop_needed",
+	);
+	await popFilter.click();
+	await popRequest;
+	await page.reload();
+	await expect(popFilter).toHaveAttribute("aria-pressed", "true");
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(row.getByText("PoP Needed", { exact: true })).toBeVisible();
 });
 
 test("compact sortable columns preserve full branches and cyan Skipped across reloads", async ({

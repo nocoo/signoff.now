@@ -146,6 +146,11 @@ export function ProjectsPage() {
 								label: "Running",
 							},
 							{
+								count: metrics.pop_needed,
+								color: "bg-basalt-warning",
+								label: "PoP Needed",
+							},
+							{
 								count: metrics.ready,
 								color: heatmapColor(3, "green"),
 								label: "Ready",
@@ -250,6 +255,11 @@ export function ProjectsPage() {
 												label: "Running",
 												count: metrics.running,
 												color: "text-basalt-primary",
+											},
+											{
+												label: "PoP Needed",
+												count: metrics.pop_needed,
+												color: "text-basalt-warning",
 											},
 											{
 												label: "Ready",

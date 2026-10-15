@@ -233,3 +233,7 @@ Concurrent browser/build/coverage work caused unrelated five-second collector
 timeouts; rerun the unchanged gate after the heavy lane finishes, not with a
 lowered threshold. Validate local migrations on a SQLite backup, including WAL,
 before applying them to daily state.
+
+## 2026-10-15: readiness category propagation
+
+A bulk category insertion duplicated a project-card label and initially missed the SQL fallback sorting ranks. Focused tests caught both before commit. The first badge assertion also assumed an orange token name instead of reading the installed Basalt variant, which uses `basalt-warning`. When extending a category, audit explicit lists, fallback ranks and component variants independently; verify the installed design token rather than deriving its name.

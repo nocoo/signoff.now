@@ -102,6 +102,7 @@ const querySchema = z.object({
 			"conflict",
 			"attention",
 			"review_needed",
+			"pop_needed",
 			"warning",
 			"running",
 			"ready",
@@ -680,9 +681,9 @@ async function readPullPage(
 				readiness.status === "not_watched" ? "not_evaluated" : readiness.kind,
 			rank:
 				readiness.status === "not_watched"
-					? 10
+					? 11
 					: {
-							skipped: 9,
+							skipped: 10,
 							conflict: 0,
 							error: 1,
 							attention: 2,
@@ -691,7 +692,8 @@ async function readPullPage(
 							unknown: 5,
 							running: 6,
 							waiting: 7,
-							ready: 8,
+							pop_needed: 8,
+							ready: 9,
 						}[badge.kind],
 			action: readiness.nextAction,
 			evaluated: (readiness.current ?? readiness.previous)?.evaluatedAt ?? "",
@@ -737,7 +739,7 @@ async function readPullPage(
         json_extract(pr.snapshot,'$.draft') draft,json_extract(pr.snapshot,'$.author.name') author_name,
         json_array(p.provider,lower(p.organization),json_extract(pr.snapshot,'$.author.id')) author_key,
         COALESCE(f.kind,'not_evaluated') readiness_kind,COALESCE(f.evaluated,'') evaluated,
-        COALESCE(f.rank,CASE WHEN json_extract(pr.snapshot,'$.targetBranch') IN ('main','master','refs/heads/main','refs/heads/master') THEN 10 ELSE 9 END) readiness_rank,
+        COALESCE(f.rank,CASE WHEN json_extract(pr.snapshot,'$.targetBranch') IN ('main','master','refs/heads/main','refs/heads/master') THEN 11 ELSE 10 END) readiness_rank,
         COALESCE(f.action,CASE pr.state WHEN 'merged' THEN 'Merged into '||json_extract(pr.snapshot,'$.targetBranch') ELSE 'Closed without merging' END) next_action,
         COALESCE(f.owner,CASE pr.state WHEN 'merged' THEN p.owner ELSE json_extract(pr.snapshot,'$.author.name') END) next_owner,
         COALESCE(f.completion,${historyCompletion}) completion
@@ -800,6 +802,7 @@ async function readPullPage(
       ${[
 				"attention",
 				"review_needed",
+				"pop_needed",
 				"skipped",
 				"running",
 				"conflict",
@@ -850,6 +853,7 @@ async function readPullPage(
 			open: number;
 			attention: number;
 			review_needed: number;
+			pop_needed: number;
 			running: number;
 			ready: number;
 			draft: number;
@@ -1065,6 +1069,7 @@ async function readRepositoryPage(
 							"conflict",
 							"attention",
 							"review_needed",
+							"pop_needed",
 							"warning",
 							"running",
 							"ready",
@@ -1098,6 +1103,7 @@ async function readRepositoryPage(
 						| "conflict"
 						| "attention"
 						| "review_needed"
+						| "pop_needed"
 						| "warning"
 						| "running"
 						| "ready"

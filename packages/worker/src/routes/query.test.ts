@@ -2004,6 +2004,7 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		["running-refresh", "running", "running"],
 		["waiting-current", "waiting", "complete"],
 		["ready-current", "ready", "complete"],
+		["pop-current", "pop_needed", "complete"],
 		["unknown", null, "pending"],
 		["error", null, "error"],
 		["conflict", null, "pending"],
@@ -2062,6 +2063,11 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 	);
 	expect(filtered.data.map((p) => p.id)).toEqual(["review-current"]);
 	expect(filtered.metrics.review_needed).toBe(1);
+	const pop = pullListSchema.parse(
+		await (await request("/api/query/v1/prs?status=pop_needed")).json(),
+	);
+	expect(pop.data.map((p) => p.id)).toEqual(["pop-current"]);
+	expect(pop.metrics.pop_needed).toBe(1);
 	const ascending = [
 		"conflict",
 		"error",
@@ -2073,6 +2079,7 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		"running-current",
 		"running-refresh",
 		"waiting-current",
+		"pop-current",
 		"ready-current",
 		"history-skipped",
 		"skipped",
@@ -2087,6 +2094,7 @@ test("readiness sorts visible prior judgments and groups unwatched history consi
 		"history-skipped",
 		"skipped",
 		"ready-current",
+		"pop-current",
 		"waiting-current",
 		"running-current",
 		"running-refresh",

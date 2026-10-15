@@ -26,7 +26,7 @@ stateDiagram-v2
   Decided --> Stopped: watch removed or retired
 ```
 
-Provider conflicts on watched main-target PRs remain an immediate **Conflict** shortcut. Non-main targets remain **Skipped**. Neither invokes Jev. Other readiness categories are exclusively Jev choices: Attention, Review Needed, Warning, Running, Ready and Waiting. Review Needed is the review-only deficit after successful unexpired builds; Waiting describes queued non-review work. Running describes active automatic progress or insufficient signal for a blocker. CI failure is evidence for classification, not an inference Error. Unknown/pending is an operational absence of a current judgment.
+Provider conflicts on watched main-target PRs remain an immediate **Conflict** shortcut. Non-main targets remain **Skipped**. Neither invokes Jev. Other readiness categories are exclusively Jev choices: Attention, Review Needed, Warning, Running, PoP Needed, Ready and Waiting. Review Needed is the review-only deficit after successful unexpired builds; Waiting describes queued non-review work. Running describes active automatic progress or insufficient signal for a blocker. CI failure is evidence for classification, not an inference Error. Unknown/pending is an operational absence of a current judgment.
 
 ## Minimal decision input
 
@@ -36,7 +36,7 @@ Each request contains exactly one PR's decision state and one Choice question: â
 - Exact approval count/remaining requirement, requested changes and pending required reviewers.
 - Ordered logical policy/build requirements: stable policy code, name, kind, user explanation when present, and concise facts.
 - Each policy's conclusion (`satisfied` / `unsatisfied`, or its ongoing/unknown state), required/enabled/applicable evidence, explicit expiry and independently reported build-currentness; review thresholds where available. An unmet policy condition is distinct from a failed build execution or a reviewer requesting code changes.
-- Each associated build's overall outcome, required flag and precomputed commit match (`match`, `mismatch`, `unknown`).
+- Each associated build's overall outcome, original `providerResult`, required flag and precomputed commit match (`match`, `mismatch`, `unknown`).
 
 PR IDs/numbers/titles, reviewer names, raw hashes, observation clocks, request IDs, stage/task details, logs and generated action strings are excluded. Distinct PRs can therefore have identical semantic inputs. Raw detail remains in the collector cache and inspection API. Project policy instructions are preserved verbatim; the system never invents business meaning from a name. `isExpired` remains distinct from `buildIsNotCurrent`. Missing facts remain unknown rather than being converted to false.
 
@@ -86,3 +86,11 @@ The Worker calls `TypeSafeClient.systemOne()` from the pinned, dependency-free `
 Each evaluation has a 96,000-byte UTF-8 request budget and a 30-second timeout, including response-body delivery. SDK retries are disabled (`maxRetries: 0`); the existing persistent scheduler remains the sole retry owner. The injected measured transport counts each dispatched request, including HTTP and connection failures, and refuses redirects. Existing exact-model and complete choice-distribution validation remains authoritative because SDK response types alone do not validate runtime judgments.
 
 SDK errors are converted to sanitized application errors without retaining upstream response text. Numeric `Retry-After` delays retain the existing 300-second cap. A structured Cloudflare 1010 response is reported as a gateway rejection separately from an invalid API key.
+
+## Rubric v9: explicit PoP completion
+
+`pop_needed` is an additional Jev Choice, not a deterministic shortcut or a second question. Actionable blockers take precedence over ongoing/queued non-review work, then review deficits, then the final PoP step. Ready requires all applicable policies including PoP to pass. Warning still requires a known potentially self-recovering issue. Existing Skipped/Conflict shortcuts, semantic cache keys, leases and cooldowns are unchanged. Rubric changes invalidate old results without altering provider data. Saved editable rules must be updated separately through their revision-CAS API.
+
+The compact build fact retains `providerResult` to distinguish partial success from actual failure. Both remain failed build evidence; there is no policy-approved partial-success exception. Current partial-build Attention advice names collected unsuccessful stages when available, without sending stage details to Jev. Historical advice stays generic rather than attributing new facts to an old judgment. No provider write or inference is initiated by reading this advice.
+
+Validation uses mocked Choice responses and isolated storage/browser fixtures. These tests verify evidence, precedence instructions, typed integration and presentation, not live-model accuracy. No real Jev regression request is required for this change.

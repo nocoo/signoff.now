@@ -9,6 +9,7 @@ import {
 	JEV_RUBRIC,
 	jevResultSchema,
 	NEXT_ACTIONS,
+	partialBuildAdvice,
 	presentReadiness,
 	readinessShortcut,
 } from "@signoff/domain/ai-readiness";
@@ -122,7 +123,7 @@ export type EvaluationRow = {
 export function evaluationOutput(
 	row: EvaluationRow | undefined,
 	active: boolean,
-	pull?: Pick<PullRequest, "mergeable" | "targetBranch">,
+	pull?: PullRequest,
 ): AiReadiness {
 	const shortcut = readinessShortcut(pull, active);
 	if (shortcut)
@@ -143,12 +144,17 @@ export function evaluationOutput(
 				: row?.status === "running"
 					? "running"
 					: "pending";
-	return presentReadiness(
+	const readiness = presentReadiness(
 		status,
 		parse(row?.result_json),
 		row?.error ?? null,
 		parse(row?.previous_json ?? row?.result_json),
 	);
+	const advice =
+		status === "complete" && readiness.kind === "attention" && pull
+			? partialBuildAdvice(pull)
+			: null;
+	return advice ? { ...readiness, nextAction: advice.text } : readiness;
 }
 
 export function nextEligibleAt(

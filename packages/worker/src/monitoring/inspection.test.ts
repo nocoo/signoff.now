@@ -237,6 +237,7 @@ test("inspection keeps raw evidence, nullable validity, SHA provenance and indep
 test.each([
 	["attention", "inspect_pr"],
 	["review_needed", "request_review"],
+	["pop_needed", "complete_pop"],
 	["waiting", "wait_ci"],
 ])(
 	"%s advice keeps current and historical judgments distinct",

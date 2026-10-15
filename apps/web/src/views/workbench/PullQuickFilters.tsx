@@ -69,6 +69,7 @@ const readiness = [
 	],
 	["warning", "Warning", ShieldAlert, "text-basalt-warning"],
 	["running", "Running", CheckCheck, "text-basalt-primary"],
+	["pop_needed", "PoP Needed", UserRoundCheck, "text-basalt-warning"],
 	["ready", "Ready", CheckCheck, "text-basalt-success"],
 	["waiting", "Waiting", Eye, "text-basalt-muted-foreground"],
 	["skipped", "Skipped", EyeOff, "text-basalt-badge-teal"],

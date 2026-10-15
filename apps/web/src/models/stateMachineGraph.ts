@@ -123,6 +123,7 @@ export const STATE_COLORS: Record<AiReadiness["kind"], ReadinessColor> = {
 	ready: "green",
 	waiting: "gray",
 	review_needed: "purple",
+	pop_needed: "orange",
 	skipped: "cyan",
 	unknown: "gray",
 	error: "red",

@@ -1,6 +1,7 @@
 import {
 	jevResultSchema,
 	POLICY_CODES,
+	partialBuildAdvice,
 	readinessShortcut,
 } from "@signoff/domain/ai-readiness";
 import type { Observation } from "@signoff/domain/monitoring";
@@ -79,10 +80,14 @@ const actions = {
 		"request_review",
 		"Request or follow up on the required reviews.",
 	],
+	pop_needed: [
+		"complete_pop",
+		"Complete Proof Of Presence in person, then verify provider requirements before merging.",
+	],
 	waiting: ["wait_ci", "Wait for queued work or automatic prerequisites."],
 	ready: [
 		"verify_merge",
-		"Verify current provider requirements and any final PoP step before merging.",
+		"Confirm current provider requirements before merging.",
 	],
 	skipped: ["none", "Non-main target; Jev evaluation is skipped."],
 } as const;
@@ -268,6 +273,8 @@ async function inspectReadiness(
 	const kind = direct ?? judgment?.kind ?? null;
 	const notBefore = evaluated?.not_before ?? row?.not_before ?? 0;
 	const isCurrent = Boolean(o.active && (direct || current));
+	const advice =
+		isCurrent && kind === "attention" && pull ? partialBuildAdvice(pull) : null;
 	const update = inspectUpdate(
 		o.active,
 		Boolean(direct || current),
@@ -305,9 +312,9 @@ async function inspectReadiness(
 		nextAction:
 			kind && o.active
 				? {
-						code: actions[kind][0],
-						text: actions[kind][1],
-						evidenceRefs: [],
+						code: advice ? "rerun_stage" : actions[kind][0],
+						text: advice?.text ?? actions[kind][1],
+						evidenceRefs: advice?.buildIds.map((id) => ref("builds", id)) ?? [],
 						url: prUrl,
 					}
 				: null,

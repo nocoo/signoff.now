@@ -24,7 +24,7 @@ const page = machinePageSchema.parse({
 	policyCodes: {},
 });
 const history: MachineHistory = { events: [] };
-test.each(["running", "review_needed"] as const)(
+test.each(["running", "review_needed", "pop_needed"] as const)(
 	"renders %s judgment without reclassification",
 	(kind) => {
 		const result = {

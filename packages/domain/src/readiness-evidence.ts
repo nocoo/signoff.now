@@ -19,6 +19,7 @@ const factSchema = z.object({
 	isExpired: z.boolean().nullable().optional(),
 	buildIsNotCurrent: z.boolean().nullable().optional(),
 	commitMatch: z.enum(["unknown", "match", "mismatch"]).optional(),
+	providerResult: z.string().nullable().optional(),
 	minimumApprovals: z.number().optional(),
 	authorVoteCounts: z.boolean().nullable().optional(),
 });
@@ -64,6 +65,7 @@ function buildFact(
 	return {
 		source: "build",
 		state: build.state,
+		providerResult: build.evidence?.result ?? null,
 		required: build.required,
 		commitMatch:
 			!source || (!pull.headSha && !pull.evidence?.mergeSha)

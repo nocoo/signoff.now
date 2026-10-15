@@ -51,4 +51,17 @@ it("retains the prior badge with an accessible update note, then replaces it wit
 	expect(screen.getByText("Review Needed")).toBeTruthy();
 	expect(screen.queryByText("Running")).toBeNull();
 	expect(screen.queryByRole("button")).toBeNull();
+	mounted.rerender(
+		view(
+			readinessDisplay(
+				presentReadiness("complete", { ...result, kind: "pop_needed" }),
+				"project",
+				null,
+				0,
+			),
+		),
+	);
+	expect(screen.getByText("PoP Needed").parentElement?.className).toContain(
+		"bg-basalt-warning",
+	);
 });
