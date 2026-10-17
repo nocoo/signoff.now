@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
+import * as capabilities from "./capabilities";
 import { registerWorkbenchCommands } from "./commands";
 import { type ConnectorConfig, connectorStore } from "./connector-config";
 
@@ -25,6 +26,10 @@ beforeEach(() => {
 	process.env.XDG_CONFIG_HOME = dir;
 	calls = [];
 	restore = [
+		spyOn(capabilities, "detectCapabilities").mockResolvedValue({
+			az: { installed: true, loggedIn: true },
+			gh: { installed: true, loggedIn: false },
+		}),
 		spyOn(process.stdout, "write").mockImplementation(() => true),
 		spyOn(process.stderr, "write").mockImplementation(() => true),
 		spyOn(globalThis, "fetch").mockImplementation(

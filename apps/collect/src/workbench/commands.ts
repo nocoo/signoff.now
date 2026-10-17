@@ -631,8 +631,6 @@ export function registerWorkbenchCommands(program: Command) {
 		const { createRuntimeLogger } = await import("../runtime-log");
 		const stop = new AbortController();
 		const shutdown = () => stop.abort();
-		process.once("SIGINT", shutdown);
-		process.once("SIGTERM", shutdown);
 		let ado: ReturnType<typeof createAdoClient> | undefined;
 		const { connectorStore } = await import("./connector-config");
 		const { detectCapabilities } = await import("./capabilities");
@@ -647,6 +645,8 @@ export function registerWorkbenchCommands(program: Command) {
 				"signoff.connector",
 				"Connector sign-in expired. Run: signoff connector login",
 			);
+		process.once("SIGINT", shutdown);
+		process.once("SIGTERM", shutdown);
 		if (connector)
 			log.info(
 				`Connector ${connector.connectorId.slice(0, 8)} → ${connector.apiOrigin} as ${connector.owner}`,
@@ -686,8 +686,10 @@ export function registerWorkbenchCommands(program: Command) {
 				signal: stop.signal,
 			});
 		} finally {
-			process.off("SIGINT", shutdown);
-			process.off("SIGTERM", shutdown);
+			for (const signal of ["SIGINT", "SIGTERM"] as const) {
+				if (process.listeners(signal).includes(shutdown))
+					process.off(signal, shutdown);
+			}
 		}
 	};
 	program
