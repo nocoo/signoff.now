@@ -81,7 +81,7 @@ A later scheduled source audit isolated a successful, unexpired build with a rej
 
 ## TypeSafe SDK transport
 
-The Worker calls `TypeSafeClient.systemOne()` from the pinned, dependency-free `@typesafe-ai/sdk@0.6.0` JavaScript package. It uses the official SDK request headers and the configured exact Jev model; no Python service or alternate HTTP path is involved. SDK logging is explicitly disabled so environment logging settings cannot expose PR evidence or response bodies.
+The Worker calls `TypeSafeClient.systemOne()` from the pinned, dependency-free `@typesafe-ai/sdk@0.7.0` JavaScript package. It uses the official SDK request headers and the configured exact Jev model; no Python service or alternate HTTP path is involved. SDK logging is explicitly disabled so environment logging settings cannot expose PR evidence or response bodies.
 
 Each evaluation has a 96,000-byte UTF-8 request budget and a 30-second timeout, including response-body delivery. SDK retries are disabled (`maxRetries: 0`); the existing persistent scheduler remains the sole retry owner. The injected measured transport counts each dispatched request, including HTTP and connection failures, and refuses redirects. Existing exact-model and complete choice-distribution validation remains authoritative because SDK response types alone do not validate runtime judgments.
 

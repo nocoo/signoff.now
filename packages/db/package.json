@@ -12,6 +12,6 @@
 		"@signoff/typescript": "workspace:*",
 		"bun-types": "1.4.3",
 		"typescript": "7.0.2",
-		"wrangler": "^4.149.0"
+		"wrangler": "^4.151.2"
 	}
 }
