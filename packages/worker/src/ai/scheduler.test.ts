@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { CLASSIFICATION, JEV_MODEL } from "@signoff/domain/ai-readiness";
 import { addObservation, removeObservation } from "../monitoring/observations";
 import { parseQuery, queryObservations, queryPulls } from "../monitoring/query";
+import { parseJevRequestBody } from "../test/parse-jev-request-body";
 import { PR_TEST_NOW as now, seedProject, seedPull } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 import { type EvaluationRow, evaluationOutput } from "./decision";
@@ -112,12 +113,11 @@ test("current partial-build Attention shares stage advice across PR and inspecti
 	await tick(
 		now,
 		fake((_url, init) => {
-			const request = JSON.parse(String(init?.body));
-			expect(
-				request.state.evidence.requirements.flatMap(
-					(r: { facts: unknown[] }) => r.facts,
-				),
-			).toContainEqual(
+			const request = parseJevRequestBody(init);
+			const evidence = request.state.evidence as {
+				requirements: { facts: unknown[] }[];
+			};
+			expect(evidence.requirements.flatMap((r) => r.facts)).toContainEqual(
 				expect.objectContaining({
 					source: "build",
 					state: "failed",
@@ -172,7 +172,7 @@ test("only watched valid evidence evaluates and unchanged semantic states never 
 	let calls = 0;
 	const fetcher = fake((_url, init) => {
 		calls++;
-		const body = JSON.parse(String(init?.body));
+		const body = parseJevRequestBody(init);
 		expect(Object.keys(body.questions)).toEqual(["readiness"]);
 		expect(body.state).not.toHaveProperty("prs");
 		expect(JSON.stringify(body.state)).not.toContain("stages");

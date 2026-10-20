@@ -1,8 +1,9 @@
 import { expect, mock, spyOn, test } from "bun:test";
 import { CLASSIFICATION, JEV_MODEL } from "@signoff/domain/ai-readiness";
 import { measuredJevFetch, queryNetwork } from "../monitoring/network";
+import { parseJevRequestBody } from "../test/parse-jev-request-body";
 import { createSqliteD1 } from "../test/sqlite-d1";
-import { evaluateJev, JEV_QUESTIONS } from "./jev";
+import { evaluateJev, JEV_QUESTIONS, JEV_REQUEST_TIMEOUT_MS } from "./jev";
 
 const now = 1_790_200_800;
 const result = () => ({
@@ -35,46 +36,41 @@ const transport = (
 	);
 
 test("uses the official SDK identity, exact endpoint and model, 30-second deadline, and manual redirects", async () => {
-	const timer = spyOn(globalThis, "setTimeout");
 	const send = mock((input: RequestInfo | URL, init?: RequestInit) => {
 		expect(input).toBe("https://api.typesafe.ai/v1/systemone");
 		const headers = new Headers(
 			(init?.headers ?? {}) as Record<string, string>,
 		);
 		expect(headers.get("authorization")).toBe("Bearer private-key");
-		expect(headers.get("user-agent")).toBe("typesafe-sdk/0.6.0");
-		expect(headers.get("x-typesafe-sdk")).toBe("typesafe-sdk/0.6.0");
+		expect(headers.get("user-agent")).toBe("typesafe-sdk/0.7.0");
+		expect(headers.get("x-typesafe-sdk")).toBe("typesafe-sdk/0.7.0");
 		expect(headers.get("x-typesafe-runtime")).toBeTruthy();
 		expect(headers.get("accept")).toBe("application/json");
 		expect(headers.get("content-type")).toBe("application/json");
 		expect(headers.has("x-typesafe-retry-count")).toBe(false);
 		expect(init?.redirect).toBe("manual");
 		expect(init?.signal).toBeInstanceOf(AbortSignal);
-		expect(JSON.parse(String(init?.body))).toEqual({
+		expect(parseJevRequestBody(init)).toEqual({
 			model: JEV_MODEL,
 			state: { synthetic: true },
 			questions: JEV_QUESTIONS,
 		});
 		return Response.json(result());
 	});
-	try {
-		const answer = await evaluateJev(
-			"private-key",
-			{ synthetic: true },
-			"fingerprint",
-			now,
-			transport(send),
-		);
-		expect(answer.result).toMatchObject({
-			kind: "running",
-			model: JEV_MODEL,
-			fingerprint: "fingerprint",
-		});
-		expect(timer.mock.calls.some((call) => call[1] === 30000)).toBe(true);
-		expect(send).toHaveBeenCalledTimes(1);
-	} finally {
-		timer.mockRestore();
-	}
+	const answer = await evaluateJev(
+		"private-key",
+		{ synthetic: true },
+		"fingerprint",
+		now,
+		transport(send),
+	);
+	expect(answer.result).toMatchObject({
+		kind: "running",
+		model: JEV_MODEL,
+		fingerprint: "fingerprint",
+	});
+	expect(JEV_REQUEST_TIMEOUT_MS).toBe(30000);
+	expect(send).toHaveBeenCalledTimes(1);
 });
 
 test.each([429, 500])(

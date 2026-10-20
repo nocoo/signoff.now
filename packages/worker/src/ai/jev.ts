@@ -7,6 +7,7 @@ import {
 import {
 	APIConnectionError,
 	APIError,
+	APITimeoutError,
 	APIUserAbortError,
 	type EntryType,
 	type Questions,
@@ -15,6 +16,7 @@ import {
 } from "@typesafe-ai/sdk";
 import { z } from "zod";
 
+export const JEV_REQUEST_TIMEOUT_MS = 30000;
 const classification = CLASSIFICATION;
 export const JEV_QUESTIONS = {
 	readiness: {
@@ -64,6 +66,35 @@ function validateAnswer(value: unknown, options: readonly string[]) {
 		throw new Error("Invalid choice distribution");
 	return answer;
 }
+/** Lets the SDK buffer bodies without locking Bun's single-use Response stream. */
+function bufferFriendlyResponse(
+	bytes: Uint8Array,
+	init: { status: number; statusText: string; headers: Headers },
+): Response {
+	const make = () =>
+		new Response(bytes.slice(), {
+			status: init.status,
+			statusText: init.statusText,
+			headers: init.headers,
+		});
+	const shell = make();
+	return Object.defineProperties(shell, {
+		clone: {
+			value: () => bufferFriendlyResponse(bytes, init),
+		},
+		body: {
+			get: () => make().body,
+		},
+	}) as Response;
+}
+async function normalizeFetchResponse(response: Response) {
+	const bytes = new Uint8Array(await response.arrayBuffer());
+	return bufferFriendlyResponse(bytes, {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+}
 async function requestJev(
 	key: string,
 	request: SystemOneRequest,
@@ -80,10 +111,13 @@ async function requestJev(
 		const client = new TypeSafeClient({
 			apiKey: key,
 			baseURL: "https://api.typesafe.ai",
-			timeout: 30000,
+			timeout: JEV_REQUEST_TIMEOUT_MS,
 			retry: { maxRetries: 0 },
 			logLevel: "off",
-			fetch: (input, init) => fetcher(input, { ...init, redirect: "manual" }),
+			fetch: async (input, init) =>
+				normalizeFetchResponse(
+					await fetcher(input, { ...init, redirect: "manual" }),
+				),
 		});
 		response = await client.systemOne(request);
 	} catch (error) {
@@ -115,6 +149,7 @@ async function requestJev(
 		}
 		if (
 			error instanceof APIConnectionError ||
+			error instanceof APITimeoutError ||
 			error instanceof APIUserAbortError
 		)
 			throw new JevError(
@@ -183,7 +218,11 @@ export async function evaluateJev(
 ) {
 	const raw = await requestJev(
 		key,
-		{ model: JEV_MODEL, state, questions: JEV_QUESTIONS },
+		{
+			model: JEV_MODEL,
+			state: state as NonNullable<EntryType>,
+			questions: JEV_QUESTIONS,
+		},
 		fetcher,
 	);
 	return {

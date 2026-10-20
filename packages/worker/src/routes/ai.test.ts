@@ -5,6 +5,7 @@ import {
 	JEV_MODEL,
 } from "@signoff/domain/ai-readiness";
 import app from "../index";
+import { parseJevRequestBody } from "../test/parse-jev-request-body";
 import { seedProject } from "../test/pr-fixture";
 import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 
@@ -161,7 +162,7 @@ test("bounded connection request handles invalid keys, typed success and key rep
 		expect((await settings()).testError).toContain("rejected");
 		fetcher.mockImplementation(async (_url, init) => {
 			expect(init?.redirect).toBe("manual");
-			const payload = JSON.parse(String(init?.body));
+			const payload = parseJevRequestBody(init);
 			expect(payload.state.connectionTest).toBe(true);
 			expect(payload.state).not.toHaveProperty("apiKey");
 			const answer = (choice: string, keys: string[]) => ({
