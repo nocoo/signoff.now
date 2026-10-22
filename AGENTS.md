@@ -25,7 +25,7 @@ Direction: [product definition](docs/01-项目定位.md). Frameworks must preser
 
 ## Setup and commands
 
-Web/API/storage: `apps/web` Vite/Basalt, `packages/worker` Hono, `packages/db` D1 migrations. PR/analytics domain: `packages/domain`, provider-neutral facts and readiness rules. CLIs: `apps/collect` ADO/ingest, `apps/gitinfo` local Git, `apps/pulse` collaboration queries. Run from root with Bun 1.4.0, Node 22.22.1–22.x/24.x/26+, Git, gitleaks and OSV. Unit tests use injected providers/local SQLite and need no live Azure login. Actual collection requires an authorized `az` session and dedicated local data scope.
+Web/API/storage: `apps/web` Vite/Basalt, `packages/worker` Hono, `packages/db` D1 migrations. PR/analytics domain: `packages/domain`, provider-neutral facts and readiness rules. CLIs: `apps/collect` ADO/ingest, `apps/gitinfo` local Git, `apps/pulse` collaboration queries. Run from root with Bun 1.4.0, Node 22.23.4–22.x/24.x/26+, Git, gitleaks and OSV. Unit tests use injected providers/local SQLite and need no live Azure login. Actual collection requires an authorized `az` session and dedicated local data scope.
 
 ```bash
 bun install --frozen-lockfile
