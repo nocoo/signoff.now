@@ -122,7 +122,7 @@ These are client credentials for the management endpoint, not Worker secrets. Th
 
 ## Development
 
-Install Bun (`packageManager` and CI pin 1.4.0), Node.js 22.22.1–22.x, 24.x, or 26+, and Git. Vite, Vitest, and the pre-commit tooling run on Node.js; the CLI runs on Bun.
+Install Bun (`packageManager` and CI pin 1.4.0), Node.js 22.23.4–22.x, 24.x, or 26+, and Git. Vite, Vitest, and the pre-commit tooling run on Node.js; the CLI runs on Bun.
 
 ```bash
 git clone https://github.com/nocoo/signoff.now.git
