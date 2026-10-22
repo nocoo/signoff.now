@@ -31,7 +31,7 @@ jobs:
       expected-workflow-name: "CI"
       source-run-id: ${{ github.event_name == 'workflow_run' && format('{0}', github.event.workflow_run.id) || inputs.source-run-id }}
       runtime-version: "1.4.0"
-      node-version: "24.20.0"
+      node-version: "24.22.1"
       install-policy: "blocked"
       build-command: "bun run build:web"
       d1-migrations: true
