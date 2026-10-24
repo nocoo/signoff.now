@@ -95,7 +95,10 @@ export function useReposViewModel() {
 
 	/** Every provider present, so the filter offers only what exists. */
 	const providers = useMemo(
-		() => [...new Set(items.map((r) => r.provider))].sort(),
+		() =>
+			[...new Set(items.map((r) => r.provider))].sort((a, b) =>
+				a < b ? -1 : a > b ? 1 : 0,
+			),
 		[items],
 	);
 

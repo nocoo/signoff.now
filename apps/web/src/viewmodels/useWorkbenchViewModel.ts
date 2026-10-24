@@ -529,7 +529,7 @@ export function useWorkbenchViewModel() {
 		...new Set(
 			projects.map(({ project }) => project.organization.toLowerCase()),
 		),
-	].sort();
+	].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	const projectOptions = projects.filter(
 		({ project }) =>
 			!filter.organization ||

@@ -139,8 +139,12 @@ export function parseQuery(params: URLSearchParams): QueryFilters {
 	const values = Object.fromEntries(params);
 	const parsed = querySchema.parse({
 		...values,
-		repo: [...new Set(params.getAll("repo"))].sort(),
-		author: [...new Set(params.getAll("author"))].sort(),
+		repo: [...new Set(params.getAll("repo"))].sort((a, b) =>
+			a < b ? -1 : a > b ? 1 : 0,
+		),
+		author: [...new Set(params.getAll("author"))].sort((a, b) =>
+			a < b ? -1 : a > b ? 1 : 0,
+		),
 	});
 	for (const repo of parsed.repo) parseRepositoryReference(repo);
 	return {

@@ -408,7 +408,7 @@ export async function enqueueDiscovery(
 				return repository?.repository_id.toLowerCase() ?? name.toLowerCase();
 			}),
 		),
-	].sort();
+	].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	const scopes = normalized.map((id) => [id]);
 	if (!scope.length && !project.repositories?.length) scopes.push([]);
 	const tasks = scopes.map((repositoryScope) => ({

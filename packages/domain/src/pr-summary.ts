@@ -116,7 +116,9 @@ function summarize(input: SummaryInput) {
 				existing && groups.indexOf(existing.group) < groups.indexOf(category)
 					? existing.group
 					: category,
-			states: [...new Set([...(existing?.states ?? []), policy.state])].sort(),
+			states: [...new Set([...(existing?.states ?? []), policy.state])].sort(
+				(a, b) => (a < b ? -1 : a > b ? 1 : 0),
+			),
 			deferred: isPop(policy) && deferred,
 		});
 	}

@@ -87,12 +87,14 @@ adminRoutes.get("/directory", async (c) => {
 			}),
 		),
 		admins: [
-			...[...environment].sort().map((principal) => ({
-				principal,
-				source: "environment" as const,
-				createdBy: null,
-				createdAt: null,
-			})),
+			...[...environment]
+				.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+				.map((principal) => ({
+					principal,
+					source: "environment" as const,
+					createdBy: null,
+					createdAt: null,
+				})),
 			...stored.map((row) => ({
 				principal: row.principal,
 				source: "database" as const,

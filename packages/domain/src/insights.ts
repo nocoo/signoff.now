@@ -7,7 +7,9 @@ const text = z.string().trim().min(1).max(240);
 const ids = z
 	.array(z.string().min(1).max(1000))
 	.max(64)
-	.transform((values) => [...new Set(values)].sort());
+	.transform((values) =>
+		[...new Set(values)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+	);
 const avatarUrl = z.string().url().max(2048).nullable();
 
 /** No name/email guessing: an account belongs to one provider and organization. */
@@ -157,7 +159,9 @@ export const contributionFiltersSchema = z
 			.array(z.enum(["open", "merged", "closed"]))
 			.min(1)
 			.max(3)
-			.transform((values) => [...new Set(values)].sort())
+			.transform((values) =>
+				[...new Set(values)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+			)
 			.default(["closed", "merged", "open"]),
 	})
 	.strict()

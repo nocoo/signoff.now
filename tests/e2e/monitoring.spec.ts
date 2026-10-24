@@ -453,9 +453,11 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	await expect(
 		page.getByText("2 PRs added to the shared watch list.", { exact: true }),
 	).toBeVisible();
-	expect((await watchList()).data.map((w) => w.pr.id).sort()).toEqual(
-		ids.sort(),
-	);
+	expect(
+		(await watchList()).data
+			.map((w) => w.pr.id)
+			.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+	).toEqual(ids.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
 	const draftUrl = `${repoUrl(repos[1]!)}/pullrequest/2`;
 	await cli("watch", "add", draftUrl);
 	const watched = await watchList();
@@ -1310,7 +1312,7 @@ test("repository IDs remain scoped across cold discovery, mixed watch batches, C
 			await rows.evaluateAll((elements) =>
 				elements.map((element) => element.getAttribute("data-pull-id")),
 			)
-		).sort(),
+		).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 	).toEqual(selected.data.map((pull) => pull.id).sort());
 	await cli("watch", "remove", `${repositoryUrl}/pullrequest/1`);
 	await page.reload();

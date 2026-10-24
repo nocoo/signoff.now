@@ -528,7 +528,7 @@ export function projectMergeRequirements(
 	return [...groups.values()]
 		.map(({ gate, sources, details, scopes }) => ({
 			...gate,
-			sourceIds: [...sources].sort(),
+			sourceIds: [...sources].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 			detail: [...details].join(" · ").slice(0, 1000) || undefined,
 			scope: scopes.size ? [...scopes.values()] : undefined,
 		}))

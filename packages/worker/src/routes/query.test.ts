@@ -1794,8 +1794,8 @@ describe("v1 commands", () => {
 		expect(
 			sqlite.raw.query("SELECT id FROM collection_jobs ORDER BY id").all(),
 		).toEqual(
-			[body.results[0]?.job?.id, body.results[2]?.job?.id]
-				.sort()
+			[body.results[0]?.job?.id ?? "", body.results[2]?.job?.id ?? ""]
+				.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 				.map((id) => ({ id })),
 		);
 	});

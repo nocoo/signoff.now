@@ -143,7 +143,7 @@ export function partialBuildAdvice(snapshot: PullRequest) {
 					.map((stage) => stage.name),
 			),
 		),
-	].sort();
+	].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	return {
 		text: `${NEXT_ACTIONS.attention} ${stageNames.length ? `Rerun the unsuccessful stage(s): ${stageNames.join(", ")}.` : "Rerun the failed stage of the partially successful build in Azure DevOps."}`,
 		stageNames,

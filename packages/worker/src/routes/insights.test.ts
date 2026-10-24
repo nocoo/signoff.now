@@ -471,7 +471,9 @@ describe("independent, manually calculated PR statistics", () => {
 			open: 1,
 			merged: 1,
 			total: 2,
-			teamIds: [team1.id, team2.id].sort(),
+			teamIds: [team1.id, team2.id].sort((a, b) =>
+				a < b ? -1 : a > b ? 1 : 0,
+			),
 		});
 		expect(
 			result?.members.find((member) => member.memberId === emptyPerson.id)

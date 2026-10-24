@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -26,7 +26,9 @@
 				"preset": "recommended",
 				"noExcessiveCognitiveComplexity": {
 					"level": "error",
-					"options": { "maxAllowedComplexity": 40 }
+					"options": {
+						"maxAllowedComplexity": 40
+					}
 				},
 				"noExcessiveLinesPerFunction": "off",
 				"noVoid": "off",
@@ -109,17 +111,17 @@
 				"noEqualsToNull": "error",
 				"noUnnecessaryConditions": "off",
 				"noUndeclaredEnvVars": "off",
-				"noNestedPromises": "error"
+				"noNestedPromises": "error",
+				"useExpect": "off",
+				"noConditionalExpect": "off"
 			},
 			"nursery": {
 				"preset": "recommended",
-				"useSortedClasses": "off",
 				"noFloatingPromises": "off",
 				"useExplicitType": "off",
-				"useExpect": "off",
 				"useRegexpExec": "error",
-				"noConditionalExpect": "off",
-				"useAwaitThenable": "error"
+				"useAwaitThenable": "error",
+				"useTailwindSortedClasses": "off"
 			}
 		}
 	},
@@ -141,10 +143,10 @@
 						"noConsole": "off",
 						"noEmptyBlockStatements": "off",
 						"useAwait": "off",
-						"noExplicitAny": "off"
+						"noExplicitAny": "off",
+						"noConditionalExpect": "off"
 					},
 					"nursery": {
-						"noConditionalExpect": "off",
 						"noFloatingPromises": "off"
 					},
 					"performance": {
@@ -181,5 +183,29 @@
 				}
 			}
 		}
-	]
+	],
+	"markdown": {
+		"formatter": {
+			"enabled": false
+		},
+		"linter": {
+			"enabled": false
+		}
+	},
+	"yaml": {
+		"formatter": {
+			"enabled": false
+		},
+		"linter": {
+			"enabled": false
+		}
+	},
+	"html": {
+		"formatter": {
+			"enabled": false
+		},
+		"linter": {
+			"enabled": false
+		}
+	}
 }

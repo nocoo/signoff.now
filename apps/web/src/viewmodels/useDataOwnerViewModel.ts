@@ -23,7 +23,7 @@ export function useDataOwnerViewModel(
 					.filter((principal) => principal.startsWith("email:")),
 			),
 		),
-	].sort();
+	].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	const assign = async (projectId: string, owner: string | null) => {
 		if (busy) return;
 		setBusy(projectId);

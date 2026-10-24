@@ -448,7 +448,7 @@ describe("followed PR contributors and memberships", () => {
 			id: member.id,
 			teamIds: [team.id],
 			tagIds: [tag.id],
-			identityKeys: [...keys].sort(),
+			identityKeys: [...keys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 		});
 		expect(data.teams[0]?.memberIds).toEqual([member.id]);
 		expect(
@@ -704,7 +704,9 @@ describe("persistent contributor blocks", () => {
 		});
 		let data = await directory();
 		expect(data.blockedContributorKeys).toEqual(
-			[`identity:${first}`, `identity:${second}`, `member:${person.id}`].sort(),
+			[`identity:${first}`, `identity:${second}`, `member:${person.id}`].sort(
+				(a, b) => (a < b ? -1 : a > b ? 1 : 0),
+			),
 		);
 		await request(`/members/${person.id}/archive`, "POST");
 		expect((await directory()).blockedContributorKeys).toEqual(
@@ -759,7 +761,7 @@ describe("persistent contributor blocks", () => {
 			identityKeys: [account],
 		});
 		expect((await directory()).blockedContributorKeys).toEqual(
-			[`identity:${account}`, key].sort(),
+			[`identity:${account}`, key].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 		);
 	});
 });
