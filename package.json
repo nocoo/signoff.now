@@ -75,5 +75,9 @@
 	},
 	"patchedDependencies": {
 		"@nocoo/basalt@2.2.0": "patches/@nocoo%2Fbasalt@2.2.0.patch"
+	},
+	"dependencies": {
+		"jose": "6.2.13",
+		"lucide-react": "1.61.0"
 	}
 }
