@@ -2,7 +2,6 @@ import {
 	Avatar,
 	AvatarFallback,
 	AvatarImage,
-	Badge,
 	Sidebar as BasaltSidebar,
 	Button,
 	SidebarFooter,
@@ -127,7 +126,7 @@ export function Sidebar({
 
 	return (
 		<BasaltSidebar collapsed={collapsed}>
-			<SidebarHeader className="gap-3 overflow-hidden px-5">
+			<SidebarHeader className="gap-basalt-space-lg overflow-hidden">
 				<img
 					src="/logo-64.png"
 					alt="signoff.now"
@@ -137,16 +136,13 @@ export function Sidebar({
 				/>
 				{!collapsed ? (
 					<div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-						<div className="flex min-w-0 items-center gap-3">
-							<span className="truncate text-lg font-semibold tracking-tight text-basalt-foreground">
+						<div className="flex min-w-0 items-center gap-basalt-space-lg">
+							<span className="truncate text-lg font-semibold text-basalt-foreground">
 								signoff
 							</span>
-							<Badge
-								variant="secondary"
-								className="shrink-0 px-1.5 py-0.5 text-[10px] leading-none"
-							>
+							<span className="shrink-0 rounded-md bg-basalt-secondary px-basalt-space-md py-basalt-space-xs font-mono text-[10px] leading-none font-medium text-basalt-muted-foreground">
 								v{__APP_VERSION__}
-							</Badge>
+							</span>
 						</div>
 						<Button
 							variant="ghost"
@@ -166,13 +162,13 @@ export function Sidebar({
 					<Button
 						variant="ghost"
 						size="icon"
-						className="mb-1 self-center"
+						className="mb-basalt-space-sm self-center"
 						onClick={onToggle}
 						aria-label="Expand sidebar"
 					>
 						<PanelLeft className="h-4 w-4" aria-hidden strokeWidth={1.5} />
 					</Button>
-					<SidebarNav className="w-full items-center gap-1 pt-1">
+					<SidebarNav>
 						{ALL_ITEMS.map((item) => {
 							const Icon = item.icon;
 							return (
@@ -181,7 +177,6 @@ export function Sidebar({
 										<SidebarIconItem
 											active={isActivePath(pathname, item)}
 											aria-label={item.label}
-											className="self-center"
 											onClick={() => go(item.href)}
 										>
 											<Icon className="h-4 w-4" aria-hidden strokeWidth={1.5} />
@@ -194,7 +189,7 @@ export function Sidebar({
 							);
 						})}
 					</SidebarNav>
-					<SidebarFooter className="flex w-full flex-col items-center px-0">
+					<SidebarFooter>
 						<CollectionStatus collapsed />
 						<Tooltip delayDuration={0}>
 							<TooltipTrigger asChild>
@@ -216,7 +211,7 @@ export function Sidebar({
 				</>
 			) : (
 				<>
-					<SidebarNav className="pt-1">
+					<SidebarNav>
 						{GROUPS.map((group) => (
 							<SidebarGroup key={group.label} label={group.label} defaultOpen>
 								{group.items.map((item) => {

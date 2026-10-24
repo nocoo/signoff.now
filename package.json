@@ -80,6 +80,7 @@
 		"@nocoo/basalt@2.2.0": "patches/@nocoo%2Fbasalt@2.2.0.patch"
 	},
 	"dependencies": {
+		"@nocoo/basalt": "3.2.1",
 		"jose": "6.2.13",
 		"lucide-react": "1.61.0"
 	}
