@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.0 — 2026-10-24
+
+- Rebuild the sidebar on the Basalt template: library header inset, collapsible groups, row geometry, token version pill and centred collapsed rail replace the local header padding and caller offsets.
+- Upgrade `@nocoo/basalt` to 3.2.1, Biome to 2.6.2, Vite to 8.3.5, Wrangler to 4.152.0, `@cloudflare/workers-types` to 5.20261023.1, turbo to 2.11.10, lucide-react to 1.61.0, jose to 6.2.13, happy-dom to 21.0.4, `@types/bun` and `bun-types` to 1.4.4.
+- Override `undici` to 6.29.1 so the dependency scan stops reporting the published advisories.
 ## v0.3.0 — 2026-09-23
 
 ### Features
