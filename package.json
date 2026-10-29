@@ -1,6 +1,6 @@
 {
 	"name": "@signoff/repo",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"private": true,
 	"type": "module",
 	"engines": {
@@ -13,7 +13,7 @@
 		"tooling/*"
 	],
 	"devDependencies": {
-		"@biomejs/biome": "2.6.2",
+		"@biomejs/biome": "2.6.3",
 		"@cloudflare/workers-types": "5.20261023.1",
 		"@playwright/test": "1.64.1",
 		"@types/bun": "1.4.4",
@@ -73,7 +73,7 @@
 		"tar": "^7.5.16",
 		"tmp": "^0.2.6",
 		"undici": "6.29.1",
-		"vite": "^8.3.4",
+		"vite": "^8.3.5",
 		"source-map-js": "^1.2.2"
 	},
 	"patchedDependencies": {

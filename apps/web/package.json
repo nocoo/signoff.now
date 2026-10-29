@@ -1,7 +1,7 @@
 {
 	"name": "@signoff/web",
 	"private": true,
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -40,7 +40,7 @@
 		"happy-dom": "21.0.4",
 		"tailwindcss": "4.3.3",
 		"typescript": "7.0.2",
-		"vite": "8.3.4",
+		"vite": "8.3.5",
 		"vitest": "5.0.5"
 	}
 }
