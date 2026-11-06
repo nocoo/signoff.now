@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import app from "../index";
 import { seedProject, seedPull } from "../test/pr-fixture";
@@ -7,10 +10,12 @@ import { createSqliteD1, type SqliteD1 } from "../test/sqlite-d1";
 let sqlite: SqliteD1;
 let server: ReturnType<typeof Bun.serve>;
 let requests: number;
+let directory: string;
 const main = fileURLToPath(
 	new URL("../../../../apps/collect/src/main.ts", import.meta.url),
 );
 beforeEach(() => {
+	directory = mkdtempSync(path.join(tmpdir(), "signoff-cli-"));
 	sqlite = createSqliteD1();
 	requests = 0;
 	server = Bun.serve({
@@ -29,6 +34,7 @@ beforeEach(() => {
 afterEach(() => {
 	server.stop(true);
 	sqlite.close();
+	rmSync(directory, { recursive: true, force: true });
 });
 async function cli(...args: string[]) {
 	const child = Bun.spawn(
@@ -40,8 +46,8 @@ async function cli(...args: string[]) {
 			...args,
 		],
 		{
-			cwd: "/tmp",
-			env: { PATH: "/nonexistent", NODE_ENV: "test" },
+			cwd: directory,
+			env: { PATH: directory, NODE_ENV: "test" },
 			stdout: "pipe",
 			stderr: "pipe",
 		},

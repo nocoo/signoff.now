@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type ConnectorConfig,
@@ -66,7 +66,10 @@ describe("connector store", () => {
 		expect(store.read()).toBeNull();
 		store.write(config);
 		expect(store.read()).toEqual(config);
-		expect(statSync(store.path).mode & 0o777).toBe(0o600);
+		// Windows reports synthesized mode bits, not POSIX permission isolation.
+		expect(statSync(store.path).mode & 0o777).toBe(
+			process.platform === "win32" ? 0o666 : 0o600,
+		);
 		store.clear();
 		expect(store.read()).toBeNull();
 	});
@@ -80,8 +83,8 @@ describe("connector store", () => {
 	});
 
 	test("defaults to ~/.config when XDG_CONFIG_HOME is unset", () => {
-		expect(connectorStore({}).path).toMatch(
-			/\.config\/signoff\/connector\.json$/,
+		expect(connectorStore({}).path).toBe(
+			join(homedir(), ".config", "signoff", "connector.json"),
 		);
 	});
 });

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createMockExecutor } from "../../executor/mock-executor.ts";
 import { createMockFsReader } from "../../executor/mock-fs-reader.ts";
@@ -148,17 +149,20 @@ describe("getHooks", () => {
 		expect(hooks).toEqual(["pre-commit"]);
 	});
 
-	it("resolves relative core.hooksPath against repoRoot", async () => {
-		const exec = mockExec({
-			"git config core.hooksPath": { stdout: ".githooks" },
-		});
-		const fs = createMockFsReader({
-			files: new Map([["/repo/.githooks", ["pre-push"]]]),
-		});
-		const gitPath = async (name: string) => `/repo/.git/${name}`;
-		const hooks = await getHooks(exec, fs, CWD, REPO_ROOT, gitPath);
-		expect(hooks).toEqual(["pre-push"]);
-	});
+	it.each([".githooks", "tools/hooks"])(
+		"resolves relative core.hooksPath %s against repoRoot",
+		async (configuredPath) => {
+			const exec = mockExec({
+				"git config core.hooksPath": { stdout: configuredPath },
+			});
+			const fs = createMockFsReader({
+				files: new Map([[join(REPO_ROOT, configuredPath), ["pre-push"]]]),
+			});
+			const gitPath = async (name: string) => `/repo/.git/${name}`;
+			const hooks = await getHooks(exec, fs, CWD, REPO_ROOT, gitPath);
+			expect(hooks).toEqual(["pre-push"]);
+		},
+	);
 
 	it("returns empty array when hooks directory is empty", async () => {
 		const exec = mockExec({

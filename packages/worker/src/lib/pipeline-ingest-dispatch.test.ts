@@ -5,6 +5,7 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import type { IngestBody } from "@signoff/domain";
 import {
 	guardConditionFor,
@@ -294,7 +295,7 @@ describe("06 §5.4 Phase 0 dispatch matrix", () => {
 	 */
 	test("the digest guard is not conditioned on chunk index", async () => {
 		const src = await Bun.file(
-			new URL("./pipeline-ingest-write.ts", import.meta.url).pathname,
+			fileURLToPath(new URL("./pipeline-ingest-write.ts", import.meta.url)),
 		).text();
 
 		// Anchor on the guard's OUTCOME, not on its condition text: a decoy `if`

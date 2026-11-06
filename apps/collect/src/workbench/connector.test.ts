@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { join } from "node:path";
 import type { LoginDeps, LoginResult } from "@nocoo/base-cli";
 import {
 	type ConnectorDeps,
@@ -176,7 +177,7 @@ describe("connector status", () => {
 
 test("default dependencies use base-cli and the private config store", () => {
 	const d = defaultConnectorDeps();
-	expect(d.store.path).toMatch(/signoff\/connector\.json$/);
+	expect(d.store.path.endsWith(join("signoff", "connector.json"))).toBe(true);
 	expect(typeof d.login).toBe("function");
 	expect(d.now()).toBeGreaterThan(1_700_000_000);
 	const write = spyOn(process.stderr, "write").mockImplementation(() => true);
