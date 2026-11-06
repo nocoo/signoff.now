@@ -1,7 +1,4 @@
 import {
-	Avatar,
-	AvatarFallback,
-	AvatarImage,
 	Sidebar as BasaltSidebar,
 	Button,
 	SidebarFooter,
@@ -10,7 +7,6 @@ import {
 	SidebarIconItem,
 	SidebarItem,
 	SidebarNav,
-	SidebarUser,
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -35,7 +31,6 @@ import {
 } from "lucide-react";
 import type { ElementType, ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { avatarInitial } from "@/lib/avatar";
 import { type NavGroupDef, visibleNavGroups } from "@/lib/navigation";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
@@ -83,18 +78,12 @@ function isActivePath(pathname: string, item: NavItem): boolean {
 
 export function Sidebar({
 	collapsed,
-	userLabel,
-	userEmail,
-	userAvatarUrl,
 	admin = false,
 	tenantSwitcher,
 	onToggle,
 	onNavigate,
 }: {
 	collapsed: boolean;
-	userLabel: string;
-	userEmail?: string;
-	userAvatarUrl?: string | null;
 	admin?: boolean;
 	tenantSwitcher?: ReactNode;
 	onToggle: () => void;
@@ -105,7 +94,6 @@ export function Sidebar({
 	const { pathname } = useLocation();
 	const navigate = useNavigate();
 	const workbench = useWorkbench();
-	const initial = avatarInitial(userLabel);
 	const go = (href: string) => {
 		navigate(
 			href === "/prs"
@@ -115,18 +103,11 @@ export function Sidebar({
 		onNavigate?.();
 	};
 
-	const avatar = (
-		<Avatar className="h-9 w-9 shrink-0">
-			{userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt="" /> : null}
-			<AvatarFallback className="bg-basalt-primary/15 text-xs text-basalt-primary">
-				{initial}
-			</AvatarFallback>
-		</Avatar>
-	);
-
 	return (
 		<BasaltSidebar collapsed={collapsed}>
-			<SidebarHeader className="gap-basalt-space-lg overflow-hidden">
+			<SidebarHeader
+				className={`gap-2 overflow-hidden ${collapsed ? "justify-center" : "px-4"}`}
+			>
 				<img
 					src="/logo-64.png"
 					alt="signoff.now"
@@ -136,11 +117,11 @@ export function Sidebar({
 				/>
 				{!collapsed ? (
 					<div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-						<div className="flex min-w-0 items-center gap-basalt-space-lg">
+						<div className="flex min-w-0 items-center gap-2">
 							<span className="truncate text-lg font-semibold text-basalt-foreground">
 								signoff
 							</span>
-							<span className="shrink-0 rounded-md bg-basalt-secondary px-basalt-space-md py-basalt-space-xs font-mono text-[10px] leading-none font-medium text-basalt-muted-foreground">
+							<span className="shrink-0 rounded-md bg-basalt-secondary px-1.5 py-1 font-mono text-[10px] leading-none font-medium text-basalt-muted-foreground">
 								v{__APP_VERSION__}
 							</span>
 						</div>
@@ -191,22 +172,6 @@ export function Sidebar({
 					</SidebarNav>
 					<SidebarFooter>
 						<CollectionStatus collapsed />
-						<Tooltip delayDuration={0}>
-							<TooltipTrigger asChild>
-								<span
-									className="inline-flex"
-									role="img"
-									aria-label={
-										userEmail ? `${userLabel}, ${userEmail}` : userLabel
-									}
-								>
-									{avatar}
-								</span>
-							</TooltipTrigger>
-							<TooltipContent side="right" sideOffset={8}>
-								{userLabel}
-							</TooltipContent>
-						</Tooltip>
 					</SidebarFooter>
 				</>
 			) : (
@@ -240,11 +205,6 @@ export function Sidebar({
 						{tenantSwitcher}
 						<NetworkActivity />
 						<CollectionStatus />
-						<SidebarUser
-							name={userLabel}
-							email={userEmail ?? "local session"}
-							avatar={avatar}
-						/>
 					</SidebarFooter>
 				</>
 			)}

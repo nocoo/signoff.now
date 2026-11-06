@@ -21,7 +21,6 @@ import { Github } from "@/components/icons/github";
 import { SelectControl } from "@/components/SelectControl";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
-import { displayName } from "@/models/sessionApi";
 import type { PullFilter } from "@/models/workbench";
 import { useSession } from "@/viewmodels/SessionProvider";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
@@ -56,8 +55,6 @@ export function AppShell() {
 	const menuRef = useRef<HTMLButtonElement>(null);
 	const { state, switchTenant } = useSession();
 	const session = state.status === "ready" ? state.session : null;
-	const userLabel = session ? displayName(session) : "Offline";
-	const userEmail = session?.email ?? session?.principal ?? undefined;
 	const admin = session?.admin ?? false;
 	const tenantSwitcher =
 		session && session.tenants.length > 1 ? (
@@ -89,9 +86,6 @@ export function AppShell() {
 			{!isMobile ? (
 				<Sidebar
 					collapsed={collapsed}
-					userLabel={userLabel}
-					userEmail={userEmail}
-					userAvatarUrl={session?.avatarUrl}
 					admin={admin}
 					tenantSwitcher={tenantSwitcher}
 					onToggle={() => setDesktopCollapsed(!collapsed)}
@@ -112,9 +106,6 @@ export function AppShell() {
 						</SheetDescription>
 						<Sidebar
 							collapsed={false}
-							userLabel={userLabel}
-							userEmail={userEmail}
-							userAvatarUrl={session?.avatarUrl}
 							admin={admin}
 							tenantSwitcher={tenantSwitcher}
 							onToggle={() => setMobileOpen(false)}

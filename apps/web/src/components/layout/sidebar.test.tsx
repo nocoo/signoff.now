@@ -58,6 +58,9 @@ vi.mock("@/models/monitoringApi", () => ({
 	loadCollectorHistory: vi.fn(),
 }));
 vi.mock("@/viewmodels/WorkbenchProvider", () => ({ useWorkbench: () => vm }));
+vi.mock("@/views/workbench/NetworkActivity", () => ({
+	NetworkActivity: () => <div>Network activity</div>,
+}));
 beforeEach(() => {
 	vm.collector = queryFixture().collector;
 	vm.connection = vm.collector.connection;
@@ -87,7 +90,7 @@ const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
 	render(
 		<MemoryRouter>
 			<TooltipProvider>
-				<Sidebar collapsed={collapsed} onToggle={onToggle} userLabel="Dev" />
+				<Sidebar collapsed={collapsed} onToggle={onToggle} />
 			</TooltipProvider>
 		</MemoryRouter>,
 	);
@@ -124,6 +127,56 @@ const seedGroup = (task = fixtureJob()) => {
 	});
 	vi.mocked(loadCollectionJob).mockResolvedValue(task);
 };
+it.each([false, true])(
+	"removes profile markup while retaining navigation and collector controls (collapsed: %s)",
+	(collapsed) => {
+		const { container } = renderSidebar(collapsed);
+		expect(screen.queryByText("Local")).toBeNull();
+		expect(screen.queryByText("local session")).toBeNull();
+		expect(screen.queryByRole("img", { name: "Local" })).toBeNull();
+		expect(container.querySelectorAll("img")).toHaveLength(1);
+		expect(screen.getByRole("img", { name: "signoff.now" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Pull requests" })).toBeTruthy();
+		expect(panel()).toBeTruthy();
+		expect(screen.queryByText("Network activity") !== null).toBe(!collapsed);
+	},
+);
+it.each([false, true])(
+	"keeps the sidebar toggle working (collapsed: %s)",
+	(collapsed) => {
+		const toggle = vi.fn();
+		renderSidebar(collapsed, toggle);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: collapsed ? "Expand sidebar" : "Collapse sidebar",
+			}),
+		);
+		expect(toggle).toHaveBeenCalledOnce();
+		expect(screen.queryByText("signoff") !== null).toBe(!collapsed);
+		expect(screen.queryByText("v0.0.1") !== null).toBe(!collapsed);
+	},
+);
+it("retains tenant switching and mobile navigation callbacks without a profile", () => {
+	const close = vi.fn();
+	const navigate = vi.fn();
+	render(
+		<MemoryRouter>
+			<TooltipProvider>
+				<Sidebar
+					collapsed={false}
+					tenantSwitcher={<button type="button">Tenant switcher</button>}
+					onToggle={close}
+					onNavigate={navigate}
+				/>
+			</TooltipProvider>
+		</MemoryRouter>,
+	);
+	expect(screen.getByRole("button", { name: "Tenant switcher" })).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
+	expect(close).toHaveBeenCalledOnce();
+	fireEvent.click(screen.getByRole("button", { name: "Repos" }));
+	expect(navigate).toHaveBeenCalledOnce();
+});
 it("keeps the sidebar compact and configures both task cooldowns in the dialog", async () => {
 	renderSidebar();
 	expect(within(panel()).getByText("Online")).toBeTruthy();
