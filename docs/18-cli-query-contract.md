@@ -24,6 +24,7 @@
 | `signoff repo add <repo-url...>` | 显式注册仓库范围，复用现有项目注册规则 | 否；之后需要显式 discover |
 | `signoff pr list` | 查询已发现 / 已缓存的 PR，支持范围、状态与观察筛选 | 否 |
 | `signoff pr get <pr-ref>` | 返回单条已缓存 PR 的状态与检查详情 | 否 |
+| `signoff pr import <numbers...> --repo <repo-url>` | Explicit Live-only summary import by number, including PRs older than 90 days; leaves watches unchanged | Command queues work only |
 | `signoff watch list` | Read retained watch membership, including Draft, pending snapshots and terminal PRs | 否 |
 | `signoff watch add <pr-ref...>` | 幂等加入观察，返回首个刷新任务回执 | 命令本身否 |
 | `signoff watch remove <pr-ref...>` | 移除当前观察代次，保留 PR 快照 | 否 |
@@ -185,6 +186,50 @@ Collector returns `listCooldownSeconds` and `detailCooldownSeconds`. Zero disabl
 discover 结果含 `repositories: [{ repository, state, pullCount, error }]`；pullCount 是本次返回的窗口数量，不是仓库历史总量。单仓库完整结果与成功游标原子发布，失败仓库保留旧数据和边界，尚未取得的数量为 null。部分仓库失败时任务为 partial，全部失败为 failed。auth_required 是等待状态，不能伪装成完成。
 
 Every discovery paginates all accessible PR states in the complete 90-day creation window without individual PR requests. Retained terminal watches resume with a new generation and an immediate full refresh when validated discovery publishes them as open; manually removed or invalidated watches never resume automatically. Creation-time cursors and the discovery `--full` option are removed. Full watched PR refreshes use an independent completion-based cooldown. See [16](16-scheduler-state-machine.md).
+
+### Explicit old-PR cache import
+
+From the repository root, submit exact positive PR numbers separated by spaces:
+
+```powershell
+bun run signoff -- pr import 59354 59358 --repo https://dev.azure.com/intentional/intent/_git/4195bc9a-3caf-42de-8d21-90aa4b9a2aec
+bun run signoff -- job get <job-id>
+bun run signoff -- pr get 59354 --repo https://dev.azure.com/intentional/intent/_git/4195bc9a-3caf-42de-8d21-90aa4b9a2aec
+```
+
+`POST /api/commands/v1/import-prs` accepts
+`{ "source": "live", "repositoryUrl": "https://dev.azure.com/intentional/intent/_git/4195bc9a-3caf-42de-8d21-90aa4b9a2aec", "numbers": [59354, 59358] }`.
+It requires the admin route policy **and** trusted local execution. Sample and
+remote callers are rejected. The project must be enabled and the registered
+repository must already have its provider repository and external project IDs.
+Input is limited to 100 safe positive integers, deduplicated and sorted.
+
+HTTP 202 / CLI exit 0 means queued, not imported. Each number gets an independent
+retained receipt `{ id, kind: "import", importNumber, state, coalesced, notBefore }`.
+The existing daemon claims these jobs in the discovery lane using Azure CLI
+authentication and one exact provider summary GET per number, with no age bound.
+Open, draft, merged and closed summaries normalize to cache IDs generated from
+this local project registration and repository ID. There is no repository/PR
+enumeration, provider write, checks/build/policy fanout, Jev request, watch
+creation/reactivation/removal or observation generation change. Existing
+collections and follow membership remain unchanged. Snapshot changes still
+invalidate cached readiness revisions, without scheduling inference.
+
+Import preserves newer facts and compatible richer checks through the normal
+clock-aware staging, snapshot-version, project-revision and lease fences. It does
+not advance discovery freshness or alter the 90-day initial/routine/deep window.
+Read each receipt with `job get`: success includes the returned summary in
+`result`; failures retain their explicit error and never create a fake cache
+entry. For import jobs, `job get` exits 3 on failed, partial, canceled or
+auth_required; queued/running is not success evidence. Successful sibling numbers
+remain cached if another number fails. Repeating unfinished imports coalesces;
+repeating terminal imports queues fresh per-number attempts without a discovery
+cooldown and upserts the same cache identity.
+
+Migration `0048_explicit_pull_import.sql` adds only import job metadata and its
+explicit-command cooldown exception; it does not cancel existing jobs, add
+watches or modify cached PRs. Apply local migrations and reload the Worker and
+daemon before use; the frontend and Caddy need no reload for this CLI-only feature.
 
 对未终结任务，取消事务立即令整体 state=canceled，优先于未结算的 partial / failed，不等待在途请求。已结束的 repositories 项保留 succeeded / failed，尚未结束的项变成 canceled；所以“一个仓库已成功，另一个被取消”返回 canceled 和逐仓库结果。先前发布不因取消而回滚，项目删除 / 来源替换仍可按配置操作的语义删除缓存；旧任务摘要保留。迟到响应不得再发布。若任务先已终结，则后来的配置操作不改写其历史结果。
 

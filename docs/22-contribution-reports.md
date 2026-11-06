@@ -56,6 +56,11 @@ not inherit another repository's completion cooldown.
   old PRs in the window can be closed or reopened at any time.
 - Older cached PRs remain available. Routine discovery does not refresh PRs
   created more than 90 days ago.
+- Explicit `signoff pr import <numbers...> --repo <registered-repository-url>`
+  imports exact Live ADO summaries regardless of age through separate leased
+  per-number jobs. It does not change discovery windows, watch membership or
+  generations, run checks or inference, or resume terminal watches. See the
+  [CLI import contract](18-cli-query-contract.md#explicit-old-pr-cache-import).
 - A retained watch stopped with `completed` or `abandoned` resumes when validated
   discovery publishes its PR as open. Publication atomically increments the
   observation generation, clears retirement and queues a full refresh. Claim-time

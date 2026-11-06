@@ -1,4 +1,8 @@
-import { querySourceSchema, storageSource } from "@signoff/domain/monitoring";
+import {
+	pullImportSchema,
+	querySourceSchema,
+	storageSource,
+} from "@signoff/domain/monitoring";
 import {
 	discoveryDepthSchema,
 	type Project,
@@ -11,6 +15,7 @@ import { hasLocalTrust } from "../middleware/entry-control.js";
 import {
 	addObservation,
 	enqueueDiscovery,
+	enqueuePullImport,
 	refreshObserved,
 	removeObservation,
 	resolveRepository,
@@ -215,6 +220,27 @@ commandRoutes.post("/discover", async (c) => {
 				scope,
 				now(),
 				input.depth,
+			),
+		},
+		202,
+	);
+});
+commandRoutes.post("/import-prs", async (c) => {
+	const input = pullImportSchema.parse(await body(c));
+	if (!hasLocalTrust(c))
+		throw new MonitoringError(
+			"LOCAL_ONLY",
+			"Explicit PR import requires trusted local execution",
+			403,
+		);
+	return c.json(
+		{
+			jobs: await enqueuePullImport(
+				c.env.DB,
+				storageSource(input.source),
+				input.repositoryUrl,
+				input.numbers,
+				now(),
 			),
 		},
 		202,

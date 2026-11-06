@@ -166,6 +166,191 @@ function deferred<T>() {
 }
 
 describe("saved-task executor", () => {
+	test.each(["unresolved", "multiple"] as const)(
+		"import rejects %s repository plans without provider reads or publication",
+		async (scope) => {
+			const deps = setup();
+			deps.api.claim = async () => ({
+				...claim,
+				observation: undefined,
+				targets: [],
+				repositories:
+					scope === "unresolved"
+						? [pull.repository]
+						: [
+								{ ...pull.repository, projectExternalId: "project-guid" },
+								{
+									id: "foreign",
+									name: "Foreign",
+									projectExternalId: "project-guid",
+								},
+							],
+				job: {
+					...claim.job,
+					kind: "list",
+					pullIds: [],
+					importNumber: pull.number,
+				},
+			});
+			deps.ado.get = async () => {
+				throw new Error("Provider must not be read");
+			};
+			expect((await runCollectionOnce(deps)).state).toBe("failed");
+			expect(deps.events).toContain("fail:invalid_data");
+			expect(
+				deps.events.some((event) =>
+					event.includes("no resolved repository identity"),
+				),
+			).toBe(true);
+			expect(deps.events).not.toContain("plan");
+			expect(deps.events).not.toContain("upload");
+			expect(deps.events).not.toContain("publish");
+		},
+	);
+	test("import publishes only an exact old summary without checks, listing, writes or inference", async () => {
+		const deps = setup();
+		const repository = {
+			...pull.repository,
+			projectExternalId: "project-guid",
+		};
+		deps.api.claim = async () => ({
+			...claim,
+			observation: undefined,
+			targets: [],
+			repositories: [repository],
+			job: {
+				...claim.job,
+				kind: "list",
+				pullIds: [],
+				importNumber: pull.number,
+			},
+		});
+		const urls: string[] = [];
+		deps.ado.get = async (url) => {
+			urls.push(url);
+			return {
+				pullRequestId: pull.number,
+				status: "active",
+				isDraft: true,
+				title: "Old draft",
+				creationDate: "2026-01-01T00:00:00Z",
+				createdBy: { id: "author", displayName: "Author" },
+				sourceRefName: "refs/heads/feature",
+				targetRefName: "refs/heads/main",
+				repository: {
+					id: repository.id,
+					name: repository.name,
+					project: {
+						id: repository.projectExternalId,
+						name: project.projectKey,
+					},
+				},
+			};
+		};
+		deps.ado.getPage = async () => {
+			throw new Error("No listing");
+		};
+		deps.ado.post = async () => {
+			throw new Error("No provider writes");
+		};
+		deps.api.upload = async (_lease, pulls) => {
+			expect(pulls).toHaveLength(1);
+			expect(pulls[0]).toMatchObject({
+				id: adoPullId(project.id, repository.id, String(pull.number)),
+				number: pull.number,
+				state: "open",
+				draft: true,
+				policies: [],
+				builds: [],
+				checksObservedAt: null,
+			});
+			deps.events.push("upload");
+		};
+		expect(
+			(
+				await runCollectionOnce({
+					...deps,
+					collect: async () => {
+						throw new Error("No detailed checks");
+					},
+				})
+			).state,
+		).toBe("complete");
+		expect(urls).toHaveLength(1);
+		expect(new URL(urls[0]!).pathname).toEndWith(
+			`/pullrequests/${pull.number}`,
+		);
+		expect(deps.events).toContain("upload");
+		expect(deps.events).toContain("publish");
+		expect(deps.events).toContain("complete");
+		expect(deps.events).not.toContain("ai");
+	});
+	test("reclaimed published imports complete without another summary request, checks or inference", async () => {
+		const deps = setup();
+		deps.api.claim = async () => ({
+			...claim,
+			observation: undefined,
+			targets: [],
+			repositories: [{ ...pull.repository, projectExternalId: "project-guid" }],
+			job: {
+				...claim.job,
+				kind: "list",
+				pullIds: [],
+				importNumber: pull.number,
+			},
+		});
+		deps.api.repositories = async () => [
+			{ repository_id: pull.repository.id, state: "succeeded" },
+		];
+		deps.ado.get = async () => {
+			throw new Error("Already imported");
+		};
+		const result = await runCollectionOnce({
+			...deps,
+			collect: async () => {
+				throw new Error("No checks");
+			},
+		});
+		expect(result.state).toBe("complete");
+		expect(deps.events).toContain("complete");
+		expect(deps.events).not.toContain("upload");
+		expect(deps.events).not.toContain("publish");
+		expect(deps.events).not.toContain("ai");
+	});
+	test.each([
+		["forbidden", "forbidden"],
+		["unauthenticated", "auth_required"],
+		["bad_response", "invalid_data"],
+	] as const)(
+		"import provider %s is reported explicitly without cache publication",
+		async (kind, failure) => {
+			const deps = setup();
+			deps.api.claim = async () => ({
+				...claim,
+				observation: undefined,
+				targets: [],
+				repositories: [
+					{ ...pull.repository, projectExternalId: "project-guid" },
+				],
+				job: {
+					...claim.job,
+					kind: "list",
+					pullIds: [],
+					importNumber: pull.number,
+				},
+			});
+			deps.ado.get = async () => {
+				throw new AdoError(kind, "Synthetic provider failure");
+			};
+			const result = await runCollectionOnce(deps);
+			expect(result.state).toBe(
+				failure === "auth_required" ? "auth_required" : "failed",
+			);
+			expect(deps.events).toContain(`fail:${failure}`);
+			expect(deps.events).not.toContain("upload");
+			expect(deps.events).not.toContain("publish");
+		},
+	);
 	test("a slow auth check does not backdate the watched PR collection clock", async () => {
 		const deps = setup();
 		let clock = time * 1000;

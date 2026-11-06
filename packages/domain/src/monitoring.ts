@@ -13,6 +13,18 @@ export const dataSourceSchema = z.enum(["cli", "demo"]);
 export type DataSource = z.infer<typeof dataSourceSchema>;
 export const querySourceSchema = z.enum(["live", "sample"]);
 export type QuerySource = z.infer<typeof querySourceSchema>;
+export const pullNumbersSchema = z
+	.array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
+	.min(1)
+	.max(100)
+	.transform((numbers) => [...new Set(numbers)].sort((a, b) => a - b));
+export const pullImportSchema = z
+	.object({
+		source: querySourceSchema.default("live"),
+		repositoryUrl: z.url().max(4096),
+		numbers: pullNumbersSchema,
+	})
+	.strict();
 export const storageSource = (source: QuerySource): DataSource =>
 	source === "live" ? "cli" : "demo";
 export const publicSource = (source: DataSource): QuerySource =>

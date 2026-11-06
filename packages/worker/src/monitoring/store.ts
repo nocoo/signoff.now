@@ -161,6 +161,7 @@ export type JobRow = {
 	scope_key: string;
 	discovery_depth: "smart" | "deep";
 	catalogue_only: number;
+	import_number: number | null;
 	observation_id: string | null;
 	observation_generation: number | null;
 	not_before: number;
@@ -181,7 +182,8 @@ export type JobRepositoryRow = {
 };
 export type JobReceipt = {
 	id: string;
-	kind: "discover" | "refresh";
+	kind: "discover" | "refresh" | "import";
+	importNumber?: number;
 	state:
 		| "queued"
 		| "running"
@@ -196,7 +198,15 @@ export type JobReceipt = {
 export function jobReceipt(row: JobRow, coalesced = false): JobReceipt {
 	return {
 		id: row.id,
-		kind: row.kind === "list" ? "discover" : "refresh",
+		kind:
+			typeof row.import_number === "number"
+				? "import"
+				: row.kind === "list"
+					? "discover"
+					: "refresh",
+		...(typeof row.import_number === "number"
+			? { importNumber: row.import_number }
+			: {}),
 		state: row.state === "complete" ? "succeeded" : row.state,
 		coalesced,
 		notBefore: new Date(row.not_before * 1000).toISOString(),
@@ -221,6 +231,7 @@ export function mapJob(row: JobRow): CollectionJob {
 		depth: row.kind === "list" ? row.discovery_depth : undefined,
 		scope: JSON.parse(row.scope_json),
 		catalogueOnly: row.catalogue_only === 1,
+		importNumber: row.import_number ?? undefined,
 		roundId: row.round_id,
 	});
 }

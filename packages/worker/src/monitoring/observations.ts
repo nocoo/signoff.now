@@ -6,6 +6,7 @@ import {
 	type Observation,
 	parsePullReference,
 	parseRepositoryReference,
+	pullNumbersSchema,
 	type WatchRef,
 } from "@signoff/domain/monitoring";
 import {
@@ -360,6 +361,76 @@ export async function removeObservation(
 				? "removed"
 				: "already_stopped";
 	return { status, observation: row ? mapObservation(row) : null };
+}
+
+export async function enqueuePullImport(
+	db: D1Database,
+	source: DataSource,
+	url: string,
+	numbers: number[],
+	timestamp: number,
+): Promise<JobReceipt[]> {
+	if (source !== "cli")
+		throw new MonitoringError(
+			"SAMPLE_READ_ONLY",
+			"Explicit provider import is Live only",
+			403,
+		);
+	const requested = pullNumbersSchema.parse(numbers);
+	const { project, repository } = await resolveRepository(db, source, url);
+	supported(project);
+	if (!project.enabled || !repository?.project_external_id)
+		throw new MonitoringError(
+			"REFERENCE_UNRESOLVED",
+			"Import requires an enabled project and a resolved registered repository",
+			409,
+		);
+	const tasks = requested.map((number) => ({
+		id: crypto.randomUUID(),
+		number,
+		key: JSON.stringify([
+			"import",
+			repository.repository_id.toLowerCase(),
+			number,
+		]),
+	}));
+	const taskJson = JSON.stringify(tasks);
+	const results = await db.batch([
+		db
+			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,import_number,message)
+		 SELECT json_extract(t.value,'$.id'),?,?,?,?,'queued',?,?,?,'list','[]',?,json_extract(t.value,'$.key'),json_extract(t.value,'$.number'),'Waiting to import exact PR summary'
+		 FROM json_each(?) t WHERE EXISTS (SELECT 1 FROM projects WHERE id=? AND revision=? AND source=? AND enabled=1)
+		 AND NOT EXISTS (SELECT 1 FROM collection_jobs j WHERE j.project_id=? AND j.revision=? AND j.scope_key=json_extract(t.value,'$.key') AND j.state IN (${ACTIVE_JOBS}))`)
+			.bind(
+				project.id,
+				project.revision,
+				source,
+				JSON.stringify(project),
+				timestamp,
+				timestamp,
+				timestamp,
+				JSON.stringify([repository.repository_id]),
+				taskJson,
+				project.id,
+				project.revision,
+				source,
+				project.id,
+				project.revision,
+			),
+		db
+			.prepare(`SELECT j.* FROM collection_jobs j WHERE j.project_id=? AND j.revision=? AND j.state IN (${ACTIVE_JOBS})
+		 AND j.scope_key IN (SELECT json_extract(value,'$.key') FROM json_each(?)) ORDER BY j.import_number`)
+			.bind(project.id, project.revision, taskJson),
+	]);
+	const rows = results[1]?.results as JobRow[];
+	if (rows.length !== tasks.length)
+		throw new MonitoringError(
+			"CONFLICT",
+			"Project changed while queuing import",
+			409,
+		);
+	const inserted = new Set<string>(tasks.map((task) => task.id));
+	return rows.map((row) => jobReceipt(row, !inserted.has(row.id)));
 }
 
 export async function enqueueDiscovery(

@@ -7,6 +7,7 @@ import {
 	matchesRepositoryReference,
 	parsePullReference,
 	parseRepositoryReference,
+	pullNumbersSchema,
 } from "@signoff/domain/monitoring";
 import { prCollectionsSchema } from "@signoff/domain/pr-collections";
 import {
@@ -446,6 +447,30 @@ export function registerWorkbenchCommands(program: Command) {
 			print({ data: await registerRepos(command, urls) }, command),
 		);
 	const prs = program.command("pr").description("Read published PR cache");
+	prs
+		.command("import <numbers...>")
+		.description(
+			"Queue exact Live ADO PR summaries regardless of age; never change watches",
+		)
+		.requiredOption("--repo <url>", "Resolved registered repository URL")
+		.action(async (values: string[], _opts, command) => {
+			if (options(command).source !== "live")
+				throw new TypeError("Explicit PR import is Live only");
+			parseRepositoryReference(command.opts().repo);
+			if (values.some((value) => !/^[1-9]\d*$/.test(value)))
+				throw new TypeError("Provide positive PR numbers separated by spaces");
+			const numbers = pullNumbersSchema.parse(values.map(Number));
+			print(
+				commandReceiptSchema.parse(
+					await request(command, "POST", "/api/commands/v1/import-prs", {
+						source: "live",
+						repositoryUrl: command.opts().repo,
+						numbers,
+					}),
+				),
+				command,
+			);
+		});
 	listOptions(prs.command("list"))
 		.option("--collection <name|id>", "Restrict to a cached collection")
 		.addOption(
@@ -611,18 +636,21 @@ export function registerWorkbenchCommands(program: Command) {
 	program
 		.command("job")
 		.command("get <id>")
-		.action(async (id: string, _opts, command) =>
-			print(
-				jobQuerySchema.parse(
-					await request(
-						command,
-						"GET",
-						`/api/query/v1/jobs/${encode(id)}?${scope(command)}`,
-					),
+		.action(async (id: string, _opts, command) => {
+			const job = jobQuerySchema.parse(
+				await request(
+					command,
+					"GET",
+					`/api/query/v1/jobs/${encode(id)}?${scope(command)}`,
 				),
-				command,
-			),
-		);
+			);
+			print(job, command);
+			if (
+				job.kind === "import" &&
+				["failed", "partial", "canceled", "auth_required"].includes(job.state)
+			)
+				process.exitCode = 3;
+		});
 	const daemon = async (command: Command) => {
 		const { createCollectionClient } = await import("./client");
 		const { createAdoClient } = await import("../ado/client");

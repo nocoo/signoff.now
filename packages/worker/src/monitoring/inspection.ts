@@ -35,6 +35,7 @@ type Attempt = {
 	updated_at: number;
 	error_kind: string | null;
 	message: string;
+	import_number: number | null;
 };
 export async function inspectionContext(
 	db: Database,
@@ -46,8 +47,8 @@ export async function inspectionContext(
 		...decisionContextQueries(db),
 		db
 			.prepare(`SELECT * FROM (
-   SELECT observation_id,observation_generation,project_id,kind,scope_json,state,updated_at,completed_at,error_kind,message,
-   ROW_NUMBER() OVER(PARTITION BY project_id,kind,scope_json,observation_id,observation_generation ORDER BY updated_at DESC,id DESC) rank
+   SELECT observation_id,observation_generation,project_id,kind,scope_json,state,updated_at,completed_at,error_kind,message,import_number,
+   ROW_NUMBER() OVER(PARTITION BY project_id,kind,scope_json,observation_id,observation_generation,import_number ORDER BY updated_at DESC,id DESC) rank
    FROM collection_jobs WHERE source=? AND project_id IN (SELECT value FROM json_each(?))
    AND (completed_at IS NOT NULL OR state='auth_required') AND (kind='list' OR observation_id IN (SELECT value FROM json_each(?)))
   ) WHERE rank=1`)
@@ -112,6 +113,8 @@ function lastAttempt(context: Context, o: Observation, kind?: string) {
 			(j) =>
 				j.project_id === o.ref.projectId &&
 				(!kind || j.kind === kind) &&
+				(typeof j.import_number !== "number" ||
+					j.import_number === o.ref.number) &&
 				((j.kind === "list" &&
 					(JSON.parse(j.scope_json).length === 0 ||
 						JSON.parse(j.scope_json).includes(o.ref.repository.id) ||

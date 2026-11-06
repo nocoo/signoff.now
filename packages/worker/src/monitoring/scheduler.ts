@@ -138,7 +138,7 @@ export async function claimJob(
         AND NOT EXISTS (SELECT 1 FROM collection_jobs previous JOIN collection_refresh settings ON settings.kind=j.kind
           WHERE previous.id<>j.id AND previous.project_id=j.project_id AND previous.revision=j.revision AND previous.kind=j.kind AND previous.summary_only=0
           AND ((j.kind='list' AND previous.scope_key=j.scope_key AND previous.discovery_depth=j.discovery_depth) OR (j.kind<>'list' AND previous.observation_id=j.observation_id AND previous.observation_generation=j.observation_generation))
-          AND previous.completed_at>?-settings.cooldown_seconds)
+          AND j.import_number IS NULL AND previous.completed_at>?-settings.cooldown_seconds)
         AND (j.kind='list' OR EXISTS (SELECT 1 FROM pr_observations o WHERE o.id=j.observation_id AND o.generation=j.observation_generation AND o.active=1))
         AND (SELECT COUNT(*) FROM collection_jobs busy WHERE busy.project_id=j.project_id AND busy.kind=j.kind AND busy.state='running')<CASE WHEN j.kind='list' THEN 1 ELSE ${LANE_CONCURRENCY} END
         AND NOT EXISTS (SELECT 1 FROM collection_jobs auth WHERE auth.project_id=j.project_id AND auth.state='auth_required' AND auth.not_before>?)
@@ -176,16 +176,17 @@ export async function claimJob(
 		db
 			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation,observation_active)
       SELECT j.id,pr.id,pr.version,o.id,o.generation,COALESCE(o.active,1) FROM collection_jobs j JOIN pull_requests pr ON pr.project_id=j.project_id
-      LEFT JOIN pr_observations o ON o.project_id=j.project_id AND (o.active=1 OR (j.kind='list' AND o.stop_reason IN ('completed','abandoned'))) AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id) AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER)
+      LEFT JOIN pr_observations o ON j.import_number IS NULL AND o.project_id=j.project_id AND (o.active=1 OR (j.kind='list' AND o.stop_reason IN ('completed','abandoned'))) AND lower(json_extract(o.ref_json,'$.repository.id'))=lower(pr.repository_id) AND json_extract(o.ref_json,'$.number')=CAST(pr.external_id AS INTEGER)
       WHERE j.lease_token=? AND (j.kind='list' OR pr.id IN (SELECT value FROM json_each(j.pull_ids_json)))
-      AND (j.kind<>'list' OR (j.catalogue_only=0 AND json_extract(pr.snapshot,'$.createdAt')>=?-${DISCOVERY_HISTORY_DAYS * 86400}))
+      AND (j.kind<>'list' OR (j.catalogue_only=0 AND (j.import_number IS NOT NULL OR json_extract(pr.snapshot,'$.createdAt')>=?-${DISCOVERY_HISTORY_DAYS * 86400})))
+      AND (j.import_number IS NULL OR pr.external_id=CAST(j.import_number AS TEXT))
       AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(pr.repository_id),lower(json_extract(pr.snapshot,'$.repository.name')))))`)
 			.bind(token, timestamp),
 		db
 			.prepare(`INSERT INTO collection_claim_bindings(job_id,pull_id,snapshot_version,observation_id,generation)
       SELECT j.id,COALESCE(o.pull_id,json_extract(o.ref_json,'$.provider')||':'||o.project_id||':'||json_extract(o.ref_json,'$.repository.id')||':'||json_extract(o.ref_json,'$.number')),0,o.id,o.generation
       FROM collection_jobs j JOIN pr_observations o ON o.project_id=j.project_id AND o.active=1
-      WHERE j.lease_token=? AND j.catalogue_only=0 AND (j.kind='list' OR (o.id=j.observation_id AND o.generation=j.observation_generation))
+      WHERE j.lease_token=? AND j.import_number IS NULL AND j.catalogue_only=0 AND (j.kind='list' OR (o.id=j.observation_id AND o.generation=j.observation_generation))
       AND (json_array_length(j.scope_json)=0 OR EXISTS (SELECT 1 FROM json_each(j.scope_json) s WHERE lower(s.value) IN (lower(json_extract(o.ref_json,'$.repository.id')),lower(json_extract(o.ref_json,'$.repository.name')))))
       ON CONFLICT(job_id,pull_id) DO NOTHING`)
 			.bind(token),
@@ -222,7 +223,7 @@ export async function claimJob(
 		? mapObservation(observationRow)
 		: undefined;
 	let discoverySince: number | undefined;
-	if (job.kind === "list") {
+	if (job.kind === "list" && typeof job.import_number !== "number") {
 		discoverySince = Math.max(0, timestamp - DISCOVERY_HISTORY_DAYS * 86400);
 	}
 	return {

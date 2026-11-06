@@ -1360,7 +1360,15 @@ export function publicJob(
 			? watchRefSchema.parse(JSON.parse(row.ref_json))
 			: null,
 		source: publicSource(row.source),
-		kind: row.kind === "list" ? ("discover" as const) : ("refresh" as const),
+		kind:
+			typeof row.import_number === "number"
+				? ("import" as const)
+				: row.kind === "list"
+					? ("discover" as const)
+					: ("refresh" as const),
+		...(typeof row.import_number === "number"
+			? { importNumber: row.import_number }
+			: {}),
 		lane: row.kind === "list" ? ("discover" as const) : ("checks" as const),
 		phase: row.phase,
 		state: row.state === "complete" ? ("succeeded" as const) : row.state,

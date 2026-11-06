@@ -115,7 +115,7 @@ export async function registerJobRepositories(
 	const results = await db.batch([
 		db
 			.prepare(
-				`UPDATE collection_jobs SET repositories_resolved=1,scope_key=CASE WHEN catalogue_only=1 THEN scope_key ELSE json_array(lower(json_extract(?, '$[0].id'))) END,scope_json=?,updated_at=?,lease_expires_at=? WHERE id=? AND (repositories_resolved=0 OR scope_json=?) AND ${RUNNING_JOB}`,
+				`UPDATE collection_jobs SET repositories_resolved=1,scope_key=CASE WHEN catalogue_only=1 OR import_number IS NOT NULL THEN scope_key ELSE json_array(lower(json_extract(?, '$[0].id'))) END,scope_json=?,updated_at=?,lease_expires_at=? WHERE id=? AND (repositories_resolved=0 OR scope_json=?) AND ${RUNNING_JOB}`,
 			)
 			.bind(
 				JSON.stringify(repositories),
@@ -151,7 +151,7 @@ export async function registerJobRepositories(
 		db
 			.prepare(`INSERT INTO workbench_repositories(project_id,repository_id,name,project_external_id,aliases_json,name_observed_at)
       SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.name'),json_extract(value,'$.projectExternalId'),json_array(json_extract(value,'$.id'),json_extract(value,'$.name')),COALESCE(json_extract(value,'$.observedAt'),?)
-      FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=? AND ?='list'
+      FROM json_each(?) WHERE ${RUNNING_JOB} AND (SELECT scope_json FROM collection_jobs WHERE id=?)=? AND ?='list' AND (SELECT import_number FROM collection_jobs WHERE id=?) IS NULL
       ON CONFLICT(project_id,repository_id) DO UPDATE SET name=CASE WHEN excluded.name_observed_at>=workbench_repositories.name_observed_at THEN excluded.name ELSE workbench_repositories.name END,
       name_observed_at=MAX(excluded.name_observed_at,workbench_repositories.name_observed_at),project_external_id=COALESCE(excluded.project_external_id,workbench_repositories.project_external_id),
       aliases_json=(SELECT json_group_array(value) FROM (SELECT value FROM json_each(workbench_repositories.aliases_json) UNION SELECT excluded.name UNION SELECT excluded.repository_id))`)
@@ -167,6 +167,7 @@ export async function registerJobRepositories(
 					repositories.map((r) => r.id).sort((a, b) => a.localeCompare(b)),
 				),
 				job.kind,
+				id,
 			),
 		db
 			.prepare(`INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,pull_ids_json,scope_json,scope_key,discovery_depth,message)
@@ -231,6 +232,12 @@ export async function stagePulls(
 					adoPullId(project.id, pull.repository.id, pull.externalId)) ||
 			!repositories.some((repo) => repo.repository_id === pull.repository.id) ||
 			(job.kind === "details" && !selected.includes(pull.id)) ||
+			(typeof job.import_number === "number" &&
+				(pull.number !== job.import_number ||
+					pull.summaryObservedAt === undefined ||
+					pull.checksObservedAt !== null ||
+					pull.policies.length > 0 ||
+					pull.builds.length > 0)) ||
 			pull.createdAt > pull.updatedAt ||
 			pull.updatedAt > pull.observedAt ||
 			pull.observedAt > timestamp + 300 ||
@@ -407,7 +414,7 @@ export async function publishRepository(
 			versioned: number;
 		}>();
 	const staged =
-		job.kind === "details"
+		job.kind === "details" || typeof job.import_number === "number"
 			? (
 					await db
 						.prepare(
@@ -419,6 +426,7 @@ export async function publishRepository(
 			: [];
 	if (
 		counts?.total !== pullCount ||
+		(typeof job.import_number === "number" && pullCount !== 1) ||
 		(job.kind === "list" && state !== "complete") ||
 		(job.kind === "details" && pullCount !== 1) ||
 		(job.kind === "details" && state === "complete" && counts.raw_partial > 0)
@@ -464,16 +472,16 @@ export async function publishRepository(
 		db
 			.prepare(
 				`UPDATE workbench_repositories SET last_discovered_at=?,discovery_state='complete',discovery_message=NULL
-        WHERE project_id=? AND repository_id=? AND ?='list' AND ${receipt}`,
+        WHERE project_id=? AND repository_id=? AND ?='list' AND (SELECT import_number FROM collection_jobs WHERE id=?) IS NULL AND ${receipt}`,
 			)
-			.bind(timestamp, project.id, repositoryId, job.kind, ...receiptBinds),
+			.bind(timestamp, project.id, repositoryId, job.kind, id, ...receiptBinds),
 		// A saved watch ref is a target, not a new provider observation. Publish
 		// refreshed metadata only alongside the validated PR snapshot and receipt.
 		db
 			.prepare(`UPDATE workbench_repositories SET name=CASE WHEN ?>=name_observed_at THEN ? ELSE name END,
       name_observed_at=MAX(name_observed_at,?),
       aliases_json=(SELECT json_group_array(value) FROM (SELECT value FROM json_each(workbench_repositories.aliases_json) UNION SELECT workbench_repositories.name UNION SELECT ?))
-      WHERE project_id=? AND repository_id=? AND ?='details' AND ${receipt}`)
+      WHERE project_id=? AND repository_id=? AND (?='details' OR (SELECT import_number FROM collection_jobs WHERE id=?) IS NOT NULL) AND ${receipt}`)
 			.bind(
 				staged[0]?.summaryObservedAt ?? staged[0]?.observedAt ?? 0,
 				staged[0]?.repository.name ?? "",
@@ -482,6 +490,7 @@ export async function publishRepository(
 				project.id,
 				repositoryId,
 				job.kind,
+				id,
 				...receiptBinds,
 			),
 		db
@@ -530,7 +539,7 @@ export async function publishRepository(
       stop_reason=(SELECT CASE s.state WHEN 'merged' THEN 'completed' WHEN 'closed' THEN 'abandoned' ELSE pr_observations.stop_reason END
         FROM collection_staging s JOIN collection_claim_bindings b ON b.job_id=s.job_id AND b.pull_id=s.pull_id
         WHERE s.job_id=? AND s.repository_id=? AND b.observation_id=pr_observations.id AND b.generation=pr_observations.generation)
-      WHERE active=1 AND EXISTS (SELECT 1 FROM collection_claim_bindings b JOIN collection_staging s ON s.job_id=b.job_id AND s.pull_id=b.pull_id
+      WHERE active=1 AND (SELECT import_number FROM collection_jobs WHERE id=?) IS NULL AND EXISTS (SELECT 1 FROM collection_claim_bindings b JOIN collection_staging s ON s.job_id=b.job_id AND s.pull_id=b.pull_id
         WHERE s.job_id=? AND s.repository_id=? AND b.observation_id=pr_observations.id AND b.generation=pr_observations.generation) AND ${receipt}`)
 			.bind(
 				id,
@@ -543,12 +552,13 @@ export async function publishRepository(
 				id,
 				repositoryId,
 				id,
+				id,
 				repositoryId,
 				...receiptBinds,
 			),
 		db
 			.prepare(`UPDATE pr_observations SET active=1,generation=generation+1,activation_token=?,stopped_at=NULL,stop_reason=NULL
-      WHERE active=0 AND stop_reason IN ('completed','abandoned') AND source=? AND project_id=? AND ?='list'
+      WHERE active=0 AND stop_reason IN ('completed','abandoned') AND source=? AND project_id=? AND ?='list' AND (SELECT import_number FROM collection_jobs WHERE id=?) IS NULL
       AND EXISTS (SELECT 1 FROM collection_claim_bindings b JOIN collection_staging s ON s.job_id=b.job_id AND s.pull_id=b.pull_id
         WHERE b.job_id=? AND b.observation_id=pr_observations.id AND b.generation=pr_observations.generation AND b.observation_active=0
         AND s.repository_id=? AND s.state='open') AND ${receipt}`)
@@ -558,9 +568,14 @@ export async function publishRepository(
 				project.id,
 				job.kind,
 				id,
+				id,
 				repositoryId,
 				...receiptBinds,
 			),
+		db
+			.prepare(`UPDATE collection_jobs SET result_json=(SELECT raw_snapshot FROM collection_staging WHERE job_id=? AND repository_id=? LIMIT 1)
+		 WHERE id=? AND import_number IS NOT NULL AND ${receipt}`)
+			.bind(id, repositoryId, id, ...receiptBinds),
 		db
 			.prepare(
 				`${insertRefresh} AND o.activation_token=? AND o.source=? AND o.project_id=? AND ${receipt}`,
@@ -625,7 +640,7 @@ export async function rejectRepository(
 			.bind(message, publication, id, repositoryId, id, token, timestamp),
 		db
 			.prepare(
-				`UPDATE workbench_repositories SET discovery_state='failed',discovery_message=? WHERE project_id=(SELECT project_id FROM collection_jobs WHERE id=? AND kind='list') AND repository_id=? AND ${receipt}`,
+				`UPDATE workbench_repositories SET discovery_state='failed',discovery_message=? WHERE project_id=(SELECT project_id FROM collection_jobs WHERE id=? AND kind='list' AND import_number IS NULL) AND repository_id=? AND ${receipt}`,
 			)
 			.bind(message, id, repositoryId, ...receiptBinds),
 		db
@@ -661,7 +676,7 @@ export async function completeJob(
       WHEN EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=collection_jobs.id AND r.state='succeeded') THEN 'partial' ELSE 'failed' END,
       updated_at=?,completed_at=?,completed_pulls=COALESCE((SELECT SUM(pull_count) FROM collection_job_repositories WHERE job_id=collection_jobs.id),0),
       total_pulls=(SELECT SUM(pull_count) FROM collection_job_repositories WHERE job_id=collection_jobs.id),
-      message=CASE WHEN catalogue_only=1 THEN 'Repository discovery tasks queued' ELSE 'Repository PR list refreshed' END,phase='finished',lease_token=NULL,lease_expires_at=NULL
+      message=CASE WHEN import_number IS NOT NULL THEN 'Exact PR summary imported' WHEN catalogue_only=1 THEN 'Repository discovery tasks queued' ELSE 'Repository PR list refreshed' END,phase='finished',lease_token=NULL,lease_expires_at=NULL
       WHERE id=? AND repositories_resolved=1 AND ${RUNNING_JOB}
       AND NOT EXISTS (SELECT 1 FROM collection_job_repositories r WHERE r.job_id=collection_jobs.id AND r.state IN ('queued','running','canceled'))`)
 		.bind(timestamp, timestamp, id, id, token, timestamp)

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { demoWorkspace } from "@signoff/domain/demo";
 import type { AdoPagedClient } from "../ado/client";
-import { discoverRepositoryPulls } from "./ado";
+import { discoverRepositoryPulls, importRepositoryPull } from "./ado";
 
 const project = demoWorkspace(1789646400).projects[0]!;
 const repository = {
@@ -23,6 +23,106 @@ const raw = (n: number) => ({
 		...repository,
 		project: { id: repository.projectGuid, name: project.projectKey },
 	},
+});
+test("explicit import reads only the requested old PR summary in every lifecycle state", async () => {
+	const calls: string[] = [];
+	for (const [number, status, draft, state] of [
+		[10, "active", false, "open"],
+		[11, "active", true, "open"],
+		[12, "completed", false, "merged"],
+		[13, "abandoned", false, "closed"],
+	] as const) {
+		const pull = await importRepositoryPull(
+			{
+				get: async (url: string) => {
+					calls.push(url);
+					return {
+						...raw(number),
+						status,
+						isDraft: draft,
+						creationDate: "2026-01-01T00:00:00Z",
+					};
+				},
+			},
+			{ ...project, source: "cli" },
+			repository,
+			number,
+			1789646400,
+		);
+		expect(pull).toMatchObject({
+			number,
+			state,
+			draft,
+			projectId: project.id,
+			checksObservedAt: null,
+			policies: [],
+			builds: [],
+		});
+	}
+	expect(calls.map((url) => new URL(url).pathname.split("/").at(-1))).toEqual([
+		"10",
+		"11",
+		"12",
+		"13",
+	]);
+	expect(calls.every((url) => !url.includes("searchCriteria"))).toBe(true);
+});
+test("explicit import rejects a different PR, repository or external project", async () => {
+	for (const data of [
+		raw(2),
+		{ ...raw(1), repository: { ...raw(1).repository, id: "foreign" } },
+		{
+			...raw(1),
+			repository: {
+				...raw(1).repository,
+				project: { id: "foreign", name: project.projectKey },
+			},
+		},
+	]) {
+		await expect(
+			importRepositoryPull(
+				{ get: async () => data },
+				{ ...project, source: "cli" },
+				repository,
+				1,
+				1789646400,
+			),
+		).rejects.toThrow(/identity/i);
+	}
+});
+test("explicit import never manufactures lifecycle or creation facts from invalid summaries", async () => {
+	for (const data of [
+		{ ...raw(1), status: "unknown" },
+		{ ...raw(1), creationDate: undefined },
+		{ ...raw(1), creationDate: "invalid" },
+		{ ...raw(1), creationDate: "2099-01-01T00:00:00Z" },
+	]) {
+		await expect(
+			importRepositoryPull(
+				{ get: async () => data },
+				{ ...project, source: "cli" },
+				repository,
+				1,
+				1789646400,
+			),
+		).rejects.toThrow(/lifecycle|creation/i);
+	}
+});
+test("import generates the cache identity from the registered repository spelling", async () => {
+	const pull = await importRepositoryPull(
+		{
+			get: async () => ({
+				...raw(1),
+				repository: { ...raw(1).repository, id: repository.id.toUpperCase() },
+			}),
+		},
+		{ ...project, source: "cli" },
+		repository,
+		1,
+		1789646400,
+	);
+	expect(pull.id).toBe(`ado:${project.id}:${repository.id}:1`);
+	expect(pull.repository.id).toBe(repository.id);
 });
 test("deep discovery pages every state within ninety days and never loads checks", async () => {
 	const calls: URL[] = [];

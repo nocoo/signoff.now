@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { DB_SCHEMA_VERSION } from "./index.ts";
 import {
 	applyMigrations,
@@ -330,6 +332,59 @@ describe("D1 migrations", () => {
 		expect(details.toLowerCase()).toMatch(
 			/scores|primary|developer_id|day_key/,
 		);
+	});
+
+	test("explicit import migration preserves cached PRs, watches, collections and pending jobs", () => {
+		const db = openMemoryDb();
+		try {
+			const migration = "0048_explicit_pull_import.sql";
+			for (const file of listMigrationFiles(migrationsDir).filter(
+				(name) => name < migration,
+			))
+				db.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
+			db.exec(`
+				INSERT INTO projects(id,provider,name,organization,project_key,owner,source,created_at,updated_at)
+				VALUES('p','ado','Project','org','project','owner','cli',1,1);
+				INSERT INTO pull_requests(id,project_id,repository_id,external_id,state,updated_at,snapshot)
+				VALUES('pr','p','repo','1','open',1,'{"repository":{"name":"Repo"}}');
+				INSERT INTO pr_observations(id,identity,activation_token,source,project_id,ref_json,pull_id,generation,active,added_at)
+				VALUES('watch','key','activation','cli','p','{}','pr',1,1,1);
+				INSERT INTO pr_collections(id,source,name,color,icon,created_at,updated_at)
+				VALUES('collection','cli','Collection','blue','folder',1,1);
+				INSERT INTO pr_collection_members(collection_id,pull_id,added_at) VALUES('collection','pr',1);
+				INSERT INTO collection_jobs(id,project_id,revision,source,project_json,state,requested_at,updated_at,not_before,kind,scope_json,scope_key)
+				VALUES('job','p',1,'cli','{}','queued',1,1,1,'list','["repo"]','["repo"]');
+			`);
+			const tables = [
+				"pull_requests",
+				"pr_observations",
+				"pr_collections",
+				"pr_collection_members",
+				"workbench_repositories",
+			];
+			const before = tables.map((table) =>
+				db.query(`SELECT * FROM ${table}`).all(),
+			);
+			const jobs = db
+				.query("SELECT id,state,not_before,scope_key FROM collection_jobs")
+				.all();
+			db.exec(readFileSync(path.join(migrationsDir, migration), "utf8"));
+			expect(
+				tables.map((table) => db.query(`SELECT * FROM ${table}`).all()),
+			).toEqual(before);
+			expect(
+				db
+					.query("SELECT id,state,not_before,scope_key FROM collection_jobs")
+					.all(),
+			).toEqual(jobs);
+			expect(
+				db
+					.query("SELECT import_number FROM collection_jobs WHERE id='job'")
+					.get(),
+			).toEqual({ import_number: null });
+		} finally {
+			db.close();
+		}
 	});
 
 	test("idempotent re-apply skips already applied migrations", () => {

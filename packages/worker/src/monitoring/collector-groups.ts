@@ -16,7 +16,7 @@ export async function queryCollectorGroups(
 		 CASE WHEN r.repository_id IS NULL THEN '[]' ELSE json_array(lower(r.repository_id)) END scope_key
 		 FROM projects p LEFT JOIN workbench_repositories r ON r.project_id=p.id WHERE p.source=? AND p.provider='ado'
 		 UNION SELECT p.id,p.name,p.source,p.revision,p.enabled,p.created_at,json_extract(j.scope_json,'$[0]'),json_extract(j.scope_json,'$[0]'),j.scope_key
-		 FROM projects p JOIN collection_jobs j ON j.project_id=p.id AND j.revision=p.revision AND j.kind='list' AND j.catalogue_only=0
+		 FROM projects p JOIN collection_jobs j ON j.project_id=p.id AND j.revision=p.revision AND j.kind='list' AND j.catalogue_only=0 AND j.import_number IS NULL
 		 WHERE p.source=? AND j.state IN ('queued','running','auth_required') AND NOT EXISTS (
 		 SELECT 1 FROM workbench_repositories r WHERE r.project_id=p.id AND json_array(lower(r.repository_id))=j.scope_key)
 	 ), discovery_groups AS (

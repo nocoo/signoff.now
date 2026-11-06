@@ -61,6 +61,7 @@ const POLICIES: Record<string, RoutePolicy> = {
 	"POST /api/commands/v1/observations/remove": "member",
 	"POST /api/commands/v1/refresh": "member",
 	"POST /api/commands/v1/discover": "admin",
+	"POST /api/commands/v1/import-prs": "admin",
 
 	"GET /api/workbench": "member",
 	"POST /api/projects": "admin",

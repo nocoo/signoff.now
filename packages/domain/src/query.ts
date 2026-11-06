@@ -241,7 +241,13 @@ export const jobQuerySchema = z.object({
 	id: z.string(),
 	target: watchRefSchema.nullable().optional(),
 	source: querySourceSchema,
-	kind: z.enum(["discover", "refresh"]),
+	kind: z.enum(["discover", "refresh", "import"]),
+	importNumber: z
+		.number()
+		.int()
+		.positive()
+		.max(Number.MAX_SAFE_INTEGER)
+		.optional(),
 	lane: z.enum(["checks", "discover"]).optional(),
 	phase: z.string().optional(),
 	events: z
@@ -377,7 +383,13 @@ export const collectorQuerySchema = z.object({
 
 export const jobReceiptSchema = z.object({
 	id: z.string(),
-	kind: z.enum(["discover", "refresh"]),
+	kind: z.enum(["discover", "refresh", "import"]),
+	importNumber: z
+		.number()
+		.int()
+		.positive()
+		.max(Number.MAX_SAFE_INTEGER)
+		.optional(),
 	state: jobQuerySchema.shape.state,
 	coalesced: z.boolean(),
 	notBefore: iso,

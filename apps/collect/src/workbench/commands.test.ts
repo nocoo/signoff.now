@@ -256,6 +256,114 @@ async function cli(...args: string[]) {
 	});
 }
 
+test("explicit import queues only sorted unique PR numbers and preserves per-number receipts", async () => {
+	const repositoryUrl = referenceLinks(ref).repository.url;
+	const receipts = [10, 20].map((number) => ({
+		id: `import-${number}`,
+		kind: "import",
+		importNumber: number,
+		state: "queued",
+		coalesced: number === 10,
+		notBefore: iso(now),
+	}));
+	reply = () => Response.json({ jobs: receipts });
+	await cli("pr", "import", "20", "10", "20", "--repo", repositoryUrl);
+	expect(calls).toHaveLength(1);
+	expect(calls[0]).toMatchObject({
+		method: "POST",
+		body: { source: "live", repositoryUrl, numbers: [10, 20] },
+	});
+	expect(calls[0]!.url.pathname).toBe("/api/commands/v1/import-prs");
+	expect(JSON.parse(stdout)).toEqual({ jobs: receipts });
+	expect(process.exitCode).toBe(0);
+});
+test.each(["0", "-1", "1.5", "01", "9007199254740992"])(
+	"explicit import rejects invalid number %s before any request",
+	async (number) => {
+		await expect(
+			cli(
+				"pr",
+				"import",
+				"--repo",
+				referenceLinks(ref).repository.url,
+				"--",
+				number,
+			),
+		).rejects.toThrow();
+		expect(calls).toHaveLength(0);
+		expect(stdout).toBe("");
+	},
+);
+test("explicit import rejects Sample and invalid repository URLs before any request", async () => {
+	await expect(
+		cli(
+			"--source",
+			"sample",
+			"pr",
+			"import",
+			"10",
+			"--repo",
+			referenceLinks(ref).repository.url,
+		),
+	).rejects.toThrow("Live only");
+	await expect(
+		cli("pr", "import", "10", "--repo", "https://foreign.test/repo"),
+	).rejects.toThrow();
+	expect(calls).toHaveLength(0);
+});
+test("explicit import does not print successful receipts when the API rejects scope", async () => {
+	reply = () =>
+		Response.json(
+			{
+				error: {
+					code: "INVALID_SCOPE",
+					message: "Repository outside registered scope",
+					retryable: false,
+				},
+			},
+			{ status: 400 },
+		);
+	await expect(
+		cli("pr", "import", "10", "--repo", referenceLinks(ref).repository.url),
+	).rejects.toThrow();
+	expect(calls).toHaveLength(1);
+	expect(stdout).toBe("");
+});
+test.each([
+	"queued",
+	"running",
+	"succeeded",
+	"failed",
+	"partial",
+	"canceled",
+	"auth_required",
+])(
+	"cached import job %s prints its per-number result and preserves non-success exit behavior",
+	async (state) => {
+		const failure = ["failed", "partial", "canceled", "auth_required"].includes(
+			state,
+		);
+		const returned = {
+			...job,
+			kind: "import",
+			importNumber: 10,
+			state,
+			result: state === "succeeded" ? pull : null,
+			error: failure ? "not_found" : null,
+		};
+		reply = () => Response.json(returned);
+		await cli("job", "get", job.id);
+		expect(JSON.parse(stdout)).toMatchObject({
+			kind: "import",
+			importNumber: 10,
+			state,
+			result: returned.result,
+		});
+		expect(process.exitCode).toBe(failure ? 3 : 0);
+		expect(calls.map((call) => call.method)).toEqual(["GET"]);
+	},
+);
+
 test("list options preserve repeated scope/author filters and --all buffers every page", async () => {
 	reply = (url) =>
 		Response.json({

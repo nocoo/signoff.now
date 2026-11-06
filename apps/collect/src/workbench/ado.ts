@@ -137,6 +137,63 @@ export type RepoMeta = {
 	projectGuid: string;
 	observedAt?: number;
 };
+export async function importRepositoryPull(
+	client: Pick<AdoPagedClient, "get">,
+	project: Project,
+	repo: RepoMeta,
+	number: number,
+	now: number,
+): Promise<PullRequest> {
+	if (
+		project.source !== "cli" ||
+		project.provider !== "ado" ||
+		!Number.isSafeInteger(number) ||
+		number <= 0
+	)
+		throw new AdoError(
+			"bad_request",
+			"Explicit PR import requires a Live ADO scope and a positive PR number",
+		);
+	const started = Date.now();
+	const rawPr = parseRaw(
+		adoPullRequestSummarySchema,
+		await client.get(
+			adoUrl(
+				`${BASE_URL}/${encodeURIComponent(project.organization)}/${encodeURIComponent(repo.projectGuid)}`,
+				`_apis/git/repositories/${encodeURIComponent(repo.id)}/pullrequests/${number}`,
+			),
+		),
+		"explicit PR summary",
+	);
+	if (
+		rawPr.pullRequestId !== number ||
+		rawPr.repository.id.toLowerCase() !== repo.id.toLowerCase() ||
+		rawPr.repository.project?.id?.toLowerCase() !==
+			repo.projectGuid.toLowerCase()
+	)
+		throw new AdoError(
+			"bad_response",
+			"PR identity differs from the registered import scope",
+		);
+	const createdAt = parseSeconds(rawPr.creationDate);
+	if (
+		createdAt === null ||
+		createdAt > now ||
+		!["active", "completed", "abandoned"].includes(rawPr.status.toLowerCase())
+	)
+		throw new AdoError(
+			"bad_response",
+			"PR lifecycle or creation date is missing or invalid",
+		);
+	return normalizePullRequest({
+		projectId: project.id,
+		rawPr: { ...rawPr, repository: { ...rawPr.repository, id: repo.id } },
+		now: now + Math.max(0, (Date.now() - started) / 1000),
+		summaryObservedAt: now,
+		checksObservedAt: null,
+		collectionIssues: ["Summary-only import; checks have not been collected."],
+	});
+}
 
 export function policyArtifactId(
 	projectGuid: string,

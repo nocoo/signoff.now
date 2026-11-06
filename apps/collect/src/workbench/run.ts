@@ -15,6 +15,7 @@ import {
 	collectProjectPulls,
 	discoverRepositories,
 	discoverRepositoryPulls,
+	importRepositoryPull,
 } from "./ado.ts";
 import type { CollectionClient } from "./client.ts";
 
@@ -147,6 +148,61 @@ async function sampleTask(
 	return api.complete(claim);
 }
 
+async function importTask(
+	api: CollectionClient,
+	claim: CollectorClaim,
+	ado: AdoPagedClient,
+	setPhase: (
+		phase: import("@signoff/domain/collection").CollectionPhase,
+		message: string,
+	) => Promise<void>,
+	beforePublish: () => Promise<void>,
+) {
+	const repo = claim.repositories?.[0];
+	const number = claim.job.importNumber;
+	if (
+		!repo?.projectExternalId ||
+		claim.repositories?.length !== 1 ||
+		number === undefined
+	)
+		throw new Error(
+			"Import task has no resolved repository identity or PR number",
+		);
+	const planned = await api.repositories(claim, [{ ...repo, observedAt: 0 }]);
+	if (
+		planned.some(
+			(entry) => entry.repository_id === repo.id && entry.state === "succeeded",
+		)
+	) {
+		await beforePublish();
+		return api.complete(claim);
+	}
+	await setPhase("state", `Importing PR #${number} summary`);
+	const pull = await importRepositoryPull(
+		ado,
+		claim.project,
+		{
+			...repo,
+			projectGuid: repo.projectExternalId,
+		},
+		number,
+		Date.now() / 1000,
+	);
+	await setPhase("publishing", `Saving PR #${number} summary`);
+	await api.upload(claim, [pull]);
+	await beforePublish();
+	await api.publish(claim, repo.id, "complete", 1, "Exact PR summary imported");
+	return api.complete(claim);
+}
+
+function validateImportScope(claim: CollectorClaim) {
+	if (
+		claim.job.importNumber !== undefined &&
+		(claim.project.source !== "cli" || claim.project.provider !== "ado")
+	)
+		throw new Error("Explicit import requires a Live ADO project");
+}
+
 /** Executor only consumes saved tasks. No provider setup or login checks on an idle claim. */
 export async function runCollectionOnce(opts: RunOptions): Promise<{
 	processed: boolean;
@@ -210,6 +266,7 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 	}, opts.keepAliveMs ?? 20_000);
 	try {
 		const timestamp = Math.floor(Date.now() / 1000);
+		validateImportScope(claim);
 		if (claim.project.source === "demo") {
 			clearInterval(timer);
 			await reporting;
@@ -238,6 +295,15 @@ export async function runCollectionOnce(opts: RunOptions): Promise<{
 		await setPhase("authenticating", "Checking provider credentials");
 		await ado.checkAuth(claim.project.organization);
 		check();
+		if (claim.job.importNumber !== undefined) {
+			const result = await importTask(api, claim, ado, setPhase, async () => {
+				clearInterval(timer);
+				await reporting;
+				check();
+				publishing = true;
+			});
+			return finish(result.state as "complete" | "partial" | "failed");
+		}
 		if (claim.job.kind === "list") {
 			await setPhase("repositories", "Resolving project repositories");
 			const repos =
