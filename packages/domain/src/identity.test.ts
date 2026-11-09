@@ -36,7 +36,9 @@ describe("matchDeveloper", () => {
 	});
 
 	test("blank suffix entries are ignored", () => {
-		expect(matchDeveloper("ada@example.com", devs, ["", "  ", "example.com"])).toEqual({
+		expect(
+			matchDeveloper("ada@example.com", devs, ["", "  ", "example.com"]),
+		).toEqual({
 			id: "a",
 		});
 	});
