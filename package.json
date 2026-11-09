@@ -58,7 +58,7 @@
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,json,jsonc,css}": [
-			"bunx @biomejs/biome check --write --error-on-warnings"
+			"bunx @biomejs/biome check --error-on-warnings"
 		]
 	},
 	"overrides": {
