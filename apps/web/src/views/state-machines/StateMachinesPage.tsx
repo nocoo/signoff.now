@@ -449,7 +449,6 @@ function MachineWorkspace({
 								key={String(id)}
 								variant={tab === id ? "secondary" : "ghost"}
 								size="icon"
-								className="h-8 w-8"
 								aria-label={String(label)}
 								title={String(label)}
 								onClick={() => option("tab", tab === id ? null : String(id))}

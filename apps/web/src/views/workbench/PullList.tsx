@@ -589,7 +589,6 @@ function PullTableRow({
 						variant="ghost"
 						size="icon"
 						className={cn(
-							"h-8 w-8",
 							watching
 								? "bg-basalt-primary/10 text-basalt-primary hover:bg-basalt-primary/15 hover:text-basalt-primary"
 								: "text-basalt-muted-foreground hover:bg-basalt-muted hover:text-basalt-foreground",

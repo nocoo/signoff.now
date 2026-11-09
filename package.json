@@ -76,12 +76,12 @@
 		"vite": "^8.3.5",
 		"source-map-js": "^1.2.2"
 	},
-	"patchedDependencies": {
-		"@nocoo/basalt@2.2.0": "patches/@nocoo%2Fbasalt@2.2.0.patch"
-	},
 	"dependencies": {
 		"@nocoo/basalt": "3.2.1",
 		"jose": "6.2.13",
 		"lucide-react": "1.61.0"
+	},
+	"patchedDependencies": {
+		"@nocoo/basalt@3.2.1": "patches/@nocoo%2Fbasalt@3.2.1.patch"
 	}
 }

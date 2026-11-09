@@ -174,7 +174,6 @@ function PullDetailSkeleton() {
 						<Button
 							variant="ghost"
 							size="icon"
-							className="h-8 w-8"
 							aria-label="Close pull request details"
 						>
 							<X className="h-4 w-4" aria-hidden />
@@ -323,7 +322,7 @@ function PullDetail({
 						<Button
 							variant="ghost"
 							size="icon"
-							className="h-8 w-8 shrink-0"
+							className="shrink-0"
 							aria-label="Close pull request details"
 						>
 							<X className="h-4 w-4" aria-hidden />

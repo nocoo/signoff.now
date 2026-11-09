@@ -14,7 +14,7 @@
 		"test:watch": "vitest"
 	},
 	"dependencies": {
-		"@nocoo/basalt": "2.2.0",
+		"@nocoo/basalt": "3.2.1",
 		"@signoff/domain": "workspace:*",
 		"@xyflow/react": "12.12.0",
 		"clsx": "^2.1.1",

@@ -38,7 +38,7 @@ describe("SelectControl", () => {
 		const select = screen.getByRole("combobox");
 		expect(select.className).toContain("bg-basalt-control");
 		expect(select.className).toContain("rounded-basalt-md");
-		expect(select.className).toContain("h-9");
+		expect(select.className).toContain("basalt-action");
 	});
 
 	it("maps the application's blank option through the Basalt select", async () => {
