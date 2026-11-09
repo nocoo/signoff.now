@@ -52,15 +52,15 @@ G2 requires dependency and secret scans, with missing required scanners failing.
 
 | Dimension | Status | Required proof and current evidence/gap |
 |---|---|---|
-| L1 TypeScript | planned | Vitest gates web four metrics at 95%, gitinfo branches at 88%, pulse at 90%; Bun packages lack branch coverage and collect functions is 93%. Exclusions also leave full 95% incomplete. CI uses full Biome with errors on warnings and typecheck; local pre-commit uses autofixing lint-staged, so index check-only behavior is incomplete. |
+| L1 TypeScript | planned | Vitest gates web four metrics at 95%, gitinfo branches at 88%, pulse at 90%; Bun packages lack branch coverage and collect functions is 93%. Exclusions also leave full 95% incomplete. CI and local pre-commit share check-only Biome and typecheck; pre-commit runs L1 against the Git index snapshot via `git checkout-index` (test:coverage, lint, typecheck) and never autofixes or restages. |
 | L2 Worker / CLI | planned | Unit suites include real SQLite and independent concurrent connections behind a D1 adapter. Monitoring adds HTTP contract tests and real CLI subprocess workflows. Full 100% route/command proof across legacy APIs is still incomplete. |
 | L3 browser / CLI | manual | `bun run test:e2e` runs Playwright against a disposable Wrangler Worker/D1 plus real CLI subprocesses, with an injected provider. Covers discovery, watch add/remove, terminal retirement, concurrency and Live/Sample separation; `bun run test:e2e -- <spec or -g filter>` selects tests. Not yet wired to CI; legacy flows remain outside this lane. |
 | G2 | enforced | `security` runs OSV and gitleaks in parallel, failing on missing tools/findings; CI shares the security gate. Existing ignores must stay explicit and reviewed. |
 | D1 | planned | Monitoring unit/system harnesses use memory/temp SQLite and per-run D1/ports/process groups with marker/ownership cleanup guards. The legacy Activity shell E2E still uses default local D1 and fixed `.data` fixtures; run it only in a disposable copy. |
 
-Pre-commit runs coverage, lint-staged and typecheck. Pre-push runs G2 only; the Electron-era L2 was removed. Secret scope is upstream..HEAD (or full history without upstream), not every stdin push ref. CI adds quality/security, not L2/L3.
+Pre-commit exports the staged index into a disposable directory, runs `test:coverage`, `lint`, and `typecheck` there, and removes the directory on exit or interrupt; hooks never rewrite the working tree. `lint-staged` remains check-only for manual use. Pre-push runs G2 only; the Electron-era L2 was removed. Secret scope is upstream..HEAD (or full history without upstream), not every stdin push ref. CI adds quality/security, not L2/L3.
 
-Target hooks: pre-commit checks unified L1 against the index snapshot (`git checkout-index`) in <30s; pre-push checks L2 and G2 in parallel against every stdin push ref/commit in <3min, plus build where applicable. L3 runs in CI or an explicit manual lane.
+Target hooks: pre-commit meets the unified L1 index snapshot contract in <30s; pre-push checks L2 and G2 in parallel against every stdin push ref/commit in <3min, plus build where applicable. L3 runs in CI or an explicit manual lane.
 Never bypass commit/push hooks, force-push, or use autofix in checks. Documentation changes do not authorize deploying or implementing new gates.
 
 ## Resources and isolation
