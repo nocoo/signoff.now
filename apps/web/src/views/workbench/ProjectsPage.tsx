@@ -216,7 +216,6 @@ export function ProjectsPage() {
 										<Button
 											variant="ghost"
 											size="icon"
-											className="h-8 w-8"
 											aria-label={`Edit ${project.name}`}
 											disabled={Boolean(vm.busy) || project.provider !== "ado"}
 											onClick={(event) => {
@@ -359,7 +358,7 @@ export function ProjectsPage() {
 										<Button
 											variant="ghost"
 											size="icon"
-											className="h-8 w-8 text-basalt-muted-foreground hover:text-basalt-destructive"
+											className="text-basalt-muted-foreground hover:text-basalt-destructive"
 											aria-label={`Delete ${project.name}`}
 											disabled={Boolean(vm.busy)}
 											onClick={(event) => {
