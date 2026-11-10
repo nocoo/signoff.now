@@ -1,4 +1,7 @@
+# CI slot standard v1 (nocoo/base-ci docs/slots.md): impl S1, S2, S3, G1, G2, B1, L1, L3, Z1 via quality.yml;
+# na L1.5, L2, P1 in slot-status. nocoo/base-ci v2026.12: top-level slot jobs, L3 browsers/artifacts.
 name: CI
+
 on:
   push:
     branches: [main]
@@ -6,12 +9,43 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   quality:
-    uses: nocoo/base-ci/.github/workflows/quality.yml@633a5545fcfec91b688840650d4edf3e9cc1abbd # v2026.10
+    uses: nocoo/base-ci/.github/workflows/quality.yml@1ea10ecab22b72512399485391603fe03a161016 # v2026.12
     with:
       runtime-version: "1.4.0"
-      install-policy: "blocked"
-      test-command: "bun run test:coverage"
-      typecheck-command: "bun run typecheck"
-      osv-config: "osv-scanner.toml"
+      node-version: "26.12.1"
+      install-policy: blocked
+      test-command: bun run test:coverage
+      typecheck-command: bun run typecheck
+      osv-config: osv-scanner.toml
+      gitleaks-config: .gitleaks.toml
+      build: true
+      build-command: bun run build:web
+      workflow-lint: true
+      workflow-lint-required-workflow: nocoo/base-ci/.github/workflows/deploy-worker.yml
+      workflow-lint-yamllint: true
+      l3: true
+      l3-browsers: "chromium webkit"
+      l3-command: bun run test:e2e
+      l3-artifact-name: browser-evidence
+      l3-artifact-path: |
+        test-results/
+      l3-artifact-retention-days: 14
+      env-json: '{"WRANGLER_SEND_METRICS": "false", "CI": "true"}'
+      slot-status: >-
+        {"S1": {"status": "impl"},
+        "S2": {"status": "impl"},
+        "S3": {"status": "impl"},
+        "G1": {"status": "impl"},
+        "G2": {"status": "impl"},
+        "B1": {"status": "impl"},
+        "L1": {"status": "impl"},
+        "L1.5": {"status": "na", "reason": "无 @cloudflare/vitest-pool-workers / miniflare Worker 运行时测试套件；Worker 逻辑在 L1 bun test 与 L3 wrangler dev E2E 覆盖"},
+        "L2": {"status": "na", "reason": "无独立 L2 API E2E 命令；HTTP/Worker/CLI 集成由 L3 scripts/test-e2e.ts 覆盖"},
+        "L3": {"status": "impl"},
+        "P1": {"status": "na", "reason": "package.json 为 private，不发布 npm 包"},
+        "Z1": {"status": "impl"}}
