@@ -45,7 +45,7 @@ SignOff 为大型项目维护者提供跨项目 PR 工作台。用户添加 Azur
 在 `https://signoff.hexly.ai` 打开 **Workspace → Connectors**，页面按步骤显示进度。命令如下：
 
 ```bash
-npm install -g @nocoo/signoff            # 需要 Node.js 22+
+npm install -g @nocoo/signoff            # 需要 Node.js 26+
 signoff connector login                  # 浏览器弹窗登录，token 保存在 ~/.config/signoff/connector.json
 az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default
 signoff daemon                           # 保持运行，心跳到达后页面变绿
@@ -146,7 +146,7 @@ curl -H "CF-Access-Client-Id: <id>" \
 
 ## 开发
 
-准备 Bun（仓库 `packageManager` 与 CI 固定为 1.4.0）、Node.js 22.23.4–22.x、24.x 或 26+ 和 Git。Vite / Vitest 及 pre-commit 工具使用 Node.js，CLI 使用 Bun。
+准备 Bun（仓库 `packageManager` 与 CI 固定为 1.4.0）、Node.js 26.x LTS（CI 固定 26.12.1）和 Git。Vite / Vitest 及 pre-commit 工具使用 Node.js，CLI 使用 Bun。
 
 ```bash
 git clone https://github.com/nocoo/signoff.now.git
