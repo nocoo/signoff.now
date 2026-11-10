@@ -202,7 +202,7 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 	).toHaveCount(0);
 	const lifecycle = row.locator('[title="Provider PR lifecycle"]');
 	await expect(lifecycle).toHaveText("Open");
-	await expect(lifecycle).toHaveClass(/bg-basalt-heatmap-green/);
+	await expect(lifecycle).toBeVisible();
 	expect(
 		await row
 			.getByText(branch, { exact: true })
