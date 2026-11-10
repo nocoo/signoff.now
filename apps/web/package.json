@@ -1,7 +1,7 @@
 {
 	"name": "@signoff/web",
 	"private": true,
-	"version": "0.4.1",
+	"version": "0.4.2",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -16,14 +16,14 @@
 	"dependencies": {
 		"@nocoo/basalt": "3.2.1",
 		"@signoff/domain": "workspace:*",
-		"@xyflow/react": "12.12.0",
+		"@xyflow/react": "12.12.1",
 		"clsx": "^2.1.1",
-		"elkjs": "0.12.0",
-		"lucide-react": "1.59.0",
+		"elkjs": "0.12.1",
+		"lucide-react": "1.70.0",
 		"react": "19.3.1",
 		"react-dom": "19.3.1",
 		"react-markdown": "10.1.0",
-		"react-router": "8.5.0",
+		"react-router": "8.5.1",
 		"recharts": "3.10.1",
 		"remark-gfm": "4.0.1",
 		"tailwind-merge": "3.7.0"
@@ -32,15 +32,15 @@
 		"@tailwindcss/vite": "4.3.3",
 		"@testing-library/dom": "10.4.2",
 		"@testing-library/react": "16.3.3",
-		"@types/node": "26.6.5",
+		"@types/node": "26.6.6",
 		"@types/react": "19.3.0",
 		"@types/react-dom": "19.3.0",
 		"@vitejs/plugin-react-swc": "^4.3.3",
 		"@vitest/coverage-v8": "5.0.5",
 		"happy-dom": "21.0.4",
-		"tailwindcss": "4.3.3",
+		"tailwindcss": "4.3.5",
 		"typescript": "7.0.2",
 		"vite": "8.3.5",
-		"vitest": "5.0.5"
+		"vitest": "5.1.0"
 	}
 }

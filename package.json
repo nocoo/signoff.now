@@ -1,6 +1,6 @@
 {
 	"name": "@signoff/repo",
-	"version": "0.4.1",
+	"version": "0.4.2",
 	"private": true,
 	"type": "module",
 	"engines": {
@@ -13,9 +13,9 @@
 		"tooling/*"
 	],
 	"devDependencies": {
-		"@biomejs/biome": "2.6.3",
+		"@biomejs/biome": "2.6.6",
 		"@cloudflare/workers-types": "5.20261023.1",
-		"@playwright/test": "1.64.1",
+		"@playwright/test": "1.65.0",
 		"@types/bun": "1.4.4",
 		"@vitest/coverage-v8": "^5.0.5",
 		"bun-types": "1.4.4",
@@ -25,7 +25,7 @@
 		"turbo": "2.11.10",
 		"typescript": "7.0.2",
 		"vite": "8.3.5",
-		"vitest": "^5.0.5",
+		"vitest": "5.1.0",
 		"wrangler": "4.152.0"
 	},
 	"scripts": {
@@ -79,7 +79,7 @@
 	"dependencies": {
 		"@nocoo/basalt": "3.2.1",
 		"jose": "6.2.13",
-		"lucide-react": "1.61.0"
+		"lucide-react": "1.70.0"
 	},
 	"patchedDependencies": {
 		"@nocoo/basalt@3.2.1": "patches/@nocoo%2Fbasalt@3.2.1.patch"
