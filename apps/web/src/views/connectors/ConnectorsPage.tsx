@@ -179,7 +179,7 @@ export function ConnectorsPage() {
 						title="Install the SignOff CLI"
 						state={stepState("install")}
 					>
-						<p>Requires Node.js 22 or later.</p>
+						<p>Requires Node.js 26 or later.</p>
 						<CommandLine command={commands.install} />
 					</Step>
 					<Step

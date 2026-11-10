@@ -10,7 +10,7 @@
 		"dist"
 	],
 	"engines": {
-		"node": ">=22.16"
+		"node": ">=26.0.0"
 	},
 	"scripts": {
 		"build": "bun run build.ts",

@@ -1329,12 +1329,12 @@ describe("shared watch mutations", () => {
 			</MemoryRouter>,
 		);
 		const table = await screen.findByRole("table", { name: "Pull requests" });
-		const button = (number: number) =>
-			screen.getByRole("button", {
+		const findWatchButton = (number: number) =>
+			screen.findByRole("button", {
 				name: `Watch PR #${number} in ${project.projectKey}/${pull.repository.name}`,
-			}) as HTMLButtonElement;
-		const firstButton = button(pull.number);
-		const secondButton = button(other.number);
+			}) as Promise<HTMLButtonElement>;
+		const firstButton = await findWatchButton(pull.number);
+		const secondButton = await findWatchButton(other.number);
 		fireEvent.click(firstButton);
 		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
 		expect(firstButton.getAttribute("aria-busy")).toBe("true");
@@ -1369,7 +1369,7 @@ describe("shared watch mutations", () => {
 				],
 			});
 		});
-		expect(button(pull.number)).toBe(firstButton);
+		expect(await findWatchButton(pull.number)).toBe(firstButton);
 		expect(screen.getByRole("table", { name: "Pull requests" })).toBe(table);
 		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
 		expect(firstButton.disabled).toBe(false);
