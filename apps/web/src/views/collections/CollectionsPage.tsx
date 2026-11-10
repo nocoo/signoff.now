@@ -256,39 +256,43 @@ function CollectionDetail({
 	const count = pulls.data?.page.total ?? 0;
 	return (
 		<>
-			<div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 sm:flex sm:flex-wrap">
-				<CollectionIcon collection={c} />
-				<div className="min-w-0 flex-1">
-					<h1 className="break-words text-xl font-semibold tracking-tight">
+			<PageHeader
+				title={
+					<span className="inline-flex items-center gap-3">
+						<CollectionIcon collection={c} />
 						{c.name}
-					</h1>
-					<p className="mt-1 max-w-3xl whitespace-pre-wrap break-words text-xs leading-5 text-basalt-muted-foreground">
+					</span>
+				}
+				description={
+					<span className="whitespace-pre-wrap">
 						{c.description || "All members, across every PR state."}
-					</p>
-				</div>
-				<div className="col-span-2 flex items-center justify-end gap-1 sm:ml-auto">
-					<Button
-						size="icon"
-						variant="ghost"
-						aria-label="Edit collection"
-						onClick={onEdit}
-					>
-						<Pencil className="size-4" />
-					</Button>
-					<Button
-						size="icon"
-						variant="ghost"
-						aria-label="Delete collection"
-						onClick={() => setRemoving(true)}
-					>
-						<Trash2 className="size-4" />
-					</Button>
-					<Button size="sm" onClick={() => setAdding(true)}>
-						<Plus className="size-4" />
-						Add PRs
-					</Button>
-				</div>
-			</div>
+					</span>
+				}
+				actions={
+					<>
+						<Button
+							size="icon"
+							variant="ghost"
+							aria-label="Edit collection"
+							onClick={onEdit}
+						>
+							<Pencil className="size-4" />
+						</Button>
+						<Button
+							size="icon"
+							variant="ghost"
+							aria-label="Delete collection"
+							onClick={() => setRemoving(true)}
+						>
+							<Trash2 className="size-4" />
+						</Button>
+						<Button size="sm" onClick={() => setAdding(true)}>
+							<Plus className="size-4" />
+							Add PRs
+						</Button>
+					</>
+				}
+			/>
 			<div className="grid items-center gap-4 rounded-basalt-lg border border-basalt-border bg-basalt-muted/20 px-4 py-3 sm:grid-cols-[minmax(200px,1fr)_auto]">
 				<CollectionProgress collection={c} />
 				<p className="flex items-center gap-2 text-xs text-basalt-muted-foreground">
