@@ -258,9 +258,10 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	releaseList();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(20);
 	await expect(loadingTable).toHaveAttribute("aria-busy", "false");
-	const loadedHeight = (
-		await page.locator("tr[data-pull-id]").first().boundingBox()
-	)!.height;
+	const loadedHeight = (await page
+		.locator("tr[data-pull-id]")
+		.first()
+		.boundingBox())!.height;
 	expect(Math.abs(loadedHeight - skeletonHeight)).toBeLessThanOrEqual(16);
 	expect(await skeletonTable!.evaluate((element) => element.isConnected)).toBe(
 		true,
