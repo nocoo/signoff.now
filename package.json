@@ -79,7 +79,7 @@
 	"dependencies": {
 		"@nocoo/basalt": "3.2.1",
 		"jose": "6.2.17",
-		"lucide-react": "1.70.0"
+		"lucide-react": "1.72.0"
 	},
 	"patchedDependencies": {
 		"@nocoo/basalt@3.2.1": "patches/@nocoo%2Fbasalt@3.2.1.patch"
