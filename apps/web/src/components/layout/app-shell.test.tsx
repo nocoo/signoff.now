@@ -6,6 +6,10 @@ import { AppShell } from "@/components/layout/app-shell";
 import { NAV_GROUPS } from "@/lib/navigation";
 import { awaitReactAct } from "@/test/reactAct";
 
+vi.mock("@nocoo/basalt", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@nocoo/basalt")>();
+	return { ...actual, ThemeToggle: () => null };
+});
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/viewmodels/SessionProvider", () => ({
 	useSession: () => ({
@@ -35,9 +39,6 @@ vi.mock("@/viewmodels/WorkbenchProvider", () => ({
 	}),
 }));
 vi.mock("@/components/layout/sidebar", () => ({ Sidebar: () => null }));
-vi.mock("@/components/layout/theme-toggle", () => ({
-	ThemeToggle: () => null,
-}));
 vi.mock("@/components/layout/header-links", () => ({
 	HeaderTooltip: ({ children }: { children: ReactNode }) => children,
 	HexlyLink: () => null,

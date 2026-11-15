@@ -1,4 +1,4 @@
-import { TooltipProvider } from "@nocoo/basalt";
+import { SidebarProvider, TooltipProvider } from "@nocoo/basalt";
 import {
 	cleanup,
 	fireEvent,
@@ -90,7 +90,9 @@ const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
 	render(
 		<MemoryRouter>
 			<TooltipProvider>
-				<Sidebar collapsed={collapsed} onToggle={onToggle} />
+				<SidebarProvider collapsed={collapsed} onCollapsedChange={onToggle}>
+					<Sidebar collapsed={collapsed} onToggle={onToggle} />
+				</SidebarProvider>
 			</TooltipProvider>
 		</MemoryRouter>,
 	);
@@ -152,8 +154,8 @@ it.each([false, true])(
 			}),
 		);
 		expect(toggle).toHaveBeenCalledOnce();
-		expect(screen.queryByText("signoff") !== null).toBe(!collapsed);
-		expect(screen.queryByText("v0.0.1") !== null).toBe(!collapsed);
+		expect(screen.queryByText("signoff") !== null).toBe(true);
+		expect(screen.queryByText("v0.0.1") !== null).toBe(true);
 	},
 );
 it("retains tenant switching and mobile navigation callbacks without a profile", () => {
@@ -162,12 +164,14 @@ it("retains tenant switching and mobile navigation callbacks without a profile",
 	render(
 		<MemoryRouter>
 			<TooltipProvider>
-				<Sidebar
-					collapsed={false}
-					tenantSwitcher={<button type="button">Tenant switcher</button>}
-					onToggle={close}
-					onNavigate={navigate}
-				/>
+				<SidebarProvider collapsed={false}>
+					<Sidebar
+						collapsed={false}
+						tenantSwitcher={<button type="button">Tenant switcher</button>}
+						onToggle={close}
+						onNavigate={navigate}
+					/>
+				</SidebarProvider>
 			</TooltipProvider>
 		</MemoryRouter>,
 	);

@@ -1,32 +1,32 @@
 import {
-	Button,
+	Avatar,
+	AvatarFallback,
 	ContentIsland,
 	SegmentControl,
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetTitle,
+	SidebarDrawer,
+	SidebarProvider,
+	ThemeToggle,
 } from "@nocoo/basalt";
-import { AppHeader } from "@nocoo/basalt/components/app-header";
+import {
+	AppHeader,
+	AppHeaderMenuButton,
+	ProjectLinks,
+} from "@nocoo/basalt/components/app-header";
 import {
 	AppMain,
 	AppSkipLink,
 	AppShell as BasaltAppShell,
 } from "@nocoo/basalt/components/app-shell";
 import { Breadcrumbs } from "@nocoo/basalt/components/breadcrumbs";
-import { Menu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
-import { Github } from "@/components/icons/github";
 import { SelectControl } from "@/components/SelectControl";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { breadcrumbsFromPathname } from "@/lib/navigation";
 import type { PullFilter } from "@/models/workbench";
 import { useSession } from "@/viewmodels/SessionProvider";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
-import { HeaderTooltip, HexlyLink } from "./header-links";
 import { Sidebar } from "./sidebar";
-import { ThemeToggle } from "./theme-toggle";
 
 const SIDEBAR_KEY = "signoff-sidebar-collapsed";
 
@@ -79,57 +79,63 @@ export function AppShell() {
 		persistSidebarState(next);
 	};
 	const trail = breadcrumbsFromPathname(location.pathname);
+	const identityName = session?.name ?? session?.email ?? "SignOff user";
+	const identityInitial = identityName.trim().slice(0, 2).toUpperCase() || "SO";
+	const identityAvatar = (
+		<Avatar>
+			<AvatarFallback>{identityInitial}</AvatarFallback>
+		</Avatar>
+	);
 
 	return (
 		<BasaltAppShell className="relative">
 			<AppSkipLink>Skip to main content</AppSkipLink>
 			{!isMobile ? (
-				<Sidebar
+				<SidebarProvider
 					collapsed={collapsed}
-					admin={admin}
-					tenantSwitcher={tenantSwitcher}
-					onToggle={() => setDesktopCollapsed(!collapsed)}
-				/>
+					onCollapsedChange={setDesktopCollapsed}
+				>
+					<Sidebar
+						collapsed={collapsed}
+						admin={admin}
+						tenantSwitcher={tenantSwitcher}
+						identityName={identityName}
+						identityEmail={session?.email ?? undefined}
+						identityAvatar={identityAvatar}
+					/>
+				</SidebarProvider>
 			) : (
-				<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-					<SheetContent
-						side="left"
-						className="w-[260px] max-w-[260px] border-0 bg-basalt-background p-0"
-						onCloseAutoFocus={(event) => {
-							event.preventDefault();
-							menuRef.current?.focus();
-						}}
-					>
-						<SheetTitle className="sr-only">Navigation</SheetTitle>
-						<SheetDescription className="sr-only">
-							Choose a page in signoff.now.
-						</SheetDescription>
-						<Sidebar
-							collapsed={false}
-							admin={admin}
-							tenantSwitcher={tenantSwitcher}
-							onToggle={() => setMobileOpen(false)}
-							onNavigate={() => setMobileOpen(false)}
-						/>
-					</SheetContent>
-				</Sheet>
+				<SidebarDrawer
+					open={mobileOpen}
+					onOpenChange={setMobileOpen}
+					id="signoff-navigation"
+					returnFocusRef={menuRef}
+					title="Navigation"
+					description="Choose a page in signoff.now."
+				>
+					<Sidebar
+						collapsed={false}
+						admin={admin}
+						tenantSwitcher={tenantSwitcher}
+						identityName={identityName}
+						identityEmail={session?.email ?? undefined}
+						identityAvatar={identityAvatar}
+						onToggle={() => setMobileOpen(false)}
+						onNavigate={() => setMobileOpen(false)}
+						resizable={false}
+					/>
+				</SidebarDrawer>
 			)}
 			<AppMain tabIndex={-1}>
 				<AppHeader
 					leading={
 						<>
 							{isMobile ? (
-								<HeaderTooltip label="Open navigation">
-									<Button
-										ref={menuRef}
-										variant="ghost"
-										size="icon"
-										onClick={() => setMobileOpen(true)}
-										aria-label="Open navigation"
-									>
-										<Menu className="h-5 w-5" aria-hidden strokeWidth={1.5} />
-									</Button>
-								</HeaderTooltip>
+								<AppHeaderMenuButton
+									ref={menuRef}
+									aria-controls="signoff-navigation"
+									onClick={() => setMobileOpen(true)}
+								/>
 							) : null}
 							<Breadcrumbs
 								items={trail}
@@ -152,23 +158,11 @@ export function AppShell() {
 								]}
 							/>
 							<div className="hidden items-center gap-1 sm:flex">
-								<HeaderTooltip label="GitHub repository">
-									<Button variant="ghost" size="icon" asChild>
-										<a
-											href="https://github.com/nocoo/signoff.now"
-											target="_blank"
-											rel="noopener noreferrer"
-											aria-label="GitHub repository"
-										>
-											<Github
-												className="h-[18px] w-[18px]"
-												aria-hidden
-												strokeWidth={1.5}
-											/>
-										</a>
-									</Button>
-								</HeaderTooltip>
-								<HexlyLink />
+								<ProjectLinks
+									github="nocoo/signoff.now"
+									hexly="signoff-now"
+									name="SignOff"
+								/>
 							</div>
 							<ThemeToggle aria-label="Change theme" />
 						</>

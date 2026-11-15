@@ -1,12 +1,14 @@
 import {
 	Sidebar as BasaltSidebar,
-	Button,
+	SidebarBrand,
 	SidebarFooter,
 	SidebarGroup,
 	SidebarHeader,
 	SidebarIconItem,
 	SidebarItem,
 	SidebarNav,
+	SidebarToggle,
+	SidebarUser,
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -20,7 +22,6 @@ import {
 	LayoutDashboard,
 	ListOrdered,
 	Network,
-	PanelLeft,
 	PlugZap,
 	Settings,
 	ShieldCheck,
@@ -80,13 +81,21 @@ export function Sidebar({
 	collapsed,
 	admin = false,
 	tenantSwitcher,
+	identityName = "SignOff user",
+	identityEmail,
+	identityAvatar,
+	resizable,
 	onToggle,
 	onNavigate,
 }: {
 	collapsed: boolean;
 	admin?: boolean;
 	tenantSwitcher?: ReactNode;
-	onToggle: () => void;
+	identityName?: ReactNode;
+	identityEmail?: ReactNode;
+	identityAvatar?: ReactNode;
+	resizable?: boolean;
+	onToggle?: () => void;
 	onNavigate?: () => void;
 }) {
 	const GROUPS = visibleNavGroups(admin).map(resolveGroup);
@@ -104,51 +113,25 @@ export function Sidebar({
 	};
 
 	return (
-		<BasaltSidebar collapsed={collapsed}>
-			<SidebarHeader
-				className={`gap-2 overflow-hidden ${collapsed ? "justify-center" : "px-4"}`}
-			>
-				<img
-					src="/logo-64.png"
-					alt="signoff.now"
-					width={28}
-					height={28}
-					className="h-7 w-7 shrink-0 object-contain"
+		<BasaltSidebar collapsed={collapsed} resizable={resizable}>
+			<SidebarHeader>
+				<SidebarBrand
+					logo={
+						<img src="/logo-64.png" alt="signoff.now" width={24} height={24} />
+					}
+					name="signoff"
+					version={`v${__APP_VERSION__}`}
+					action={
+						<SidebarToggle
+							mode={onNavigate ? "dismiss" : "toggle"}
+							onDismiss={onToggle}
+						/>
+					}
 				/>
-				{!collapsed ? (
-					<div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-						<div className="flex min-w-0 items-center gap-2">
-							<span className="truncate text-lg font-semibold text-basalt-foreground">
-								signoff
-							</span>
-							<span className="shrink-0 rounded-md bg-basalt-secondary px-1.5 py-1 font-mono text-[10px] leading-none font-medium text-basalt-muted-foreground">
-								v{__APP_VERSION__}
-							</span>
-						</div>
-						<Button
-							variant="ghost"
-							size="icon"
-							className="h-7 w-7 shrink-0"
-							onClick={onToggle}
-							aria-label={onNavigate ? "Close navigation" : "Collapse sidebar"}
-						>
-							<PanelLeft className="h-4 w-4" aria-hidden strokeWidth={1.5} />
-						</Button>
-					</div>
-				) : null}
 			</SidebarHeader>
 
 			{collapsed ? (
 				<>
-					<Button
-						variant="ghost"
-						size="icon"
-						className="mb-basalt-space-sm self-center"
-						onClick={onToggle}
-						aria-label="Expand sidebar"
-					>
-						<PanelLeft className="h-4 w-4" aria-hidden strokeWidth={1.5} />
-					</Button>
 					<SidebarNav>
 						{ALL_ITEMS.map((item) => {
 							const Icon = item.icon;
@@ -171,6 +154,11 @@ export function Sidebar({
 						})}
 					</SidebarNav>
 					<SidebarFooter>
+						<SidebarUser
+							name={identityName}
+							email={identityEmail}
+							avatar={identityAvatar}
+						/>
 						<CollectionStatus collapsed />
 					</SidebarFooter>
 				</>
@@ -205,6 +193,11 @@ export function Sidebar({
 						{tenantSwitcher}
 						<NetworkActivity />
 						<CollectionStatus />
+						<SidebarUser
+							name={identityName}
+							email={identityEmail}
+							avatar={identityAvatar}
+						/>
 					</SidebarFooter>
 				</>
 			)}
