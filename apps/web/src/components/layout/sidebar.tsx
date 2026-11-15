@@ -168,10 +168,19 @@ export function Sidebar({
 							</SidebarGroup>
 						))}
 			</SidebarNav>
-			<SidebarFooter>
+			<SidebarFooter className="gap-2 pt-1.5 pb-2 md:pb-3">
 				{!collapsed && tenantSwitcher}
-				{!collapsed && <NetworkActivity />}
-				<CollectionStatus collapsed={collapsed} />
+				{collapsed ? (
+					<CollectionStatus collapsed />
+				) : (
+					<div
+						data-slot="sidebar-telemetry"
+						className="overflow-hidden rounded-basalt-md border border-basalt-border/70 bg-basalt-card/70"
+					>
+						<NetworkActivity />
+						<CollectionStatus />
+					</div>
+				)}
 			</SidebarFooter>
 		</BasaltSidebar>
 	);

@@ -56,20 +56,22 @@ export function NetworkActivity() {
 	return (
 		<section
 			aria-label="Provider network requests in the last hour"
-			className="mx-2 border-b border-basalt-border pb-2 text-[11px]"
+			className="px-2.5 pt-2 pb-1.5 text-[11px]"
 		>
 			<div
 				className="flex items-center justify-between gap-2 text-basalt-muted-foreground"
 				title="Actual provider HTTP attempts, including retries and failures. One-minute buckets; current minute is partial. All projects. Updates every 10 seconds while visible. History starts when request tracking is enabled."
 			>
-				<span>Network · 1h</span>
-				<span className="tabular-nums">
+				<span className="font-medium text-basalt-foreground/90">
+					Network · 1h
+				</span>
+				<span className="tabular-nums text-basalt-muted-foreground">
 					{vm.data ? `${total} requests` : "—"}
 				</span>
 			</div>
 			<div
 				ref={chartRef}
-				className="relative mt-1 h-16"
+				className="relative mt-1 h-12"
 				role="img"
 				aria-label={`${total} provider HTTP requests over the last hour. Blue: ADO; purple: Jev.`}
 			>
@@ -108,7 +110,7 @@ export function NetworkActivity() {
 					</BarChart>
 				</ResponsiveContainer>
 				{!total && (
-					<span className="pointer-events-none absolute inset-x-0 top-5 text-center text-basalt-muted-foreground">
+					<span className="pointer-events-none absolute inset-0 flex items-center justify-center text-center text-basalt-muted-foreground">
 						{vm.error
 							? "Activity unavailable"
 							: vm.loading
@@ -118,14 +120,14 @@ export function NetworkActivity() {
 				)}
 			</div>
 			<div
-				className="flex justify-between text-basalt-muted-foreground tabular-nums"
+				className="mt-0.5 flex justify-between leading-4 text-basalt-muted-foreground/80 tabular-nums"
 				aria-hidden="true"
 			>
 				{[0, 30, 59].map((i) => (
 					<span key={i}>{buckets[i] ? time(buckets[i].at) : "—"}</span>
 				))}
 			</div>
-			<div className="flex items-center justify-between gap-1 text-basalt-muted-foreground">
+			<div className="mt-0.5 flex items-center justify-between gap-1 leading-4 text-basalt-muted-foreground">
 				{series.map((s) => (
 					<span
 						key={s.key}
@@ -133,7 +135,7 @@ export function NetworkActivity() {
 						title={s.name}
 					>
 						<span
-							className="size-1.5 rounded-sm"
+							className="size-1.5 shrink-0 rounded-full"
 							style={{ background: s.color }}
 						/>
 						{s.label}
@@ -141,7 +143,10 @@ export function NetworkActivity() {
 				))}
 			</div>
 			{!!vm.error && !!vm.data && (
-				<div className="text-basalt-destructive" title={vm.error}>
+				<div
+					className="mt-0.5 leading-4 text-basalt-destructive"
+					title={vm.error}
+				>
 					Update delayed
 				</div>
 			)}

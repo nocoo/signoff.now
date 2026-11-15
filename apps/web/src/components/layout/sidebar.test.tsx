@@ -144,7 +144,7 @@ it.each([false, true])(
 	},
 );
 it.each([false, true])(
-	"does not render user identity or avatar in footer (collapsed: %s)",
+	"does not render user identity or avatar in footer and wraps telemetry when expanded (collapsed: %s)",
 	(collapsed) => {
 		const { container } = renderSidebar(collapsed);
 		const footers = container.querySelectorAll('[data-slot="sidebar-footer"]');
@@ -152,6 +152,12 @@ it.each([false, true])(
 		const footer = footers[0]!;
 		expect(footer.querySelector('[data-slot="sidebar-user"]')).toBeNull();
 		expect(screen.queryByText("SignOff user")).toBeNull();
+		const telemetry = footer.querySelector('[data-slot="sidebar-telemetry"]');
+		expect(telemetry !== null).toBe(!collapsed);
+		if (!collapsed) {
+			expect(telemetry?.textContent).toContain("Network activity");
+			expect(telemetry?.contains(panel())).toBe(true);
+		}
 	},
 );
 it.each([false, true])(
