@@ -56,7 +56,7 @@ export function NetworkActivity() {
 	return (
 		<section
 			aria-label="Provider network requests in the last hour"
-			className="px-2.5 pt-2 pb-1.5 text-[11px]"
+			className="px-1.5 py-1 text-[11px]"
 		>
 			<div
 				className="flex items-center justify-between gap-2 text-basalt-muted-foreground"
@@ -71,7 +71,7 @@ export function NetworkActivity() {
 			</div>
 			<div
 				ref={chartRef}
-				className="relative mt-1 h-12"
+				className="relative mt-1 h-11"
 				role="img"
 				aria-label={`${total} provider HTTP requests over the last hour. Blue: ADO; purple: Jev.`}
 			>

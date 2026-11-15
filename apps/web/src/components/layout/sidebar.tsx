@@ -32,6 +32,7 @@ import {
 import type { ElementType, ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { type NavGroupDef, visibleNavGroups } from "@/lib/navigation";
+import { cn } from "@/lib/utils";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 import { NetworkActivity } from "@/views/workbench/NetworkActivity";
@@ -168,15 +169,14 @@ export function Sidebar({
 							</SidebarGroup>
 						))}
 			</SidebarNav>
-			<SidebarFooter className="gap-2 pt-1.5 pb-2 md:pb-3">
+			<SidebarFooter
+				className={cn("gap-1.5 pt-1 pb-2 md:pb-3", !collapsed && "px-2.5")}
+			>
 				{!collapsed && tenantSwitcher}
 				{collapsed ? (
 					<CollectionStatus collapsed />
 				) : (
-					<div
-						data-slot="sidebar-telemetry"
-						className="overflow-hidden rounded-basalt-md border border-basalt-border/70 bg-basalt-card/70"
-					>
+					<div data-slot="sidebar-telemetry" className="flex flex-col gap-1">
 						<NetworkActivity />
 						<CollectionStatus />
 					</div>

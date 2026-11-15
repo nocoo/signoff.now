@@ -37,7 +37,7 @@ export function CollectionStatus({
 			className={cn(
 				collapsed
 					? "rounded-basalt-md"
-					: "group h-auto w-full flex-col items-stretch justify-start gap-1 rounded-none px-2.5 py-2 text-left",
+					: "group h-auto w-full flex-col items-stretch justify-start gap-0.5 rounded-basalt-md px-1.5 py-1.5 text-left",
 			)}
 		>
 			{collapsed ? (
@@ -88,10 +88,7 @@ export function CollectionStatus({
 	return (
 		<section
 			aria-label="Connector status"
-			className={cn(
-				!collapsed && "border-t border-basalt-border/60",
-				collapsed && "flex justify-center",
-			)}
+			className={cn(collapsed && "flex justify-center")}
 		>
 			<Dialog open={open} onOpenChange={setOpen}>
 				{collapsed ? (
