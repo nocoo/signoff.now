@@ -6,12 +6,13 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	loadCollectionJob,
 	loadCollectorGroups,
 	loadCollectorHistory,
+	loadPulls,
 } from "@/models/monitoringApi";
 import { DEFAULT_PULL_FILTER } from "@/models/workbench";
 import {
@@ -52,11 +53,17 @@ const vm: Pick<
 	projects: [],
 	repositories: [],
 };
-vi.mock("@/models/monitoringApi", () => ({
-	loadCollectionJob: vi.fn(),
-	loadCollectorGroups: vi.fn(),
-	loadCollectorHistory: vi.fn(),
-}));
+vi.mock("@/models/monitoringApi", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@/models/monitoringApi")>();
+	return {
+		...actual,
+		loadCollectionJob: vi.fn(),
+		loadCollectorGroups: vi.fn(),
+		loadCollectorHistory: vi.fn(),
+		loadPulls: vi.fn(),
+	};
+});
 vi.mock("@/viewmodels/WorkbenchProvider", () => ({ useWorkbench: () => vm }));
 vi.mock("@/views/workbench/NetworkActivity", () => ({
 	NetworkActivity: () => <div>Network activity</div>,
@@ -84,8 +91,20 @@ beforeEach(() => {
 		nextCursor: null,
 	});
 	vi.mocked(loadCollectionJob).mockResolvedValue(fixtureJob());
+	vi.mocked(loadPulls).mockResolvedValue(queryFixture().pulls);
 });
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.useRealTimers();
+});
+const LocationEcho = () => {
+	const location = useLocation();
+	return (
+		<output data-testid="router-location">
+			{`${location.pathname}${location.search}`}
+		</output>
+	);
+};
 const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
 	render(
 		<MemoryRouter>
@@ -94,6 +113,7 @@ const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
 					<Sidebar collapsed={collapsed} onToggle={onToggle} />
 				</SidebarProvider>
 			</TooltipProvider>
+			<LocationEcho />
 		</MemoryRouter>,
 	);
 
@@ -160,6 +180,74 @@ it.each([false, true])(
 		}
 	},
 );
+
+it("opens quick PR search via button or Cmd+K, queries all cached states, shows secondary match hints, and navigates", async () => {
+	const base = queryFixture().pulls;
+	const item = base.data[0]!;
+	const hiddenMatchItem = {
+		...item,
+		id: "pr-hidden-match",
+		number: 404,
+		title: "Refactor auth middleware",
+		state: "merged" as const,
+		draft: false,
+	};
+	vi.mocked(loadPulls).mockResolvedValue({
+		...base,
+		data: [hiddenMatchItem, item],
+		page: { ...base.page, total: 2 },
+	});
+
+	renderSidebar(false);
+	fireEvent.click(
+		screen.getByRole("button", { name: "Quick search cached PRs" }),
+	);
+
+	const searchInput = await screen.findByLabelText(
+		"Search cached pull requests",
+	);
+	await screen.findByText("Refactor auth middleware");
+	expect(loadPulls).toHaveBeenCalledWith(
+		expect.stringContaining("state=all"),
+		expect.any(AbortSignal),
+	);
+	expect(loadPulls).toHaveBeenCalledWith(
+		expect.stringContaining("draft=include"),
+		expect.any(AbortSignal),
+	);
+
+	fireEvent.change(searchInput, { target: { value: "rollback-hint-xyz" } });
+	await new Promise((resolve) => setTimeout(resolve, 250));
+
+	expect(loadPulls).toHaveBeenLastCalledWith(
+		expect.stringContaining("q=rollback-hint-xyz"),
+		expect.any(AbortSignal),
+	);
+	expect(screen.getByRole("dialog").textContent).toContain(
+		"Matched description or activity",
+	);
+
+	fireEvent.click(screen.getByText("Refactor auth middleware"));
+	expect(screen.getByTestId("router-location").textContent).toContain(
+		"/prs/ado/",
+	);
+
+	fireEvent.keyDown(window, { key: "k", metaKey: true });
+	const reopenedInput = await screen.findByLabelText(
+		"Search cached pull requests",
+	);
+	fireEvent.change(reopenedInput, { target: { value: "auth" } });
+
+	const viewAll = await screen.findByText(
+		"View all 2 matches in Pull requests",
+	);
+	fireEvent.click(viewAll);
+	const loc = screen.getByTestId("router-location").textContent ?? "";
+	expect(loc).toContain("/prs?");
+	expect(loc).toContain("q=auth");
+	expect(loc).toContain("state=all");
+	expect(loc).toContain("draft=include");
+});
 it.each([false, true])(
 	"keeps the sidebar toggle working (collapsed: %s)",
 	(collapsed) => {

@@ -7,6 +7,7 @@ import {
 	SidebarIconItem,
 	SidebarItem,
 	SidebarNav,
+	SidebarSearch,
 	SidebarToggle,
 	Tooltip,
 	TooltipContent,
@@ -29,13 +30,14 @@ import {
 	Users,
 	UsersRound,
 } from "lucide-react";
-import type { ElementType, ReactNode } from "react";
+import { type ElementType, type ReactNode, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { type NavGroupDef, visibleNavGroups } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { CollectionStatus } from "@/views/workbench/CollectionStatus";
 import { NetworkActivity } from "@/views/workbench/NetworkActivity";
+import { PrSearchDialog } from "@/views/workbench/PrSearchDialog";
 
 const ICON_MAP: Record<string, ElementType> = {
 	Layers3,
@@ -97,6 +99,17 @@ export function Sidebar({
 	const { pathname } = useLocation();
 	const navigate = useNavigate();
 	const workbench = useWorkbench();
+	const [searchOpen, setSearchOpen] = useState(false);
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+				event.preventDefault();
+				setSearchOpen((current) => !current);
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, []);
 	const go = (href: string) => {
 		navigate(
 			href === "/prs"
@@ -125,6 +138,13 @@ export function Sidebar({
 			</SidebarHeader>
 
 			<SidebarNav>
+				<SidebarSearch
+					shortcut="⌘K"
+					aria-label="Quick search cached PRs"
+					onClick={() => setSearchOpen(true)}
+				>
+					Search PRs…
+				</SidebarSearch>
 				{collapsed
 					? ALL_ITEMS.map((item) => {
 							const Icon = item.icon;
@@ -182,6 +202,9 @@ export function Sidebar({
 					</div>
 				)}
 			</SidebarFooter>
+			{searchOpen ? (
+				<PrSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+			) : null}
 		</BasaltSidebar>
 	);
 }

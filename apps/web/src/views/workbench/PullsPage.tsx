@@ -441,6 +441,15 @@ function PullsEmptyState({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 				}
 			/>
 		);
+	const allStateMatches =
+		vm.metrics.open + vm.metrics.merged + vm.metrics.closed;
+	const hasHiddenStateMatches =
+		vm.projects.length > 0 &&
+		vm.filter.query.trim() !== "" &&
+		allStateMatches > 0 &&
+		(vm.filter.state !== "all" ||
+			vm.filter.draft !== "include" ||
+			vm.filter.status !== "all");
 	return (
 		<EmptyState
 			icon={GitPullRequest}
@@ -456,17 +465,32 @@ function PullsEmptyState({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 			}
 			action={
 				vm.projects.length ? (
-					<Button
-						variant="outline"
-						onClick={() =>
-							vm.setFilter({
-								...DEFAULT_PULL_FILTER,
-								source: vm.filter.source,
-							})
-						}
-					>
-						Clear filters
-					</Button>
+					<div className="flex flex-wrap items-center justify-center gap-2">
+						{hasHiddenStateMatches ? (
+							<Button
+								onClick={() =>
+									vm.setFilter({
+										state: "all",
+										draft: "include",
+										status: "all",
+									})
+								}
+							>
+								Show all {allStateMatches.toLocaleString()} matching PRs
+							</Button>
+						) : null}
+						<Button
+							variant="outline"
+							onClick={() =>
+								vm.setFilter({
+									...DEFAULT_PULL_FILTER,
+									source: vm.filter.source,
+								})
+							}
+						>
+							Clear filters
+						</Button>
+					</div>
 				) : (
 					<Button asChild>
 						<Link to="/projects">
