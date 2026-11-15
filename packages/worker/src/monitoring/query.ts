@@ -333,10 +333,9 @@ async function readSnapshot(
 			? [
 					db
 						.prepare(`SELECT pr.id,
-      json_extract(pr.snapshot,'$.title')||' #'||pr.external_id||' '||json_extract(pr.snapshot,'$.author.name')||' '||
-      json_extract(pr.snapshot,'$.repository.name')||' '||p.name||' '||p.organization||' '||p.project_key||' '||
-      CASE pr.state WHEN 'merged' THEN p.owner||' Merged into '||json_extract(pr.snapshot,'$.targetBranch')
-      WHEN 'closed' THEN json_extract(pr.snapshot,'$.author.name')||' Closed without merging' ELSE '' END AS text
+      pr.search_text||' '||lower(p.name||' '||p.organization||' '||p.project_key||' '||
+      CASE pr.state WHEN 'merged' THEN p.owner||' Merged into '||COALESCE(json_extract(pr.snapshot,'$.targetBranch'),'')
+      WHEN 'closed' THEN COALESCE(json_extract(pr.snapshot,'$.author.name'),'')||' Closed without merging' ELSE '' END) AS text
       FROM pull_requests pr JOIN projects p ON p.id=pr.project_id WHERE ${searchScope.where.join(" AND ")}`)
 						.bind(...searchScope.values),
 				]
@@ -717,12 +716,13 @@ async function readPullPage(
 	const openActions = new Map(
 		facts.map((fact) => [fact.id, `${fact.owner} ${fact.action}`]),
 	);
+	const searchTerms = filters.q.split(/\s+/).filter(Boolean);
 	const searchIds = snapshot.searchRows
-		.filter((row) =>
-			`${row.text} ${openActions.get(row.id) ?? ""}`
-				.toLowerCase()
-				.includes(filters.q),
-		)
+		.filter((row) => {
+			const haystack =
+				`${row.text} ${openActions.get(row.id) ?? ""}`.toLowerCase();
+			return searchTerms.every((term) => haystack.includes(term));
+		})
 		.map((row) => row.id);
 	const { where, values } = pullScopeSql(source, filters, snapshot);
 	// Only progress sorting requires historical check arrays, and SQLite reduces them to a scalar.

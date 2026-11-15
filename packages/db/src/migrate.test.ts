@@ -388,6 +388,108 @@ describe("D1 migrations", () => {
 		}
 	});
 
+	test("search_text migration backfills existing snapshots and syncs on insert and update without extra revision churn", () => {
+		const db = openMemoryDb();
+		try {
+			const migration = "0049_pr_search_text.sql";
+			for (const file of listMigrationFiles(migrationsDir).filter(
+				(name) => name < migration,
+			))
+				db.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
+			const existingSnapshot = JSON.stringify({
+				title: "Rotate Auth Secret",
+				description: "锁定证书轮换脚本",
+				sourceBranch: "release/omts-bleu",
+				targetBranch: "main",
+				author: { id: "u1", name: "Alice", handle: "alice@example.com" },
+				repository: { id: "r1", name: "CoreRepo" },
+				headSha: "deadbeef1234",
+				labels: ["security"],
+				reviewers: [{ name: "Bob", handle: "bob@example.com" }],
+				policies: [{ name: "RequiredReview", detail: "Minimum 2" }],
+				builds: [{ name: "CI-Build", number: "98" }],
+				activity: [{ actor: "Alice", title: "Opened", detail: "Initial push" }],
+				observedAt: 1,
+			});
+			db.exec(`
+				INSERT INTO projects(id,provider,name,organization,project_key,owner,source,created_at,updated_at)
+				VALUES('p','ado','Project','org','project','owner','cli',1,1);
+				INSERT INTO pull_requests(id,project_id,repository_id,external_id,state,updated_at,snapshot)
+				VALUES('pr-1','p','r1','101','open',1,'${existingSnapshot}');
+			`);
+			const beforeVersion = db
+				.query("SELECT version FROM pull_requests WHERE id='pr-1'")
+				.get() as { version: number };
+			const beforeRev = db
+				.query("SELECT revision FROM workbench_revisions WHERE source='cli'")
+				.get() as { revision: number };
+
+			db.exec(readFileSync(path.join(migrationsDir, migration), "utf8"));
+
+			expect(
+				db.query("SELECT version FROM pull_requests WHERE id='pr-1'").get(),
+			).toEqual(beforeVersion);
+			expect(
+				db
+					.query("SELECT revision FROM workbench_revisions WHERE source='cli'")
+					.get(),
+			).toEqual(beforeRev);
+
+			const backfilled = db
+				.query("SELECT search_text FROM pull_requests WHERE id='pr-1'")
+				.get() as { search_text: string };
+			for (const token of [
+				"rotate auth secret",
+				"#101",
+				"锁定证书轮换脚本",
+				"release/omts-bleu",
+				"alice@example.com",
+				"corerepo",
+				"deadbeef1234",
+				"security",
+				"bob@example.com",
+				"requiredreview",
+				"ci-build 98",
+				"initial push",
+			])
+				expect(backfilled.search_text).toContain(token);
+
+			db.exec(`
+				INSERT INTO pull_requests(id,project_id,repository_id,external_id,state,updated_at,snapshot)
+				VALUES('pr-2','p','r1','202','merged',2,'{"title":"Inserted PR","sourceBranch":"feat/锁","repository":{"name":"Repo"},"author":{"id":"u2","name":"Cara"},"observedAt":2}');
+			`);
+			const inserted = db
+				.query("SELECT version, search_text FROM pull_requests WHERE id='pr-2'")
+				.get() as { version: number; search_text: string };
+			expect(inserted.version).toBe(1);
+			expect(inserted.search_text).toContain("inserted pr");
+			expect(inserted.search_text).toContain("#202");
+			expect(inserted.search_text).toContain("feat/锁");
+
+			const revBeforeSnapshotUpdate = db
+				.query("SELECT revision FROM workbench_revisions WHERE source='cli'")
+				.get() as { revision: number };
+			db.exec(`
+				UPDATE pull_requests
+				SET snapshot=json_set(snapshot,'$.title','Updated Title','$.labels',json('["urgent"]'))
+				WHERE id='pr-2';
+			`);
+			const updated = db
+				.query("SELECT version, search_text FROM pull_requests WHERE id='pr-2'")
+				.get() as { version: number; search_text: string };
+			expect(updated.version).toBe(2);
+			expect(updated.search_text).toContain("updated title");
+			expect(updated.search_text).toContain("urgent");
+			expect(
+				db
+					.query("SELECT revision FROM workbench_revisions WHERE source='cli'")
+					.get(),
+			).toEqual({ revision: revBeforeSnapshotUpdate.revision + 1 });
+		} finally {
+			db.close();
+		}
+	});
+
 	test("idempotent re-apply skips already applied migrations", () => {
 		const db = openMemoryDb();
 		const first = applyMigrations(db, migrationsDir);

@@ -942,6 +942,100 @@ describe("v1 cache queries", () => {
 				).page.total,
 			).toBe(3);
 	});
+	test("arbitrary-character and multi-term search matches all cached PR fields across open and historical states", async () => {
+		const { pull } = seed();
+		seedPull(sqlite, {
+			...pull,
+			id: "full-open",
+			number: 201,
+			externalId: "201",
+			state: "open",
+			title: "Rotate gateway config",
+			description: "启用证书锁机制预防竞态",
+			sourceBranch: "release/omts-bleu",
+			targetBranch: "main",
+			author: { id: "u2", name: "Maya", handle: "maya@hexly.ai" },
+			reviewers: [
+				{
+					id: "r2",
+					name: "Liam",
+					handle: "liam@hexly.ai",
+					vote: "approved",
+					required: true,
+				},
+			],
+			labels: ["security-lock", "urgent"],
+			headSha: "cafe9876beef",
+			policies: [
+				{
+					id: "pol-1",
+					name: "ComplianceGate",
+					kind: "policy",
+					state: "passed",
+					required: true,
+					detail: "Verified checksum audit",
+					owner: "SecOps",
+				},
+			],
+			builds: [
+				{
+					id: "bld-1",
+					name: "omts-official-release",
+					number: 778,
+					state: "passed",
+					required: true,
+					stages: [],
+				},
+			],
+		});
+		seedPull(sqlite, {
+			...pull,
+			id: "full-merged",
+			number: 202,
+			externalId: "202",
+			state: "merged",
+			title: "Legacy fix",
+			description: "证书锁清理",
+			sourceBranch: "feature/omts-cleanup",
+			targetBranch: "release/stable",
+		});
+		seedPull(sqlite, {
+			...pull,
+			id: "full-closed",
+			number: 203,
+			externalId: "203",
+			state: "closed",
+			title: "Abandoned experiment",
+			description: "废弃脚本",
+			sourceBranch: "exp/omts-scratch",
+			targetBranch: "develop",
+			labels: ["archive-lock"],
+		});
+
+		const findIds = async (q: string, state = "all") =>
+			(
+				await queryPulls(
+					sqlite.db,
+					"cli",
+					parseQuery(new URLSearchParams({ q, state, draft: "include" })),
+					PR_TEST_NOW,
+				)
+			).data.map((item) => item.id);
+
+		expect(await findIds("锁")).toEqual(["full-merged", "full-open"]);
+		expect(await findIds("archive-lock")).toEqual(["full-closed"]);
+		expect(await findIds("证")).toEqual(["full-merged", "full-open"]);
+		expect(await findIds("废弃")).toEqual(["full-closed"]);
+		expect(await findIds("release/omts")).toEqual(["full-open"]);
+		expect(await findIds("release/stable")).toEqual(["full-merged"]);
+		expect(await findIds("liam@hexly.ai")).toEqual(["full-open"]);
+		expect(await findIds("cafe9876")).toEqual(["full-open"]);
+		expect(await findIds("Verified checksum")).toEqual(["full-open"]);
+		expect(await findIds("omts-official-release")).toEqual(["full-open"]);
+		expect(await findIds("security-lock")).toEqual(["full-open"]);
+		expect(await findIds("release/omts 锁")).toEqual(["full-open"]);
+		expect(await findIds("#202")).toEqual(["full-merged"]);
+	});
 	test("PR pages transfer only open facts and the requested history page, never all historical snapshots", async () => {
 		seedProject(sqlite, { repositories: [] });
 		for (let number = 1; number <= 1200; number++)
