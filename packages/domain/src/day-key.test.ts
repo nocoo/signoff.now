@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { dayKey } from "./day-key.js";
 
 describe("dayKey", () => {
@@ -36,5 +36,18 @@ describe("dayKey", () => {
 
 	test("empty timeZone throws", () => {
 		expect(() => dayKey(1_700_000_000, "")).toThrow();
+	});
+
+	test("throws when Intl parts lack year, month, or day", () => {
+		const spy = spyOn(Intl, "DateTimeFormat").mockImplementation((() => ({
+			formatToParts: () => [],
+		})) as unknown as typeof Intl.DateTimeFormat);
+		try {
+			expect(() => dayKey(1_700_000_000, "UTC")).toThrow(
+				"failed to format dayKey for timeZone=UTC",
+			);
+		} finally {
+			spy.mockRestore();
+		}
 	});
 });

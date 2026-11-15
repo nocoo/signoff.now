@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { DB_SCHEMA_VERSION } from "./index.ts";
 import {
@@ -346,7 +347,7 @@ describe("D1 migrations", () => {
 				INSERT INTO projects(id,provider,name,organization,project_key,owner,source,created_at,updated_at)
 				VALUES('p','ado','Project','org','project','owner','cli',1,1);
 				INSERT INTO pull_requests(id,project_id,repository_id,external_id,state,updated_at,snapshot)
-				VALUES('pr','p','repo','1','open',1,'{"repository":{"name":"Repo"}}');
+				VALUES('pr','p','repo','1','open',1,'{"repository":{"name":"Repo"},"observedAt":1}');
 				INSERT INTO pr_observations(id,identity,activation_token,source,project_id,ref_json,pull_id,generation,active,added_at)
 				VALUES('watch','key','activation','cli','p','{}','pr',1,1,1);
 				INSERT INTO pr_collections(id,source,name,color,icon,created_at,updated_at)
@@ -393,5 +394,24 @@ describe("D1 migrations", () => {
 		const second = applyMigrations(db, migrationsDir);
 		expect(first.length).toBeGreaterThan(0);
 		expect(second).toEqual([]);
+	});
+
+	test("rolls back and rethrows when a migration fails", () => {
+		const db = openMemoryDb();
+		const dir = mkdtempSync(path.join(tmpdir(), "signoff-db-rollback-"));
+		try {
+			writeFileSync(
+				path.join(dir, "0001_bad.sql"),
+				"CREATE TABLE t(id INTEGER); INVALID SQL;",
+			);
+			expect(() => applyMigrations(db, dir)).toThrow();
+			const rows = db
+				.query("SELECT name FROM sqlite_master WHERE type='table' AND name='t'")
+				.all();
+			expect(rows).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+			db.close();
+		}
 	});
 });

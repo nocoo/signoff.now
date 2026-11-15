@@ -517,6 +517,45 @@ test("partial build evidence and stage advice preserve failure semantics", () =>
 		"Rerun the unsuccessful stage(s): Verification.",
 	);
 	expect(
+		partialBuildAdvice({
+			...snapshot,
+			builds: [
+				{
+					...build,
+					stages: [
+						{
+							id: "v",
+							name: "Verification",
+							durationSeconds: null,
+							state: "failed",
+							required: true,
+							owner: "CI",
+							detail: "",
+						},
+						{
+							id: "a",
+							name: "Alpha",
+							durationSeconds: null,
+							state: "failed",
+							required: true,
+							owner: "CI",
+							detail: "",
+						},
+						{
+							id: "b",
+							name: "Beta",
+							durationSeconds: null,
+							state: "failed",
+							required: true,
+							owner: "CI",
+							detail: "",
+						},
+					],
+				},
+			],
+		})?.text,
+	).toContain("Rerun the unsuccessful stage(s): Alpha, Beta, Verification.");
+	expect(
 		partialBuildAdvice({ ...snapshot, builds: [{ ...build, stages: [] }] })
 			?.text,
 	).toContain("Rerun the failed stage");
