@@ -15,7 +15,6 @@ import {
 	AppSkipLink,
 	AppShell as BasaltAppShell,
 } from "@nocoo/basalt/components/app-shell";
-import { AvatarInitials } from "@nocoo/basalt/components/avatar";
 import { Breadcrumbs } from "@nocoo/basalt/components/breadcrumbs";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
@@ -78,9 +77,6 @@ export function AppShell() {
 		persistSidebarState(next);
 	};
 	const trail = breadcrumbsFromPathname(location.pathname);
-	const identityName = session?.name ?? session?.email ?? "SignOff user";
-	const identityAvatar = <AvatarInitials name={identityName} />;
-
 	return (
 		<BasaltAppShell className="relative">
 			<AppSkipLink>Skip to main content</AppSkipLink>
@@ -93,9 +89,6 @@ export function AppShell() {
 						collapsed={collapsed}
 						admin={admin}
 						tenantSwitcher={tenantSwitcher}
-						identityName={identityName}
-						identityEmail={session?.email ?? undefined}
-						identityAvatar={identityAvatar}
 					/>
 				</SidebarProvider>
 			) : (
@@ -111,9 +104,6 @@ export function AppShell() {
 						collapsed={false}
 						admin={admin}
 						tenantSwitcher={tenantSwitcher}
-						identityName={identityName}
-						identityEmail={session?.email ?? undefined}
-						identityAvatar={identityAvatar}
 						onToggle={() => setMobileOpen(false)}
 						onNavigate={() => setMobileOpen(false)}
 						resizable={false}

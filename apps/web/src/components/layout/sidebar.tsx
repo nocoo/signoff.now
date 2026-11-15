@@ -8,7 +8,6 @@ import {
 	SidebarItem,
 	SidebarNav,
 	SidebarToggle,
-	SidebarUser,
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
@@ -81,9 +80,6 @@ export function Sidebar({
 	collapsed,
 	admin = false,
 	tenantSwitcher,
-	identityName = "SignOff user",
-	identityEmail,
-	identityAvatar,
 	resizable,
 	onToggle,
 	onNavigate,
@@ -91,9 +87,6 @@ export function Sidebar({
 	collapsed: boolean;
 	admin?: boolean;
 	tenantSwitcher?: ReactNode;
-	identityName?: ReactNode;
-	identityEmail?: ReactNode;
-	identityAvatar?: ReactNode;
 	resizable?: boolean;
 	onToggle?: () => void;
 	onNavigate?: () => void;
@@ -179,11 +172,6 @@ export function Sidebar({
 				{!collapsed && tenantSwitcher}
 				{!collapsed && <NetworkActivity />}
 				<CollectionStatus collapsed={collapsed} />
-				<SidebarUser
-					name={identityName}
-					email={identityEmail}
-					avatar={identityAvatar}
-				/>
 			</SidebarFooter>
 		</BasaltSidebar>
 	);
