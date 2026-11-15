@@ -91,7 +91,11 @@ const renderSidebar = (collapsed = false, onToggle = vi.fn()) =>
 		<MemoryRouter>
 			<TooltipProvider>
 				<SidebarProvider collapsed={collapsed} onCollapsedChange={onToggle}>
-					<Sidebar collapsed={collapsed} onToggle={onToggle} />
+					<Sidebar
+						collapsed={collapsed}
+						identityAvatar={<span data-testid="identity-avatar">SO</span>}
+						onToggle={onToggle}
+					/>
 				</SidebarProvider>
 			</TooltipProvider>
 		</MemoryRouter>,
@@ -141,6 +145,33 @@ it.each([false, true])(
 		expect(screen.getByRole("button", { name: "Pull requests" })).toBeTruthy();
 		expect(panel()).toBeTruthy();
 		expect(screen.queryByText("Network activity") !== null).toBe(!collapsed);
+	},
+);
+it.each([false, true])(
+	"keeps one shared footer whose last row is the identity avatar (collapsed: %s)",
+	(collapsed) => {
+		const { container } = renderSidebar(collapsed);
+		const footers = container.querySelectorAll('[data-slot="sidebar-footer"]');
+		expect(footers).toHaveLength(1);
+		const footer = footers[0]!;
+		const user = footer.querySelector('[data-slot="sidebar-user"]');
+		expect(user).toBeTruthy();
+		expect(footer.lastElementChild).toBe(user);
+		const status = panel();
+		expect(
+			status.compareDocumentPosition(user as Node) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	},
+);
+it.each([false, true])(
+	"lets the native sidebar user own the collapsed avatar (collapsed: %s)",
+	(collapsed) => {
+		const { container } = renderSidebar(collapsed);
+		const user = container.querySelector('[data-slot="sidebar-user"]');
+		expect(user?.hasAttribute("data-collapsed")).toBe(collapsed);
+		expect(screen.queryByText("SignOff user") !== null).toBe(!collapsed);
+		expect(screen.queryByTestId("identity-avatar")).toBeTruthy();
 	},
 );
 it.each([false, true])(

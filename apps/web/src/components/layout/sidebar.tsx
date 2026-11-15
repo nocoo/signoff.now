@@ -130,10 +130,9 @@ export function Sidebar({
 				/>
 			</SidebarHeader>
 
-			{collapsed ? (
-				<>
-					<SidebarNav>
-						{ALL_ITEMS.map((item) => {
+			<SidebarNav>
+				{collapsed
+					? ALL_ITEMS.map((item) => {
 							const Icon = item.icon;
 							return (
 								<Tooltip key={item.href} delayDuration={0}>
@@ -151,21 +150,8 @@ export function Sidebar({
 									</TooltipContent>
 								</Tooltip>
 							);
-						})}
-					</SidebarNav>
-					<SidebarFooter>
-						<SidebarUser
-							name={identityName}
-							email={identityEmail}
-							avatar={identityAvatar}
-						/>
-						<CollectionStatus collapsed />
-					</SidebarFooter>
-				</>
-			) : (
-				<>
-					<SidebarNav>
-						{GROUPS.map((group) => (
+						})
+					: GROUPS.map((group) => (
 							<SidebarGroup key={group.label} label={group.label} defaultOpen>
 								{group.items.map((item) => {
 									const Icon = item.icon;
@@ -188,19 +174,17 @@ export function Sidebar({
 								})}
 							</SidebarGroup>
 						))}
-					</SidebarNav>
-					<SidebarFooter>
-						{tenantSwitcher}
-						<NetworkActivity />
-						<CollectionStatus />
-						<SidebarUser
-							name={identityName}
-							email={identityEmail}
-							avatar={identityAvatar}
-						/>
-					</SidebarFooter>
-				</>
-			)}
+			</SidebarNav>
+			<SidebarFooter>
+				{!collapsed && tenantSwitcher}
+				{!collapsed && <NetworkActivity />}
+				<CollectionStatus collapsed={collapsed} />
+				<SidebarUser
+					name={identityName}
+					email={identityEmail}
+					avatar={identityAvatar}
+				/>
+			</SidebarFooter>
 		</BasaltSidebar>
 	);
 }

@@ -1,6 +1,4 @@
 import {
-	Avatar,
-	AvatarFallback,
 	ContentIsland,
 	SegmentControl,
 	SidebarDrawer,
@@ -17,6 +15,7 @@ import {
 	AppSkipLink,
 	AppShell as BasaltAppShell,
 } from "@nocoo/basalt/components/app-shell";
+import { AvatarInitials } from "@nocoo/basalt/components/avatar";
 import { Breadcrumbs } from "@nocoo/basalt/components/breadcrumbs";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
@@ -80,12 +79,7 @@ export function AppShell() {
 	};
 	const trail = breadcrumbsFromPathname(location.pathname);
 	const identityName = session?.name ?? session?.email ?? "SignOff user";
-	const identityInitial = identityName.trim().slice(0, 2).toUpperCase() || "SO";
-	const identityAvatar = (
-		<Avatar>
-			<AvatarFallback>{identityInitial}</AvatarFallback>
-		</Avatar>
-	);
+	const identityAvatar = <AvatarInitials name={identityName} />;
 
 	return (
 		<BasaltAppShell className="relative">
