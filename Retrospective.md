@@ -245,3 +245,18 @@ The full browser suite exposed a retained smart-discovery assertion that expecte
 ## 2026-10-15: verify grouped restart ownership
 
 Ctrl+C left the temporary Worker launcher's detached Wrangler process group orphaned, so the next grouped startup failed on port 37042 even though health requests returned 200 from the old Worker. Health alone does not prove a restart. Verify that both reserved ports are free before starting the replacement, inspect all grouped startup logs, and stop an orphan only after checking its process group, start time and repository cwd. The verified task-owned orphan was terminated and the full stack restarted; no launcher behavior or unrelated process was changed.
+
+## 2026-11-17: stale sidebar avatar E2E and local Bun drift
+
+A browser spec kept asserting a sidebar footer avatar that the user profile
+refactor had already removed, so the E2E lane failed on an element that no
+longer exists. When a refactor deletes a UI region, delete its dedicated
+end-to-end specs in the same change instead of leaving them to time out; the
+unit test that asserts the region's absence is the surviving contract.
+
+The local machine ran Bun 1.4.4 while the repository pins Bun 1.4.0 for the
+package manager and CI. Bun 1.4.4 checks coverage thresholds per file instead
+of globally, which failed the collect gate on files the global threshold
+allows. Verify the toolchain version against the repository pin before
+trusting a local coverage failure, and run the gate with the pinned version
+that CI uses.
