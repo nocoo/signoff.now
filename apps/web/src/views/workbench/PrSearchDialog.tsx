@@ -13,7 +13,6 @@ import { useNavigate } from "react-router";
 import { loadPulls, queryProject } from "@/models/monitoringApi";
 import { DEFAULT_PULL_FILTER, writePullFilter } from "@/models/workbench";
 import { pullHref, withQuery } from "@/models/workspaceLocation";
-import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 import { LifecycleBadge } from "./WorkbenchStatus";
 
 function matchScore(item: PullQueryItem, trimmedQuery: string): number {
@@ -86,11 +85,12 @@ function matchHint(item: PullQueryItem, trimmedQuery: string): string | null {
 export function PrSearchDialog({
 	open,
 	onOpenChange,
+	source,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	source: "cli" | "demo";
 }) {
-	const vm = useWorkbench();
 	const navigate = useNavigate();
 	const [query, setQuery] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -115,7 +115,7 @@ export function PrSearchDialog({
 		setLoading(true);
 		setError(null);
 		const params = new URLSearchParams({
-			source: vm.filter.source === "demo" ? "sample" : "live",
+			source: source === "demo" ? "sample" : "live",
 			state: "all",
 			draft: "include",
 			q: debouncedQuery,
@@ -143,7 +143,7 @@ export function PrSearchDialog({
 				setLoading(false);
 			});
 		return () => controller.abort();
-	}, [open, vm.filter.source, debouncedQuery]);
+	}, [open, source, debouncedQuery]);
 
 	const ranked = useMemo(() => {
 		if (!debouncedQuery) return items;
@@ -158,8 +158,8 @@ export function PrSearchDialog({
 	}, [items, debouncedQuery]);
 
 	const heading = debouncedQuery
-		? `${total.toLocaleString()} cached PRs matched${loading ? " · Updating…" : ""}`
-		: `Recent cached PRs${loading ? " · Loading…" : ""}`;
+		? `${total.toLocaleString()} cached PRs matched`
+		: "Recent cached PRs";
 
 	return (
 		<CommandPalette
@@ -231,7 +231,7 @@ export function PrSearchDialog({
 										"/prs",
 										writePullFilter({
 											...DEFAULT_PULL_FILTER,
-											source: vm.filter.source,
+											source,
 											state: "all",
 											draft: "include",
 											query: debouncedQuery,

@@ -30,7 +30,13 @@ import {
 	Users,
 	UsersRound,
 } from "lucide-react";
-import { type ElementType, type ReactNode, useEffect, useState } from "react";
+import {
+	type ElementType,
+	memo,
+	type ReactNode,
+	useEffect,
+	useState,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
 import { type NavGroupDef, visibleNavGroups } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
@@ -79,6 +85,39 @@ function isActivePath(pathname: string, item: NavItem): boolean {
 	return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
+const SidebarQuickSearch = memo(({ source }: { source: "cli" | "demo" }) => {
+	const [searchOpen, setSearchOpen] = useState(false);
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+				event.preventDefault();
+				setSearchOpen((current) => !current);
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, []);
+	return (
+		<>
+			<SidebarSearch
+				shortcut="⌘K"
+				aria-label="Quick search cached PRs"
+				className="bg-basalt-muted/50 [&_kbd]:bg-transparent"
+				onClick={() => setSearchOpen(true)}
+			>
+				Search PRs…
+			</SidebarSearch>
+			{searchOpen ? (
+				<PrSearchDialog
+					open={searchOpen}
+					onOpenChange={setSearchOpen}
+					source={source}
+				/>
+			) : null}
+		</>
+	);
+});
+
 export function Sidebar({
 	collapsed,
 	admin = false,
@@ -99,17 +138,6 @@ export function Sidebar({
 	const { pathname } = useLocation();
 	const navigate = useNavigate();
 	const workbench = useWorkbench();
-	const [searchOpen, setSearchOpen] = useState(false);
-	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-				event.preventDefault();
-				setSearchOpen((current) => !current);
-			}
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, []);
 	const go = (href: string) => {
 		navigate(
 			href === "/prs"
@@ -138,13 +166,7 @@ export function Sidebar({
 			</SidebarHeader>
 
 			<SidebarNav>
-				<SidebarSearch
-					shortcut="⌘K"
-					aria-label="Quick search cached PRs"
-					onClick={() => setSearchOpen(true)}
-				>
-					Search PRs…
-				</SidebarSearch>
+				<SidebarQuickSearch source={workbench.filter.source} />
 				{collapsed
 					? ALL_ITEMS.map((item) => {
 							const Icon = item.icon;
@@ -202,9 +224,6 @@ export function Sidebar({
 					</div>
 				)}
 			</SidebarFooter>
-			{searchOpen ? (
-				<PrSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
-			) : null}
 		</BasaltSidebar>
 	);
 }

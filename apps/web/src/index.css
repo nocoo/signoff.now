@@ -72,4 +72,18 @@
 	.pull-markdown hr {
 		@apply border-basalt-border;
 	}
+
+	body[data-scroll-locked] [data-basalt-sidebar],
+	body[data-scroll-locked] [data-slot="sidebar-nav"] {
+		isolation: auto;
+	}
+
+	body[data-scroll-locked] [data-slot="sidebar-search"] {
+		background-color: transparent;
+		transition: none;
+	}
+
+	body[data-scroll-locked] [data-slot="sidebar-search"] kbd {
+		opacity: 0;
+	}
 }
