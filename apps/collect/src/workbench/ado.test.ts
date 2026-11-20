@@ -7,6 +7,7 @@ import {
 	discoverMergeRequirements,
 	discoverRepositories,
 	discoverRepositoryPulls,
+	enumerateActivePullRequests,
 	enumerateRecentHistory,
 	importRepositoryPull,
 	policyArtifactId,
@@ -1746,6 +1747,361 @@ describe("collectProjectPulls", () => {
 				],
 			}),
 		).rejects.toThrow("Selected PR identity changed during collection");
+	});
+
+	test("wraps unexpected repository and active-PR listing errors and enforces active-PR cap", async () => {
+		const repo = { id: "repo-1", name: "app", projectGuid: "proj-1" };
+		await expect(
+			discoverRepositories(
+				{
+					getPage: async () => {
+						throw new Error("socket reset");
+					},
+				},
+				makeMockProject(),
+			),
+		).rejects.toMatchObject({ kind: "bad_request" });
+
+		const baseClient: AdoPagedClient = {
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			get: async () => ({ value: [] }),
+			post: async () => ({}),
+			getPage: async () => {
+				throw new Error("network down");
+			},
+		};
+		await expect(
+			enumerateActivePullRequests(baseClient, "test-org", repo),
+		).rejects.toMatchObject({ kind: "bad_request" });
+		await expect(
+			enumerateActivePullRequests(
+				{
+					...baseClient,
+					getPage: async () => {
+						throw new AdoError("server", "ado 503", 503);
+					},
+				},
+				"test-org",
+				repo,
+			),
+		).rejects.toMatchObject({ kind: "server" });
+
+		let page = 0;
+		await expect(
+			enumerateActivePullRequests(
+				{
+					...baseClient,
+					getPage: async () => {
+						const start = page++ * 100;
+						return {
+							data: {
+								value: Array.from({ length: 100 }, (_, i) => ({
+									pullRequestId: start + i + 1,
+									status: "active",
+									title: `PR ${start + i + 1}`,
+									repository: { id: repo.id, name: repo.name },
+								})),
+							},
+							continuationToken: null,
+						};
+					},
+				},
+				"test-org",
+				repo,
+			),
+		).rejects.toThrow(/10,000/);
+	});
+
+	test("handles policy scope fallbacks, repeated tokens, and >1,000 merge requirements", async () => {
+		const repo = { id: "repo-1", name: "app", projectGuid: "proj-1" };
+		const pagedClient = (
+			getPage: AdoPagedClient["getPage"],
+		): AdoPagedClient => ({
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			get: async () => ({ value: [] }),
+			post: async () => ({}),
+			getPage,
+		});
+		const gates = await discoverMergeRequirements(
+			pagedClient(async () => ({
+				data: {
+					value: [
+						{
+							id: 1,
+							isEnabled: true,
+							isBlocking: true,
+							type: { displayName: "Global policy" },
+							settings: { scope: "not-an-array" },
+						},
+						{
+							id: 2,
+							isEnabled: true,
+							isBlocking: true,
+							type: { displayName: "All branches policy" },
+							settings: { scope: [{ repositoryId: repo.id }] },
+						},
+					],
+				},
+				continuationToken: null,
+			})),
+			makeMockProject(),
+			[repo],
+		);
+		expect(gates.map((g) => g.id)).toEqual(["policy-1", "policy-2"]);
+		expect(gates[1]?.detail).toBe("All branches");
+
+		await expect(
+			discoverMergeRequirements(
+				pagedClient(async () => ({
+					data: { value: [] },
+					continuationToken: "stuck-token",
+				})),
+				makeMockProject(),
+				[repo],
+			),
+		).rejects.toThrow(/repeated a token/i);
+
+		await expect(
+			discoverMergeRequirements(
+				pagedClient(async () => ({
+					data: {
+						value: Array.from({ length: 1001 }, (_, i) => ({
+							id: i + 1,
+							isEnabled: true,
+							isBlocking: true,
+							type: { displayName: `Policy ${i + 1}` },
+							settings: { scope: [{ repositoryId: repo.id }] },
+						})),
+					},
+					continuationToken: null,
+				})),
+				makeMockProject(),
+				[repo],
+			),
+		).rejects.toThrow(/1,000 merge requirements/i);
+	});
+
+	test("enumerateRecentHistory records partial issues on errors and rethrows unauthenticated", async () => {
+		const repo = { id: "repo-1", name: "app", projectGuid: "proj-1" };
+		const failingClient = (err: Error): AdoPagedClient => ({
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			post: async () => ({}),
+			getPage: async () => ({ data: { value: [] }, continuationToken: null }),
+			get: async () => {
+				throw err;
+			},
+		});
+		const partial = await enumerateRecentHistory(
+			failingClient(new Error("timeout")),
+			"test-org",
+			repo,
+		);
+		expect(partial.completed).toEqual([]);
+		expect(partial.abandoned).toEqual([]);
+		expect(partial.issues).toHaveLength(2);
+		expect(partial.issues[0]).toContain("Recent completed PRs unavailable");
+		expect(partial.issues[1]).toContain("Recent abandoned PRs unavailable");
+
+		await expect(
+			enumerateRecentHistory(
+				failingClient(new AdoError("unauthenticated", "expired", 401)),
+				"test-org",
+				repo,
+			),
+		).rejects.toMatchObject({ kind: "unauthenticated" });
+
+		await expect(
+			enumerateRecentHistory(
+				{
+					...failingClient(new Error("unused")),
+					get: async (url) => {
+						if (url.includes("status=abandoned")) {
+							throw new AdoError("unauthenticated", "expired", 401);
+						}
+						return { value: [] };
+					},
+				},
+				"test-org",
+				repo,
+			),
+		).rejects.toMatchObject({ kind: "unauthenticated" });
+	});
+
+	test("BuildService reuses cached timeline while preserving caller required flag", async () => {
+		let getCalls = 0;
+		const client: AdoPagedClient = {
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			post: async () => ({}),
+			getPage: async () => ({ data: {}, continuationToken: null }),
+			get: async (url) => {
+				getCalls++;
+				return url.includes("/timeline")
+					? {
+							records: [
+								{
+									id: "s1",
+									type: "Stage",
+									name: "Build",
+									state: "completed",
+									result: "succeeded",
+								},
+							],
+						}
+					: { id: 77, status: "completed", result: "succeeded" };
+			},
+		};
+		const service = new BuildService(client, "test-org");
+		const first = await service.fetchBuildWithStages(77, "proj-1", true);
+		const second = await service.fetchBuildWithStages(77, "proj-1", false);
+		expect(getCalls).toBe(2);
+		expect(first.required).toBe(true);
+		expect(second.required).toBe(false);
+		expect(second.stages).toHaveLength(1);
+	});
+
+	test("handles partial status, build, merge-paging, metric, and merge-requirement failures and rejects target mismatch", async () => {
+		const repoId = "repo-guid-1";
+		const project = makeMockProject();
+		const target = {
+			id: "selected",
+			number: 101,
+			repository: { id: repoId, name: "repo-alpha" },
+		};
+		const rawPr = {
+			pullRequestId: 101,
+			status: "active",
+			title: "PR 101",
+			creationDate: "2026-09-17T01:00:00Z",
+			lastMergeCommit: { commitId: "expected-sha" },
+			repository: {
+				id: repoId,
+				name: "repo-alpha",
+				project: { id: "proj-guid", name: project.name },
+			},
+		};
+
+		// Mismatched summary identity fails fast.
+		await expect(
+			collectProjectPulls({
+				project,
+				now: 1_789_632_000,
+				targets: [target],
+				client: {
+					checkAuth: async () => {},
+					invalidateToken: () => {},
+					post: async () => ({}),
+					getPage: async () => ({
+						data: { value: [] },
+						continuationToken: null,
+					}),
+					get: async () => ({ ...rawPr, pullRequestId: 999 }),
+				},
+			}),
+		).rejects.toThrow(/identity changed/i);
+
+		let mergePage = 0;
+		const resilientClient: AdoPagedClient = {
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+			post: async () => ({}),
+			get: async (url) => {
+				if (url.includes("/pullrequests/101?")) return rawPr;
+				if (url.includes("/policy/evaluations")) {
+					return {
+						value: [
+							{
+								configuration: {
+									id: 1,
+									type: {
+										id: "0609b952-1397-4640-95ec-e00a01b2c241",
+										displayName: "Policy Build",
+									},
+									isBlocking: true,
+									isEnabled: true,
+								},
+								context: { buildId: 501 },
+							},
+						],
+					};
+				}
+				if (url.includes("/statuses")) {
+					throw new AdoError("server", "statuses 500", 500);
+				}
+				if (url.includes("/_apis/build/builds/501")) {
+					throw new AdoError("server", "build 501 failed", 500);
+				}
+				if (url.includes("/_apis/build/builds/502")) {
+					throw new AdoError("server", "build 502 stages failed", 500);
+				}
+				if (url.includes("/threads") || url.includes("/iterations")) {
+					throw new AdoError("server", "metrics unavailable", 500);
+				}
+				return { value: [] };
+			},
+			getPage: async (url) => {
+				if (url.includes("/_apis/policy/configurations")) {
+					throw new AdoError("server", "policies unavailable", 500);
+				}
+				if (url.includes("/_apis/build/builds?")) {
+					mergePage++;
+					if (mergePage === 1) {
+						return {
+							data: {
+								value: [
+									{
+										id: 500,
+										definition: { id: 1, name: "Stale Commit Build" },
+										sourceBranch: "refs/pull/101/merge",
+										sourceVersion: "old-sha",
+										repository: { id: repoId },
+									},
+									{
+										id: 502,
+										definition: { id: 2, name: "Failing Merge Build" },
+										sourceBranch: "refs/pull/101/merge",
+										sourceVersion: "expected-sha",
+										repository: { id: repoId },
+									},
+								],
+							},
+							continuationToken: "repeat-token",
+						};
+					}
+					return {
+						data: { value: [] },
+						continuationToken: "repeat-token",
+					};
+				}
+				return { data: { value: [] }, continuationToken: null };
+			},
+		};
+
+		const result = await collectProjectPulls({
+			project,
+			client: resilientClient,
+			now: 1_789_632_000,
+			targets: [target],
+		});
+		expect(result.state).toBe("partial");
+		expect(result.pulls).toHaveLength(1);
+		const issues = result.pulls[0]?.collectionIssues ?? [];
+		expect(issues.some((i) => i.includes("Statuses unavailable"))).toBe(true);
+		expect(issues.some((i) => i.includes("Failed to fetch build 501"))).toBe(
+			true,
+		);
+		expect(
+			issues.some((i) => i.includes("Failed to fetch stages for build 502")),
+		).toBe(true);
+		expect(
+			issues.some((i) => i.includes("repeated a continuation token")),
+		).toBe(true);
+		expect(result.message).toContain("policies unavailable");
+		expect(result.pulls[0]?.comments).toBeNull();
+		expect(result.pulls[0]?.filesChanged).toBeNull();
 	});
 });
 

@@ -56,8 +56,11 @@ describe("validateTimezone", () => {
 	test("accepts IANA", () => {
 		expect(validateTimezone("Asia/Shanghai")).toBe("Asia/Shanghai");
 	});
-	test("rejects garbage", () => {
+	test("rejects garbage, blank, and non-string values", () => {
 		expect(validateTimezone("Not/AZone")).toBeNull();
+		expect(validateTimezone("")).toBeNull();
+		expect(validateTimezone("   ")).toBeNull();
+		expect(validateTimezone(123)).toBeNull();
 	});
 });
 
@@ -83,6 +86,31 @@ describe("rowsToAppSettings", () => {
 		expect(s.pipelineConfigVersion).toBe(2);
 		expect(s.scoresStale).toBe(true);
 		expect(s.scoresStaleReason).toBe("timezone updated");
+	});
+
+	test("falls back to safe defaults when rows are missing or contain invalid values", () => {
+		const empty = rowsToAppSettings([]);
+		expect(empty.timezone).toBe("Asia/Shanghai");
+		expect(empty.emailSuffixes).toEqual(["example.com"]);
+		expect(empty.activityWeights).toEqual(DEFAULT_ACTIVITY_WEIGHTS);
+		expect(empty.pipelineConfigVersion).toBe(1);
+		expect(empty.scoresStale).toBe(false);
+		expect(empty.scoresStaleReason).toBeNull();
+
+		const invalid = rowsToAppSettings([
+			{ key: "timezone", value: '"Invalid/Zone"', updated_at: 10 },
+			{ key: "email_suffixes", value: "[]", updated_at: 11 },
+			{ key: "activity_weights", value: '{"pr.merged":-5}', updated_at: 12 },
+			{
+				key: "pipeline_config_version",
+				value: '"not-a-number"',
+				updated_at: 13,
+			},
+		]);
+		expect(invalid.timezone).toBe("Asia/Shanghai");
+		expect(invalid.emailSuffixes).toEqual(["example.com"]);
+		expect(invalid.activityWeights).toEqual(DEFAULT_ACTIVITY_WEIGHTS);
+		expect(invalid.pipelineConfigVersion).toBe(1);
 	});
 });
 

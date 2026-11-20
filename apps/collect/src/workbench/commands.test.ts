@@ -715,6 +715,156 @@ test("table output escapes control characters and includes readable PR data", as
 	await cli("job", "get", job.id, "--format", "table");
 	expect(stdout).toContain("Queued");
 });
+
+test("table output formats blockers, stopped watches, batch results, and job receipts", async () => {
+	const blockedPull = {
+		...pullDto,
+		policies: [
+			{
+				id: "policy-review",
+				name: "Minimum number of reviewers",
+				kind: "review" as const,
+				required: true,
+				state: "failed" as const,
+				detail: "2 approvals required",
+				owner: "Reviewers",
+			},
+			{
+				id: "policy-pop",
+				name: "Proof of Presence (PoP)",
+				kind: "policy" as const,
+				required: true,
+				state: "failed" as const,
+				detail: "PoP pending",
+				owner: "Author",
+			},
+		],
+	};
+	reply = () => Response.json({ ...list, data: [blockedPull] });
+	await cli("pr", "list", "--summary", "--format", "table");
+	expect(stdout).toContain("review: Minimum number of reviewers [failed]");
+	expect(stdout).toContain("attention: Proof of Presence (PoP) [failed]");
+
+	stdout = "";
+	const stoppedInspection = {
+		...inspection,
+		watch: {
+			...inspection.watch,
+			active: false,
+			stoppedAt: iso(now),
+			stopReason: "completed",
+		},
+	};
+	reply = () =>
+		Response.json({
+			...envelope,
+			schemaVersion: 2,
+			data: [stoppedInspection],
+			page: { ...page, total: 1 },
+		});
+	await cli("watch", "list", "--format", "table");
+	expect(stdout).toContain("\tstopped\t");
+
+	stdout = "";
+	reply = () =>
+		Response.json({
+			results: [{ status: "added", observation }],
+		});
+	await cli("watch", "add", pull.id, "--format", "table");
+	expect(stdout).toContain(observation.id);
+	expect(stdout).toContain("added");
+
+	stdout = "";
+	reply = () =>
+		Response.json({
+			jobs: [
+				{
+					id: "discover-1",
+					kind: "discover",
+					state: "queued",
+					coalesced: false,
+					notBefore: iso(now),
+				},
+			],
+		});
+	await cli(
+		"discover",
+		"--repo",
+		referenceLinks(ref).repository.url,
+		"--format",
+		"table",
+	);
+	expect(stdout).toContain("discover-1");
+	expect(stdout).toContain("queued");
+});
+
+test("repo registration matches existing catalog repositories and rejects ambiguous projects", async () => {
+	const links = referenceLinks(ref);
+	const repositoryUrl = links.repository.url;
+	const repoIdUrl = repositoryUrl.replace(/[^/]+$/, pull.repository.id);
+	const baseCounts = {
+		...list.metrics,
+		watching: 0,
+	};
+	const catalogRepo = {
+		key: `${project.id}:${pull.repository.id}`,
+		provider: "ado" as const,
+		organization: links.organization,
+		project: projectDto,
+		repository: {
+			id: pull.repository.id,
+			name: pull.repository.name,
+			url: repositoryUrl,
+			projectExternalId: null,
+		},
+		identityResolved: true,
+		lastDiscoveredAt: iso(now),
+		coverage: envelope.coverage,
+		counts: baseCounts,
+	};
+	const unresolvedRepo = {
+		...catalogRepo,
+		key: `${project.id}:unscoped`,
+		repository: {
+			id: null,
+			name: "unscoped",
+			url: repositoryUrl.replace(/[^/]+$/, "unscoped"),
+			projectExternalId: null,
+		},
+		identityResolved: false,
+	};
+	reply = (url, body) => {
+		if (url.pathname.endsWith("repos"))
+			return Response.json({
+				...catalog,
+				data: [catalogRepo, unresolvedRepo],
+				projects: [{ ...projectDto, repositories: [pull.repository.name] }],
+			});
+		if (url.pathname.includes("projects")) {
+			return Response.json({ ...project, ...body });
+		}
+		return Response.json({ jobs: [] });
+	};
+	// Matches existing repository in catalog by provider ID without issuing a PATCH.
+	await cli("repo", "add", repoIdUrl);
+	expect(calls.every((c) => c.method === "GET")).toBe(true);
+
+	// Registering a distinct repo triggers PATCH after evaluating catalog entries.
+	calls = [];
+	await cli("repo", "add", repositoryUrl.replace(/[^/]+$/, "brand-new-repo"));
+	expect(calls.some((c) => c.method === "PATCH")).toBe(true);
+
+	// Multiple matching projects fail with REFERENCE_AMBIGUOUS.
+	reply = () =>
+		Response.json({
+			...catalog,
+			projects: [projectDto, { ...projectDto, id: "project-duplicate" }],
+		});
+	await expect(cli("repo", "add", repositoryUrl)).rejects.toMatchObject({
+		code: "REFERENCE_AMBIGUOUS",
+		exitCode: 3,
+	});
+});
 test("daemon and its compatibility alias shut down cleanly while an empty watch list stays idle", async () => {
 	const listeners = process.listenerCount("SIGTERM");
 	reply = (url) => {

@@ -61,6 +61,16 @@ test("executor endpoints publish one watched PR and its scan receipt, without ex
 		await (await request("claim")).json(),
 	);
 	expect(claim.observation?.ref.number).toBe(1);
+	const fetchedJob = await app.request(
+		`http://localhost/api/collector/jobs/${claim.job.id}`,
+		{ headers: { host: "localhost" } },
+		{ DB: sqlite.db, SIGNOFF_LOCAL_TRUST: "1", SIGNOFF_DEMO_MODE: "1" },
+	);
+	expect(fetchedJob.status).toBe(200);
+	expect(await fetchedJob.json()).toMatchObject({
+		id: claim.job.id,
+		state: "running",
+	});
 	const action = (name: string, data: object = {}) =>
 		request(`jobs/${claim.job.id}/${name}`, {
 			...data,

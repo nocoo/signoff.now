@@ -798,4 +798,34 @@ describe("collect", () => {
 		expect(projectScope?.status).toBe("incomplete");
 		expect(projectScope?.errors.length).toBeGreaterThan(0);
 	});
+
+	test("a project WIQL pagination problem marks the scope incomplete and warns", async () => {
+		const { fs } = memoryFs();
+		const warnings: string[] = [];
+		let postCalls = 0;
+		const client: AdoClient = {
+			...routedClient({}),
+			async post() {
+				postCalls++;
+				if (postCalls === 1) {
+					throw new AdoError("result_too_large", "VS402337: >20k items", 400);
+				}
+				return { workItems: [] };
+			},
+		};
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+			log: { warn: (m) => warnings.push(m) },
+		});
+		const projectScope = manifest.scopes.find((s) => s.kind === "project");
+		expect(projectScope?.status).toBe("incomplete");
+		expect(projectScope?.artifacts).toHaveLength(0);
+		expect(projectScope?.errors[0]).toContain("earliest work item");
+		expect(
+			warnings.some(
+				(w) => w.includes(`project:${PROJ_GUID}`) && w.includes("incomplete"),
+			),
+		).toBe(true);
+	});
 });

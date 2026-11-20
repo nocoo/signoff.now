@@ -247,3 +247,27 @@ test("non-admins and anonymous callers cannot use admin routes", async () => {
 	);
 	expect(sorted.status).toBe(200);
 });
+
+test("multiple environment admins are returned in deterministic sorted order", async () => {
+	const response = await app.request(
+		"https://signoff.hexly.ai/api/admin/directory",
+		{
+			headers: {
+				host: "signoff.hexly.ai",
+				"cf-access-jwt-assertion": "alpha@x.io",
+			},
+		},
+		{
+			DB: sqlite.db,
+			...REMOTE,
+			SIGNOFF_ADMIN_EMAILS: "zeta@x.io, alpha@x.io, middle@x.io",
+		},
+	);
+	expect(response.status).toBe(200);
+	const listed = adminDirectorySchema.parse(await response.json());
+	expect(listed.admins.map((a) => a.principal)).toEqual([
+		"email:alpha@x.io",
+		"email:middle@x.io",
+		"email:zeta@x.io",
+	]);
+});

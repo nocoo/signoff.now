@@ -56,6 +56,16 @@ test("collection CRUD uses revisions, validates input and isolates data sources"
 	);
 	expect(edited.name).toBe("QA");
 	expect(edited.revision).toBe(2);
+	const listedLive = (await (await request("")).json()) as {
+		items: { id: string; name: string }[];
+	};
+	expect(listedLive.items.map((item) => [item.id, item.name])).toEqual([
+		[c.id, "QA"],
+	]);
+	const listedSample = (await (
+		await request("", "GET", undefined, "sample")
+	).json()) as { items: unknown[] };
+	expect(listedSample.items).toEqual([]);
 	expect((await request(`/${c.id}?revision=1`, "DELETE")).status).toBe(409);
 	expect((await request(`/${c.id}?revision=2`, "DELETE")).status).toBe(200);
 	expect((await request(`/${c.id}`)).status).toBe(404);

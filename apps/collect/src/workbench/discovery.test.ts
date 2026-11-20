@@ -348,3 +348,59 @@ test("routine discovery drains timestamp ties and unordered pages", async () => 
 	expect(unordered.calls).toBe(3);
 	expect(unordered.pulls.map((pull) => pull.number)).toEqual([1, 2, 3, 4]);
 });
+
+test("explicit import rejects non-live scopes and non-positive PR numbers", async () => {
+	const client = { get: async () => raw(1) };
+	await expect(
+		importRepositoryPull(
+			client,
+			{ ...project, source: "demo" },
+			repository,
+			1,
+			1789646400,
+		),
+	).rejects.toMatchObject({ kind: "bad_request" });
+	await expect(
+		importRepositoryPull(
+			client,
+			{ ...project, source: "cli" },
+			repository,
+			0,
+			1789646400,
+		),
+	).rejects.toMatchObject({ kind: "bad_request" });
+});
+
+test("discovery rejects missing creation dates and repeated PR IDs across pages", async () => {
+	const readAll = async (client: Pick<AdoPagedClient, "getPage">) => {
+		for await (const _page of discoverRepositoryPulls(
+			client,
+			project,
+			repository,
+			1789646400,
+		)) {
+			/* consume */
+		}
+	};
+	await expect(
+		readAll({
+			getPage: async () => ({
+				data: { value: [{ ...raw(1), creationDate: "not-a-date" }] },
+				continuationToken: null,
+			}),
+		}),
+	).rejects.toThrow(/creation date/i);
+
+	let pageIndex = 0;
+	await expect(
+		readAll({
+			getPage: async () => {
+				pageIndex++;
+				return {
+					data: { value: [raw(1)] },
+					continuationToken: pageIndex === 1 ? "next-page" : null,
+				};
+			},
+		}),
+	).rejects.toThrow(/Repeated PR/i);
+});
