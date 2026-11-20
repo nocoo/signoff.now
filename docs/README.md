@@ -31,6 +31,7 @@ Start with [Evidence-driven readiness](21-readiness-architecture.md), then [Coll
 | 21 | [Evidence-driven readiness](21-readiness-architecture.md) | Shared evidence, per-PR inference, project SQLite cache and consistency boundaries |
 | 22 | [Contribution reports](22-contribution-reports.md) | Cached 90-day reports, repository discovery depth and contributor hiding |
 | 23 | [Remote access, tenants and connectors](23-remote-connector-and-tenants.md) | Proposed plan: admins, tenants, personal watches, data owners and remote connectors on Cloudflare |
+| 24 | [Local development, runtime operations & quality boundaries](24-local-dev-and-runtime-ops.md) | Local stack modes, Connector polling/logs, web cache cadence, forward migrations, coverage/hook gaps & modal pickers |
 
 ## 辅助工具与归档
 
