@@ -1,6 +1,6 @@
 import { Badge, Button, LayerCard } from "@nocoo/basalt";
+import { BarChart3, Clock3, RefreshCw } from "@nocoo/basalt/icons";
 import type { ContributionSnapshot } from "@signoff/domain/insights";
-import { BarChart3, Clock3, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { calculationFreshness, relativeAge } from "@/models/freshness";
 import type { useContributionModule } from "@/viewmodels/useContributionModule";

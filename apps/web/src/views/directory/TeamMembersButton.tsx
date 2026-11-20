@@ -8,12 +8,12 @@ import {
 	DialogTitle,
 } from "@nocoo/basalt";
 import { MultiSelect } from "@nocoo/basalt/components/multi-select";
+import { UserPlus } from "@nocoo/basalt/icons";
 import type {
 	DataSource,
 	DirectoryData,
 	DirectoryTeam,
 } from "@signoff/domain/insights";
-import { UserPlus } from "lucide-react";
 import { useState } from "react";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { useTeamMembers } from "@/viewmodels/useTeamMembers";

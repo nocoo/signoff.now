@@ -1,6 +1,6 @@
 import { Button } from "@nocoo/basalt";
+import { ChevronDown, ChevronRight } from "@nocoo/basalt/icons";
 import type { JobQueryItem } from "@signoff/domain/query";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
 	JOB_STATES,

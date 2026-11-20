@@ -18,14 +18,6 @@ import {
 	AccordionItem,
 	AccordionTrigger,
 } from "@nocoo/basalt/components/accordion";
-import type { DataSource } from "@signoff/domain/insights";
-import { isWatched } from "@signoff/domain/monitoring";
-import {
-	approvalCount,
-	type Build,
-	type PullRequest,
-	pullUrl,
-} from "@signoff/domain/workbench";
 import {
 	ArrowRight,
 	ExternalLink,
@@ -37,7 +29,15 @@ import {
 	ScanLine,
 	ShieldCheck,
 	X,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { DataSource } from "@signoff/domain/insights";
+import { isWatched } from "@signoff/domain/monitoring";
+import {
+	approvalCount,
+	type Build,
+	type PullRequest,
+	pullUrl,
+} from "@signoff/domain/workbench";
 import type { RefObject } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";

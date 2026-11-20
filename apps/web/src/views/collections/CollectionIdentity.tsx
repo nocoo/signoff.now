@@ -1,4 +1,3 @@
-import type { PrCollection } from "@signoff/domain/pr-collections";
 import {
 	BookOpen,
 	Flag,
@@ -6,7 +5,8 @@ import {
 	Layers3,
 	Rocket,
 	Target,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { PrCollection } from "@signoff/domain/pr-collections";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 

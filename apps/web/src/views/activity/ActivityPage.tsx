@@ -6,7 +6,6 @@ import {
 	Input,
 	LayerCard,
 } from "@nocoo/basalt";
-import { Timeline } from "@nocoo/basalt/charts/timeline";
 import { DatePicker } from "@nocoo/basalt/components/date-picker";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SectionRule } from "@nocoo/basalt/components/section-rule";
@@ -19,6 +18,7 @@ import {
 	TableRow,
 } from "@nocoo/basalt/components/table";
 import { AlertBanner } from "@/components/AlertBanner";
+import { Timeline } from "@/components/charts/Timeline";
 import { EntityLabel } from "@/components/EntityAvatar";
 import { heatmapColor } from "@/lib/palette";
 import { useActivityHeatmapViewModel } from "@/viewmodels/useActivityHeatmapViewModel";

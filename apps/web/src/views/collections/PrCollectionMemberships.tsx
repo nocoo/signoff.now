@@ -10,8 +10,8 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@nocoo/basalt";
+import { Layers3, Plus } from "@nocoo/basalt/icons";
 import type { DataSource } from "@signoff/domain/monitoring";
-import { Layers3, Plus } from "lucide-react";
 import { createContext, type ReactNode, useContext, useState } from "react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";

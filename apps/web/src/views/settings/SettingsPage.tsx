@@ -8,7 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { Settings2, X } from "lucide-react";
+import { Settings2, X } from "@nocoo/basalt/icons";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";

@@ -30,15 +30,21 @@ vi.mock("@/models/contributionsApi", () => ({
 	fetchContribution: vi.fn(),
 }));
 vi.mock("@/models/directoryApi", () => ({ fetchDirectory: vi.fn() }));
-vi.mock("@nocoo/basalt/charts/frame", () => ({
-	ChartFrame: ({
-		ariaLabel,
-		summary,
-	}: {
-		ariaLabel: string;
-		summary: ReactNode;
-	}) => <figure aria-label={ariaLabel}>{summary}</figure>,
-}));
+vi.mock("@nocoo/basalt/components/chart", async () => {
+	const actual = await vi.importActual<
+		typeof import("@nocoo/basalt/components/chart")
+	>("@nocoo/basalt/components/chart");
+	return {
+		...actual,
+		ChartFrame: ({
+			ariaLabel,
+			summary,
+		}: {
+			ariaLabel: string;
+			summary: ReactNode;
+		}) => <figure aria-label={ariaLabel}>{summary}</figure>,
+	};
+});
 
 const NOW = 1_800_000_000;
 const project: Project = {

@@ -8,18 +8,18 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import type {
-	ContributionReport,
-	ContributorRepositoryContribution,
-	PullCounts,
-} from "@signoff/domain/insights";
 import {
 	ChevronLeft,
 	ChevronRight,
 	GitPullRequest,
 	RefreshCw,
 	Users,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type {
+	ContributionReport,
+	ContributorRepositoryContribution,
+	PullCounts,
+} from "@signoff/domain/insights";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";

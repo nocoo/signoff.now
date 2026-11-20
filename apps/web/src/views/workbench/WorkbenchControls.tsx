@@ -1,5 +1,5 @@
 import { Button } from "@nocoo/basalt";
-import { RefreshCw, ScanLine } from "lucide-react";
+import { RefreshCw, ScanLine } from "@nocoo/basalt/icons";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SERVICE_UNAVAILABLE } from "@/lib/api";
 import { cn } from "@/lib/utils";

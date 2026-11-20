@@ -11,8 +11,6 @@ import {
 	LayerCard,
 } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
-import type { DataSource } from "@signoff/domain/monitoring";
-import type { PrCollection } from "@signoff/domain/pr-collections";
 import {
 	ArrowLeft,
 	ArrowUpRight,
@@ -23,7 +21,9 @@ import {
 	Plus,
 	Search,
 	Trash2,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { DataSource } from "@signoff/domain/monitoring";
+import type { PrCollection } from "@signoff/domain/pr-collections";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";

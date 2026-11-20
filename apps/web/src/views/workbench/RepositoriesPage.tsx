@@ -1,10 +1,12 @@
 import { Badge, Button, LayerCard } from "@nocoo/basalt";
-import { ChartFrame } from "@nocoo/basalt/charts/frame";
-import { ChartLegend } from "@nocoo/basalt/charts/legend";
-import { chart } from "@nocoo/basalt/charts/palette";
-import { StatCard, StatGrid } from "@nocoo/basalt/charts/stat-card";
-import { ChartTooltipContent } from "@nocoo/basalt/charts/tooltip";
+import {
+	ChartFrame,
+	ChartLegend,
+	ChartTooltipContent,
+	chart,
+} from "@nocoo/basalt/components/chart";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import { StatCard, StatGrid } from "@nocoo/basalt/components/stat-card";
 import {
 	Table,
 	TableBody,
@@ -13,6 +15,12 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
+import {
+	ArrowRight,
+	ChevronLeft,
+	ChevronRight,
+	GitBranch,
+} from "@nocoo/basalt/icons";
 import type {
 	ContributionFilters,
 	ContributionSnapshot,
@@ -25,7 +33,6 @@ import {
 	projectUrl,
 	repositoryUrl,
 } from "@signoff/domain/workbench";
-import { ArrowRight, ChevronLeft, ChevronRight, GitBranch } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";

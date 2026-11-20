@@ -1,13 +1,4 @@
 import { Badge } from "@nocoo/basalt";
-import { SlotBarChart } from "@nocoo/basalt/charts/slot-bar";
-import type { AiReadiness } from "@signoff/domain/ai-readiness";
-import type {
-	Build,
-	CheckState,
-	Project,
-	PullRequest,
-	ReadinessColor,
-} from "@signoff/domain/workbench";
 import {
 	Ban,
 	Check,
@@ -19,8 +10,17 @@ import {
 	ShieldAlert,
 	UserRoundCheck,
 	X,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { AiReadiness } from "@signoff/domain/ai-readiness";
+import type {
+	Build,
+	CheckState,
+	Project,
+	PullRequest,
+	ReadinessColor,
+} from "@signoff/domain/workbench";
 import type { ReactNode } from "react";
+import { SlotBarChart } from "@/components/charts/SlotBarChart";
 import { heatmapColor } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 

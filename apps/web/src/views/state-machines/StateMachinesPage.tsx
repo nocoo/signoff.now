@@ -1,6 +1,4 @@
 import { Badge, Button, Checkbox, LayerCard } from "@nocoo/basalt";
-import { isWatched } from "@signoff/domain/monitoring";
-import { repositoryUrl } from "@signoff/domain/workbench";
 import {
 	ExternalLink,
 	History,
@@ -9,7 +7,9 @@ import {
 	ScanSearch,
 	Settings2,
 	X,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import { isWatched } from "@signoff/domain/monitoring";
+import { repositoryUrl } from "@signoff/domain/workbench";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";

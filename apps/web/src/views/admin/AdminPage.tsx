@@ -8,7 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { ShieldCheck, UserMinus, UserPlus } from "lucide-react";
+import { ShieldCheck, UserMinus, UserPlus } from "@nocoo/basalt/icons";
 import { type FormEvent, useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";

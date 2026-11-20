@@ -1,6 +1,6 @@
 import { Button } from "@nocoo/basalt";
+import { CloudOff } from "@nocoo/basalt/icons";
 import { canUseWorkspace } from "@signoff/domain/principal";
-import { CloudOff } from "lucide-react";
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { useSession } from "@/viewmodels/SessionProvider";

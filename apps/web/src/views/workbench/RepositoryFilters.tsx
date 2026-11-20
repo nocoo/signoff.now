@@ -1,11 +1,11 @@
 import { Button, Field } from "@nocoo/basalt";
+import { ExternalLink } from "@nocoo/basalt/icons";
 import {
 	organizationUrl,
 	type Project,
 	projectUrl,
 	repositoryUrl,
 } from "@signoff/domain/workbench";
-import { ExternalLink } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { SelectControl } from "@/components/SelectControl";
 import type { WorkbenchViewModel } from "@/viewmodels/useWorkbenchViewModel";

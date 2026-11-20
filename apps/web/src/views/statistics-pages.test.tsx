@@ -33,7 +33,7 @@ vi.mock("@/models/activityApi", () => ({
 	fetchTimeline: vi.fn(),
 }));
 // Check the data contract passed to the library; chart layout is checked in Chrome.
-vi.mock("@nocoo/basalt/charts/bar", () => ({
+vi.mock("@/components/charts/BarChart", () => ({
 	BarChart: ({
 		data,
 		series,

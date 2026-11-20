@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.3 — 2026-11-20
+
+- Upgrade `@nocoo/basalt` from `3.3.6` to `^3.5.1` (retaining the `MultiSelect` `modal` scroll-lock patch).
+- Remove direct `lucide-react` dependency and migrate all icon imports to `@nocoo/basalt/icons`.
+- Migrate `@nocoo/basalt/charts/*` to `@nocoo/basalt/components/chart`, `@nocoo/basalt/components/stat-card`, and app-owned `BarChart`, `SlotBarChart`, `Timeline`, and heatmap palette helpers.
+- Simplify `apps/web/src/index.css` to `@import "@nocoo/basalt/styles"; @import "tailwindcss";` and align `ContentIsland` outer inset to Basalt spacing tokens.
+
 ## v0.4.0 — 2026-10-24
 
 - Rebuild the sidebar on the Basalt template: library header inset, collapsible groups, row geometry, token version pill and centred collapsed rail replace the local header padding and caller offsets.

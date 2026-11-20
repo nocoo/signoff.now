@@ -12,8 +12,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { isWatched } from "@signoff/domain/monitoring";
-import { pullUrl, repositoryBranchUrl } from "@signoff/domain/workbench";
 import {
 	ArrowDown,
 	ArrowUp,
@@ -25,7 +23,9 @@ import {
 	EyeOff,
 	GitBranch,
 	Info,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import { isWatched } from "@signoff/domain/monitoring";
+import { pullUrl, repositoryBranchUrl } from "@signoff/domain/workbench";
 import { Fragment, type ReactNode } from "react";
 import { EntityLabel } from "@/components/EntityAvatar";
 import { Skeleton } from "@/components/Skeleton";

@@ -8,7 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { GitBranch } from "lucide-react";
+import { GitBranch } from "@nocoo/basalt/icons";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { SelectControl as Select } from "@/components/SelectControl";

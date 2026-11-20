@@ -8,7 +8,7 @@ import {
 	DialogTitle,
 	Label,
 } from "@nocoo/basalt";
-import { X } from "lucide-react";
+import { X } from "@nocoo/basalt/icons";
 import { useId } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";

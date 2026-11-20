@@ -12,7 +12,7 @@ import {
 	type LucideIcon,
 	ShieldAlert,
 	UserRoundCheck,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
 import { SelectControl } from "@/components/SelectControl";
 import { cn } from "@/lib/utils";
 import type { useWorkbench } from "@/viewmodels/WorkbenchProvider";

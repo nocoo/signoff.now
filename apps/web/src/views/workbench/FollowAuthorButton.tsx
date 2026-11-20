@@ -1,7 +1,7 @@
 import { Button } from "@nocoo/basalt";
+import { UserCheck, UserPlus } from "@nocoo/basalt/icons";
 import { identityKey } from "@signoff/domain/insights";
 import type { Project, PullRequest } from "@signoff/domain/workbench";
-import { UserCheck, UserPlus } from "lucide-react";
 import { useFollowAuthor } from "@/viewmodels/useFollowAuthor";
 
 export function FollowAuthorButton({

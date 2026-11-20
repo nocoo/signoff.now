@@ -1,7 +1,6 @@
 import { Button, Checkbox, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SectionRule } from "@nocoo/basalt/components/section-rule";
-import { isWatched } from "@signoff/domain/monitoring";
 import {
 	ArrowRight,
 	ChevronLeft,
@@ -11,7 +10,8 @@ import {
 	GitPullRequest,
 	ListOrdered,
 	ScanLine,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import { isWatched } from "@signoff/domain/monitoring";
 import { useRef } from "react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";

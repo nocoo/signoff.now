@@ -1,6 +1,6 @@
 import { Button, Field, Input } from "@nocoo/basalt";
 import { MultiSelect } from "@nocoo/basalt/components/multi-select";
-import { Search } from "lucide-react";
+import { Search } from "@nocoo/basalt/icons";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { SelectControl } from "@/components/SelectControl";
 import type { PullFilter } from "@/models/workbench";

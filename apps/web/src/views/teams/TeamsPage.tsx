@@ -8,7 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { UsersRound } from "lucide-react";
+import { UsersRound } from "@nocoo/basalt/icons";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityLabel } from "@/components/EntityAvatar";

@@ -1,4 +1,4 @@
-import { createLucideIcon } from "lucide-react";
+import { createLucideIcon } from "@nocoo/basalt/icons";
 
 // Brand icons removed in lucide v1 — keep a local Github mark (ISC).
 export const Github = createLucideIcon("Github", [

@@ -1,4 +1,16 @@
 import { Button } from "@nocoo/basalt";
+import {
+	CheckCheck,
+	CircleDot,
+	Crosshair,
+	Expand,
+	GitBranch,
+	GitMerge,
+	GitPullRequest,
+	Layers3,
+	Network,
+	ShieldCheck,
+} from "@nocoo/basalt/icons";
 import { useTheme } from "@nocoo/basalt/providers/theme";
 import {
 	Background,
@@ -12,18 +24,6 @@ import {
 	type ReactFlowInstance,
 	useNodesState,
 } from "@xyflow/react";
-import {
-	CheckCheck,
-	CircleDot,
-	Crosshair,
-	Expand,
-	GitBranch,
-	GitMerge,
-	GitPullRequest,
-	Layers3,
-	Network,
-	ShieldCheck,
-} from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { HeaderTooltip } from "@/components/layout/header-links";
 import { cn } from "@/lib/utils";

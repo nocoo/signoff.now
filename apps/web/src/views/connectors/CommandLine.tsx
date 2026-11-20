@@ -1,6 +1,6 @@
 import { Button } from "@nocoo/basalt";
 import { CodeBlock } from "@nocoo/basalt/components/code";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy } from "@nocoo/basalt/icons";
 import { useState } from "react";
 
 /** One terminal command with a copy button. */

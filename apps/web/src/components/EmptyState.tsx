@@ -1,5 +1,5 @@
 import { Empty } from "@nocoo/basalt/components/empty";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@nocoo/basalt/icons";
 import { cn } from "@/lib/utils";
 
 export function EmptyState({

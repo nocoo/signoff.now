@@ -8,7 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import { Tag as TagIcon } from "lucide-react";
+import { Tag as TagIcon } from "@nocoo/basalt/icons";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityTag } from "@/components/EntityTag";

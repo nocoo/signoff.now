@@ -1,11 +1,11 @@
 import { Badge, Button } from "@nocoo/basalt";
-import type { CollectorGroup } from "@signoff/domain/query";
 import {
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
 	RefreshCw,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { CollectorGroup } from "@signoff/domain/query";
 import { AlertBanner } from "@/components/AlertBanner";
 import { collectorSchedule, collectorTime } from "@/models/collectorSchedule";
 import { JOB_STATES } from "@/models/collectorStatus";

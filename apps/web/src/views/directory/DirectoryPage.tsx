@@ -15,12 +15,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@nocoo/basalt/components/table";
-import type {
-	DataSource,
-	DirectoryData,
-	DirectoryMember,
-	DirectoryTag,
-} from "@signoff/domain/insights";
 import {
 	ArrowUpRight,
 	Plus,
@@ -28,7 +22,13 @@ import {
 	Tag,
 	UserPlus,
 	Users,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type {
+	DataSource,
+	DirectoryData,
+	DirectoryMember,
+	DirectoryTag,
+} from "@signoff/domain/insights";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { ContributorProfile } from "@/components/ContributorProfile";

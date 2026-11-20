@@ -10,9 +10,9 @@ import {
 	Input,
 	LayerCard,
 } from "@nocoo/basalt";
+import { Check, ChevronLeft, ChevronRight, Search } from "@nocoo/basalt/icons";
 import type { DataSource } from "@signoff/domain/monitoring";
 import type { PrCollection } from "@signoff/domain/pr-collections";
-import { Check, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { loadPulls, queryRow } from "@/models/monitoringApi";

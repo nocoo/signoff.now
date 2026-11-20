@@ -6,7 +6,12 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@nocoo/basalt";
-import { Activity, ChevronRight, CircleAlert, Radio } from "lucide-react";
+import {
+	Activity,
+	ChevronRight,
+	CircleAlert,
+	Radio,
+} from "@nocoo/basalt/icons";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { collectorStatus, statusColor } from "@/models/collectorStatus";

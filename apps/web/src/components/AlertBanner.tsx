@@ -1,5 +1,5 @@
 import { Banner } from "@nocoo/basalt/components/banner";
-import { AlertTriangle, Info, XCircle } from "lucide-react";
+import { AlertTriangle, Info, XCircle } from "@nocoo/basalt/icons";
 
 const VARIANTS = {
 	error: { variant: "error", Icon: XCircle },

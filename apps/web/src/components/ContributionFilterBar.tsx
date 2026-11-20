@@ -3,8 +3,8 @@ import {
 	MultiSelect,
 	type MultiSelectOption,
 } from "@nocoo/basalt/components/multi-select";
+import { RotateCcw } from "@nocoo/basalt/icons";
 import type { ContributionFilters } from "@signoff/domain/insights";
-import { RotateCcw } from "lucide-react";
 import type { useInsightsViewModel } from "@/viewmodels/useInsightsViewModel";
 import { AlertBanner } from "./AlertBanner";
 import { EntityAvatar } from "./EntityAvatar";

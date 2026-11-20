@@ -1,5 +1,4 @@
 import { Badge, Button, DescriptionList, LayerCard } from "@nocoo/basalt";
-import { BarChart } from "@nocoo/basalt/charts/bar";
 import { Code } from "@nocoo/basalt/components/code";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
 import { SegmentControl } from "@nocoo/basalt/components/segment-control";
@@ -18,9 +17,10 @@ import {
 	Tag,
 	Users,
 	UsersRound,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
+import { BarChart } from "@/components/charts/BarChart";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { Skeleton } from "@/components/Skeleton";
 import { StatCard, StatGrid } from "@/components/StatCard";

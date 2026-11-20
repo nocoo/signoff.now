@@ -10,13 +10,13 @@ import {
 	Input,
 } from "@nocoo/basalt";
 import { InputArea } from "@nocoo/basalt/components/input-area";
+import { Check } from "@nocoo/basalt/icons";
 import type { DataSource } from "@signoff/domain/monitoring";
 import {
 	type PrCollection,
 	type PrCollectionWrite,
 	prCollectionWriteSchema,
 } from "@signoff/domain/pr-collections";
-import { Check } from "lucide-react";
 import { useState } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { cn } from "@/lib/utils";

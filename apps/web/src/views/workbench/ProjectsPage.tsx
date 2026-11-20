@@ -11,9 +11,7 @@ import {
 	Button,
 	LayerCard,
 } from "@nocoo/basalt";
-import { SlotBarChart } from "@nocoo/basalt/charts/slot-bar";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
-import type { CollectionJob, Project } from "@signoff/domain/workbench";
 import {
 	ArrowUpRight,
 	Boxes,
@@ -26,10 +24,12 @@ import {
 	Plus,
 	ScanLine,
 	Trash2,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { CollectionJob, Project } from "@signoff/domain/workbench";
 import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
+import { SlotBarChart } from "@/components/charts/SlotBarChart";
 import { EmptyState } from "@/components/EmptyState";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { heatmapColor } from "@/lib/palette";

@@ -6,8 +6,8 @@ import {
 	CommandList,
 	CommandPalette,
 } from "@nocoo/basalt";
+import { ArrowRight } from "@nocoo/basalt/icons";
 import type { PullQueryItem } from "@signoff/domain/query";
-import { ArrowRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { loadPulls, queryProject } from "@/models/monitoringApi";

@@ -1,15 +1,15 @@
 import {
 	StatCard as BasaltStatCard,
 	StatGrid,
-} from "@nocoo/basalt/charts/stat-card";
-import type { LucideIcon } from "lucide-react";
+} from "@nocoo/basalt/components/stat-card";
+import type { LucideIcon } from "@nocoo/basalt/icons";
 import { Link } from "react-router";
 
 export function StatCard({
 	title,
 	value,
 	subtitle,
-	icon,
+	icon: Icon,
 	iconClassName = "text-basalt-primary",
 	to,
 	className,
@@ -27,7 +27,7 @@ export function StatCard({
 			title={title}
 			value={value}
 			subtitle={subtitle}
-			icon={icon}
+			icon={Icon ? <Icon className="size-4" aria-hidden /> : undefined}
 			iconColor={iconClassName}
 			className={className}
 		/>

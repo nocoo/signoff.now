@@ -6,8 +6,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@nocoo/basalt/components/select";
+import { Eye, GitPullRequest, LoaderCircle, Search } from "@nocoo/basalt/icons";
 import type { MachinePullOption } from "@signoff/domain/query";
-import { Eye, GitPullRequest, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { MachineScope } from "@/models/stateMachineApi";
 import { useMachinePullPicker } from "@/viewmodels/useMachinePullPicker";

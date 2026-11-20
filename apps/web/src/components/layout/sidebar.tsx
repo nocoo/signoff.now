@@ -29,7 +29,7 @@ import {
 	Tag,
 	Users,
 	UsersRound,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
 import {
 	type ElementType,
 	memo,

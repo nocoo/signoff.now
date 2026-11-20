@@ -1,6 +1,5 @@
 import { Badge, Button, LayerCard } from "@nocoo/basalt";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
-import type { Connector } from "@signoff/domain/connector";
 import {
 	CheckCircle2,
 	Circle,
@@ -8,7 +7,8 @@ import {
 	Laptop,
 	PlugZap,
 	Trash2,
-} from "lucide-react";
+} from "@nocoo/basalt/icons";
+import type { Connector } from "@signoff/domain/connector";
 import type { ReactNode } from "react";
 import { AlertBanner } from "@/components/AlertBanner";
 import { EmptyState } from "@/components/EmptyState";

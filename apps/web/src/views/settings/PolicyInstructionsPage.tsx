@@ -1,7 +1,7 @@
 import { Badge, Button, Label, LayerCard } from "@nocoo/basalt";
 import { InputArea } from "@nocoo/basalt/components/input-area";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp } from "@nocoo/basalt/icons";
 import { useLocation, useNavigate } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";

@@ -1,5 +1,5 @@
+import { UserRoundX } from "@nocoo/basalt/icons";
 import type { Session } from "@signoff/domain/principal";
-import { UserRoundX } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 
 export function UnassignedPage({ session }: { session: Session }) {
