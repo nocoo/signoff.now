@@ -6,6 +6,9 @@ import {
 	collectProjectPulls,
 	discoverMergeRequirements,
 	discoverRepositories,
+	discoverRepositoryPulls,
+	enumerateRecentHistory,
+	importRepositoryPull,
 	policyArtifactId,
 	policyEvaluationsUrl,
 } from "./ado.js";
@@ -1572,5 +1575,278 @@ describe("collectProjectPulls", () => {
 		} finally {
 			Date.now = realNow;
 		}
+	});
+
+	test("handles merge-requirement errors, thread/iteration failures, and build cache hits", async () => {
+		const project = makeMockProject();
+		const repoId = "repo-guid";
+		const client: AdoPagedClient = {
+			get: async (url) => {
+				if (url.includes("/pullrequests/101")) {
+					return {
+						pullRequestId: 101,
+						status: "active",
+						title: "PR",
+						creationDate: "2026-09-17T01:00:00Z",
+						repository: {
+							id: repoId,
+							name: "repo-alpha",
+							project: { id: "proj-guid", name: project.name },
+						},
+					};
+				}
+				if (url.includes("/threads") || url.includes("/iterations"))
+					throw new Error("metrics unavailable");
+				if (url.includes("/build/builds/99/timeline")) {
+					return {
+						records: [
+							{
+								id: "s1",
+								type: "Stage",
+								name: "Test",
+								state: "completed",
+								result: "succeeded",
+							},
+						],
+					};
+				}
+				if (url.includes("/build/builds/99")) {
+					return {
+						id: 99,
+						buildNumber: "20261120.1",
+						status: "completed",
+						result: "succeeded",
+						definition: { id: 1, name: "CI" },
+					};
+				}
+				return { value: [] };
+			},
+			post: async () => ({}),
+			getPage: async (url) => {
+				if (url.includes("/policy/configurations"))
+					throw new Error("policy config unavailable");
+				if (url.includes("/_apis/git/repositories?")) {
+					return {
+						data: {
+							value: [
+								{
+									id: repoId,
+									name: "repo-alpha",
+									project: { id: "proj-guid", name: project.name },
+								},
+							],
+						},
+						continuationToken: null,
+					};
+				}
+				if (url.includes("searchCriteria.status=active")) {
+					return {
+						data: {
+							value: [
+								{
+									pullRequestId: 101,
+									status: "active",
+									title: "PR",
+									creationDate: "2026-09-17T01:00:00Z",
+									repository: { id: repoId, name: "repo-alpha" },
+								},
+							],
+						},
+						continuationToken: null,
+					};
+				}
+				if (url.includes("/_apis/build/builds")) {
+					return {
+						data: {
+							value: [
+								{
+									id: 99,
+									buildNumber: "20261120.1",
+									status: "completed",
+									result: "succeeded",
+									definition: { id: 1, name: "CI" },
+								},
+							],
+						},
+						continuationToken: "dup-token",
+					};
+				}
+				return { data: { value: [] }, continuationToken: null };
+			},
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+		};
+		const result = await collectProjectPulls({
+			project,
+			client,
+			now: 1_789_632_000,
+			targets: [
+				{
+					id: "pr-1",
+					projectId: project.id,
+					number: 101,
+					repository: { id: repoId, name: "repo-alpha" },
+				} as never,
+			],
+		});
+		expect(result.pulls).toHaveLength(1);
+
+		const buildService = new BuildService(client, project.organization);
+		const first = await buildService.fetchBuildWithStages(
+			99,
+			"proj-guid",
+			true,
+		);
+		const second = await buildService.fetchBuildWithStages(
+			99,
+			"proj-guid",
+			false,
+		);
+		expect(first.required).toBe(true);
+		expect(second.required).toBe(false);
+
+		const badTokenClient: AdoPagedClient = {
+			...client,
+			getPage: async () => ({ data: { value: [] }, continuationToken: "same" }),
+		};
+		await expect(
+			discoverMergeRequirements(badTokenClient, project, [
+				{ id: repoId, name: "repo-alpha", projectGuid: "proj-guid" },
+			]),
+		).rejects.toThrow("Policy configuration pagination repeated a token");
+	});
+
+	test("rejects target PRs whose returned identity changes", async () => {
+		const project = makeMockProject();
+		const client: AdoPagedClient = {
+			get: async () => ({
+				pullRequestId: 999,
+				status: "active",
+				title: "Wrong PR",
+				creationDate: "2026-09-17T01:00:00Z",
+				repository: { id: "other-repo", name: "other" },
+			}),
+			post: async () => ({}),
+			getPage: async () => ({ data: { value: [] }, continuationToken: null }),
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+		};
+		await expect(
+			collectProjectPulls({
+				project,
+				client,
+				now: 1_789_632_000,
+				targets: [
+					{
+						id: "pr-1",
+						projectId: project.id,
+						number: 101,
+						repository: { id: "repo-guid", name: "repo-alpha" },
+					} as never,
+				],
+			}),
+		).rejects.toThrow("Selected PR identity changed during collection");
+	});
+});
+
+describe("importRepositoryPull and history helpers", () => {
+	test("importRepositoryPull validates scope and PR number", async () => {
+		const project = makeMockProject();
+		const repo = { id: "repo-1", name: "repo-alpha", projectGuid: "proj-guid" };
+		const client: Pick<AdoPagedClient, "get"> = {
+			get: async () => ({
+				pullRequestId: 5,
+				status: "active",
+				title: "Imported",
+				creationDate: "2026-09-17T01:00:00Z",
+				repository: {
+					id: "repo-1",
+					name: "repo-alpha",
+					project: { id: "proj-guid", name: project.name },
+				},
+			}),
+		};
+		await expect(
+			importRepositoryPull(client, project, repo, 0, 1_789_632_000),
+		).rejects.toThrow("Explicit PR import requires");
+		const pr = await importRepositoryPull(
+			client,
+			project,
+			repo,
+			5,
+			1_789_632_000,
+		);
+		expect(pr.number).toBe(5);
+	});
+
+	test("discoverRepositoryPulls rejects invalid dates and repeated PR IDs", async () => {
+		const project = makeMockProject();
+		const repo = { id: "repo-1", name: "repo-alpha", projectGuid: "proj-guid" };
+		const badDateClient: Pick<AdoPagedClient, "getPage"> = {
+			getPage: async () => ({
+				data: {
+					value: [
+						{
+							pullRequestId: 1,
+							status: "active",
+							title: "Bad date",
+							creationDate: "not-a-date",
+							repository: { id: "repo-1", name: "repo-alpha" },
+						},
+					],
+				},
+				continuationToken: null,
+			}),
+		};
+		await expect(
+			discoverRepositoryPulls(badDateClient, project, repo, 2000, 0).next(),
+		).rejects.toThrow("PR creation date is missing or invalid");
+
+		const dupClient: Pick<AdoPagedClient, "getPage"> = {
+			getPage: async () => ({
+				data: {
+					value: [
+						{
+							pullRequestId: 1,
+							status: "active",
+							title: "PR 1",
+							creationDate: "2026-09-17T01:00:00Z",
+							repository: { id: "repo-1", name: "repo-alpha" },
+						},
+						{
+							pullRequestId: 1,
+							status: "active",
+							title: "PR 1 dup",
+							creationDate: "2026-09-17T01:00:00Z",
+							repository: { id: "repo-1", name: "repo-alpha" },
+						},
+					],
+				},
+				continuationToken: null,
+			}),
+		};
+		await expect(
+			discoverRepositoryPulls(dupClient, project, repo, 2000, 0).next(),
+		).rejects.toThrow("Repeated PR while paging repository history");
+	});
+
+	test("enumerateRecentHistory records non-auth failures as issues", async () => {
+		const client: AdoPagedClient = {
+			get: async () => {
+				throw new Error("history timeout");
+			},
+			post: async () => ({}),
+			getPage: async () => ({ data: { value: [] }, continuationToken: null }),
+			checkAuth: async () => {},
+			invalidateToken: () => {},
+		};
+		const res = await enumerateRecentHistory(client, "org", {
+			id: "repo-1",
+			name: "repo-alpha",
+			projectGuid: "proj-guid",
+		});
+		expect(res.issues).toHaveLength(2);
+		expect(res.issues[0]).toContain("Recent completed PRs unavailable");
+		expect(res.issues[1]).toContain("Recent abandoned PRs unavailable");
 	});
 });

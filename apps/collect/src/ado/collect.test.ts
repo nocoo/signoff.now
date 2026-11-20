@@ -446,7 +446,10 @@ describe("collect", () => {
 					s === "completed" ? [pr(1001, { lastMergeCommit: undefined })] : [],
 			}),
 		});
-		const { manifest } = await collect(baseOpts(client, fs));
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
 		const scope = manifest.scopes[0];
 		expect(scope?.status).toBe("incomplete");
 		expect(scope?.artifacts).toHaveLength(0);
@@ -475,7 +478,10 @@ describe("collect", () => {
 			},
 			invalidateToken() {},
 		};
-		const { manifest } = await collect(baseOpts(client, fs));
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
 		expect(manifest.scopes[0]?.status).toBe("incomplete");
 	});
 
@@ -492,7 +498,10 @@ describe("collect", () => {
 						: [],
 			}),
 		});
-		const { manifest } = await collect(baseOpts(client, fs));
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
 		const path = manifest.scopes[0]?.artifacts[0]?.path as string;
 		const body = JSON.parse(files.get(path) as string);
 		expect(body.activities.length).toBeGreaterThan(0);
@@ -612,7 +621,10 @@ describe("collect", () => {
 		const client = routedClient({
 			prs: (s) => ({ value: s === "completed" ? [pr(1001)] : [] }),
 		});
-		const { manifest } = await collect(baseOpts(client, fs));
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
 		const artifact = manifest.scopes[0]?.artifacts[0];
 		const onDisk = files.get(artifact?.path as string) as string;
 		// Hashing a different serialization than the one written would make
@@ -631,7 +643,10 @@ describe("collect", () => {
 			}),
 		);
 		const client = pagedClient(many);
-		const { manifest } = await collect(baseOpts(client, fs));
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
 		const artifacts = manifest.scopes[0]?.artifacts ?? [];
 
 		// fixtureFileSchema caps a file at 5000 activities.
@@ -657,7 +672,10 @@ describe("collect", () => {
 			}),
 		);
 		const client = pagedClient(many);
-		const { manifest } = await collect(baseOpts(client, fs));
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
 		const artifacts = manifest.scopes[0]?.artifacts ?? [];
 		// Repeating them per part would inflate seen_count once per file.
 		const bodies = artifacts.map(
@@ -723,5 +741,61 @@ describe("collect", () => {
 			log: { warn: (m) => warnings.push(m) },
 		});
 		expect(warnings.some((w) => w.includes("will not advance"))).toBe(true);
+	});
+
+	test("warns when a scope is incomplete", async () => {
+		const { fs } = memoryFs();
+		const warnings: string[] = [];
+		const client = routedClient({
+			prs: (s) => ({
+				value:
+					s === "completed" ? [pr(1001, { lastMergeCommit: undefined })] : [],
+			}),
+		});
+		await collect({
+			...baseOpts(client, fs),
+			log: { warn: (m) => warnings.push(m) },
+		});
+		expect(warnings.some((w) => w.includes("is incomplete"))).toBe(true);
+	});
+
+	test("records work item paging problems in project scope errors", async () => {
+		const { fs } = memoryFs();
+		const baseClient = routedClient({
+			wiqlIds: [1],
+			workItem: {
+				id: 1,
+				fields: {
+					"System.Title": "WI",
+					"System.WorkItemType": "Bug",
+					"System.State": "Active",
+					"System.CreatedDate": "2026-07-01T00:00:00Z",
+					"System.ChangedDate": "2026-07-01T00:00:00Z",
+				},
+			},
+		});
+		const client: AdoClient = {
+			...baseClient,
+			async get(url) {
+				if (url.includes("/updates")) {
+					const skip = Number(/%24skip=(\d+)/.exec(url)?.[1] ?? 0);
+					return {
+						value: Array.from({ length: 100 }, (_, i) => ({
+							id: skip + i + 1,
+							rev: skip + i + 1,
+							revisedDate: "2026-07-01T00:00:00Z",
+						})),
+					};
+				}
+				return baseClient.get(url);
+			},
+		};
+		const { manifest } = await collect({
+			...baseOpts(client, fs),
+			includeWorkItems: true,
+		});
+		const projectScope = manifest.scopes.find((s) => s.kind === "project");
+		expect(projectScope?.status).toBe("incomplete");
+		expect(projectScope?.errors.length).toBeGreaterThan(0);
 	});
 });

@@ -783,3 +783,23 @@ test("daemon and its compatibility alias shut down cleanly while an empty watch 
 	expect(stderr).toContain("aborted");
 	expect(process.listenerCount("SIGTERM")).toBe(listeners);
 });
+
+test("prints blockers in summary table output", async () => {
+	const blockedDto = {
+		...pullDto,
+		policies: [
+			{
+				id: "pol-1",
+				name: "Build",
+				kind: "build" as const,
+				state: "failed" as const,
+				required: true,
+				detail: "Required build",
+				owner: "CI",
+			},
+		],
+	};
+	reply = () => Response.json({ ...list, data: [blockedDto] });
+	await cli("pr", "list", "--summary", "--format", "table");
+	expect(stdout).toContain("Build");
+});

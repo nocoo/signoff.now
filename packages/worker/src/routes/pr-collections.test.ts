@@ -254,4 +254,7 @@ test("membership changes invalidate cursors and reads honor collection scope", a
 		},
 	);
 	expect(unauthorized.status).toBe(401);
+	const list = await request("?source=live", "GET");
+	expect(list.status).toBe(200);
+	expect(((await list.json()) as { items: unknown[] }).items).toHaveLength(1);
 });

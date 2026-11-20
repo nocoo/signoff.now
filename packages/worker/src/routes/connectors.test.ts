@@ -246,6 +246,20 @@ describe("owner routing and leases", () => {
 				message: "Working",
 			});
 		expect((await progress(li.token)).status).toBe(200);
+		expect(
+			(
+				await app.request(
+					`https://signoff-ingest.hexly.ai/api/collector/jobs/${claim.job.id}`,
+					{
+						headers: {
+							host: "signoff-ingest.hexly.ai",
+							authorization: `Bearer ${li.token}`,
+						},
+					},
+					{ DB: sqlite.db, ...ENV },
+				)
+			).status,
+		).toBe(200);
 		expect((await progress(liSpare.token)).status).toBe(409);
 		await assignOwner("live-project", "email:maya@x.io");
 		expect((await progress(li.token)).status).toBe(409);

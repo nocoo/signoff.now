@@ -234,4 +234,16 @@ test("non-admins and anonymous callers cannot use admin routes", async () => {
 		{ DB: sqlite.db, ...REMOTE },
 	);
 	expect(anonymous.status).toBe(401);
+	expect((await localSend("POST", "/admins", { member: "" })).status).toBe(400);
+	const sorted = await app.request(
+		"https://signoff.hexly.ai/api/admin/directory",
+		{
+			headers: {
+				host: "signoff.hexly.ai",
+				"cf-access-jwt-assertion": "z@x.io",
+			},
+		},
+		{ DB: sqlite.db, ...REMOTE, SIGNOFF_ADMIN_EMAILS: "z@x.io,a@x.io" },
+	);
+	expect(sorted.status).toBe(200);
 });

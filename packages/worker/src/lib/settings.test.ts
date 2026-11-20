@@ -210,4 +210,17 @@ describe("normalizeActivityWeights edge", () => {
 	test("rejects array", () => {
 		expect(normalizeActivityWeights([])).toBeNull();
 	});
+
+	test("fills missing weights and falls back on invalid settings rows", () => {
+		expect(normalizeActivityWeights({ "pr.merged": 5 })?.["pr.merged"]).toBe(5);
+		expect(validateTimezone("")).toBeNull();
+		const fallback = rowsToAppSettings([
+			{ key: "email_suffixes", value: "123", updated_at: 1 },
+			{ key: "activity_weights", value: "[]", updated_at: 1 },
+			{ key: "pipeline_config_version", value: '"bad"', updated_at: 1 },
+		]);
+		expect(fallback.emailSuffixes).toEqual(["example.com"]);
+		expect(fallback.pipelineConfigVersion).toBe(1);
+		expect(rowsToAppSettings([]).timezone).toBe("Asia/Shanghai");
+	});
 });
