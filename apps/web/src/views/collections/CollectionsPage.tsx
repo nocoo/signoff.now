@@ -220,9 +220,9 @@ function CollectionCard({ collection: c }: { collection: PrCollection }) {
 			</p>
 			<CollectionProgress collection={c} />
 			<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-basalt-muted-foreground">
-				<span className="text-basalt-info">{c.counts.open} open</span>
+				<span className="text-basalt-warning">{c.counts.open} open</span>
 				<span>{c.counts.draft} draft</span>
-				<span>{c.counts.closed} closed</span>
+				<span className="text-basalt-danger">{c.counts.closed} closed</span>
 				<span className="ml-auto">
 					Updated {relativeTime(c.updatedAt, Math.floor(Date.now() / 1000))}
 				</span>
@@ -296,7 +296,7 @@ function CollectionDetail({
 			<div className="grid items-center gap-4 rounded-basalt-lg border border-basalt-border bg-basalt-muted/20 px-4 py-3 sm:grid-cols-[minmax(200px,1fr)_auto]">
 				<CollectionProgress collection={c} />
 				<p className="flex items-center gap-2 text-xs text-basalt-muted-foreground">
-					<GitMerge className="size-4 text-basalt-badge-purple" />
+					<GitMerge className="size-4 text-basalt-success" />
 					Completion means merged. Closed PRs remain visible.
 				</p>
 			</div>

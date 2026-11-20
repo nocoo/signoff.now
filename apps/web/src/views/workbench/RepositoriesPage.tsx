@@ -47,10 +47,10 @@ import { useMinuteNow } from "@/viewmodels/useMinuteNow";
 import { useWorkbench } from "@/viewmodels/WorkbenchProvider";
 
 const SERIES = [
-	{ key: "open", label: "Open", color: chart.sky },
+	{ key: "open", label: "Open", color: chart.amber },
 	{ key: "merged", label: "Merged", color: chart.green },
-	{ key: "closed", label: "Closed", color: chart.gray },
-	{ key: "draft", label: "Draft", color: chart.amber },
+	{ key: "closed", label: "Closed", color: chart.red },
+	{ key: "draft", label: "Draft", color: chart.gray },
 ];
 const SOURCE_LINK = {
 	target: "_blank",

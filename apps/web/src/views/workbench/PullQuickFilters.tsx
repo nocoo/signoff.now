@@ -22,20 +22,20 @@ const states = [
 		"open",
 		"Open",
 		GitPullRequest,
-		"text-emerald-600 hover:text-emerald-600 basalt-dark:text-emerald-400 basalt-dark:hover:text-emerald-400",
+		"text-basalt-warning hover:text-basalt-warning",
 	],
 	["draft", "Draft", GitPullRequestDraft, "text-basalt-muted-foreground"],
 	[
 		"merged",
 		"Merged",
 		GitMerge,
-		"text-violet-600 hover:text-violet-600 basalt-dark:text-violet-400 basalt-dark:hover:text-violet-400",
+		"text-basalt-success hover:text-basalt-success",
 	],
 	[
 		"closed",
 		"Closed",
 		GitPullRequestClosed,
-		"text-rose-600 hover:text-rose-600 basalt-dark:text-rose-400 basalt-dark:hover:text-rose-400",
+		"text-basalt-danger hover:text-basalt-danger",
 	],
 	[
 		"all",

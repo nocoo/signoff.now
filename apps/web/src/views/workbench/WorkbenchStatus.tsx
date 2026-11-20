@@ -31,9 +31,9 @@ export function LifecycleBadge({
 }) {
 	const [label, variant] = (
 		{
-			open: ["Open", "success"],
+			open: ["Open", "orange"],
 			draft: ["Draft", "secondary"],
-			merged: ["Merged", "purple"],
+			merged: ["Merged", "success"],
 			closed: ["Closed", "red"],
 		} as const
 	)[pull.state === "open" && pull.draft ? "draft" : pull.state];

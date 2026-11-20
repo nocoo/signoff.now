@@ -73,10 +73,10 @@ export function CollectionProgress({
 				aria-label={`${merged} merged, ${open} open, ${draft} draft, ${closed} closed out of ${total}`}
 			>
 				{[
-					[merged, "bg-basalt-badge-purple"],
-					[open, "bg-basalt-info"],
+					[merged, "bg-basalt-badge-green"],
+					[open, "bg-basalt-warning"],
 					[draft, "bg-basalt-muted-foreground/40"],
-					[closed, "bg-basalt-danger/60"],
+					[closed, "bg-basalt-danger"],
 				].map(([n, color]) =>
 					Number(n) > 0 ? (
 						<span
