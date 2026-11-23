@@ -107,7 +107,7 @@ export function TeamDialog({
 				</div>
 
 				{vm.error ? (
-					<p role="alert" className="text-sm text-basalt-destructive">
+					<p role="alert" className="text-sm text-basalt-danger">
 						{vm.error}
 					</p>
 				) : null}

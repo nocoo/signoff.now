@@ -159,7 +159,7 @@ export function ContributorProfile({
 					</p>
 				) : null}
 				{vm.error ? (
-					<p role="alert" className="text-xs text-basalt-destructive">
+					<p role="alert" className="text-xs text-basalt-danger">
 						{vm.error}{" "}
 						<Button variant="link" size="sm" onClick={() => void vm.reload()}>
 							Retry

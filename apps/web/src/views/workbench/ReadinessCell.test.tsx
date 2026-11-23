@@ -49,6 +49,9 @@ it("retains the prior badge with an accessible update note, then replaces it wit
 		),
 	);
 	expect(screen.getByText("Review Needed")).toBeTruthy();
+	expect(screen.getByText("Review Needed").parentElement?.className).toContain(
+		"bg-basalt-tag-violet",
+	);
 	expect(screen.queryByText("Running")).toBeNull();
 	expect(screen.queryByRole("button")).toBeNull();
 	mounted.rerender(
@@ -63,5 +66,36 @@ it("retains the prior badge with an accessible update note, then replaces it wit
 	);
 	expect(screen.getByText("PoP Needed").parentElement?.className).toContain(
 		"bg-basalt-warning",
+	);
+	mounted.rerender(
+		view(
+			readinessDisplay(
+				{
+					...presentReadiness("complete"),
+					kind: "skipped",
+					label: "Skipped",
+					nextAction: "Non-main target branch; Jev evaluation skipped.",
+				},
+				"project",
+				null,
+				0,
+			),
+		),
+	);
+	expect(screen.getByText("Skipped").parentElement?.className).toContain(
+		"bg-basalt-tag-teal",
+	);
+	mounted.rerender(
+		view(
+			readinessDisplay(
+				presentReadiness("complete", { ...result, kind: "attention" }),
+				"project",
+				null,
+				0,
+			),
+		),
+	);
+	expect(screen.getByText("Attention").parentElement?.className).toContain(
+		"bg-basalt-danger-tint",
 	);
 });

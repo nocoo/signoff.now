@@ -143,7 +143,7 @@ function collectorActivity(
 
 export const statusColor = (tone: string) =>
 	tone === "error"
-		? "text-basalt-destructive"
+		? "text-basalt-danger"
 		: tone === "warning"
 			? "text-basalt-warning"
 			: tone === "success"

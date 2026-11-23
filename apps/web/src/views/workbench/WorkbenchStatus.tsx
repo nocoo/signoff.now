@@ -117,11 +117,15 @@ export function ReadinessSwatch({
 	return (
 		<Badge
 			tone={COLOR_TONES[color]}
+			variant={color === "red" && !subtle ? "solid" : "soft"}
 			className={cn(
 				"max-w-full gap-1.5 whitespace-nowrap font-medium",
+				color === "cyan" &&
+					"bg-basalt-tag-teal text-basalt-tag-teal-foreground",
+				color === "purple" &&
+					"bg-basalt-tag-violet text-basalt-tag-violet-foreground",
 				color === "yellow" &&
 					"bg-[hsl(var(--basalt-chart-yellow))] text-basalt-foreground",
-				subtle && "bg-basalt-destructive/10 text-basalt-destructive",
 				color === "gray" && "bg-basalt-muted-foreground text-white",
 			)}
 		>

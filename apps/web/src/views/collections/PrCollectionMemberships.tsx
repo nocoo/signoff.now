@@ -87,7 +87,7 @@ export function PrCollectionMarker({
 					className={cn(
 						"h-5 gap-1 px-1 text-[11px]",
 						collections.length
-							? "text-basalt-badge-purple"
+							? "text-basalt-tag-violet-foreground"
 							: "text-basalt-muted-foreground/60",
 					)}
 					aria-label={`Collections for PR #${number}`}

@@ -135,7 +135,7 @@ function GroupSummary({
 						variant="outline"
 						className={
 							job?.state === "failed" || job?.state === "auth_required"
-								? "text-basalt-destructive"
+								? "text-basalt-danger"
 								: job?.state === "partial"
 									? "text-basalt-warning"
 									: job?.state === "succeeded"

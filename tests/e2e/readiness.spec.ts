@@ -110,7 +110,7 @@ test("readiness keeps the previous judgment with compact ETA and accessible upda
 	await expect(row.getByRole("button", { name: /Last result/ })).toHaveCount(0);
 	await expect(
 		row.getByText("Review Needed", { exact: true }).locator(".."),
-	).toHaveClass(/bg-basalt-badge-purple/);
+	).toHaveClass(/bg-basalt-tag-violet/);
 	await page.setViewportSize({ width: 1440, height: 1000 });
 	const filter = page.getByRole("button", {
 		name: "Review Needed",
@@ -185,7 +185,7 @@ test("compact sortable columns preserve full branches and cyan Skipped across re
 	const row = page.locator(`[data-pull-id="${fixturePull.id}"]`);
 	await expect(
 		row.getByText("Skipped", { exact: true }).locator(".."),
-	).toHaveClass(/bg-basalt-badge-teal/);
+	).toHaveClass(/bg-basalt-tag-teal/);
 	expect(
 		await row
 			.getByRole("button", { name: /^Open PR/ })

@@ -19,9 +19,9 @@ export const COLLECTION_ICONS = {
 	book: BookOpen,
 };
 export const COLLECTION_COLORS = {
-	violet: "--basalt-badge-purple",
+	violet: "--basalt-chart-4",
 	blue: "--basalt-info",
-	teal: "--basalt-badge-teal",
+	teal: "--basalt-chart-3",
 	amber: "--basalt-warning",
 	rose: "--basalt-danger",
 	slate: "--basalt-muted-foreground",
@@ -73,7 +73,7 @@ export function CollectionProgress({
 				aria-label={`${merged} merged, ${open} open, ${draft} draft, ${closed} closed out of ${total}`}
 			>
 				{[
-					[merged, "bg-basalt-badge-green"],
+					[merged, "bg-basalt-success"],
 					[open, "bg-basalt-warning"],
 					[draft, "bg-basalt-muted-foreground/40"],
 					[closed, "bg-basalt-danger"],

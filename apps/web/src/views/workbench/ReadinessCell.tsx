@@ -22,7 +22,7 @@ export function ReadinessCell({
 							variant="link"
 							className={cn(
 								"block h-auto max-w-full truncate p-0 text-left text-[11px] font-normal text-basalt-muted-foreground",
-								failed && "text-basalt-destructive",
+								failed && "text-basalt-danger",
 							)}
 							onClick={(event) => {
 								event.preventDefault();

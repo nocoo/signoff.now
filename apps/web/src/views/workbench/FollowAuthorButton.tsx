@@ -46,7 +46,7 @@ export function FollowAuthorButton({
 									: "Follow author"}
 			</Button>
 			{vm.error ? (
-				<span role="alert" className="text-xs text-basalt-destructive">
+				<span role="alert" className="text-xs text-basalt-danger">
 					{vm.error}
 				</span>
 			) : null}

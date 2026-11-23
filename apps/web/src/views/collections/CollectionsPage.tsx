@@ -353,7 +353,7 @@ function CollectionDetail({
 								<Button
 									size="sm"
 									variant="outline"
-									className="h-6 px-2 text-[11px] text-basalt-destructive"
+									className="h-6 px-2 text-[11px] text-basalt-danger"
 									disabled={busy}
 									onClick={() =>
 										void mutation.run(() =>
@@ -380,7 +380,7 @@ function CollectionDetail({
 					(workbench.mutationError || workbench.notice) ? (
 						<p
 							role="status"
-							className={`px-3 py-2 text-xs ${workbench.mutationError ? "text-basalt-destructive" : "text-basalt-muted-foreground"}`}
+							className={`px-3 py-2 text-xs ${workbench.mutationError ? "text-basalt-danger" : "text-basalt-muted-foreground"}`}
 						>
 							{workbench.mutationError || workbench.notice}
 						</p>

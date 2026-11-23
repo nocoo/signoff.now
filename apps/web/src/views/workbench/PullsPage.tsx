@@ -278,7 +278,7 @@ function WatchToolbar({ vm }: { vm: ReturnType<typeof useWorkbench> }) {
 					className={cn(
 						"min-h-4 min-w-0 flex-1 truncate text-xs",
 						vm.mutationError
-							? "text-basalt-destructive"
+							? "text-basalt-danger"
 							: "text-basalt-muted-foreground",
 					)}
 					title={

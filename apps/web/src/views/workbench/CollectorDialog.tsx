@@ -220,7 +220,7 @@ export function RefreshCooldown({ vm }: { vm: WorkbenchViewModel }) {
 				title={feedback || undefined}
 				className={cn(
 					"mt-0.5 min-h-3.5 overflow-y-auto break-words text-[11px] leading-[14px]",
-					error ? "text-basalt-destructive" : "text-basalt-muted-foreground",
+					error ? "text-basalt-danger" : "text-basalt-muted-foreground",
 				)}
 			>
 				{feedback || "Per project / per PR · Starts after completion"}

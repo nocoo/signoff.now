@@ -306,7 +306,7 @@ export function StateMachineGraph({
 			{layoutError ? (
 				<p
 					role="alert"
-					className="absolute left-4 top-16 z-10 rounded bg-basalt-card p-3 text-sm text-basalt-destructive"
+					className="absolute left-4 top-16 z-10 rounded bg-basalt-card p-3 text-sm text-basalt-danger"
 				>
 					{layoutError}
 				</p>

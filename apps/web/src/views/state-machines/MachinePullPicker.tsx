@@ -167,7 +167,7 @@ export function MachinePullPicker({
 			{vm.error ? (
 				<div
 					role="alert"
-					className="flex items-center gap-2 text-xs text-basalt-destructive"
+					className="flex items-center gap-2 text-xs text-basalt-danger"
 				>
 					<span>{vm.error}</span>
 					<Button size="sm" variant="ghost" onClick={() => void vm.loadMore()}>
