@@ -75,9 +75,7 @@ export function AdminPage() {
 						<LayerCard key={tenant.id} className="space-y-3">
 							<div className="flex items-center gap-2">
 								<h2 className="text-sm font-semibold">{tenant.name}</h2>
-								<Badge variant="secondary">
-									{tenant.members.length} members
-								</Badge>
+								<Badge>{tenant.members.length} members</Badge>
 							</div>
 							<AddForm
 								label="Add member"

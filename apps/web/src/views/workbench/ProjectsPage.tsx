@@ -207,9 +207,7 @@ export function ProjectsPage() {
 									</div>
 									<div className="flex shrink-0 items-center gap-1">
 										<Badge
-											variant={
-												project.provider === "ado" ? "info" : "secondary"
-											}
+											tone={project.provider === "ado" ? "info" : "neutral"}
 										>
 											{project.provider === "github" ? "GitHub" : "ADO"}
 										</Badge>

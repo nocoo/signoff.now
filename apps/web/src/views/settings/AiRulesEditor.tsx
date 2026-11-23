@@ -1,5 +1,5 @@
 import { Button, Field, LayerCard } from "@nocoo/basalt";
-import { InputArea } from "@nocoo/basalt/components/input-area";
+import { Textarea } from "@nocoo/basalt/components/textarea";
 import { SelectControl } from "@/components/SelectControl";
 import { useAiRulesViewModel } from "@/viewmodels/useAiRulesViewModel";
 export function AiRulesEditor() {
@@ -34,7 +34,7 @@ export function AiRulesEditor() {
 				}
 				htmlFor="ai-rule-text"
 			>
-				<InputArea
+				<Textarea
 					id="ai-rule-text"
 					value={vm.text}
 					onChange={(e) => vm.edit(e.target.value)}

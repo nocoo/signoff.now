@@ -1,9 +1,9 @@
-import { SkeletonLine } from "@nocoo/basalt/components/skeleton-line";
+import { Skeleton as BasaltSkeleton } from "@nocoo/basalt/components/skeleton";
 
 export function Skeleton({ className }: { className?: string }) {
 	return (
 		<div className={className}>
-			<SkeletonLine className="h-full" minWidth={100} maxWidth={100} />
+			<BasaltSkeleton variant="block" className="h-full" />
 		</div>
 	);
 }

@@ -146,7 +146,6 @@ function MemberTeams({
 						const label = (
 							<Badge
 								key={team.id}
-								variant="secondary"
 								className="max-w-full gap-1.5 whitespace-normal break-words"
 							>
 								<EntityAvatar
@@ -209,9 +208,7 @@ function MembersTable({
 									avatarUrl={member.avatarUrl}
 								/>
 								{member.archivedAt !== null ? (
-									<Badge variant="secondary" className="mt-1.5">
-										Archived
-									</Badge>
+									<Badge className="mt-1.5">Archived</Badge>
 								) : null}
 							</TableCell>
 							<TableCell className="min-w-48 max-w-72">
@@ -318,7 +315,7 @@ function AuthorsTable({ vm }: { vm: DirectoryViewModel }) {
 									</span>
 								</TableCell>
 								<TableCell>
-									<Badge variant="secondary">
+									<Badge>
 										{identity.provider === "ado" ? "ADO" : "GitHub"}
 									</Badge>
 									<span className="ml-2 text-xs">{identity.organization}</span>
@@ -418,9 +415,7 @@ function TeamsGrid({
 							avatarUrl={team.avatarUrl}
 							size="lg"
 						/>
-						{team.archivedAt !== null ? (
-							<Badge variant="secondary">Archived</Badge>
-						) : null}
+						{team.archivedAt !== null ? <Badge>Archived</Badge> : null}
 					</LayerCard.Header>
 					<LayerCard.Body className="flex-1 space-y-4">
 						<Tags tags={data.tags} ids={team.tagIds} />

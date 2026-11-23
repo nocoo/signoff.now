@@ -27,12 +27,12 @@ export function StatisticsModule({
 }) {
 	const timestamp = state.snapshot?.calculatedAt ?? null;
 	const freshness = calculationFreshness(timestamp, now);
-	const variant =
+	const tone =
 		freshness === "stale"
-			? "destructive"
+			? "danger"
 			: freshness === "warning"
 				? "warning"
-				: "secondary";
+				: "neutral";
 	return (
 		<LayerCard padding="none" className={className} aria-label={title}>
 			<LayerCard.Header className="block space-y-1.5">
@@ -42,7 +42,7 @@ export function StatisticsModule({
 					</h2>
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge
-							variant={variant}
+							tone={tone}
 							className="gap-1 text-xs font-normal"
 							title={
 								timestamp === null

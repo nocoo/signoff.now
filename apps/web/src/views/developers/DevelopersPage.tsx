@@ -151,11 +151,7 @@ export function DevelopersPage() {
 												d.teamIds.map((id) => {
 													const t = vm.teamsById.get(id);
 													return t ? (
-														<Badge
-															key={id}
-															variant="secondary"
-															className="gap-1"
-														>
+														<Badge key={id} className="gap-1">
 															<EntityAvatar
 																name={t.name}
 																avatarUrl={t.avatarUrl}

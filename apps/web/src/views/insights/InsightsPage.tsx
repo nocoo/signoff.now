@@ -112,7 +112,7 @@ export function InsightsPage() {
 			/>
 			<ContributionFilterBar vm={vm} withDates={false} />
 			<div className="flex flex-wrap items-center gap-2 text-xs text-basalt-muted-foreground">
-				<Badge variant="secondary">Last 90 days</Badge>
+				<Badge>Last 90 days</Badge>
 				<span>
 					{vm.filters.from} – {vm.filters.to} · UTC · Created PRs
 				</span>
@@ -221,7 +221,7 @@ function Author({
 					avatarUrl={row.avatarUrl}
 				/>
 			)}
-			{row.memberId ? <Badge variant="secondary">Followed</Badge> : null}
+			{row.memberId ? <Badge>Followed</Badge> : null}
 		</div>
 	);
 }
@@ -401,7 +401,7 @@ function RepositoryReport({ report }: { report: ContributionReport }) {
 						{selected.length ? (
 							<div className="flex flex-wrap items-center gap-2 text-xs">
 								{selected.slice(0, 10).map((row) => (
-									<Badge key={row.key} variant="secondary">
+									<Badge key={row.key}>
 										{row.name} · {row.total} PRs ·{" "}
 										{percent(row.total, repository.total)} · #
 										{1 +

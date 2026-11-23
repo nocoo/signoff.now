@@ -325,7 +325,7 @@ function MachineWorkspace({
 			)}
 			{!!pull && (
 				<div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-basalt-border px-3 py-1.5 text-[11px]">
-					<Badge variant="secondary">
+					<Badge>
 						{pull.readiness.previous
 							? `Previous: ${pull.readiness.previous.kind}`
 							: pull.readiness.label}

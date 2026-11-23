@@ -2,9 +2,9 @@ import { Banner } from "@nocoo/basalt/components/banner";
 import { AlertTriangle, Info, XCircle } from "@nocoo/basalt/icons";
 
 const VARIANTS = {
-	error: { variant: "error", Icon: XCircle },
-	warning: { variant: "alert", Icon: AlertTriangle },
-	info: { variant: "default", Icon: Info },
+	error: { tone: "danger", Icon: XCircle },
+	warning: { tone: "warning", Icon: AlertTriangle },
+	info: { tone: "neutral", Icon: Info },
 } as const;
 
 export function AlertBanner({
@@ -16,10 +16,10 @@ export function AlertBanner({
 	children: React.ReactNode;
 	className?: string;
 }) {
-	const { variant: basaltVariant, Icon } = VARIANTS[variant];
+	const { tone: basaltTone, Icon } = VARIANTS[variant];
 	return (
 		<Banner
-			variant={basaltVariant}
+			tone={basaltTone}
 			icon={<Icon className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
 			className={className}
 			role={variant === "error" ? "alert" : "status"}

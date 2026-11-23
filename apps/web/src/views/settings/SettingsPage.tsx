@@ -154,7 +154,7 @@ export function SettingsPage() {
 					</p>
 					<div className="flex flex-wrap gap-2">
 						{form.emailSuffixes.map((s) => (
-							<Badge key={s} variant="secondary" className="gap-2">
+							<Badge key={s} className="gap-2">
 								{s}
 								<Button
 									type="button"

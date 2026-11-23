@@ -146,7 +146,6 @@ export function ActivityPage() {
 									<TableCell>{r.activityCount}</TableCell>
 									<TableCell>
 										<Badge
-											variant={null}
 											className="h-4 w-4 rounded-basalt-sm p-0"
 											style={{ background: heatmapColor(r.level) }}
 											title={`level ${r.level}`}

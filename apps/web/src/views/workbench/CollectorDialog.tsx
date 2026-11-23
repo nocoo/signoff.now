@@ -39,6 +39,7 @@ export function CollectorDialog({
 	return (
 		<DialogContent
 			size="xl"
+			showCloseButton={false}
 			className="flex h-[88dvh] flex-col gap-4 overflow-hidden sm:w-[76rem]"
 		>
 			<div className="flex shrink-0 items-start justify-between gap-3">

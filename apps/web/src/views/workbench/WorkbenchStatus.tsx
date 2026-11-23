@@ -29,17 +29,17 @@ export function LifecycleBadge({
 }: {
 	pull: Pick<PullRequest, "state" | "draft">;
 }) {
-	const [label, variant] = (
+	const [label, tone] = (
 		{
-			open: ["Open", "orange"],
-			draft: ["Draft", "secondary"],
+			open: ["Open", "warning"],
+			draft: ["Draft", "neutral"],
 			merged: ["Merged", "success"],
-			closed: ["Closed", "red"],
+			closed: ["Closed", "danger"],
 		} as const
 	)[pull.state === "open" && pull.draft ? "draft" : pull.state];
 	return (
 		<Badge
-			variant={variant}
+			tone={tone}
 			className="px-1.5 py-0 text-[11px]"
 			title="Provider PR lifecycle"
 		>
@@ -95,15 +95,15 @@ export function ReadinessBadge({
 	);
 }
 
-const COLOR_VARIANTS = {
-	cyan: "teal",
+const COLOR_TONES = {
+	cyan: "info",
 	green: "success",
-	yellow: "orange",
-	orange: "orange",
-	blue: "blue",
-	red: "red",
-	purple: "purple",
-	gray: "secondary",
+	yellow: "warning",
+	orange: "warning",
+	blue: "info",
+	red: "danger",
+	purple: "info",
+	gray: "neutral",
 } as const;
 export function ReadinessSwatch({
 	color,
@@ -116,7 +116,7 @@ export function ReadinessSwatch({
 }) {
 	return (
 		<Badge
-			variant={COLOR_VARIANTS[color]}
+			tone={COLOR_TONES[color]}
 			className={cn(
 				"max-w-full gap-1.5 whitespace-nowrap font-medium",
 				color === "yellow" &&

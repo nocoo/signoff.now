@@ -313,7 +313,7 @@ export function DashboardPage() {
 									{dir.config.timezone}
 								</DescriptionList.Item>
 								<DescriptionList.Item term="Scores">
-									<Badge variant={dir.config.stale ? "warning" : "success"}>
+									<Badge tone={dir.config.stale ? "warning" : "success"}>
 										{dir.config.stale ? "Stale" : "Fresh"}
 									</Badge>
 								</DescriptionList.Item>

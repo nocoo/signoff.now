@@ -224,7 +224,7 @@ export function RepositoryOverview({
 	return (
 		<div className="space-y-4">
 			<div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-basalt-muted-foreground">
-				<Badge variant="secondary">
+				<Badge>
 					{snapshot.coverage === "sample"
 						? "Sample records"
 						: "Collected records"}

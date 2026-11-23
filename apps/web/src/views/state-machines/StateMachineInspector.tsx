@@ -117,7 +117,7 @@ export function MachineInspector({
 	return (
 		<div className="space-y-3">
 			{!!selection && (
-				<Badge variant="secondary">
+				<Badge>
 					{selection.category} · {gate?.name ?? selection.id}
 				</Badge>
 			)}

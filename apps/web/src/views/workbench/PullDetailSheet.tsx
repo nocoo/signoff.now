@@ -314,9 +314,7 @@ function PullDetail({
 						</span>
 						<LifecycleBadge pull={pull} />
 						<ReadinessBadge readiness={readiness} project={project} />
-						{project.source === "demo" ? (
-							<Badge variant="secondary">Sample PR</Badge>
-						) : null}
+						{project.source === "demo" ? <Badge>Sample PR</Badge> : null}
 					</div>
 					<SheetClose asChild>
 						<Button
@@ -461,9 +459,7 @@ function PullDetail({
 												<CheckIcon state={build.state} />
 												{build.name}
 												{!build.required ? (
-													<Badge variant="secondary" className="text-[10px]">
-														Advisory
-													</Badge>
+													<Badge className="text-[10px]">Advisory</Badge>
 												) : null}
 											</span>
 											<span className="shrink-0 text-[11px] text-basalt-muted-foreground">
@@ -499,9 +495,7 @@ function PullDetail({
 							)}
 							<div className="mt-3 flex flex-wrap items-center gap-2">
 								{pull.labels.map((label) => (
-									<Badge key={label} variant="secondary">
-										{label}
-									</Badge>
+									<Badge key={label}>{label}</Badge>
 								))}
 							</div>
 							<div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-basalt-muted-foreground">
@@ -582,7 +576,7 @@ function PullDetail({
 														{policy.name}
 													</span>
 													<Badge
-														variant={policy.required ? "outline" : "secondary"}
+														variant={policy.required ? "outline" : "soft"}
 														className="text-[10px]"
 													>
 														{policy.required ? "Required" : "Advisory"}
@@ -694,10 +688,10 @@ function Reviewers({
 	source: DataSource;
 }) {
 	const votes = {
-		approved: { label: "Approved", variant: "success" },
-		changes_requested: { label: "Changes requested", variant: "error" },
-		pending: { label: "Pending", variant: "warning" },
-		commented: { label: "Commented", variant: "secondary" },
+		approved: { label: "Approved", tone: "success" },
+		changes_requested: { label: "Changes requested", tone: "danger" },
+		pending: { label: "Pending", tone: "warning" },
+		commented: { label: "Commented", tone: "neutral" },
 	} as const;
 	return (
 		<section aria-label="Reviewers">
@@ -724,7 +718,7 @@ function Reviewers({
 									reviewer.required ? "Required reviewer" : "Optional reviewer"
 								}
 							/>
-							<Badge variant={votes[reviewer.vote].variant}>
+							<Badge tone={votes[reviewer.vote].tone}>
 								{votes[reviewer.vote].label}
 							</Badge>
 						</div>
@@ -747,7 +741,7 @@ function BuildPipeline({ build, href }: { build: Build; href?: string }) {
 							#{build.number}
 						</span>
 						<Badge
-							variant={build.required ? "outline" : "secondary"}
+							variant={build.required ? "outline" : "soft"}
 							className="text-[10px]"
 						>
 							{build.required ? "Required" : "Advisory"}
@@ -793,9 +787,7 @@ function BuildPipeline({ build, href }: { build: Build; href?: string }) {
 											{CHECK_LABELS[stage.state]}
 										</span>
 										{!stage.required ? (
-											<Badge variant="secondary" className="text-[10px]">
-												Advisory
-											</Badge>
+											<Badge className="text-[10px]">Advisory</Badge>
 										) : null}
 									</div>
 									<p className="mt-1 text-xs leading-5 text-basalt-muted-foreground">

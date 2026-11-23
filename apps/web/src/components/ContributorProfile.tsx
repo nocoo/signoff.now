@@ -91,7 +91,7 @@ export function ContributorProfile({
 						secondary={secondary}
 					/>
 					{vm.data?.blocked || vm.data?.followed ? (
-						<Badge variant="secondary" className="shrink-0">
+						<Badge className="shrink-0">
 							{vm.data.blocked ? "Hidden" : "Followed"}
 						</Badge>
 					) : null}

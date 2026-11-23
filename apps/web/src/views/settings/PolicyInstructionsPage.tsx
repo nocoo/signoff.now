@@ -1,6 +1,6 @@
 import { Badge, Button, Label, LayerCard } from "@nocoo/basalt";
-import { InputArea } from "@nocoo/basalt/components/input-area";
 import { PageHeader } from "@nocoo/basalt/components/page-header";
+import { Textarea } from "@nocoo/basalt/components/textarea";
 import { ArrowDown, ArrowUp } from "@nocoo/basalt/icons";
 import { useLocation, useNavigate } from "react-router";
 import { AlertBanner } from "@/components/AlertBanner";
@@ -119,9 +119,7 @@ function PolicyEditor({
 						</option>
 					))}
 				</SelectControl>
-				{Boolean(page?.inherited) && (
-					<Badge variant="secondary">Inherited from project</Badge>
-				)}
+				{Boolean(page?.inherited) && <Badge>Inherited from project</Badge>}
 				<Button
 					variant="outline"
 					onClick={() => {
@@ -191,7 +189,7 @@ function PolicyEditor({
 									<Label htmlFor={`policy-${index}`} className="text-xs">
 										Meaning and human action instructions
 									</Label>
-									<InputArea
+									<Textarea
 										id={`policy-${index}`}
 										value={item.description}
 										maxLength={4000}

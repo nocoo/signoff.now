@@ -10,7 +10,7 @@ import {
 	Field,
 	Input,
 } from "@nocoo/basalt";
-import { InputArea } from "@nocoo/basalt/components/input-area";
+import { Textarea } from "@nocoo/basalt/components/textarea";
 import type { Project, ProjectWrite } from "@signoff/domain/workbench";
 import { AlertBanner } from "@/components/AlertBanner";
 import { SelectControl } from "@/components/SelectControl";
@@ -158,7 +158,7 @@ export function ProjectDialog({
 							required={false}
 							error={vm.errors.description}
 						>
-							<InputArea
+							<Textarea
 								value={vm.draft.description}
 								maxLength={1000}
 								rows={3}
@@ -178,7 +178,7 @@ export function ProjectDialog({
 					) : null}
 					{project?.source === "demo" ? (
 						<p className="mt-4 text-xs leading-5 text-basalt-muted-foreground">
-							<Badge variant="info" className="mr-2">
+							<Badge tone="info" className="mr-2">
 								Demo
 							</Badge>
 							Scans generate sample PRs. A live Azure DevOps connection is not

@@ -56,7 +56,7 @@ function Step({
 					<span className="text-basalt-muted-foreground">{number}.</span>
 					{title}
 					{state === "done" ? (
-						<Badge variant="secondary">Done</Badge>
+						<Badge>Done</Badge>
 					) : state === "current" ? (
 						<Badge>Next</Badge>
 					) : null}
@@ -90,18 +90,16 @@ function ConnectorRow({
 			<div className="min-w-0 flex-1">
 				<p className="flex flex-wrap items-center gap-2 text-sm font-medium">
 					{connector.name}
-					{connector.local ? <Badge variant="secondary">Local</Badge> : null}
+					{connector.local ? <Badge>Local</Badge> : null}
 					{connector.revoked ? (
-						<Badge variant="secondary">Revoked</Badge>
+						<Badge>Revoked</Badge>
 					) : connector.online ? (
-						<Badge variant="secondary" className={statusColor("success")}>
-							Online
-						</Badge>
+						<Badge className={statusColor("success")}>Online</Badge>
 					) : (
-						<Badge variant="secondary">Offline</Badge>
+						<Badge>Offline</Badge>
 					)}
 					{az && !connector.revoked ? (
-						<Badge variant={az.loggedIn ? "secondary" : "destructive"}>
+						<Badge tone={az.loggedIn ? "neutral" : "danger"}>
 							{az.loggedIn
 								? "az signed in"
 								: az.installed

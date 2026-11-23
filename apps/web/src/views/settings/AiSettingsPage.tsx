@@ -25,7 +25,7 @@ export function AiSettingsPage() {
 			<LayerCard className="max-w-3xl space-y-4">
 				<div className="flex flex-wrap items-center gap-2">
 					<h2 className="font-semibold">Jev API key</h2>
-					<Badge variant="secondary">
+					<Badge>
 						{data?.configured ? "Configured · ••••••••" : "Not configured"}
 					</Badge>
 					<Badge variant="outline">

@@ -9,7 +9,7 @@ import {
 	Field,
 	Input,
 } from "@nocoo/basalt";
-import { InputArea } from "@nocoo/basalt/components/input-area";
+import { Textarea } from "@nocoo/basalt/components/textarea";
 import { Check } from "@nocoo/basalt/icons";
 import type { DataSource } from "@signoff/domain/monitoring";
 import {
@@ -126,7 +126,7 @@ export function CollectionEditor({
 							/>
 						</Field>
 						<Field label="Purpose">
-							<InputArea
+							<Textarea
 								aria-label="Collection purpose"
 								maxLength={1000}
 								rows={3}

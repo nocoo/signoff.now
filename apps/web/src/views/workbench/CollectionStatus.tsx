@@ -37,7 +37,7 @@ export function CollectionStatus({
 	const trigger = (
 		<Button
 			variant="ghost"
-			size={collapsed ? "icon" : "default"}
+			size={collapsed ? "icon" : "md"}
 			aria-label={summary}
 			className={cn(
 				collapsed

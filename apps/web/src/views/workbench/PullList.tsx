@@ -425,7 +425,7 @@ function PullTableRow({
 					</a>
 					<PrCollectionMarker id={pull.id} number={pull.number} />
 					{pull.labels.includes("release blocker") ? (
-						<Badge variant="error" className="ml-2 px-1.5 py-0 text-[11px]">
+						<Badge tone="danger" className="ml-2 px-1.5 py-0 text-[11px]">
 							release blocker
 						</Badge>
 					) : null}
