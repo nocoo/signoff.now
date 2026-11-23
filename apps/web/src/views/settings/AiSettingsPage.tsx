@@ -91,7 +91,7 @@ export function AiSettingsPage() {
 					</Button>
 				</div>
 				{data?.testError !== null && (
-					<p className="text-sm text-basalt-destructive">{data?.testError}</p>
+					<p className="text-sm text-basalt-danger">{data?.testError}</p>
 				)}
 				<p className="text-xs text-basalt-muted-foreground">
 					Model: {data?.model ?? "—"} · Rubric: {data?.rubric ?? "—"}

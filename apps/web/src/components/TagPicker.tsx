@@ -142,7 +142,7 @@ export function TagPicker({
 			) : null}
 
 			{error ? (
-				<p role="alert" className="text-xs text-basalt-destructive">
+				<p role="alert" className="text-xs text-basalt-danger">
 					{error}
 				</p>
 			) : null}

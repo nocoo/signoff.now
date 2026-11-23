@@ -59,20 +59,20 @@ const watches = [
 	],
 ] as const;
 const readiness = [
-	["conflict", "Conflict", ShieldAlert, "text-basalt-destructive"],
-	["attention", "Attention", ShieldAlert, "text-basalt-destructive"],
+	["conflict", "Conflict", ShieldAlert, "text-basalt-danger"],
+	["attention", "Attention", ShieldAlert, "text-basalt-danger"],
 	[
 		"review_needed",
 		"Review Needed",
 		UserRoundCheck,
-		"text-basalt-badge-purple",
+		"text-basalt-tag-violet-foreground",
 	],
 	["warning", "Warning", ShieldAlert, "text-basalt-warning"],
 	["running", "Running", CheckCheck, "text-basalt-primary"],
 	["pop_needed", "PoP Needed", UserRoundCheck, "text-basalt-warning"],
 	["ready", "Ready", CheckCheck, "text-basalt-success"],
 	["waiting", "Waiting", Eye, "text-basalt-muted-foreground"],
-	["skipped", "Skipped", EyeOff, "text-basalt-badge-teal"],
+	["skipped", "Skipped", EyeOff, "text-basalt-tag-teal-foreground"],
 ] as const;
 
 function FilterChip({

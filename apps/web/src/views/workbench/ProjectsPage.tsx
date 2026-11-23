@@ -157,7 +157,7 @@ export function ProjectsPage() {
 							},
 							{
 								count: metrics.review_needed,
-								color: "bg-[hsl(var(--basalt-badge-purple))]",
+								color: "bg-basalt-chart-4",
 								label: "Review Needed",
 							},
 							{
@@ -356,7 +356,7 @@ export function ProjectsPage() {
 										<Button
 											variant="ghost"
 											size="icon"
-											className="text-basalt-muted-foreground hover:text-basalt-destructive"
+											className="text-basalt-muted-foreground hover:text-basalt-danger"
 											aria-label={`Delete ${project.name}`}
 											disabled={Boolean(vm.busy)}
 											onClick={(event) => {

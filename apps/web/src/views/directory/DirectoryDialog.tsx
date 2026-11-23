@@ -247,7 +247,7 @@ export function DirectoryDialog({ vm }: { vm: DirectoryViewModel }) {
 					) : null}
 
 					{vm.formError ? (
-						<p role="alert" className="text-sm text-basalt-destructive">
+						<p role="alert" className="text-sm text-basalt-danger">
 							{vm.formError}
 						</p>
 					) : null}

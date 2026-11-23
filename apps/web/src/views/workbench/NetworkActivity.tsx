@@ -35,7 +35,7 @@ const series = [
 		key: "jev",
 		name: "Jev",
 		label: "Jev",
-		color: "hsl(var(--basalt-badge-purple))",
+		color: "hsl(var(--basalt-chart-4))",
 	},
 ] as const;
 const time = (value: number) =>
@@ -143,10 +143,7 @@ export function NetworkActivity() {
 				))}
 			</div>
 			{!!vm.error && !!vm.data && (
-				<div
-					className="mt-0.5 leading-4 text-basalt-destructive"
-					title={vm.error}
-				>
+				<div className="mt-0.5 leading-4 text-basalt-danger" title={vm.error}>
 					Update delayed
 				</div>
 			)}

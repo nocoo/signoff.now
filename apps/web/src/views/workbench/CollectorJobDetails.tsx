@@ -103,7 +103,7 @@ export function JobDetails({
 				))}
 			</dl>
 			{Boolean(job.error) && (
-				<p className="text-basalt-destructive">Error: {job.error}</p>
+				<p className="text-basalt-danger">Error: {job.error}</p>
 			)}
 			{Boolean(job.reason) && <p>Reason: {job.reason}</p>}
 			{Boolean(loading) && <p role="status">Loading task details…</p>}

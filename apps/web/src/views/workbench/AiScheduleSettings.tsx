@@ -42,7 +42,7 @@ export function AiScheduleSettings({
 				completion.
 			</p>
 			{Boolean(vm.error || vm.mutationError) && (
-				<p role="alert" className="text-xs text-basalt-destructive">
+				<p role="alert" className="text-xs text-basalt-danger">
 					{vm.mutationError || vm.error}
 				</p>
 			)}

@@ -85,7 +85,7 @@ export function ActivityPage() {
 			) : null}
 
 			{vm.error ? (
-				<p className="text-sm text-basalt-destructive" role="alert">
+				<p className="text-sm text-basalt-danger" role="alert">
 					{vm.error}
 				</p>
 			) : null}
@@ -193,7 +193,7 @@ export function ActivityPage() {
 					</LayerCard>
 
 					{vm.timelineError ? (
-						<p className="text-sm text-basalt-destructive" role="alert">
+						<p className="text-sm text-basalt-danger" role="alert">
 							{vm.timelineError}
 						</p>
 					) : null}

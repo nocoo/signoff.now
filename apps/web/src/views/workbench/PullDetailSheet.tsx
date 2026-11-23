@@ -414,10 +414,7 @@ function PullDetail({
 											: "Jev classification · Provider merge requirements remain authoritative."}
 								</p>
 								{Boolean(readiness.error) && (
-									<p
-										role="alert"
-										className="mt-2 text-sm text-basalt-destructive"
-									>
+									<p role="alert" className="mt-2 text-sm text-basalt-danger">
 										{readiness.error}
 									</p>
 								)}
@@ -507,7 +504,7 @@ function PullDetail({
 								<span className="font-mono text-basalt-heatmap-green-4">
 									{pull.additions === null ? "" : `+${pull.additions}`}
 								</span>
-								<span className="font-mono text-basalt-destructive">
+								<span className="font-mono text-basalt-danger">
 									{pull.deletions === null ? "" : `−${pull.deletions}`}
 								</span>
 								{pull.additions === null && pull.deletions === null ? (
