@@ -6,7 +6,7 @@ if (!process.env.SIGNOFF_E2E_API_BASE || !process.env.SIGNOFF_E2E_MARKER)
 export default defineConfig({
 	testDir: "./tests/e2e",
 	fullyParallel: false,
-	workers: 1,
+	workers: process.env.CI ? 2 : 4,
 	timeout: 60000,
 	reporter: "list",
 	outputDir: "test-results",
