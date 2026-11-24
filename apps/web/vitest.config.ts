@@ -8,6 +8,8 @@ export default defineConfig({
 		},
 	},
 	test: {
+		allowOnly: false,
+		passWithNoTests: false,
 		environment: "happy-dom",
 		maxWorkers: 4,
 		globals: true,
