@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { type DirectoryData, identityKey } from "@signoff/domain/insights";
 import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";

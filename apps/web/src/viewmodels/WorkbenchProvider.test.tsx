@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act, type ReactNode, useContext } from "react";
 import { MemoryRouter, useNavigate } from "react-router";

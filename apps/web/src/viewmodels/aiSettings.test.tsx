@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { JEV_MODEL, JEV_RUBRIC } from "@signoff/domain/ai-readiness";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act } from "react";

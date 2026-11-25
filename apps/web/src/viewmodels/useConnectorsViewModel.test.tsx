@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import type { Connector } from "@signoff/domain/connector";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

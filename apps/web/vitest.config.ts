@@ -10,7 +10,7 @@ export default defineConfig({
 	test: {
 		allowOnly: false,
 		passWithNoTests: false,
-		environment: "happy-dom",
+		environment: "node",
 		maxWorkers: 4,
 		globals: true,
 		include: ["src/**/*.{test,spec}.{ts,tsx}"],

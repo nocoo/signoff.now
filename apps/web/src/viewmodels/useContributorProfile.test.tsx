@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import type { DataSource } from "@signoff/domain/insights";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act } from "react";

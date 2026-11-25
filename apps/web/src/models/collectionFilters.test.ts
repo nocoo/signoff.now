@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	readCollectionFilters,

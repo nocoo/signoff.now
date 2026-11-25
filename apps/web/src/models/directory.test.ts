@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { type DirectoryData, identityKey } from "@signoff/domain/insights";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
