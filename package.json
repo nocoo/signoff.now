@@ -23,7 +23,7 @@
 		"@playwright/test": "1.65.1",
 		"@types/bun": "1.4.4",
 		"@vitest/coverage-v8": "^5.1.1",
-		"bun-types": "1.4.4",
+		"bun-types": "1.4.5",
 		"happy-dom": "21.0.4",
 		"husky": "^9.1.7",
 		"lint-staged": "^17.6.2",
