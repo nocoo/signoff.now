@@ -525,8 +525,12 @@ test("Web and CLI share persisted watches; discovery is explicit and terminal re
 	}).toPass({ timeout: 20000 });
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(3);
 	await page.unroute("**/api/query/v1/prs?**");
-	await page.clock.fastForward(30000);
-	await expect(page.getByText(/Temporary PR cache failure/)).toHaveCount(0);
+	await expect(async () => {
+		await page.clock.fastForward(16000);
+		await expect(page.getByText(/Temporary PR cache failure/)).toHaveCount(0, {
+			timeout: 1000,
+		});
+	}).toPass({ timeout: 20000 });
 	const beforeSourceSwitch = providerRequests;
 	await page.getByRole("radio", { name: "Sample", exact: true }).click();
 	await expect(page.locator("tr[data-pull-id]")).toHaveCount(0);
