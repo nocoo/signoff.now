@@ -18,20 +18,20 @@
 		"tooling/*"
 	],
 	"devDependencies": {
-		"@biomejs/biome": "2.6.8",
+		"@biomejs/biome": "2.6.9",
 		"@cloudflare/workers-types": "5.20261023.1",
 		"@playwright/test": "1.65.1",
-		"@types/bun": "1.4.4",
+		"@types/bun": "1.4.5",
 		"@vitest/coverage-v8": "^5.1.1",
-		"bun-types": "1.4.4",
+		"bun-types": "1.4.5",
 		"happy-dom": "21.0.4",
 		"husky": "^9.1.7",
-		"lint-staged": "^17.6.1",
+		"lint-staged": "^17.6.2",
 		"turbo": "2.11.13",
 		"typescript": "7.0.2",
 		"vite": "8.3.8",
 		"vitest": "5.1.1",
-		"wrangler": "4.152.0"
+		"wrangler": "4.168.0"
 	},
 	"scripts": {
 		"dev": "turbo run dev --filter=@signoff/web",
@@ -83,7 +83,7 @@
 	},
 	"dependencies": {
 		"@nocoo/basalt": "^3.6.0",
-		"jose": "6.2.17"
+		"jose": "6.2.18"
 	},
 	"patchedDependencies": {
 		"@nocoo/basalt@3.6.0": "patches/@nocoo%2Fbasalt@3.6.0.patch"
