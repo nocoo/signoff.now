@@ -1,7 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import {
 	copyFile,
+	cp,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -145,10 +146,20 @@ try {
 			],
 		}),
 	);
-	await command(
-		["x", "vite", "build", "--outDir", path.join(directory, "assets")],
-		path.join(root, "apps/web"),
-	);
+	const prebuiltAssets = path.join(root, "apps/web/dist");
+	if (
+		process.env.SIGNOFF_SKIP_BUILD === "true" &&
+		existsSync(path.join(prebuiltAssets, "index.html"))
+	) {
+		await cp(prebuiltAssets, path.join(directory, "assets"), {
+			recursive: true,
+		});
+	} else {
+		await command(
+			["x", "vite", "build", "--outDir", path.join(directory, "assets")],
+			path.join(root, "apps/web"),
+		);
+	}
 	await command(
 		[
 			wrangler,

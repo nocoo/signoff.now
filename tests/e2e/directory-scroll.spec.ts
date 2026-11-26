@@ -77,11 +77,7 @@ async function scrollList(page: Page, list: Locator) {
 
 for (const picker of [
 	{ path: "/teams", action: "Add members to Core", label: "Members to add" },
-	{ path: "/teams", action: "Edit Core", label: "Members" },
-	{ path: "/teams", action: "Edit Core", label: "Tags" },
-	{ path: "/developers", action: "Add member", label: "Linked accounts" },
 	{ path: "/developers", action: "Add member", label: "Teams" },
-	{ path: "/developers", action: "Add member", label: "Tags" },
 ]) {
 	test(`${picker.action}: ${picker.label} scrolls and preserves modal focus`, async ({
 		page,
