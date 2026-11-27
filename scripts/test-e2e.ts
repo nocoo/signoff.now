@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { type ChildProcess, spawn } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
 import {
@@ -17,6 +16,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
 
 // Every run owns its config, assets, database, ports and child process group.
 // No daily .wrangler state, production credentials or provider network is used.
@@ -149,74 +149,61 @@ try {
 		}),
 	);
 	const prebuiltAssets = path.join(root, "apps/web/dist");
-	if (
-		process.env.SIGNOFF_SKIP_BUILD === "true" &&
-		existsSync(path.join(prebuiltAssets, "index.html"))
-	) {
-		await cp(prebuiltAssets, path.join(directory, "assets"), {
-			recursive: true,
-		});
-	} else {
-		await command(
-			["x", "vite", "build", "--outDir", path.join(directory, "assets")],
-			path.join(root, "apps/web"),
-		);
-	}
 	const stateDir = path.join(directory, "state");
-	await command(
-		[
-			wrangler,
-			"d1",
-			"migrations",
-			"apply",
-			"signoff-e2e",
-			"--local",
-			"--config",
-			config,
-			"--persist-to",
-			stateDir,
-		],
-		root,
-		{},
-		node,
-	);
-	const seedFile = path.join(root, "tests/e2e/sample-project.sql");
-	const d1Dir = path.join(stateDir, "v3/d1");
-	const sqliteFiles = existsSync(d1Dir)
-		? (await readdir(d1Dir, { recursive: true })).filter(
-				(entry) =>
-					entry.endsWith(".sqlite") &&
-					path.basename(entry) !== "metadata.sqlite",
-			)
-		: [];
-	const [sqliteFile] = sqliteFiles;
-	if (sqliteFiles.length === 1 && sqliteFile) {
-		const db = new Database(path.join(d1Dir, sqliteFile));
-		try {
-			db.exec(await readFile(seedFile, "utf8"));
-		} finally {
-			db.close();
+	const prepareAssets = async () => {
+		if (
+			process.env.SIGNOFF_SKIP_BUILD === "true" &&
+			existsSync(path.join(prebuiltAssets, "index.html"))
+		) {
+			await cp(prebuiltAssets, path.join(directory, "assets"), {
+				recursive: true,
+			});
+			return;
 		}
-	} else {
 		await command(
 			[
-				wrangler,
-				"d1",
-				"execute",
-				"signoff-e2e",
-				"--local",
-				"--config",
-				config,
-				"--persist-to",
-				stateDir,
-				"--file",
-				seedFile,
+				path.join(root, "node_modules/.bin/vite"),
+				"build",
+				"--outDir",
+				path.join(directory, "assets"),
 			],
-			root,
-			{},
-			node,
+			path.join(root, "apps/web"),
 		);
-	}
+	};
+	const prepareD1 = async () => {
+		const migrationsDir = path.join(root, "packages/db/migrations");
+		const migrationFiles = (await readdir(migrationsDir))
+			.filter((name) => name.endsWith(".sql"))
+			.sort();
+		const statements: string[] = [];
+		for (const file of migrationFiles) {
+			const sql = await readFile(path.join(migrationsDir, file), "utf8");
+			statements.push(...unstable_splitSqlQuery(sql));
+		}
+		const seedSql = await readFile(
+			path.join(root, "tests/e2e/sample-project.sql"),
+			"utf8",
+		);
+		statements.push(...unstable_splitSqlQuery(seedSql));
+		const proxy = await getPlatformProxy<{
+			DB: import("@cloudflare/workers-types").D1Database;
+		}>({
+			configPath: config,
+			persist: { path: path.join(stateDir, "v3") },
+			remoteBindings: false,
+			envFiles: [],
+		});
+		try {
+			if (statements.length > 0) {
+				await proxy.env.DB.batch(
+					statements.map((sql) => proxy.env.DB.prepare(sql)),
+				);
+			}
+		} finally {
+			await proxy.dispose();
+		}
+	};
+	await Promise.all([prepareAssets(), prepareD1()]);
 	const output = createWriteStream(workerLog);
 	worker = spawn(
 		node,
