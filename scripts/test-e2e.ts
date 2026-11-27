@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { type ChildProcess, spawn } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
 import {
@@ -5,6 +6,7 @@ import {
 	cp,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	realpath,
 	rm,
@@ -160,6 +162,7 @@ try {
 			path.join(root, "apps/web"),
 		);
 	}
+	const stateDir = path.join(directory, "state");
 	await command(
 		[
 			wrangler,
@@ -171,31 +174,50 @@ try {
 			"--config",
 			config,
 			"--persist-to",
-			path.join(directory, "state"),
+			stateDir,
 		],
 		root,
 		{},
 		node,
 	);
+	const seedFile = path.join(root, "tests/e2e/sample-project.sql");
+	const d1Dir = path.join(stateDir, "v3/d1");
+	const sqliteFiles = existsSync(d1Dir)
+		? (await readdir(d1Dir, { recursive: true })).filter(
+				(entry) =>
+					entry.endsWith(".sqlite") &&
+					path.basename(entry) !== "metadata.sqlite",
+			)
+		: [];
+	const [sqliteFile] = sqliteFiles;
+	if (sqliteFiles.length === 1 && sqliteFile) {
+		const db = new Database(path.join(d1Dir, sqliteFile));
+		try {
+			db.exec(await readFile(seedFile, "utf8"));
+		} finally {
+			db.close();
+		}
+	} else {
+		await command(
+			[
+				wrangler,
+				"d1",
+				"execute",
+				"signoff-e2e",
+				"--local",
+				"--config",
+				config,
+				"--persist-to",
+				stateDir,
+				"--file",
+				seedFile,
+			],
+			root,
+			{},
+			node,
+		);
+	}
 	const output = createWriteStream(workerLog);
-	await command(
-		[
-			wrangler,
-			"d1",
-			"execute",
-			"signoff-e2e",
-			"--local",
-			"--config",
-			config,
-			"--persist-to",
-			path.join(directory, "state"),
-			"--file",
-			path.join(root, "tests/e2e/sample-project.sql"),
-		],
-		root,
-		{},
-		node,
-	);
 	worker = spawn(
 		node,
 		[
@@ -243,11 +265,22 @@ try {
 			`Disposable Worker failed to start: ${await readFile(workerLog, "utf8")}`,
 		);
 	// Extra arguments select specs or tests, e.g. `bun run test:e2e -- -g watch`.
-	await command(["x", "playwright", "test", ...process.argv.slice(2)], root, {
+	const extraArgs = [...process.argv.slice(2)];
+	const envShard = process.env.SIGNOFF_E2E_SHARD?.trim();
+	const hasCliShard = extraArgs.some(
+		(arg) => arg === "--shard" || arg.startsWith("--shard="),
+	);
+	if (envShard && !hasCliShard) {
+		extraArgs.push(`--shard=${envShard}`);
+	}
+	const sharded = hasCliShard || Boolean(envShard);
+	await command(["x", "playwright", "test", ...extraArgs], root, {
 		SIGNOFF_E2E_API_BASE: base,
 		SIGNOFF_E2E_MARKER: marker,
 		SIGNOFF_E2E_RUN_ID: runId,
 		SIGNOFF_E2E_BUN: bun,
+		SIGNOFF_E2E_SHARDED: sharded ? "1" : "",
+		SIGNOFF_E2E_WAIT_MONITORING: !sharded && extraArgs.length === 0 ? "1" : "",
 	});
 } catch (error) {
 	console.error(error instanceof Error ? error.message : error);
