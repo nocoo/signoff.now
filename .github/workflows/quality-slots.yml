@@ -126,8 +126,8 @@ jobs:
         if: always()
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  l1-unit-apps:
-    name: "L1: Unit (Apps)"
+  l1-unit:
+    name: "L1: Unit"
     runs-on: ubuntu-latest
     outputs:
       tested-sha: ${{ steps.record-sha.outputs.sha }}
@@ -139,45 +139,7 @@ jobs:
           runtime-version: ${{ env.BUN_VERSION }}
           node-version: ${{ env.NODE_VERSION }}
           install-policy: blocked
-      - run: bun test scripts/dev-worker-health.test.ts scripts/dev-worker-log.test.ts --coverage && bunx turbo test:coverage --filter=!@signoff/worker
-      - name: Record tested SHA
-        id: record-sha
-        if: always()
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-  l1-unit-worker-1:
-    name: "L1: Unit (Worker 1/2)"
-    runs-on: ubuntu-latest
-    outputs:
-      tested-sha: ${{ steps.record-sha.outputs.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: nocoo/base-ci/.github/actions/setup-js@3703a073693d598159e87f77f99587e586c14cfe # v2026.24
-        with:
-          package-manager: bun
-          runtime-version: ${{ env.BUN_VERSION }}
-          node-version: ${{ env.NODE_VERSION }}
-          install-policy: blocked
-      - run: bun test --coverage packages/worker/src/ai packages/worker/src/lib packages/worker/src/middleware packages/worker/src/monitoring packages/worker/src/test packages/worker/src/route-policy.test.ts
-      - name: Record tested SHA
-        id: record-sha
-        if: always()
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-  l1-unit-worker-2:
-    name: "L1: Unit (Worker 2/2)"
-    runs-on: ubuntu-latest
-    outputs:
-      tested-sha: ${{ steps.record-sha.outputs.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: nocoo/base-ci/.github/actions/setup-js@3703a073693d598159e87f77f99587e586c14cfe # v2026.24
-        with:
-          package-manager: bun
-          runtime-version: ${{ env.BUN_VERSION }}
-          node-version: ${{ env.NODE_VERSION }}
-          install-policy: blocked
-      - run: bun test --coverage packages/worker/src/routes
+      - run: bun run test:coverage
       - name: Record tested SHA
         id: record-sha
         if: always()
@@ -294,9 +256,7 @@ jobs:
       - g1-secrets
       - g2-dependencies
       - b1-build
-      - l1-unit-apps
-      - l1-unit-worker-1
-      - l1-unit-worker-2
+      - l1-unit
       - l2-runtime
       - l3-integration
       - l4-e2e-1
@@ -318,9 +278,7 @@ jobs:
             g1-secrets=G1: Secrets
             g2-dependencies=G2: Dependencies
             b1-build=B1: Build
-            l1-unit-apps=L1: Unit (Apps)
-            l1-unit-worker-1=L1: Unit (Worker 1/2)
-            l1-unit-worker-2=L1: Unit (Worker 2/2)
+            l1-unit=L1: Unit
             l4-e2e-1=L4: E2E (1/2)
             l4-e2e-2=L4: E2E (2/2)
             p1-package=P1: Package
