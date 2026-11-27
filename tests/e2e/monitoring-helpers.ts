@@ -206,6 +206,9 @@ export async function withWatchLock<T>(
 	fn: () => Promise<T>,
 	options?: { waitForMonitoring?: boolean },
 ): Promise<T> {
+	if (process.env.SIGNOFF_E2E_SHARDED === "1") {
+		return fn();
+	}
 	const doneFile = path.join(marker.directory, "monitoring-done");
 	const shouldWait = options?.waitForMonitoring ?? true;
 	if (shouldWait && process.env.SIGNOFF_E2E_WAIT_MONITORING === "1") {
