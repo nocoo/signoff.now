@@ -49,7 +49,7 @@ bun run signoff -- --help              # Also: bun run gitinfo -- --help, bun ru
 
 ## Quality & Local Gates
 
-Follows `system1-quality`; CI slots and pinned `base-ci` revision live in `.github/workflows/quality-slots.yml` (`quality / Z1: Gate` required on `main`). Statuses: `enforced`, `planned`, `manual`, `N/A`.
+Follows `system1-quality`; CI runs `.github/workflows/pipeline.yml` -> `.github/workflows/quality-slots.yml` (`quality / Z1: Gate` required on `main`, pinned `base-ci` `v2026.24`). Statuses: `enforced`, `planned`, `manual`, `N/A`.
 
 - **Exceptions / gaps**: `L2 Runtime` and `L3 Integration` are `N/A` (Worker app covered by `L1`/`L4`); `P1 Package` verifies Worker bundling via `wrangler deploy --dry-run` reusing `B1` (`b1-dist`); full 80% four-metric `L1` across all packages is `planned` ([Runtime Ops](docs/24-local-dev-and-runtime-ops.md)).
 - **Local hooks**: `bun run prepare` installs `.husky/`; `pre-commit` checks staged index (`L1`/`S2`/`S1`, no autofix/restage; local `G1`/`S3` `planned`). `lint-staged` is check-only `manual`.
