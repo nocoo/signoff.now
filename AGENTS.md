@@ -61,7 +61,7 @@ Follows `system1-quality`; CI slots and pinned `base-ci` revision live in `.gith
 | --- | --- | --- |
 | Dev | `https://signoff.dev.hexly.ai` (`7042` → `37042`), local D1, `.data` (`SIGNOFF_DATA_DIR`) | Always use Caddy HTTPS (never localhost); reuse healthy stack; stop before switching `dev:all`/`start:all` |
 | Tests | Per-run `--local --persist-to`, temp SQLite, random ports, `owner.json` (`scripts/test-e2e.ts`) | Isolated fixtures + process-group cleanup; legacy `scripts/e2e-06-local.sh` in disposable copy only |
-| Prod | `https://signoff.hexly.ai` (Access), `https://signoff-ingest.hexly.ai` (machine/connector) | Read-only unless deploy is authorized; `db:seed:local` is local demo only |
+| Prod | Local-only service (no CD workflow) | Automated release workflow removed; run local Dev/Start stacks only |
 
 Polling/backoff (`15s` coalescing, `3s→15s`, `10s` AI ticks), runtime logs (`NO_COLOR=1`), web cache cadence, and forward migrations: [Runtime Ops](docs/24-local-dev-and-runtime-ops.md).
 
