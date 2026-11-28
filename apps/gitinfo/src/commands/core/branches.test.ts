@@ -82,44 +82,21 @@ describe("getLocalBranches", () => {
 		expect(branches).toEqual([]);
 	});
 
-	it("handles behind tracking status", async () => {
+	it.each([
+		["[behind 5]", { ahead: 0, behind: 5 }],
+		["[ahead 7, behind 3]", { ahead: 7, behind: 3 }],
+		["[gone]", null],
+	])("parses %s tracking status", async (track, expected) => {
 		const exec = mockExec({
 			"git for-each-ref --format=%(refname:short)%(09)%(upstream:short)%(09)%(upstream:track)%(09)%(committerdate:iso-strict) refs/heads/":
 				{
-					stdout: "stale\torigin/stale\t[behind 5]\t2025-01-05T08:00:00+00:00",
+					stdout: `stale\torigin/stale\t${track}\t2025-01-05T08:00:00+00:00`,
 				},
 			"git branch --merged HEAD": { stdout: "" },
 		});
 
 		const branches = await getLocalBranches(exec, CWD, true);
-		expect(branches[0]?.aheadBehind).toEqual({ ahead: 0, behind: 5 });
-	});
-
-	it("handles diverged tracking status", async () => {
-		const exec = mockExec({
-			"git for-each-ref --format=%(refname:short)%(09)%(upstream:short)%(09)%(upstream:track)%(09)%(committerdate:iso-strict) refs/heads/":
-				{
-					stdout:
-						"diverged\torigin/diverged\t[ahead 7, behind 3]\t2025-01-05T08:00:00+00:00",
-				},
-			"git branch --merged HEAD": { stdout: "" },
-		});
-
-		const branches = await getLocalBranches(exec, CWD, true);
-		expect(branches[0]?.aheadBehind).toEqual({ ahead: 7, behind: 3 });
-	});
-
-	it("handles gone upstream", async () => {
-		const exec = mockExec({
-			"git for-each-ref --format=%(refname:short)%(09)%(upstream:short)%(09)%(upstream:track)%(09)%(committerdate:iso-strict) refs/heads/":
-				{
-					stdout: "stale\torigin/stale\t[gone]\t2025-01-05T08:00:00+00:00",
-				},
-			"git branch --merged HEAD": { stdout: "" },
-		});
-
-		const branches = await getLocalBranches(exec, CWD, true);
-		expect(branches[0]?.aheadBehind).toBeNull();
+		expect(branches[0]?.aheadBehind).toEqual(expected);
 	});
 });
 

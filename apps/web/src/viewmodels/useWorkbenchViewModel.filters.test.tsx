@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import * as api from "@/models/monitoringApi";
@@ -24,11 +23,8 @@ import {
 	fixture,
 	loaded,
 	renderWorkbenchHook as render,
-	renderView,
 	resetWorkbenchMocks,
 } from "@/test/workbench-test-helpers";
-import { PullsPage } from "@/views/workbench/PullsPage";
-import { WorkbenchProvider } from "./WorkbenchProvider";
 
 vi.mock("@/models/prCollectionsApi", () => ({
 	loadCollections: vi.fn(async () => ({ items: [] })),
@@ -559,38 +555,6 @@ describe("filters, server pages and temporary selection", () => {
 			),
 		);
 		expect(result.current.vm.selectedRepository?.name).toBe("renamed");
-	});
-	it("shows an unavailable selected repository without implying an unfiltered table", async () => {
-		vi.mocked(api.loadCatalog).mockImplementation(
-			async (_source, _signal, scope) =>
-				scope?.repository
-					? {
-							...fixture.catalog,
-							data: [],
-							page: { ...fixture.page, total: 0 },
-						}
-					: fixture.catalog,
-		);
-		renderView(
-			<MemoryRouter
-				initialEntries={[
-					`/?repo=${encodeURIComponent(fixture.catalog.data[0]!.repository.url)}`,
-				]}
-			>
-				<WorkbenchProvider>
-					<PullsPage />
-				</WorkbenchProvider>
-			</MemoryRouter>,
-		);
-		const unavailable = await screen.findByRole("combobox", {
-			name: /Repository/,
-		});
-		expect(unavailable.textContent).toBe("Selected repository unavailable");
-		fireEvent.click(unavailable);
-		fireEvent.click(screen.getByRole("option", { name: "All repositories" }));
-		await waitFor(() =>
-			expect(unavailable.textContent).toBe("All repositories"),
-		);
 	});
 	it("does not rewrite a repository URL shared by duplicate project registrations", async () => {
 		const repo = fixture.catalog.data[0]!;

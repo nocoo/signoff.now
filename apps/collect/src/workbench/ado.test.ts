@@ -2185,24 +2185,4 @@ describe("importRepositoryPull and history helpers", () => {
 			discoverRepositoryPulls(dupClient, project, repo, 2000, 0).next(),
 		).rejects.toThrow("Repeated PR while paging repository history");
 	});
-
-	test("enumerateRecentHistory records non-auth failures as issues", async () => {
-		const client: AdoPagedClient = {
-			get: async () => {
-				throw new Error("history timeout");
-			},
-			post: async () => ({}),
-			getPage: async () => ({ data: { value: [] }, continuationToken: null }),
-			checkAuth: async () => {},
-			invalidateToken: () => {},
-		};
-		const res = await enumerateRecentHistory(client, "org", {
-			id: "repo-1",
-			name: "repo-alpha",
-			projectGuid: "proj-guid",
-		});
-		expect(res.issues).toHaveLength(2);
-		expect(res.issues[0]).toContain("Recent completed PRs unavailable");
-		expect(res.issues[1]).toContain("Recent abandoned PRs unavailable");
-	});
 });

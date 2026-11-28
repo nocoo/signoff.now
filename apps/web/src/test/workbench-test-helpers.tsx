@@ -1,10 +1,5 @@
-import { TooltipProvider } from "@nocoo/basalt";
 import type { ProjectWrite } from "@signoff/domain/workbench";
-import {
-	renderHook,
-	render as renderTestingView,
-	waitFor,
-} from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { expect, vi } from "vitest";
@@ -38,9 +33,6 @@ export function deferred<T>() {
 	});
 	return { promise, resolve, reject };
 }
-
-export const renderView = (ui: ReactNode) =>
-	renderTestingView(<TooltipProvider>{ui}</TooltipProvider>);
 
 export function renderWorkbenchHook(path = "/") {
 	return renderHook(

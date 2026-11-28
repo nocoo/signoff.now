@@ -177,6 +177,7 @@ const base = async (m: Manifest, artifacts: Record<string, unknown>) => {
 			writeJson: h.writeJson,
 			client: okClient(),
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		},
@@ -481,6 +482,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		};
@@ -536,6 +538,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		});
@@ -571,6 +574,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		});
@@ -657,6 +661,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		});
@@ -689,6 +694,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		};
@@ -741,6 +747,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		};
@@ -853,6 +860,7 @@ describe("ingestNormalized", () => {
 			writeJson: h.writeJson,
 			client,
 			log: { info: () => {}, warn: () => {}, error: () => {} },
+			sleep: async () => {},
 			nowSeconds: 1_784_737_800,
 			pipelineConfigVersion: 1,
 		});

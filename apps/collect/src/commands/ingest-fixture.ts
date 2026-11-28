@@ -1,3 +1,4 @@
+import { setTimeout as defaultSleep } from "node:timers/promises";
 import {
 	fixtureFileSchema,
 	type IngestBody,
@@ -17,10 +18,6 @@ import {
 } from "../pipeline/client.ts";
 
 const MAX_RETRIES = 3;
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((r) => setTimeout(r, ms));
-}
 
 async function pullBootstrapCache(
 	client: PipelineClient,
@@ -108,6 +105,7 @@ async function postChunk(
 	client: PipelineClient,
 	chunk: IngestBody,
 	log: Logger,
+	sleepFn: (ms: number) => Promise<unknown> = defaultSleep,
 ): Promise<number | null> {
 	let attempt = 0;
 	for (;;) {
@@ -143,7 +141,7 @@ async function postChunk(
 				log.info(
 					`retry chunk ${chunk.chunkIndex} attempt ${attempt} backoff=${backoff}ms`,
 				);
-				await sleep(backoff);
+				await sleepFn(backoff);
 				continue;
 			}
 			if (attempt >= MAX_RETRIES) {
@@ -154,7 +152,7 @@ async function postChunk(
 			log.info(
 				`retry network chunk ${chunk.chunkIndex} attempt ${attempt} backoff=${backoff}ms`,
 			);
-			await sleep(backoff);
+			await sleepFn(backoff);
 		}
 	}
 }
@@ -176,6 +174,7 @@ export async function ingestFixture(opts: {
 	/** Local data dir for bootstrap cache (required when send && !dry). */
 	dataDir?: string;
 	fs?: FsLike;
+	sleep?: (ms: number) => Promise<void>;
 }): Promise<number> {
 	let raw: string;
 	try {
@@ -256,7 +255,7 @@ export async function ingestFixture(opts: {
 	}
 
 	for (const chunk of chunks) {
-		const err = await postChunk(opts.client, chunk, opts.log);
+		const err = await postChunk(opts.client, chunk, opts.log, opts.sleep);
 		if (err !== null) {
 			return err;
 		}

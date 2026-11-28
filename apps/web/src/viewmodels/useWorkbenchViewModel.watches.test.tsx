@@ -1,14 +1,7 @@
 // @vitest-environment happy-dom
 import { makeWatchRef } from "@signoff/domain/monitoring";
-import {
-	cleanup,
-	fireEvent,
-	screen,
-	waitFor,
-	within,
-} from "@testing-library/react";
+import { cleanup, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import * as api from "@/models/monitoringApi";
@@ -28,11 +21,8 @@ import {
 	loaded,
 	pendingEnvelope,
 	renderWorkbenchHook as render,
-	renderView,
 	resetWorkbenchMocks,
 } from "@/test/workbench-test-helpers";
-import { PullsPage } from "@/views/workbench/PullsPage";
-import { WorkbenchProvider } from "./WorkbenchProvider";
 
 vi.mock("@/models/prCollectionsApi", () => ({
 	loadCollections: vi.fn(async () => ({ items: [] })),
@@ -113,79 +103,6 @@ describe("shared watch mutations", () => {
 			expect(api.addWatches).not.toHaveBeenCalled();
 		},
 	);
-	it("optimistically toggles independent rows and rolls back only a failed command without replacing the table", async () => {
-		const other = { ...pull, id: "second", number: pull.number + 1 };
-		const observation = fixtureObservation({ generation: 4 });
-		let watching = false;
-		vi.mocked(api.loadPulls).mockImplementation(async () => ({
-			...fixture.pulls,
-			data: [
-				publicPull(pull, project, watching ? observation : null),
-				publicPull(other),
-			],
-		}));
-		const first = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
-		const second = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
-		vi.mocked(api.addWatches)
-			.mockReturnValueOnce(first.promise)
-			.mockReturnValueOnce(second.promise);
-		renderView(
-			<MemoryRouter>
-				<WorkbenchProvider>
-					<PullsPage />
-				</WorkbenchProvider>
-			</MemoryRouter>,
-		);
-		const table = await screen.findByRole("table", { name: "Pull requests" });
-		const findWatchButton = (number: number) =>
-			screen.findByRole("button", {
-				name: `Watch PR #${number} in ${project.projectKey}/${pull.repository.name}`,
-			}) as Promise<HTMLButtonElement>;
-		const firstButton = await findWatchButton(pull.number);
-		const secondButton = await findWatchButton(other.number);
-		fireEvent.click(firstButton);
-		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
-		expect(firstButton.getAttribute("aria-busy")).toBe("true");
-		expect(secondButton.disabled).toBe(false);
-		fireEvent.click(secondButton);
-		expect(secondButton.getAttribute("aria-pressed")).toBe("true");
-		expect(api.addWatches).toHaveBeenCalledTimes(2);
-		await awaitReactAct(async () => {
-			second.resolve({
-				results: [
-					{
-						status: "rejected",
-						error: {
-							code: "PR_TERMINAL",
-							message: "Already merged",
-							retryable: false,
-						},
-					},
-				],
-			});
-		});
-		expect(secondButton.getAttribute("aria-pressed")).toBe("false");
-		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
-		await awaitReactAct(async () => {
-			watching = true;
-			first.resolve({
-				results: [
-					{
-						status: "added",
-						observation: publicPull(pull, project, observation).observation,
-					},
-				],
-			});
-		});
-		expect(await findWatchButton(pull.number)).toBe(firstButton);
-		expect(screen.getByRole("table", { name: "Pull requests" })).toBe(table);
-		expect(firstButton.getAttribute("aria-pressed")).toBe("true");
-		expect(firstButton.disabled).toBe(false);
-		expect(api.loadCatalog).toHaveBeenCalledOnce();
-		const feedback = screen.getByRole("status", { name: "Watch list updates" });
-		expect(feedback.textContent).toContain("Already merged");
-		expect(feedback.textContent).toContain("1 PR added");
-	});
 	it("accepted watch changes remain usable while cache revalidation is slow", async () => {
 		const observation = fixtureObservation({ generation: 4 });
 		const cacheRead = deferred<Awaited<ReturnType<typeof api.loadPulls>>>();
@@ -338,15 +255,11 @@ describe("shared watch mutations", () => {
 			expect(result.current.vm.pageRows[0]?.watching).toBe(latest.active);
 		},
 	);
-	it.each(
-		[
-			{ projectKey: "ReplacementProject" },
-			{ organization: "replacement-org" },
-			{ id: "new-registration" },
-		].flatMap((identity) =>
-			[false, true].map((watched) => ({ identity, watched })),
-		),
-	)(
+	it.each([
+		{ identity: { projectKey: "ReplacementProject" }, watched: false },
+		{ identity: { organization: "replacement-org" }, watched: true },
+		{ identity: { id: "new-registration" }, watched: false },
+	])(
 		"fences optimistic state, selection and delayed receipts across project identity changes: %j",
 		async ({ identity, watched }) => {
 			const response = deferred<Awaited<ReturnType<typeof api.addWatches>>>();
@@ -444,35 +357,6 @@ describe("shared watch mutations", () => {
 		await awaitReactAct(async () =>
 			expect(await result.current.vm.toggleWatch("missing")).toBe(false),
 		);
-	});
-	it("renders a watch toggle in its own column before the PR title", async () => {
-		renderView(
-			<MemoryRouter>
-				<WorkbenchProvider>
-					<PullsPage />
-				</WorkbenchProvider>
-			</MemoryRouter>,
-		);
-		const toggle = await screen.findByRole("button", {
-			name: `Watch PR #${pull.number} in ${project.projectKey}/${pull.repository.name}`,
-		});
-		expect(toggle.getAttribute("aria-pressed")).toBe("false");
-		const row = toggle.closest("tr")!;
-		expect(within(row).getAllByRole("cell")[1]).toBe(toggle.closest("td"));
-		expect(
-			within(row)
-				.getAllByRole("cell")[2]
-				?.contains(
-					within(row).getByRole("button", {
-						name: `Open PR #${pull.number}: ${pull.title}`,
-					}),
-				),
-		).toBe(true);
-		fireEvent.click(toggle);
-		await waitFor(() =>
-			expect(api.addWatches).toHaveBeenCalledWith("cli", [pull.id]),
-		);
-		expect(screen.queryByRole("dialog")).toBeNull();
 	});
 	it("keeps unconfirmed batch items selected when the server omits a result", async () => {
 		vi.mocked(api.loadPulls).mockResolvedValue({

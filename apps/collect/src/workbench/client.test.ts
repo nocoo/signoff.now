@@ -6,6 +6,8 @@ import {
 	createCollectionClient,
 } from "./client.ts";
 
+const noSleep = async () => {};
+
 describe("local collection API client", () => {
 	test.each([
 		"heartbeat",
@@ -33,6 +35,7 @@ describe("local collection API client", () => {
 			};
 			const calls: { url: string; body: RequestInit["body"] }[] = [];
 			const api = createCollectionClient({
+				sleep: noSleep,
 				fetchImpl: async (url, init) => {
 					calls.push({ url, body: init?.body });
 					if (calls.length === 1)
@@ -66,7 +69,11 @@ describe("local collection API client", () => {
 		"bounds retries after persistent HTTP %s and preserves the last error",
 		async (status) => {
 			let attempts = 0;
+			const waits: number[] = [];
 			const api = createCollectionClient({
+				sleep: async (ms) => {
+					waits.push(ms);
+				},
 				fetchImpl: async () => {
 					attempts++;
 					return Response.json({ error: `Failure ${attempts}` }, { status });
@@ -77,6 +84,7 @@ describe("local collection API client", () => {
 				body: { error: "Failure 3" },
 			});
 			expect(attempts).toBe(3);
+			expect(waits).toEqual([250, 500]);
 		},
 	);
 	test.each([400, 401, 403, 404, 409, 413, 501])(
@@ -98,6 +106,7 @@ describe("local collection API client", () => {
 	test("stops retrying when a transient failure becomes a lease conflict", async () => {
 		const statuses = [500, 409];
 		const api = createCollectionClient({
+			sleep: noSleep,
 			fetchImpl: async () => Response.json({}, { status: statuses.shift()! }),
 		});
 		await expect(

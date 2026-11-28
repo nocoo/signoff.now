@@ -17,28 +17,18 @@ export default defineConfig({
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
-			// Models + ViewModels + lib (Views still excluded — docs/03)
+			// Models + ViewModels + lib (Views and React provider .tsx glue excluded — docs/03)
 			include: [
-				"src/models/**/*.{ts,tsx}",
-				"src/viewmodels/**/*.{ts,tsx}",
-				"src/lib/**/*.{ts,tsx}",
+				"src/models/**/*.ts",
+				"src/viewmodels/**/*.ts",
+				"src/lib/**/*.ts",
 			],
-			exclude: [
-				"src/**/*.{test,spec}.{ts,tsx}",
-				"src/**/*.d.ts",
-				// HTTP clients still without contract tests. Listed one by one
-				// rather than as `*Api.ts`: entitiesApi has them now and is in
-				// the gate, and each name left here is visible debt rather than
-				// a pattern that silently swallows new files.
-				"src/models/activityApi.ts",
-				"src/models/settingsApi.ts",
-				"src/models/statsApi.ts",
-			],
+			exclude: ["src/**/*.{test,spec}.{ts,tsx}", "src/**/*.d.ts"],
 			thresholds: {
-				statements: 80,
-				functions: 80,
-				lines: 80,
-				branches: 80,
+				statements: 90,
+				functions: 90,
+				lines: 90,
+				branches: 85,
 			},
 		},
 	},

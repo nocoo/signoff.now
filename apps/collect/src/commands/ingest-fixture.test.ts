@@ -192,6 +192,7 @@ describe("ingestFixture", () => {
 			filePath: "/f.json",
 			readFile: async () => JSON.stringify(valid),
 			log: createLogger({ log: () => {}, error: () => {} }),
+			sleep: async () => {},
 			client: {
 				bootstrap: async () => {
 					throw new Error("no");
@@ -210,6 +211,7 @@ describe("ingestFixture", () => {
 			filePath: "/f.json",
 			readFile: async () => JSON.stringify(valid),
 			log: createLogger({ log: () => {}, error: () => {} }),
+			sleep: async () => {},
 			client: {
 				bootstrap: async () => {
 					throw new Error("no");

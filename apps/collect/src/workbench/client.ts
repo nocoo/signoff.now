@@ -85,8 +85,10 @@ export function createCollectionClient(
 		apiBase?: string;
 		fetchImpl?: FetchLike;
 		connector?: Pick<ConnectorConfig, "apiOrigin" | "token">;
+		sleep?: (ms: number) => Promise<void>;
 	} = {},
 ) {
+	const sleep = opts.sleep ?? delay;
 	const config = {
 		apiBase: opts.connector
 			? new URL(opts.connector.apiOrigin).origin
@@ -124,7 +126,7 @@ export function createCollectionClient(
 					![500, 502, 503, 504].includes(error.status)
 				)
 					throw error;
-				await delay(250 * 2 ** attempt);
+				await sleep(250 * 2 ** attempt);
 			}
 		}
 	};

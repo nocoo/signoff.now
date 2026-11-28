@@ -104,12 +104,12 @@ export type SqliteD1 = {
 	beforeBatch: (match: string, fn: () => void) => void;
 };
 
-/**
- * Create an in-memory D1-compatible database with all migrations applied.
- * Batch semantics mirror D1: statements run inside one transaction and any
- * error rolls the whole batch back.
- */
-export function createSqliteD1(): SqliteD1 {
+let cachedSchemaTemplate: Uint8Array | null = null;
+
+function migratedTemplate(): Uint8Array {
+	if (cachedSchemaTemplate) {
+		return cachedSchemaTemplate;
+	}
 	const raw = new Database(":memory:");
 	raw.exec("PRAGMA foreign_keys = ON;");
 
@@ -119,6 +119,19 @@ export function createSqliteD1(): SqliteD1 {
 		.sort((a, b) => a.localeCompare(b))) {
 		raw.exec(readFileSync(path.join(dir, file), "utf8"));
 	}
+	cachedSchemaTemplate = raw.serialize();
+	raw.close();
+	return cachedSchemaTemplate;
+}
+
+/**
+ * Create an in-memory D1-compatible database with all migrations applied.
+ * Batch semantics mirror D1: statements run inside one transaction and any
+ * error rolls the whole batch back.
+ */
+export function createSqliteD1(): SqliteD1 {
+	const raw = Database.deserialize(migratedTemplate());
+	raw.exec("PRAGMA foreign_keys = ON;");
 
 	const hooks: { match: string; fn: () => void }[] = [];
 

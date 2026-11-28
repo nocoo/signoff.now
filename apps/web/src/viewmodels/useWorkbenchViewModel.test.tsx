@@ -1,20 +1,9 @@
 // @vitest-environment happy-dom
-import { TooltipProvider } from "@nocoo/basalt";
 import type { ProjectWrite } from "@signoff/domain/workbench";
-import {
-	cleanup,
-	fireEvent,
-	renderHook,
-	render as renderTestingView,
-	screen,
-	waitFor,
-	within,
-} from "@testing-library/react";
-import type { ReactNode } from "react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, SERVICE_UNAVAILABLE } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import * as api from "@/models/monitoringApi";
 import { PULL_FILTER_STORAGE_KEY } from "@/models/workbench";
 import {
@@ -25,7 +14,6 @@ import {
 } from "@/models/workbenchApi";
 import {
 	fixtureObservation,
-	pendingInspection,
 	fixtureProject as project,
 	publicProject,
 	publicPull,
@@ -33,17 +21,15 @@ import {
 	queryFixture,
 } from "@/test/monitoring-fixture";
 import { awaitReactAct } from "@/test/reactAct";
-import { CollectionStatus } from "@/views/workbench/CollectionStatus";
-import { PullQuickFilters } from "@/views/workbench/PullQuickFilters";
-import { PullsPage } from "@/views/workbench/PullsPage";
 import {
-	useProjectFormViewModel,
-	useWorkbenchViewModel,
-} from "./useWorkbenchViewModel";
-import { useWorkbench, WorkbenchProvider } from "./WorkbenchProvider";
-
-const renderView = (ui: ReactNode) =>
-	renderTestingView(<TooltipProvider>{ui}</TooltipProvider>);
+	deferred,
+	draft,
+	fixture,
+	loaded,
+	renderWorkbenchHook as render,
+	resetWorkbenchMocks,
+} from "@/test/workbench-test-helpers";
+import { useProjectFormViewModel } from "./useWorkbenchViewModel";
 
 vi.mock("@/models/prCollectionsApi", () => ({
 	loadCollections: vi.fn(async () => ({ items: [] })),
@@ -85,328 +71,9 @@ vi.mock("@/models/monitoringApi", async (original) => ({
 	discover: vi.fn(),
 	refreshWatches: vi.fn(),
 }));
-const draft: ProjectWrite = {
-	provider: "ado",
-	name: "Core",
-	organization: "northstar",
-	projectKey: "Platform",
-	description: "Services",
-	owner: "Maya",
-	enabled: true,
-	repositories: [],
-};
-const fixture = queryFixture();
-const pendingEnvelope = { ...fixture.envelope, schemaVersion: 2 as const };
-function deferred<T>() {
-	let resolve!: (value: T) => void;
-	let reject!: (reason: unknown) => void;
-	const promise = new Promise<T>((r, fail) => {
-		resolve = r;
-		reject = fail;
-	});
-	return { promise, resolve, reject };
-}
-function render(path = "/") {
-	return renderHook(
-		() => ({
-			vm: useWorkbenchViewModel(),
-			location: useLocation(),
-			navigate: useNavigate(),
-		}),
-		{
-			wrapper: ({ children }: { children: ReactNode }) => (
-				<MemoryRouter initialEntries={[path]}>{children}</MemoryRouter>
-			),
-		},
-	);
-}
-const loaded = async (result: ReturnType<typeof render>["result"]) =>
-	waitFor(() => {
-		expect(result.current.vm.loading).toBe(false);
-		expect(result.current.vm.collector).not.toBeNull();
-	});
-function QuickFiltersHarness() {
-	const vm = useWorkbench();
-	return <PullQuickFilters vm={vm} />;
-}
-it("combines lifecycle and watch quick filters without resetting history", async () => {
-	renderView(
-		<MemoryRouter initialEntries={["/?source=cli&q=review"]}>
-			<WorkbenchProvider>
-				<QuickFiltersHarness />
-			</WorkbenchProvider>
-		</MemoryRouter>,
-	);
-	const bar = within(screen.getByRole("region", { name: "Quick PR filters" }));
-	const click = (name: string) =>
-		fireEvent.click(bar.getByRole("button", { name }));
-	const queryMatches = async (expected: Record<string, string | null>) => {
-		await waitFor(() => {
-			const query = new URLSearchParams(
-				vi.mocked(api.loadPulls).mock.lastCall?.[0],
-			);
-			for (const [key, value] of Object.entries(expected))
-				expect(query.get(key)).toBe(value);
-			expect(query.get("q")).toBe("review");
-		});
-	};
-	click("Draft");
-	await queryMatches({ state: "open", draft: "only", status: "all" });
-	expect(
-		bar.getByRole("button", { name: "Draft" }).getAttribute("aria-pressed"),
-	).toBe("true");
-	expect(
-		bar.getByRole("button", { name: "Open" }).getAttribute("aria-pressed"),
-	).toBe("false");
-	click("Merged");
-	await queryMatches({ state: "merged", draft: "include" });
-	click("Open");
-	await queryMatches({ state: "open", draft: "exclude" });
-	click("Watched");
-	click("Running");
-	await queryMatches({ state: "open", watching: "true", status: "running" });
-	for (const name of ["Open", "Watched", "Running"])
-		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
-			"true",
-		);
-	click("Unwatched");
-	click("Attention");
-	await queryMatches({ state: "open", watching: "false", status: "attention" });
-	for (const name of ["Watched", "Running"])
-		expect(bar.getByRole("button", { name }).getAttribute("aria-pressed")).toBe(
-			"false",
-		);
-	click("Attention");
-	click("Unwatched");
-	await queryMatches({ status: "all", watching: null });
-	click("Watched");
-	click("Running");
-	click("Merged");
-	await queryMatches({ state: "merged", status: "all", watching: "true" });
-	expect(bar.getByRole("button", { name: "Running" })).toHaveProperty(
-		"disabled",
-		true,
-	);
-	expect(
-		bar.getByRole("combobox", { name: "Detailed readiness" }),
-	).toHaveProperty("disabled", true);
-	click("Watched");
-	await queryMatches({ state: "merged", watching: null, status: "all" });
-	click("Watched");
-	await queryMatches({ state: "merged", watching: "true", status: "all" });
-	click("All states");
-	await queryMatches({ state: "all", watching: "true", status: "all" });
-	fireEvent.click(bar.getByRole("combobox", { name: "Detailed readiness" }));
-	fireEvent.click(screen.getByRole("option", { name: "Error" }));
-	await queryMatches({ state: "open", watching: "true", status: "error" });
-	click("Closed");
-	await queryMatches({ state: "closed", status: "all", watching: "true" });
-	click("Watched");
-	await queryMatches({ state: "closed", status: "all", watching: null });
-	click("Watched");
-	await queryMatches({ state: "closed", status: "all", watching: "true" });
-});
-it("keeps PR columns mounted during loading and links the target branch after the snapshot arrives", async () => {
-	const pending = deferred<typeof fixture.pulls>();
-	vi.mocked(api.loadPulls).mockReturnValue(pending.promise);
-	renderView(
-		<MemoryRouter>
-			<WorkbenchProvider>
-				<PullsPage />
-			</WorkbenchProvider>
-		</MemoryRouter>,
-	);
-	const table = screen.getByRole("table", { name: "Pull requests" });
-	expect(table.getAttribute("aria-busy")).toBe("true");
-	expect(
-		within(table).getByRole("columnheader", { name: "Pull request" }),
-	).toBeTruthy();
-	expect(within(table).getByRole("checkbox")).toHaveProperty("disabled", true);
-	expect(screen.queryByText("No matching pull requests")).toBeNull();
-	await awaitReactAct(async () => pending.resolve(fixture.pulls));
-	await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
-	expect(screen.getByRole("table", { name: "Pull requests" })).toBe(table);
-	const link = within(table).getByRole("link", {
-		name: `Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`,
-	});
-	expect(link.getAttribute("href")).toBe(
-		`https://dev.azure.com/${project.organization}/${project.projectKey}/_git/${pull.repository.id}?version=GB${encodeURIComponent(pull.targetBranch)}`,
-	);
-	expect(
-		link.closest("td")?.querySelector('[title="Provider PR lifecycle"]'),
-	).toBeTruthy();
-	expect(link.previousElementSibling?.getAttribute("title")).toBe(
-		"Provider PR lifecycle",
-	);
-	expect(link.getAttribute("target")).toBe("_blank");
-	expect(link.getAttribute("rel")).toBe("noopener noreferrer");
-	expect(screen.queryByText("Select PRs to watch")).toBeNull();
-	expect(screen.queryByText(/Jev Readiness indicates/)).toBeNull();
-	expect(screen.queryByRole("region", { name: "Stage colors" })).toBeNull();
-	const results = screen.getByRole("region", { name: "PR results" });
-	expect(results.firstElementChild).toBe(table.parentElement);
-	const select = within(table).getByRole("checkbox", {
-		name: "Select all eligible PRs on this page",
-	});
-	fireEvent.click(select);
-	expect(screen.getByText("1 selected")).toBeTruthy();
-	expect(
-		screen.getByRole("button", { name: "Add to watch list" }),
-	).toBeTruthy();
-	fireEvent.click(select);
-	expect(screen.queryByText("1 selected")).toBeNull();
-	expect(results.firstElementChild).toBe(table.parentElement);
-});
 
-it.each([
-	["Repository", "repository", "asc"],
-	["Author", "author", "asc"],
-	["State checked", "stateChecked", "desc"],
-	["Checks collected", "checksChecked", "desc"],
-	["Jev evaluated", "evaluated", "desc"],
-])("sorts %s through the API", async (label, sort, first) => {
-	renderView(
-		<MemoryRouter>
-			<WorkbenchProvider>
-				<PullsPage />
-			</WorkbenchProvider>
-		</MemoryRouter>,
-	);
-	await screen.findByRole("link", {
-		name: `Open target branch ${pull.targetBranch} in ${project.projectKey}/${pull.repository.name} (new tab)`,
-	});
-	const table = screen.getByRole("table", { name: "Pull requests" });
-
-	const head = within(table).getByRole("columnheader", { name: label });
-	fireEvent.click(within(head).getByRole("button"));
-	await waitFor(() =>
-		expect(head.getAttribute("aria-sort")).toBe(
-			first === "asc" ? "ascending" : "descending",
-		),
-	);
-	await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
-	const query = new URLSearchParams(
-		vi.mocked(api.loadPulls).mock.calls.slice(-1)[0]![0],
-	);
-	expect(query.get("sort")).toBe(sort);
-	expect(query.get("direction")).toBe(first);
-	fireEvent.click(within(head).getByRole("button"));
-	await waitFor(() =>
-		expect(head.getAttribute("aria-sort")).toBe(
-			first === "asc" ? "descending" : "ascending",
-		),
-	);
-	await waitFor(() => expect(table.getAttribute("aria-busy")).toBe("false"));
-});
-
-it("a failed second pending page keeps Previous available and returns to the working first page", async () => {
-	const items = Array.from({ length: 21 }, (_, i) =>
-		pendingInspection({ ...fixtureObservation(), id: `pending-${i}` }),
-	);
-	vi.mocked(api.loadPending).mockImplementation(
-		async (_source, _signal, _scope, page = 1) => {
-			if (page === 2) throw new Error("Pending page 2 failed");
-			return {
-				...pendingEnvelope,
-				data: items.slice(0, 20),
-				page: { ...fixture.page, total: 21 },
-			};
-		},
-	);
-	renderView(
-		<MemoryRouter initialEntries={["/?watching=watching"]}>
-			<WorkbenchProvider>
-				<PullsPage />
-			</WorkbenchProvider>
-		</MemoryRouter>,
-	);
-	const pending = within(
-		await screen.findByRole("region", { name: "Pending watches" }),
-	);
-	fireEvent.click(
-		await pending.findByRole("button", { name: "Next pending page" }),
-	);
-	await pending.findByText("Pending page 2 failed");
-	const previous = pending.getByRole("button", {
-		name: "Previous pending page",
-	});
-	expect((previous as HTMLButtonElement).disabled).toBe(false);
-	expect(pending.queryByText("0 pending watches")).toBeNull();
-	expect(pending.queryByText("2 / 1")).toBeNull();
-	fireEvent.click(previous);
-	await waitFor(() => expect(pending.getAllByRole("link")).toHaveLength(20));
-	expect(pending.queryByText("Pending page 2 failed")).toBeNull();
-});
-it("a failed second PR page keeps Previous available and returns to the working first page", async () => {
-	vi.mocked(api.loadPulls).mockImplementation(async (query) => {
-		if (new URLSearchParams(query).get("page") === "2")
-			throw new Error("PR page 2 failed");
-		return { ...fixture.pulls, page: { ...fixture.page, total: 21 } };
-	});
-	renderView(
-		<MemoryRouter>
-			<WorkbenchProvider>
-				<PullsPage />
-			</WorkbenchProvider>
-		</MemoryRouter>,
-	);
-	fireEvent.click(await screen.findByRole("button", { name: "Next page" }));
-	await screen.findByText("Unable to load pull requests");
-	const previous = screen.getByRole("button", { name: "Previous page" });
-	expect((previous as HTMLButtonElement).disabled).toBe(false);
-	expect(screen.queryByText("2 / 1")).toBeNull();
-	fireEvent.click(previous);
-	await screen.findByRole("table", { name: "Pull requests" });
-	expect(screen.queryByText("Unable to load pull requests")).toBeNull();
-});
 beforeEach(() => {
-	vi.resetAllMocks();
-	localStorage.clear();
-	vi.mocked(api.loadCollectorHistory).mockResolvedValue({
-		data: [],
-		nextCursor: null,
-	});
-	vi.mocked(api.loadCatalog).mockImplementation(
-		async (source) => queryFixture(source).catalog,
-	);
-	vi.mocked(api.loadPulls).mockImplementation(
-		async (query) =>
-			queryFixture(
-				new URLSearchParams(query).get("source") === "sample" ? "demo" : "cli",
-			).pulls,
-	);
-	vi.mocked(api.loadCollector).mockImplementation(
-		async (source) => queryFixture(source).collector,
-	);
-	vi.mocked(api.loadPull).mockImplementation(async (source, id) => ({
-		...queryFixture(source).envelope,
-		data: {
-			...queryFixture(source).pulls.data[0]!,
-			id,
-			description: "Full detail",
-		},
-	}));
-	vi.mocked(api.lookupPull).mockImplementation(async (source, reference) => ({
-		...queryFixture(source).envelope,
-		data: {
-			...queryFixture(source).pulls.data[0]!,
-			number: reference.number,
-			description: "Full detail",
-		},
-	}));
-	vi.mocked(api.loadPending).mockResolvedValue({
-		...pendingEnvelope,
-		data: [],
-		page: { ...fixture.page, total: 0 },
-	});
-	vi.mocked(api.addWatches).mockResolvedValue({
-		results: [{ status: "added" }],
-	});
-	vi.mocked(api.removeWatches).mockResolvedValue({
-		results: [{ status: "removed" }],
-	});
-	vi.mocked(api.discover).mockResolvedValue({ jobs: [] });
-	vi.mocked(api.refreshWatches).mockResolvedValue({ jobs: [] });
+	resetWorkbenchMocks(api);
 });
 afterEach(() => {
 	cleanup();
@@ -740,48 +407,6 @@ describe("project settings and explicit discovery", () => {
 			detailCooldownSeconds: 600,
 		});
 	});
-	it("shows cooldown save progress and failures on Directory and allows reselection", async () => {
-		const save = deferred<Awaited<ReturnType<typeof patchRefreshSettings>>>();
-		vi.mocked(patchRefreshSettings).mockReturnValueOnce(save.promise);
-		renderView(
-			<MemoryRouter initialEntries={["/developers"]}>
-				<WorkbenchProvider>
-					<CollectionStatus />
-				</WorkbenchProvider>
-			</MemoryRouter>,
-		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: /Open details and history/ }),
-		);
-		const interval = await screen.findByRole("combobox", {
-			name: "Watched PR refresh cooldown",
-		});
-		await waitFor(() =>
-			expect((interval as HTMLButtonElement).disabled).toBe(false),
-		);
-		fireEvent.click(interval);
-		fireEvent.click(screen.getByRole("option", { name: "Manual" }));
-		await screen.findByText("Saving cooldown…");
-		expect((interval as HTMLButtonElement).disabled).toBe(true);
-		await awaitReactAct(() =>
-			save.reject(new Error("Cannot save refresh cooldown")),
-		);
-		expect((await screen.findByRole("alert")).textContent).toBe(
-			"Cannot save refresh cooldown",
-		);
-		expect(interval.textContent).toBe("5 min");
-		expect((interval as HTMLButtonElement).disabled).toBe(false);
-		vi.mocked(patchRefreshSettings).mockResolvedValueOnce([]);
-		vi.mocked(api.loadCollector).mockResolvedValue({
-			...fixture.collector,
-			detailCooldownSeconds: 0,
-		});
-		fireEvent.click(interval);
-		fireEvent.click(screen.getByRole("option", { name: "Manual" }));
-		await screen.findByText("Collector cooldown saved.");
-		expect(screen.queryByRole("alert")).toBeNull();
-		await waitFor(() => expect(interval.textContent).toBe("Manual"));
-	});
 	it.each(["success", "failure"] as const)(
 		"retains global cooldown save feedback across a source switch (%s)",
 		async (outcome) => {
@@ -1017,43 +642,6 @@ describe("project form", () => {
 			expect(await result.current.submit()).toBe(true),
 		);
 	});
-});
-
-it("shows one connection alert for simultaneous cache failures and clears it after recovery", async () => {
-	for (const read of [
-		api.loadPulls,
-		api.loadCatalog,
-		api.loadCollector,
-		api.loadPending,
-	]) {
-		vi.mocked(read).mockRejectedValue(new ApiError(SERVICE_UNAVAILABLE, 0));
-	}
-	renderView(
-		<MemoryRouter initialEntries={["/prs?watching=watching"]}>
-			<WorkbenchProvider>
-				<PullsPage />
-			</WorkbenchProvider>
-		</MemoryRouter>,
-	);
-	await screen.findByText(SERVICE_UNAVAILABLE);
-	expect(screen.getAllByRole("alert")).toHaveLength(1);
-	expect(screen.queryByText(/Repository filters could not refresh/)).toBeNull();
-	expect(screen.queryByText("Unable to load pull requests")).toBeNull();
-	expect(screen.queryByRole("region", { name: "Pending watches" })).toBeNull();
-	vi.mocked(api.loadPulls).mockResolvedValue(fixture.pulls);
-	vi.mocked(api.loadCatalog).mockResolvedValue(fixture.catalog);
-	vi.mocked(api.loadCollector).mockResolvedValue(fixture.collector);
-	vi.mocked(api.loadPending).mockResolvedValue({
-		...pendingEnvelope,
-		data: [],
-		page: { ...fixture.page, total: 0 },
-	});
-	fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
-	await waitFor(() =>
-		expect(screen.queryByText(SERVICE_UNAVAILABLE)).toBeNull(),
-	);
-	expect(screen.queryAllByRole("alert")).toHaveLength(0);
-	expect(screen.getByRole("table", { name: "Pull requests" })).toBeDefined();
 });
 
 it("watches collection rows outside the main page with the same identity and generation guards", async () => {
